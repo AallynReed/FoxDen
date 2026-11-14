@@ -38,7 +38,7 @@ impl Default for Settings {
             show_virtual: false,
             close_to_tray: true,
             start_minimized: false,
-            autostart: false,
+            autostart: true,
             auto_detect: true,
             auto_update: true,
         }

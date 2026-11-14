@@ -637,7 +637,7 @@ mod tests {
             ]
         );
         assert_eq!(json["settings"]["native_drivers"], true);
-        assert_eq!(json["settings"]["autostart"], false);
+        assert_eq!(json["settings"]["autostart"], true);
         assert_eq!(json["settings"]["auto_detect"], true);
         assert_eq!(json["detected"], json!([]));
 

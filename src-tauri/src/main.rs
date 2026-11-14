@@ -36,8 +36,13 @@ fn main() {
             let shared = app.state::<Shared>().inner().clone();
             let settings = lock(&shared).config.settings.clone();
             tray::create(handle)?;
-            if !settings.start_minimized {
+            let at_sign_in = std::env::args().any(|arg| arg == autostart::TRAY_ARG);
+            if !settings.start_minimized && !at_sign_in {
                 tray::show_window(handle);
+            }
+            // Keeps the Run entry pointing at this copy. Development builds leave it alone.
+            if !cfg!(debug_assertions) {
+                let _ = autostart::set(settings.autostart);
             }
             app.manage(state::spawn_worker(handle.clone(), shared.clone()));
             state::spawn_render(handle.clone(), shared.clone());
