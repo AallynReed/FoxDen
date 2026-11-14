@@ -517,9 +517,7 @@ impl Backend for Lightspeed {
         if reports.is_empty() {
             return Ok(());
         }
-        if self.sent.is_empty()
-            && let Err(e) = self.claim()
-        {
+        if self.sent.is_empty() && self.claim().is_err() {
             self.asleep();
             return Ok(());
         }

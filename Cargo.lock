@@ -1168,6 +1168,7 @@ dependencies = [
  "foxrgb-hid",
  "foxrgb-openrgb",
  "foxrgb-screen",
+ "foxrgb-smbus",
  "serde",
  "serde_json",
  "tauri",
@@ -1250,6 +1251,14 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-service",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "foxrgb-smbus"
+version = "0.1.0"
+dependencies = [
+ "foxrgb-core",
  "windows-sys 0.61.2",
 ]
 

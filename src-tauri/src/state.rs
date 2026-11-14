@@ -344,7 +344,14 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             Ok(backend) => (vec![Box::new(backend)], None),
             Err(e) => (Vec::new(), Some(e)),
         },
-        _ => (foxrgb_hid::probe(), None),
+        _ => {
+            let mut backends = foxrgb_hid::probe();
+            // Memory needs PawnIO and administrator rights; without them only USB devices are driven.
+            if let Ok(more) = foxrgb_smbus::probe() {
+                backends.extend(more);
+            }
+            (backends, None)
+        }
     }
 }
 

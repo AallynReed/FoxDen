@@ -11,6 +11,7 @@ tauri-build = { version = "2", features = [] }
 foxrgb-core.workspace = true
 foxrgb-openrgb = { path = "../crates/foxrgb-openrgb" }
 foxrgb-hid = { path = "../crates/foxrgb-hid" }
+foxrgb-smbus = { path = "../crates/foxrgb-smbus" }
 foxrgb-audio = { path = "../crates/foxrgb-audio" }
 foxrgb-screen = { path = "../crates/foxrgb-screen" }
 foxrgb-fan = { path = "../crates/foxrgb-fan" }
