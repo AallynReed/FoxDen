@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
@@ -13,7 +14,7 @@ use windows_service::service_control_handler::{self, ServiceControlHandlerResult
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 use windows_service::{define_windows_service, service_dispatcher};
 
-use crate::{host, pipe};
+use crate::{guard, host, pipe};
 
 const NAME: &str = "foxrgb-service";
 const DISPLAY_NAME: &str = "FoxRGB Service";
@@ -23,6 +24,7 @@ pub const SERVICE_ARG: &str = "service";
 /// Exit codes reported to the Service Control Manager.
 const COULD_NOT_START: u32 = 1;
 const GAVE_UP: u32 = 2;
+const UNSAFE_FOLDER: u32 = 3;
 
 static FAILED: AtomicBool = AtomicBool::new(false);
 
@@ -63,16 +65,38 @@ fn failure_actions() -> ServiceFailureActions {
     }
 }
 
+/// The path of this program with links resolved, as long as only administrators can replace
+/// what is there. A service that runs as LocalSystem must not start from anywhere else.
+fn program() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .map_err(|e| e.to_string())?;
+    let exe = plain(exe);
+    guard::program(&exe)?;
+    Ok(exe)
+}
+
+/// Without the `\\?\` that resolving a path puts in front of a drive letter.
+fn plain(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
 pub fn install() -> Result<(), String> {
+    let executable_path = program()?;
     let access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
     let manager = ServiceManager::local_computer(None::<&str>, access).map_err(describe)?;
+    // Only now, with administrator rights certain: made by anyone else it would not be trusted.
+    guard::data_dir(&host::data_dir(host::Mode::Service))?;
     let info = ServiceInfo {
         name: NAME.into(),
         display_name: DISPLAY_NAME.into(),
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: std::env::current_exe().map_err(|e| e.to_string())?,
+        executable_path,
         launch_arguments: vec![SERVICE_ARG.into()],
         dependencies: Vec::new(),
         // No account name means LocalSystem.
@@ -131,9 +155,10 @@ pub fn uninstall() -> Result<(), String> {
 }
 
 pub fn start() -> Result<(), String> {
-    open(ServiceAccess::START)?
-        .start::<&str>(&[])
-        .map_err(describe)
+    let service = open(ServiceAccess::START)?;
+    // The service checks this too, but has nowhere to say what is wrong.
+    guard::data_dir(&host::data_dir(host::Mode::Service))?;
+    service.start::<&str>(&[]).map_err(describe)
 }
 
 pub fn stop() -> Result<(), String> {
@@ -155,8 +180,7 @@ pub fn dispatch() -> Result<(), String> {
 }
 
 fn service_main(_arguments: Vec<OsString>) {
-    if let Err(e) = run() {
-        host::log(&host::data_dir(), &format!("service failed: {e}"));
+    if run().is_err() {
         FAILED.store(true, Ordering::Relaxed);
     }
 }
@@ -197,8 +221,18 @@ fn run() -> Result<(), String> {
     })
     .map_err(describe)?;
 
+    let dir = host::data_dir(host::Mode::Service);
+    // Before anything is written, a log line included: the folder may be somebody else's.
+    if let Err(e) = guard::data_dir(&dir) {
+        let _ = handle.set_service_status(status(ServiceState::Stopped, UNSAFE_FOLDER));
+        return Err(e);
+    }
+    let fail = |e: String| {
+        host::log(&dir, &format!("service failed: {e}"));
+        e
+    };
     let started = host::start(
-        host::data_dir(),
+        dir.clone(),
         foxrgb_hwmon::backends,
         false,
         host::Mode::Service,
@@ -208,12 +242,12 @@ fn run() -> Result<(), String> {
         Ok(running) => running,
         Err(e) => {
             let _ = handle.set_service_status(status(ServiceState::Stopped, COULD_NOT_START));
-            return Err(e);
+            return Err(fail(e));
         }
     };
     if let Err(e) = handle.set_service_status(status(ServiceState::Running, 0)) {
         running.stop();
-        return Err(describe(e));
+        return Err(fail(describe(e)));
     }
     // Ends on a stop request, or when the host has given up on its control loop.
     let outcome = loop {
@@ -232,7 +266,7 @@ fn run() -> Result<(), String> {
     handle
         .set_service_status(status(ServiceState::Stopped, exit_code))
         .map_err(describe)?;
-    outcome
+    outcome.map_err(fail)
 }
 
 #[cfg(test)]
@@ -248,12 +282,24 @@ mod tests {
         ] {
             assert_eq!(status(state, 0).exit_code, ServiceExitCode::NO_ERROR);
         }
-        for code in [COULD_NOT_START, GAVE_UP] {
+        for code in [COULD_NOT_START, GAVE_UP, UNSAFE_FOLDER] {
             assert_eq!(
                 status(ServiceState::Stopped, code).exit_code,
                 ServiceExitCode::ServiceSpecific(code)
             );
         }
+    }
+
+    #[test]
+    fn a_resolved_path_loses_only_the_prefix_of_a_drive() {
+        let plain = |path: &str| plain(PathBuf::from(path));
+        assert_eq!(
+            plain(r"\\?\C:\Program Files\FoxRGB\foxrgb-service.exe"),
+            PathBuf::from(r"C:\Program Files\FoxRGB\foxrgb-service.exe")
+        );
+        let share = r"\\?\UNC\server\share\foxrgb-service.exe";
+        assert_eq!(plain(share), PathBuf::from(share));
+        assert_eq!(plain(r"C:\Tools\x.exe"), PathBuf::from(r"C:\Tools\x.exe"));
     }
 
     #[test]

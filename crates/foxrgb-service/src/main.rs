@@ -1,3 +1,4 @@
+mod guard;
 mod host;
 mod pipe;
 mod service;
@@ -24,7 +25,9 @@ const USAGE: &str = "usage: foxrgb-service <command>
   start        start the installed service
   stop         stop the installed service
 
-install, uninstall, start and stop need an elevated prompt.";
+install, uninstall, start and stop need an elevated prompt. install only registers
+a copy of this program that ordinary users cannot replace, such as one in a folder
+under Program Files, and the service keeps its files in a folder closed to them.";
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
@@ -80,7 +83,7 @@ fn run(sim: bool, parent: Option<u32>) -> Result<(), String> {
     if unsafe { SetConsoleCtrlHandler(Some(on_console_event), 1) } == 0 {
         return Err("cannot install the Ctrl+C handler".into());
     }
-    let dir = host::data_dir();
+    let dir = host::data_dir(host::Mode::Console);
     let running = host::start(
         dir.clone(),
         foxrgb_hwmon::backends,

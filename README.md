@@ -68,8 +68,13 @@ The service also runs by hand, with `--sim` to start with simulated fans:
 cargo run -p foxrgb-service -- run --sim
 ```
 
-Run that way it keeps its files in `%ProgramData%\FoxRGB`, or in the folder `FOXRGB_DATA_DIR`
-names. Registering it as a Windows service is written but has never been tried.
+Run that way it keeps its files in the same `service` folder as one the app starts, or in the
+folder `FOXRGB_DATA_DIR` names.
+
+Registering it as a Windows service is written but has never been tried. `foxrgb-service install`
+only registers a copy that ordinary users cannot replace, such as one in a folder under Program
+Files. An installed service keeps its files in `%ProgramData%\FoxRGB`, which it makes for SYSTEM
+and Administrators only and refuses to use when anyone else can write there.
 
 `ui/index.html` also opens in a plain browser, where `ui/mock.js` and `ui/fans-mock.js` stand in
 for the app.

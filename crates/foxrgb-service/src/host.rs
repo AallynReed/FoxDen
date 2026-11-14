@@ -1,6 +1,7 @@
 use std::any::Any;
-use std::fs;
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +14,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use windows_sys::Win32::Foundation::SYSTEMTIME;
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+};
 use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 
 use crate::pipe;
@@ -53,6 +57,8 @@ const PATIENCE: Duration = if cfg!(test) {
     Duration::from_secs(3)
 };
 const STUCK: &str = "the control loop is stuck";
+/// The app's folder under `%APPDATA%`, named after its identifier.
+const APP_FOLDER: &str = "com.foxrgb.desktop";
 
 /// Lists the hardware backends: at start, and again whenever the simulated one is switched.
 type Hardware = Arc<dyn Fn() -> Vec<Box<dyn FanBackend>> + Send + Sync>;
@@ -63,14 +69,27 @@ pub enum Mode {
     Service,
 }
 
-pub fn data_dir() -> PathBuf {
-    match std::env::var_os("FOXRGB_DATA_DIR") {
-        Some(dir) if !dir.is_empty() => dir.into(),
-        _ => {
-            let base = std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into());
-            PathBuf::from(base).join("FoxRGB")
-        }
+/// `FOXRGB_DATA_DIR` if set. Otherwise a console run uses the `service` folder beside the app's
+/// settings, as a service the app starts does, and an installed service `%ProgramData%\FoxRGB`.
+pub fn data_dir(mode: Mode) -> PathBuf {
+    let under = |var: &str| PathBuf::from(std::env::var_os(var).unwrap_or_default());
+    match (std::env::var_os("FOXRGB_DATA_DIR"), mode) {
+        (Some(dir), _) if !dir.is_empty() => dir.into(),
+        (_, Mode::Console) => under("APPDATA").join(APP_FOLDER).join("service"),
+        (_, Mode::Service) => under("ProgramData").join("FoxRGB"),
     }
+}
+
+/// Opens one of the service's own files. A link put in its place is opened as the link itself,
+/// and refused.
+fn open(path: &Path, options: &mut OpenOptions) -> std::io::Result<File> {
+    let file = options
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(std::io::Error::other("it is a link"));
+    }
+    Ok(file)
 }
 
 fn timestamp() -> String {
@@ -95,7 +114,7 @@ pub fn log(dir: &Path, message: &str) {
         let _ = fs::rename(&path, dir.join("service.log.old"));
     }
     let _ = fs::create_dir_all(dir);
-    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut file) = open(&path, OpenOptions::new().create(true).append(true)) {
         let _ = file.write_all(line.as_bytes());
     }
 }
@@ -103,7 +122,12 @@ pub fn log(dir: &Path, message: &str) {
 /// A missing file reads as the default value.
 fn load<T: DeserializeOwned + Default>(dir: &Path, file: &str) -> Result<T, String> {
     let path = dir.join(file);
-    match fs::read_to_string(&path) {
+    let read = open(&path, OpenOptions::new().read(true)).and_then(|mut file| {
+        let mut text = String::new();
+        file.read_to_string(&mut text)?;
+        Ok(text)
+    });
+    match read {
         Ok(text) => serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
         Err(e) => Err(format!("{}: {e}", path.display())),
@@ -116,7 +140,10 @@ fn save<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), String> {
     let tmp = dir.join(format!("{file}.tmp"));
     let write = || -> std::io::Result<()> {
         fs::create_dir_all(dir)?;
-        let mut file = fs::File::create(&tmp)?;
+        let mut file = open(
+            &tmp,
+            OpenOptions::new().write(true).create(true).truncate(true),
+        )?;
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
         fs::rename(&tmp, &path)
@@ -1153,6 +1180,41 @@ pub(crate) mod tests {
         let fresh = fs::read_to_string(dir.join("service.log")).unwrap();
         assert_eq!(fresh.lines().count(), 2, "{fresh}");
         assert!(fresh.ends_with("second\n"), "{fresh}");
+    }
+
+    #[test]
+    fn a_link_in_place_of_a_file_is_not_followed() {
+        use std::os::windows::fs::symlink_file;
+        let dir = scratch("links");
+        let elsewhere = dir.join("elsewhere.txt");
+        fs::write(&elsewhere, "untouched").unwrap();
+        // Making a link takes a right that few accounts have. Without it there is nothing to try.
+        if symlink_file(&elsewhere, dir.join("service.log")).is_err() {
+            return;
+        }
+        log(&dir, "a line that must not land elsewhere");
+        symlink_file(&elsewhere, dir.join("fans.json")).unwrap();
+        assert!(load_config(&dir).is_err());
+        symlink_file(&elsewhere, dir.join("service.json.tmp")).unwrap();
+        save(&dir, "service.json", &Settings { sim: true }).unwrap();
+        assert!(load::<Settings>(&dir, "service.json").unwrap().sim);
+        assert_eq!(fs::read_to_string(&elsewhere).unwrap(), "untouched");
+    }
+
+    #[test]
+    fn a_console_run_and_an_installed_service_keep_their_files_apart() {
+        // Only meaningful where the variable does not send both to one folder, as here.
+        if std::env::var_os("FOXRGB_DATA_DIR").is_some_and(|dir| !dir.is_empty()) {
+            assert_eq!(data_dir(Mode::Console), data_dir(Mode::Service));
+            return;
+        }
+        let (console, service) = (data_dir(Mode::Console), data_dir(Mode::Service));
+        assert!(
+            console.ends_with(r"com.foxrgb.desktop\service"),
+            "{console:?}"
+        );
+        assert!(service.ends_with("FoxRGB"), "{service:?}");
+        assert_ne!(console, service);
     }
 
     #[test]

@@ -42,8 +42,10 @@ beside the app. Without it `cargo tauri build` makes no installer.
 ## The service
 
 The installer copies `foxrgb-service.exe` and does nothing else with it. Registering it as a
-Windows service stays a manual step from an elevated prompt. Do not register it from the per-user
-folder: a service running as LocalSystem must not start from a directory the user can write to.
+Windows service stays a manual step from an elevated prompt, and not from the per-user folder: a
+service running as LocalSystem must not start from a directory the user can write to, so
+`foxrgb-service install` refuses there. Copy the file to a folder under Program Files first and
+run `install` from that copy.
 
 Quit FoxRGB from its tray menu before updating or uninstalling. A service the app started stops
 when the app does, however the app was closed, but it needs a moment to hand the fans back, and
