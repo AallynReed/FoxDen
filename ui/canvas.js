@@ -17,7 +17,8 @@ const preview = {
 };
 
 // View options. Kept in the browser's storage, not in the app's settings.
-const view = { snap: false, grid: 0.05, labels: true, keys: true };
+const view = { snap: false, grid: 0.05, labels: true, keys: true, zoom: 1 };
+const ZOOMS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 const tidy = (v) => Math.round(v * 1e4) / 1e4;
@@ -28,8 +29,23 @@ function setView(change) {
   try {
     localStorage.setItem("foxrgb.view", JSON.stringify(view));
   } catch {}
+  if ("zoom" in change) applyZoom();
   preview.dirty = true;
   scheduleRender();
+}
+
+// The web view scales everything. In a plain browser the browser's own zoom does that.
+function applyZoom() {
+  const api = window.__TAURI__.webview;
+  if (api) api.getCurrentWebview().setZoom(view.zoom).catch((e) => showError(String(e)));
+}
+
+// One step larger or smaller, or back to 100% with 0.
+function zoomBy(steps) {
+  const at = ZOOMS.indexOf(view.zoom);
+  const zoom = steps ? ZOOMS[clamp(at + steps, 0, ZOOMS.length - 1)] : 1;
+  setView({ zoom });
+  note("Zoom " + Math.round(zoom * 100) + "%");
 }
 
 // The canvas takes its colours from the stylesheet, so it follows the theme.
@@ -263,6 +279,8 @@ function previewInit(canvas) {
     const saved = JSON.parse(localStorage.getItem("foxrgb.view"));
     if (saved && saved.grid > 0) Object.assign(view, saved);
   } catch {}
+  if (!ZOOMS.includes(view.zoom)) view.zoom = 1;
+  if (view.zoom !== 1) applyZoom();
   loadPaint();
   matchMedia("(prefers-color-scheme: light)").addEventListener("change", loadPaint);
   const resized = new ResizeObserver(() => {

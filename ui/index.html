@@ -125,6 +125,20 @@
           <label for="set-autostart">Start with Windows</label>
           <input type="checkbox" class="switch" id="set-autostart" data-setting="autostart" />
         </div>
+        <div class="field">
+          <label for="view-zoom">Zoom</label>
+          <select id="view-zoom" aria-describedby="zoom-hint">
+            <option value="0.8">80%</option>
+            <option value="0.9">90%</option>
+            <option value="1">100%</option>
+            <option value="1.1">110%</option>
+            <option value="1.25">125%</option>
+            <option value="1.5">150%</option>
+            <option value="1.75">175%</option>
+            <option value="2">200%</option>
+          </select>
+        </div>
+        <p class="hint" id="zoom-hint">Makes everything in the window larger or smaller. Ctrl+plus and Ctrl+minus do the same from anywhere, and Ctrl+0 goes back to 100%.</p>
 
         <h2 id="backends-heading">Backends</h2>
         <ul class="list backends" id="backend-list" tabindex="-1" aria-labelledby="backends-heading"></ul>
@@ -187,6 +201,10 @@
           <dd>Save over the profile in use, or name a new one</dd>
           <dt>Ctrl+F</dt>
           <dd>Search effects. Arrow down goes into the list, Enter takes the first match</dd>
+          <dt>Ctrl+plus, Ctrl+minus</dt>
+          <dd>Make everything larger or smaller</dd>
+          <dt>Ctrl+0</dt>
+          <dd>Go back to 100% zoom</dd>
           <dt>?</dt>
           <dd>Show this list</dd>
         </dl>

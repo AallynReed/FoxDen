@@ -774,6 +774,7 @@ function renderBar(snap) {
   put($("view-grid"), view.grid);
   put($("view-labels"), view.labels);
   put($("view-keys"), view.keys);
+  put($("view-zoom"), view.zoom);
   const device = findDevice(preview.selected);
   const rect = device ? rectOf(device).map((v, i) => "XYWH"[i] + " " + (v * 100).toFixed(1)) : [];
   setText($("readout"), device ? device.name + "  " + rect.join("  ") : "");
@@ -800,6 +801,7 @@ function wirePanels() {
   $("view-grid").onchange = () => setView({ grid: Number($("view-grid").value), snap: true });
   $("view-labels").onchange = () => setView({ labels: $("view-labels").checked });
   $("view-keys").onchange = () => setView({ keys: $("view-keys").checked });
+  $("view-zoom").onchange = () => setView({ zoom: Number($("view-zoom").value) });
   $("reset-layout").onclick = () => call("reset_layout").then((out) => out !== undefined && note("Layout reset"));
   $("rescan").onclick = () => call("rescan").then((out) => out !== undefined && note("Rescanning devices"));
   $("detect").onclick = async () => {

@@ -1072,6 +1072,41 @@ dialog.sheet::backdrop {
   }
 }
 
+/* Narrower than the smallest window, which only happens when zoomed in. The controls and the
+   preview then take the window in turn, and the page scrolls from one to the other. */
+@media (max-width: 819px) {
+  body {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .side {
+    height: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .stage {
+    height: 100%;
+    min-height: 400px;
+  }
+
+  .bar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 44px;
+    padding: 6px 12px;
+  }
+
+  .tools {
+    min-height: 36px;
+  }
+
+  .status {
+    min-height: 32px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

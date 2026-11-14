@@ -7,6 +7,8 @@ const hist = { steps: [], at: -1, quiet: 0, sent: null, stamp: 0 };
 const $ = (id) => document.getElementById(id);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const typing = (t) => t.isContentEditable || t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && /^(text|number)$/.test(t.type));
+// With Ctrl: steps of zoom, 0 for back to 100%.
+const ZOOM_KEYS = { "=": 1, "+": 1, "-": -1, 0: 0 };
 let renderQueued = false;
 let noteTimer = 0;
 let frames = 0;
@@ -265,9 +267,15 @@ function selectNext(by) {
 }
 
 function onShortcut(e) {
-  if (e.defaultPrevented || !state.snap || e.altKey || document.querySelector("dialog[open]")) return;
+  if (e.defaultPrevented || !state.snap || e.altKey) return;
   const t = e.target;
   const key = e.key.toLowerCase();
+  // The zoom keys also work over a sheet, which may be what needs to be larger.
+  if ((e.ctrlKey || e.metaKey) && ZOOM_KEYS[key] !== undefined) {
+    e.preventDefault();
+    return zoomBy(ZOOM_KEYS[key]);
+  }
+  if (document.querySelector("dialog[open]")) return;
   const loose = t === document.body || t === document.documentElement;
   if (ARROWS[e.key]) {
     if (loose) onKeyDown(e);
