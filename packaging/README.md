@@ -22,7 +22,10 @@ Remove-Item Env:CARGO_ENCODED_RUSTFLAGS
 
 That builds the service, then the app, and writes
 `target\release\bundle\nsis\FoxRGB_<version>_x64-setup.exe`. Leave `CARGO_TARGET_DIR` unset: the
-service is picked up from `target\release`.
+service is picked up from `target\release`. The first build also downloads NSIS into
+`%LOCALAPPDATA%\tauri`.
+
+The setup program has been built this way. It has never been run.
 
 The first line keeps your user folder, and with it your Windows user name, out of the binaries.
 Without it they contain the paths of the dependency sources under `%USERPROFILE%\.cargo`.
