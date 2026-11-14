@@ -1,0 +1,12 @@
+{
+  "build": {
+    "beforeBuildCommand": "cargo build --release -p foxrgb-service"
+  },
+  "bundle": {
+    "active": true,
+    "resources": {
+      "../target/release/foxrgb-service.exe": "foxrgb-service.exe",
+      "../LICENSE": "LICENSE.txt"
+    }
+  }
+}

@@ -3,7 +3,7 @@ use tauri::{AppHandle, State};
 
 use crate::autostart;
 use crate::config::{DeviceConfig, Profile, Settings};
-use crate::state::{self, Shared, Snapshot, lock, update};
+use crate::state::{Job, Jobs, Kinds, Shared, Snapshot, lock, update};
 
 type Reply = Result<(), String>;
 
@@ -106,28 +106,39 @@ pub fn delete_profile(app: AppHandle, shared: State<'_, Shared>, name: String) -
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, shared: State<'_, Shared>, settings: Settings) -> Reply {
+pub fn set_settings(app: AppHandle, shared: State<'_, Shared>, jobs: State<'_, Jobs>, settings: Settings) -> Reply {
     let settings = Settings { fps: settings.fps.clamp(10, 60), ..settings };
     let old = lock(&shared).config.settings.clone();
     if settings.autostart != old.autostart {
         autostart::set(settings.autostart)?;
     }
-    let backends = |s: &Settings| {
-        (s.show_virtual, s.openrgb_enabled, s.openrgb_host.clone(), s.openrgb_port, s.native_drivers)
+    let server = |s: &Settings| (s.openrgb_enabled, s.openrgb_host.clone(), s.openrgb_port);
+    let kinds = Kinds {
+        virt: settings.show_virtual != old.show_virtual,
+        openrgb: server(&settings) != server(&old),
+        hid: settings.native_drivers != old.native_drivers,
     };
-    let reconnect = backends(&settings) != backends(&old);
     update(&app, &shared, |s| {
         s.config.settings = settings;
         Ok(())
     })?;
-    if reconnect {
-        state::reload_backends(&app, &shared);
+    if kinds.any() {
+        queue(&jobs, Job::Reload(kinds))?;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn rescan(app: AppHandle, shared: State<'_, Shared>) -> Reply {
-    state::reload_backends(&app, &shared);
-    Ok(())
+pub fn rescan(jobs: State<'_, Jobs>) -> Reply {
+    queue(&jobs, Job::Reload(Kinds::ALL))
+}
+
+#[tauri::command]
+pub fn detect(jobs: State<'_, Jobs>) -> Reply {
+    queue(&jobs, Job::Detect)
+}
+
+/// Hands the work to the hardware thread; a "snapshot" follows when it is done.
+fn queue(jobs: &Jobs, job: Job) -> Reply {
+    jobs.send(job).map_err(|_| "the hardware thread has stopped".to_string())
 }

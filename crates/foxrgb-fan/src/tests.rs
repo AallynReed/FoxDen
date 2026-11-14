@@ -76,15 +76,20 @@ impl FanBackend for BenchBackend {
     }
 }
 
-/// Sensors s0.. reading 30 degrees and fans f0.., driven by `config`.
-fn bench(sensors: usize, fans: usize, config: FanConfig) -> (Controller, Shared) {
-    let shared = Arc::new(Mutex::new(Bench {
+/// Sensors s0.. reading 30 degrees and fans f0...
+fn rig(sensors: usize, fans: usize) -> Shared {
+    Arc::new(Mutex::new(Bench {
         temps: vec![Some(30.0); sensors],
         sets: vec![Vec::new(); fans],
         releases: vec![0; fans],
         fail_set: false,
         fail_release: false,
-    }));
+    }))
+}
+
+/// A rig driven by `config`.
+fn bench(sensors: usize, fans: usize, config: FanConfig) -> (Controller, Shared) {
+    let shared = rig(sensors, fans);
     let controller = Controller::new(vec![Box::new(BenchBackend(shared.clone()))], config);
     (controller, shared)
 }
@@ -263,10 +268,36 @@ fn very_wide_curve_still_interpolates() {
     assert!(close(c.duty_at(3e38), 1.0));
 
     let (mut controller, shared) = bench(1, 1, config);
-    set_temp(&shared, 0, Some(3e38));
+    set_temp(&shared, 0, Some(100.0));
     let status = controller.tick(1.0);
     assert!(!status.fans[0].failsafe);
-    assert_eq!(duty(&status, 0), 1.0);
+    assert!(close(duty(&status, 0), 0.6));
+}
+
+#[test]
+fn implausible_readings_count_as_unreadable() {
+    let config = FanConfig {
+        curves: vec![curve("c", &["s0"], 0.0), curve("both", &["s0", "s1"], 0.0)],
+        rules: vec![rule("f0", "c", 1000.0), rule("f1", "both", 1000.0)],
+    };
+    let (mut controller, shared) = bench(2, 2, config);
+    set_temp(&shared, 1, Some(40.0));
+    let cases = [
+        (-20.0, true),
+        (-20.5, false),
+        (150.0, true),
+        (150.5, false),
+        (f32::INFINITY, false),
+    ];
+    for (temp, readable) in cases {
+        set_temp(&shared, 0, Some(temp));
+        let status = controller.tick(1.0);
+        assert_eq!(status.sensors[0].value, readable.then_some(temp), "{temp}");
+        assert_eq!(status.fans[0].failsafe, !readable, "{temp}");
+        // The other sensor keeps its curve going.
+        assert!(!status.fans[1].failsafe, "{temp}");
+    }
+    assert!(close(duty(&controller.tick(1.0), 1), 0.3));
 }
 
 #[test]
@@ -324,7 +355,7 @@ fn releases_on_drop_and_only_once() {
 
     let (mut controller, shared) = bench(1, 1, simple(0.0, 1000.0));
     controller.tick(1.0);
-    controller.release_all();
+    assert_eq!(controller.release_all(), Ok(()));
     assert_eq!(shared.lock().unwrap().releases, [1]);
     drop(controller);
     assert_eq!(shared.lock().unwrap().releases, [1]);
@@ -362,11 +393,102 @@ fn set_duty_error_shows_in_status() {
 }
 
 #[test]
+fn fan_that_keeps_refusing_writes_is_handed_back() {
+    let (mut controller, shared) = bench(1, 1, simple(0.0, 1000.0));
+    controller.tick(1.0);
+    shared.lock().unwrap().fail_set = true;
+    for _ in 1..WRITE_TRIES {
+        let status = controller.tick(1.0);
+        assert_eq!(status.fans[0].error.as_deref(), Some("write failed"));
+        assert!(close(duty(&status, 0), 0.2));
+    }
+    assert_eq!(shared.lock().unwrap().releases, [0]);
+    let status = controller.tick(1.0);
+    assert_eq!(shared.lock().unwrap().releases, [1]);
+    assert_eq!(status.fans[0].duty, None);
+    assert_eq!(
+        status.fans[0].error.as_deref(),
+        Some("write failed; fan handed back to the firmware")
+    );
+
+    // Left alone for a while, even though a write would work again.
+    shared.lock().unwrap().fail_set = false;
+    let status = controller.tick(RETRY_AFTER - 1.0);
+    assert_eq!(status.fans[0].duty, None);
+    assert!(status.fans[0].error.is_some());
+    assert_eq!(shared.lock().unwrap().sets[0].len(), 1);
+
+    let status = controller.tick(1.0);
+    assert!(close(duty(&status, 0), 0.2));
+    assert_eq!(status.fans[0].error, None);
+    drop(controller);
+    assert_eq!(shared.lock().unwrap().releases, [2]);
+}
+
+#[test]
+fn fan_that_refuses_writes_and_release_stays_marked() {
+    let (mut controller, shared) = bench(1, 1, simple(0.0, 1000.0));
+    {
+        let mut bench = shared.lock().unwrap();
+        (bench.fail_set, bench.fail_release) = (true, true);
+    }
+    for _ in 1..WRITE_TRIES {
+        controller.tick(1.0);
+    }
+    let status = controller.tick(1.0);
+    assert_eq!(status.fans[0].error.as_deref(), Some("write failed; release failed"));
+
+    // Every tick tries again until the fan lets go.
+    shared.lock().unwrap().fail_release = false;
+    let status = controller.tick(1.0);
+    assert_eq!(
+        status.fans[0].error.as_deref(),
+        Some("write failed; fan handed back to the firmware")
+    );
+    assert_eq!(shared.lock().unwrap().releases, [1]);
+    drop(controller);
+    assert_eq!(shared.lock().unwrap().releases, [1]);
+}
+
+#[test]
+fn swapping_backends_releases_touched_fans_first() {
+    let (mut controller, old) = bench(1, 2, simple(0.0, 1000.0));
+    controller.tick(1.0);
+    let new = rig(2, 1);
+    assert_eq!(controller.set_backends(vec![Box::new(BenchBackend(new.clone()))]), Ok(()));
+    assert_eq!(old.lock().unwrap().releases, [1, 0]);
+
+    // The config carries over to the new hardware.
+    let status = controller.tick(1.0);
+    assert_eq!((status.sensors.len(), status.fans.len()), (2, 1));
+    assert!(close(duty(&status, 0), 0.2));
+    drop(controller);
+    assert_eq!(old.lock().unwrap().releases, [1, 0]);
+    assert_eq!(new.lock().unwrap().releases, [1]);
+}
+
+#[test]
+fn backends_stay_when_a_fan_refuses_release() {
+    let (mut controller, old) = bench(1, 1, simple(0.0, 1000.0));
+    controller.tick(1.0);
+    old.lock().unwrap().fail_release = true;
+    let new = rig(1, 1);
+    assert_eq!(
+        controller.set_backends(vec![Box::new(BenchBackend(new.clone()))]),
+        Err("f0: release failed".into())
+    );
+    controller.tick(1.0);
+    assert_eq!(old.lock().unwrap().sets[0].len(), 2);
+    assert!(new.lock().unwrap().sets[0].is_empty());
+    old.lock().unwrap().fail_release = false;
+}
+
+#[test]
 fn failed_release_is_reported_and_retried() {
     let (mut controller, shared) = bench(1, 1, simple(0.0, 1000.0));
     controller.tick(1.0);
     shared.lock().unwrap().fail_release = true;
-    controller.release_all();
+    assert_eq!(controller.release_all(), Err("f0: release failed".into()));
     assert_eq!(shared.lock().unwrap().releases, [0]);
 
     // With its rule gone the next tick tries again and says why it failed.
@@ -391,6 +513,7 @@ fn validation_rejects_bad_configs() {
     type Spoil = Box<dyn Fn(&mut FanConfig)>;
     let cases: Vec<(&str, Spoil)> = vec![
         ("duplicate curve name", Box::new(|c| c.curves[1].name = "a".into())),
+        ("no sensors", Box::new(|c| c.curves[0].sensors.clear())),
         ("no points", Box::new(|c| c.curves[0].points.clear())),
         ("unsorted points", Box::new(|c| c.curves[0].points.swap(0, 2))),
         ("repeated temperature", Box::new(|c| c.curves[0].points[1].0 = 30.0)),
@@ -410,6 +533,8 @@ fn validation_rejects_bad_configs() {
         ("NaN max", Box::new(|c| c.rules[0].max_duty = f32::NAN)),
         ("two rules for one fan", Box::new(|c| c.rules[1].fan = "f0".into())),
         ("zero ramp", Box::new(|c| c.rules[0].ramp = 0.0)),
+        ("negative ramp", Box::new(|c| c.rules[0].ramp = -0.2)),
+        ("ramp below 0.01", Box::new(|c| c.rules[0].ramp = 0.009)),
         ("NaN ramp", Box::new(|c| c.rules[0].ramp = f32::NAN)),
         ("infinite ramp", Box::new(|c| c.rules[0].ramp = f32::INFINITY)),
     ];
@@ -429,7 +554,7 @@ fn validation_rejects_bad_configs() {
 
 #[test]
 fn boundary_values_are_valid() {
-    let mut config = simple(30.0, 0.2);
+    let mut config = simple(30.0, 0.01);
     config.curves[0].points = vec![(0.0, 0.0), (100.0, 1.0)];
     config.rules[0].min_duty = 0.5;
     config.rules[0].max_duty = 0.5;
@@ -465,6 +590,15 @@ fn config_json_fills_missing_fields() {
     assert_eq!(config.validate(), Ok(()));
 
     assert_eq!(serde_json::from_str::<FanConfig>("{}").unwrap(), FanConfig::default());
+}
+
+#[test]
+fn status_json_round_trip() {
+    let (mut controller, shared) = bench(2, 2, simple(0.0, 1000.0));
+    set_temp(&shared, 1, None);
+    let status = controller.tick(1.0);
+    let json = serde_json::to_string(&status).unwrap();
+    assert_eq!(serde_json::from_str::<Status>(&json).unwrap(), status);
 }
 
 fn sim_config() -> FanConfig {

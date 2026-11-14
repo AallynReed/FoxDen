@@ -1,6 +1,7 @@
 const PAD = 20;
 const MIN_SIZE = 0.02;
-const PAINT = { line: "#36373c", plate: "#0f1011", off: "#232428", text: "#e7e7ea", muted: "#9d9ea6", accent: "#e8822e" };
+const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+const PAINT = {};
 
 const preview = {
   canvas: null,
@@ -15,10 +16,39 @@ const preview = {
   dirty: true,
 };
 
+// View options. Kept in the browser's storage, not in the app's settings.
+const view = { snap: false, grid: 0.05, labels: true, keys: true };
+
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+const tidy = (v) => Math.round(v * 1e4) / 1e4;
+const snapped = (v) => Math.round(v / view.grid) * view.grid;
+
+function setView(change) {
+  Object.assign(view, change);
+  try {
+    localStorage.setItem("foxrgb.view", JSON.stringify(view));
+  } catch {}
+  preview.dirty = true;
+  scheduleRender();
+}
+
+// The canvas takes its colours from the stylesheet, so it follows the theme.
+function loadPaint() {
+  const css = getComputedStyle(document.documentElement);
+  for (const name of ["line", "stroke", "text", "muted", "accent", "plate", "unlit"]) {
+    PAINT[name] = css.getPropertyValue("--" + name).trim();
+  }
+  preview.dirty = true;
+}
 
 function findDevice(id) {
   return state.snap ? state.snap.devices.find((d) => d.id === id) : undefined;
+}
+
+// Devices from the bottom up. The selected one is on top, so its outline and handle stay in view.
+function stack() {
+  const devices = state.snap ? state.snap.devices : [];
+  return [...devices].sort((a, b) => (a.id === preview.selected) - (b.id === preview.selected));
 }
 
 // A device being dragged is shown at the drag rect until the next snapshot.
@@ -39,9 +69,25 @@ function labelWidth(ctx, text) {
   return width;
 }
 
+function drawGrid(ctx) {
+  const cw = preview.w - PAD * 2;
+  const ch = preview.h - PAD * 2;
+  ctx.beginPath();
+  for (let i = 1; i * view.grid < 0.9999; i++) {
+    const x = Math.round(PAD + i * view.grid * cw) - 0.5;
+    const y = Math.round(PAD + i * view.grid * ch) - 0.5;
+    ctx.moveTo(x, PAD);
+    ctx.lineTo(x, PAD + ch);
+    ctx.moveTo(PAD, y);
+    ctx.lineTo(PAD + cw, y);
+  }
+  ctx.stroke();
+}
+
 function drawDevice(ctx, device) {
   const [x, y, w, h] = toPx(rectOf(device));
   const selected = device.id === preview.selected;
+  const hovered = device.id === preview.hover;
   const colors = preview.frames.get(device.id);
   const cw = w / Math.max(1, device.grid[0]);
   const ch = h / Math.max(1, device.grid[1]);
@@ -55,18 +101,18 @@ function drawDevice(ctx, device) {
   let last = "";
   for (let i = 0; i < device.leds.length; i++) {
     const c = colors && colors[i];
-    const css = c && c[0] + c[1] + c[2] > 24 ? "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")" : PAINT.off;
+    const css = c && c[0] + c[1] + c[2] > 24 ? "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")" : PAINT.unlit;
     if (css !== last) ctx.fillStyle = last = css;
     const led = device.leds[i];
     ctx.fillRect(x + led[0] * w - lw / 2, y + led[1] * h - lh / 2, lw, lh);
   }
   ctx.globalAlpha = 1;
 
-  ctx.strokeStyle = selected ? PAINT.accent : PAINT.line;
+  ctx.strokeStyle = selected ? PAINT.accent : hovered ? PAINT.text : PAINT.stroke;
   ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
   const label = device.enabled ? device.name : device.name + " (off)";
-  if (selected || device.id === preview.hover || labelWidth(ctx, label) <= w) {
-    ctx.fillStyle = selected ? PAINT.text : PAINT.muted;
+  if (selected || hovered || (view.labels && labelWidth(ctx, label) <= w)) {
+    ctx.fillStyle = selected || hovered ? PAINT.text : PAINT.muted;
     ctx.fillText(label, x, y - 5);
   }
   if (selected) {
@@ -86,7 +132,8 @@ function drawPreview() {
   ctx.font = "12px 'Segoe UI', system-ui, sans-serif";
   ctx.strokeStyle = PAINT.line;
   ctx.strokeRect(PAD - 0.5, PAD - 0.5, w - PAD * 2 + 1, h - PAD * 2 + 1);
-  for (const device of snap.devices) drawDevice(ctx, device);
+  if (view.snap) drawGrid(ctx);
+  for (const device of stack()) drawDevice(ctx, device);
 }
 
 function pointer(e) {
@@ -95,7 +142,7 @@ function pointer(e) {
 }
 
 function hitTest(px, py) {
-  const devices = state.snap ? state.snap.devices : [];
+  const devices = stack();
   const selected = findDevice(preview.selected);
   if (selected) {
     const [x, y, w, h] = toPx(rectOf(selected));
@@ -116,7 +163,7 @@ function selectDevice(id) {
 }
 
 function sendRect(device, rect) {
-  return call("set_device", { id: device.id, enabled: device.enabled, brightness: device.brightness, rect });
+  return call("set_device", { id: device.id, enabled: device.enabled, brightness: device.brightness, rect: rect.map(tidy) });
 }
 
 function onPointerDown(e) {
@@ -147,12 +194,14 @@ function onPointerMove(e) {
   const dx = (px - drag.from[0]) / (preview.w - PAD * 2);
   const dy = (py - drag.from[1]) / (preview.h - PAD * 2);
   const [x, y, w, h] = drag.origin;
+  const fit = view.snap && !e.altKey ? snapped : (v) => v;
   drag.rect =
     drag.mode === "move"
-      ? [clamp(x + dx, 0, 1 - w), clamp(y + dy, 0, 1 - h), w, h]
-      : [x, y, clamp(w + dx, MIN_SIZE, 1 - x), clamp(h + dy, MIN_SIZE, 1 - y)];
+      ? [clamp(fit(x + dx), 0, 1 - w), clamp(fit(y + dy), 0, 1 - h), w, h]
+      : [x, y, clamp(fit(x + w + dx) - x, MIN_SIZE, 1 - x), clamp(fit(y + h + dy) - y, MIN_SIZE, 1 - y)];
   drag.moved = true;
   preview.dirty = true;
+  scheduleRender();
 }
 
 function onPointerUp() {
@@ -173,14 +222,16 @@ function onPointerUp() {
   });
 }
 
+// Arrows move by 1% of the canvas, with Ctrl by 5%. Shift resizes instead.
 function onKeyDown(e) {
   const device = findDevice(preview.selected);
-  const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
-  if (!device || !step) return;
+  const dir = ARROWS[e.key];
+  if (!device || !dir || e.altKey || e.metaKey) return;
   e.preventDefault();
   const [x, y, w, h] = device.rect;
-  const dx = step[0] * 0.01;
-  const dy = step[1] * 0.01;
+  const step = e.ctrlKey ? 0.05 : 0.01;
+  const dx = dir[0] * step;
+  const dy = dir[1] * step;
   sendRect(
     device,
     e.shiftKey
@@ -203,6 +254,12 @@ function previewSnapshot() {
 function previewInit(canvas) {
   preview.canvas = canvas;
   preview.ctx = canvas.getContext("2d");
+  try {
+    const saved = JSON.parse(localStorage.getItem("foxrgb.view"));
+    if (saved && saved.grid > 0) Object.assign(view, saved);
+  } catch {}
+  loadPaint();
+  matchMedia("(prefers-color-scheme: light)").addEventListener("change", loadPaint);
   const resized = new ResizeObserver(() => {
     const dpr = window.devicePixelRatio || 1;
     const box = canvas.getBoundingClientRect();

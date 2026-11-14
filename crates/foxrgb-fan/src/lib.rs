@@ -5,10 +5,18 @@ mod sim;
 mod tests;
 
 use std::collections::HashSet;
+use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
 
 pub use sim::SimBackend;
+
+/// Degrees Celsius a working sensor can report. Anything else counts as unreadable.
+const PLAUSIBLE: RangeInclusive<f32> = -20.0..=150.0;
+/// Refused writes in a row before a fan is handed back to the firmware.
+const WRITE_TRIES: u32 = 3;
+/// Seconds a fan handed back that way is left alone before the next try.
+const RETRY_AFTER: f32 = 30.0;
 
 /// A temperature source, in degrees Celsius.
 pub trait Sensor: Send {
@@ -111,6 +119,9 @@ impl FanConfig {
             if !names.insert(name.as_str()) {
                 return Err(format!("curve name '{name}' is used more than once"));
             }
+            if curve.sensors.is_empty() {
+                return Err(format!("curve '{name}' has no sensors"));
+            }
             if curve.points.is_empty() {
                 return Err(format!("curve '{name}' has no points"));
             }
@@ -143,22 +154,22 @@ impl FanConfig {
             if !(rule.min_duty >= 0.0 && rule.min_duty <= rule.max_duty && rule.max_duty <= 1.0) {
                 return Err(format!("fan '{fan}' needs 0 <= min_duty <= max_duty <= 1"));
             }
-            if !(rule.ramp > 0.0 && rule.ramp.is_finite()) {
-                return Err(format!("fan '{fan}' ramp must be a finite number above 0"));
+            if !(rule.ramp >= 0.01 && rule.ramp.is_finite()) {
+                return Err(format!("fan '{fan}' ramp must be a finite number of at least 0.01"));
             }
         }
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SensorStatus {
     pub id: String,
     pub name: String,
     pub value: Option<f32>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FanStatus {
     pub id: String,
     pub name: String,
@@ -171,7 +182,7 @@ pub struct FanStatus {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Status {
     pub sensors: Vec<SensorStatus>,
     pub fans: Vec<FanStatus>,
@@ -181,6 +192,61 @@ struct Slot {
     fan: Box<dyn Fan>,
     duty: Option<f32>,
     touched: bool,
+    /// Writes refused in a row, and what the last refusal said.
+    failures: u32,
+    fault: Option<String>,
+    /// Seconds left before a fan that was handed back is tried again.
+    rest: f32,
+}
+
+impl Slot {
+    fn new(fan: Box<dyn Fan>) -> Self {
+        Slot {
+            fan,
+            duty: None,
+            touched: false,
+            failures: 0,
+            fault: None,
+            rest: 0.0,
+        }
+    }
+
+    /// A fan that keeps refusing goes back to the firmware, which at least runs its own curve.
+    fn write(&mut self, duty: f32) {
+        self.touched = true;
+        match self.fan.set_duty(duty) {
+            Ok(()) => {
+                self.duty = Some(duty);
+                self.failures = 0;
+                self.fault = None;
+            }
+            Err(error) => {
+                self.failures += 1;
+                self.fault = Some(if self.failures < WRITE_TRIES {
+                    error
+                } else {
+                    match self.release() {
+                        Ok(()) => {
+                            self.rest = RETRY_AFTER;
+                            format!("{error}; fan handed back to the firmware")
+                        }
+                        Err(release) => format!("{error}; {release}"),
+                    }
+                });
+            }
+        }
+    }
+
+    /// A fan that refuses stays marked, so the next call tries again.
+    fn release(&mut self) -> Result<(), String> {
+        if self.touched {
+            self.fan.release()?;
+            self.touched = false;
+            self.duty = None;
+            self.failures = 0;
+        }
+        Ok(())
+    }
 }
 
 pub struct Controller {
@@ -194,30 +260,39 @@ pub struct Controller {
 
 impl Controller {
     /// An invalid `config` is replaced by an empty one, which leaves every fan alone.
-    pub fn new(mut backends: Vec<Box<dyn FanBackend>>, config: FanConfig) -> Self {
-        let mut sensors = Vec::new();
-        let mut fans = Vec::new();
-        for backend in &mut backends {
-            sensors.extend(backend.sensors());
-            fans.extend(backend.fans().into_iter().map(|fan| Slot {
-                fan,
-                duty: None,
-                touched: false,
-            }));
-        }
+    pub fn new(backends: Vec<Box<dyn FanBackend>>, config: FanConfig) -> Self {
         let config = if config.validate().is_ok() {
             config
         } else {
             FanConfig::default()
         };
-        let anchors = vec![None; config.curves.len()];
-        Controller {
-            backends,
-            sensors,
-            fans,
+        let mut controller = Controller {
+            backends: Vec::new(),
+            sensors: Vec::new(),
+            fans: Vec::new(),
+            anchors: vec![None; config.curves.len()],
             config,
-            anchors,
+        };
+        controller.attach(backends);
+        controller
+    }
+
+    fn attach(&mut self, backends: Vec<Box<dyn FanBackend>>) {
+        self.sensors.clear();
+        self.fans.clear();
+        self.backends = backends;
+        for backend in &mut self.backends {
+            self.sensors.extend(backend.sensors());
+            self.fans.extend(backend.fans().into_iter().map(Slot::new));
         }
+    }
+
+    /// Swaps the hardware. Every fan the controller had touched is handed back first; if one
+    /// refuses, the old backends stay.
+    pub fn set_backends(&mut self, backends: Vec<Box<dyn FanBackend>>) -> Result<(), String> {
+        self.release_all()?;
+        self.attach(backends);
+        Ok(())
     }
 
     /// Validates and applies a new configuration. On error the old one stays in force.
@@ -245,7 +320,7 @@ impl Controller {
             .map(|sensor| SensorStatus {
                 id: sensor.id().to_string(),
                 name: sensor.name().to_string(),
-                value: sensor.read().filter(|value| value.is_finite()),
+                value: sensor.read().filter(|value| PLAUSIBLE.contains(value)),
             })
             .collect();
 
@@ -280,6 +355,7 @@ impl Controller {
                 name: slot.fan.name().to_string(),
                 ..FanStatus::default()
             };
+            slot.rest = (slot.rest - dt).max(0.0);
             match self.config.rules.iter().find(|rule| rule.fan == status.id) {
                 Some(rule) => {
                     let curve = self.config.curves.iter().position(|c| c.name == rule.curve);
@@ -299,22 +375,14 @@ impl Controller {
                             1.0
                         }
                     };
-                    slot.touched = true;
-                    match slot.fan.set_duty(duty) {
-                        Ok(()) => slot.duty = Some(duty),
-                        Err(error) => status.error = Some(error),
+                    if slot.rest == 0.0 {
+                        slot.write(duty);
                     }
                     status.curve = Some(rule.curve.clone());
+                    status.error = slot.fault.clone();
                 }
-                // The rule was removed, so the fan goes back to the firmware.
-                None if slot.touched => match slot.fan.release() {
-                    Ok(()) => {
-                        slot.touched = false;
-                        slot.duty = None;
-                    }
-                    Err(error) => status.error = Some(error),
-                },
-                None => {}
+                // A fan whose rule was removed goes back to the firmware.
+                None => status.error = slot.release().err(),
             }
             status.duty = slot.duty;
             status.rpm = slot.fan.rpm();
@@ -324,21 +392,27 @@ impl Controller {
         Status { sensors, fans }
     }
 
-    /// Hands every fan back to the firmware. Also runs on drop.
-    pub fn release_all(&mut self) {
-        for slot in &mut self.fans {
-            // A fan that refuses stays marked, so the next call tries again.
-            if slot.touched && slot.fan.release().is_ok() {
-                slot.touched = false;
-                slot.duty = None;
-            }
-        }
+    /// Hands every fan back to the firmware and names the ones that refused. Also runs on drop.
+    pub fn release_all(&mut self) -> Result<(), String> {
         self.anchors.fill(None);
+        let refused: Vec<String> = self
+            .fans
+            .iter_mut()
+            .filter_map(|slot| {
+                let error = slot.release().err()?;
+                Some(format!("{}: {error}", slot.fan.id()))
+            })
+            .collect();
+        if refused.is_empty() {
+            Ok(())
+        } else {
+            Err(refused.join("; "))
+        }
     }
 }
 
 impl Drop for Controller {
     fn drop(&mut self) {
-        self.release_all();
+        let _ = self.release_all();
     }
 }

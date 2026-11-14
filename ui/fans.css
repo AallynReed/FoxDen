@@ -1,1 +1,489 @@
 /* Fans tab. */
+
+#panel-fans {
+  scroll-padding-bottom: 96px;
+}
+
+#panel-fans button[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
+#panel-fans button[aria-disabled="true"]:not(.primary) {
+  background: var(--raised);
+}
+
+#panel-fans button.primary[aria-disabled="true"] {
+  background: var(--accent);
+}
+
+#panel-fans input[type="text"] {
+  width: 100%;
+}
+
+.fan-views {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--line);
+}
+
+.fan-views .pick {
+  flex: 1;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 3px 0 0;
+}
+
+.fan-view,
+.fan-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fan-view > h2:first-child {
+  margin-top: 4px;
+}
+
+.fan-group > h2:first-child {
+  margin-top: 12px;
+}
+
+.fan-view > .fan-group:first-child > h2:first-child,
+.fan-view > [hidden] + .fan-group > h2:first-child {
+  margin-top: 4px;
+}
+
+.fan-num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fan-num.none {
+  color: var(--muted);
+  font-family: inherit;
+}
+
+.fan-state {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 0;
+}
+
+.fan-state .fan-num {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fan-note {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--stroke);
+  font-size: 12px;
+  line-height: 16px;
+  user-select: text;
+}
+
+.fan-rows {
+  gap: 0;
+}
+
+.fan-rows > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fan-rows .name,
+.fan-curves .name,
+.fan-check .name,
+.fan-card-head .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fan-rows > .fan-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 8px 0;
+}
+
+.fan-item .name {
+  font-weight: 600;
+}
+
+.fan-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  background: color-mix(in srgb, var(--stroke) 50%, var(--panel));
+}
+
+.fan-bar i {
+  display: block;
+  height: 100%;
+  background: var(--text);
+}
+
+.fan-words {
+  grid-column: 1 / -1;
+}
+
+.fan-curves {
+  min-height: 0;
+  max-height: 162px;
+}
+
+.fan-curves .pick {
+  gap: 8px;
+}
+
+.fan-tag {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+/* Marks unsaved changes; its text is for screen readers. */
+.fan-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  overflow: hidden;
+  background: var(--accent);
+  color: transparent;
+  font-size: 0;
+}
+
+.fan-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--stroke);
+}
+
+.fan-ask p {
+  margin: 0;
+}
+
+.fan-graph {
+  border: 1px solid var(--line);
+  background: var(--field);
+}
+
+.fan-graph svg {
+  display: block;
+  width: 100%;
+}
+
+.fan-grid line {
+  stroke: var(--line);
+  shape-rendering: crispEdges;
+}
+
+.fan-grid .minor {
+  stroke-opacity: 0.45;
+}
+
+.fan-grid text {
+  fill: var(--muted);
+  font: 12px var(--mono);
+}
+
+.fan-area {
+  fill: var(--text);
+  fill-opacity: 0.07;
+  pointer-events: none;
+}
+
+.fan-line {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linejoin: bevel;
+  pointer-events: none;
+}
+
+.fan-add {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: copy;
+}
+
+.fan-now-line {
+  stroke: var(--accent);
+  stroke-dasharray: 3 3;
+  shape-rendering: crispEdges;
+  pointer-events: none;
+}
+
+.fan-now-mark {
+  fill: var(--field);
+  stroke: var(--accent);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.fan-handle {
+  outline: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+.fan-handle:active {
+  cursor: grabbing;
+}
+
+.fan-handle .hit {
+  fill: transparent;
+}
+
+.fan-handle .ring {
+  fill: none;
+  stroke: none;
+  stroke-width: 2;
+}
+
+.fan-handle .dot {
+  fill: var(--field);
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.fan-handle:hover .dot,
+.fan-handle.on .dot {
+  fill: var(--text);
+}
+
+.fan-handle:focus .dot {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+
+.fan-handle:focus-visible .ring {
+  stroke: var(--accent);
+}
+
+.fan-now {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  user-select: text;
+}
+
+.fan-points {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fan-points th {
+  padding: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  text-align: left;
+}
+
+.fan-points tbody th {
+  width: 20px;
+  padding: 0;
+  font-family: var(--mono);
+}
+
+.fan-points tr.on th {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.fan-points td {
+  padding: 2px 0;
+  white-space: nowrap;
+}
+
+.fan-points td:last-child {
+  text-align: right;
+}
+
+.fan-points input {
+  width: 64px;
+}
+
+.fan-unit {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#panel-fans .fan-small {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.fan-checks {
+  display: flex;
+  flex-direction: column;
+}
+
+.fan-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fan-check:hover {
+  background: var(--hover);
+}
+
+#fan-hysteresis {
+  width: 72px;
+}
+
+.fan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+
+.fan-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.fan-card-head .name {
+  font-weight: 600;
+}
+
+.fan-card-head .fan-num {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fan-trio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fan-trio label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.fan-trio input {
+  width: 100%;
+}
+
+.fan-apply {
+  position: sticky;
+  bottom: -16px;
+  z-index: 1;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  margin: auto -16px -16px;
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.fan-apply .actions {
+  margin-top: 0;
+}
+
+.fan-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 16px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.fan-save.changed {
+  color: var(--text);
+  font-weight: 600;
+}
+
+@media (forced-colors: active) {
+  .fan-bar,
+  .fan-dot,
+  .fan-graph svg {
+    forced-color-adjust: none;
+  }
+
+  .fan-dot {
+    background: ButtonText;
+  }
+
+  .fan-bar {
+    background: GrayText;
+  }
+
+  .fan-bar i {
+    background: Highlight;
+  }
+
+  .fan-grid line {
+    stroke: GrayText;
+  }
+
+  .fan-grid text,
+  .fan-area {
+    fill: CanvasText;
+  }
+
+  .fan-line,
+  .fan-handle .dot {
+    stroke: CanvasText;
+  }
+
+  .fan-handle .dot,
+  .fan-now-mark {
+    fill: Canvas;
+  }
+
+  .fan-now-line,
+  .fan-now-mark,
+  .fan-handle:focus .dot,
+  .fan-handle:focus-visible .ring {
+    stroke: Highlight;
+  }
+
+  .fan-handle:hover .dot,
+  .fan-handle.on .dot {
+    fill: CanvasText;
+  }
+
+  .fan-handle:focus .dot {
+    fill: Highlight;
+  }
+}

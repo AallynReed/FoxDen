@@ -21,6 +21,8 @@ pub struct Settings {
     pub close_to_tray: bool,
     pub start_minimized: bool,
     pub autostart: bool,
+    /// Watch for hardware being plugged in or removed and for the OpenRGB server.
+    pub auto_detect: bool,
 }
 
 impl Default for Settings {
@@ -35,6 +37,7 @@ impl Default for Settings {
             close_to_tray: true,
             start_minimized: false,
             autostart: false,
+            auto_detect: true,
         }
     }
 }
@@ -181,6 +184,24 @@ mod tests {
         assert_eq!(config.settings, Settings { fps: 60, ..Default::default() });
         assert_eq!(config.devices["a"], DeviceConfig { enabled: false, ..Default::default() });
         assert_eq!(config.profiles["p"], Profile { effect: Effect::default(), brightness: 1.0 });
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn settings_saved_before_auto_detect_still_load() {
+        let dir = scratch("older");
+        let text = r#"{"settings":{"fps":48,"openrgb_enabled":true,"openrgb_host":"10.0.0.2","openrgb_port":6743,
+            "native_drivers":false,"show_virtual":false,"close_to_tray":false,"start_minimized":true,
+            "autostart":false}}"#;
+        fs::write(dir.join(FILE), text).unwrap();
+        let settings = load(&dir).settings;
+        assert!(settings.auto_detect);
+        assert_eq!((settings.fps, settings.openrgb_port, settings.show_virtual), (48, 6743, false));
+        assert!(settings.openrgb_enabled && settings.start_minimized && !settings.close_to_tray);
+        // and the switch survives a round trip once it is off
+        let off = Config { settings: Settings { auto_detect: false, ..settings }, ..Default::default() };
+        save(&dir, &off).unwrap();
+        assert!(!load(&dir).settings.auto_detect);
         fs::remove_dir_all(&dir).unwrap();
     }
 

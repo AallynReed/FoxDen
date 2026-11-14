@@ -1,4 +1,8 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use crate::{Backend, Color, Device, Effect, Inputs};
 use serde::Serialize;
@@ -16,11 +20,111 @@ struct Placed {
     home: [f32; 4],
 }
 
+/// Newest colours for each device of one backend; `None` where nothing is waiting.
+type Batch = Vec<Option<Vec<Color>>>;
+
+#[derive(Default)]
+struct Mail {
+    batch: Batch,
+    /// The pusher is in the middle of a batch.
+    busy: bool,
+    closed: bool,
+    error: Option<String>,
+}
+
+/// What the engine shares with the thread that owns a backend.
+#[derive(Default)]
+struct Link {
+    mail: Mutex<Mail>,
+    wake: Condvar,
+}
+
+impl Link {
+    fn mail(&self) -> MutexGuard<'_, Mail> {
+        self.mail.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Leaves colours for the pusher. A device it has not reached yet simply gets the newer ones.
+    fn post(&self, batch: Batch) {
+        let mut mail = self.mail();
+        if mail.closed || mail.error.is_some() {
+            return;
+        }
+        if mail.batch.len() == batch.len() {
+            for (waiting, new) in mail.batch.iter_mut().zip(batch) {
+                if new.is_some() {
+                    *waiting = new;
+                }
+            }
+        } else {
+            mail.batch = batch;
+        }
+        self.wake.notify_all();
+    }
+}
+
+/// Owns a backend on its own thread, so a slow or dead device never holds up the caller.
+fn spawn_pusher(
+    mut backend: Box<dyn Backend>,
+    devices: Vec<(String, String)>,
+    link: Arc<Link>,
+    failed: Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    thread::spawn(move || {
+        loop {
+            let batch = {
+                let mut mail = link.mail();
+                mail.busy = false;
+                link.wake.notify_all();
+                while !mail.closed && mail.batch.iter().all(Option::is_none) {
+                    mail = link.wake.wait(mail).unwrap_or_else(|e| e.into_inner());
+                }
+                if mail.closed {
+                    return;
+                }
+                mail.busy = true;
+                std::mem::take(&mut mail.batch)
+            };
+            for ((id, name), colors) in devices.iter().zip(batch) {
+                let Some(colors) = colors else { continue };
+                if let Err(e) = backend.push(id, &colors) {
+                    let mut mail = link.mail();
+                    mail.error = Some(format!("{name}: {e}"));
+                    mail.busy = false;
+                    failed.store(true, Ordering::Relaxed);
+                    link.wake.notify_all();
+                    return;
+                }
+            }
+        }
+    })
+}
+
 struct Slot {
     label: String,
-    backend: Box<dyn Backend>,
     devices: Vec<Placed>,
-    error: Option<String>,
+    link: Arc<Link>,
+    pusher: Option<JoinHandle<()>>,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.link.mail().closed = true;
+        self.link.wake.notify_all();
+    }
+}
+
+/// Backends taken out of the engine. Each lets go of its devices once its last push returns.
+pub struct Removed(Vec<JoinHandle<()>>);
+
+impl Removed {
+    /// Waits for that, for at most `limit`. Not to be called while holding a lock others need.
+    pub fn wait(self, limit: Duration) {
+        let deadline = Instant::now() + limit;
+        while self.0.iter().any(|pusher| !pusher.is_finished()) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -38,8 +142,10 @@ impl Default for Tuning {
 
 pub struct Engine {
     slots: Vec<Slot>,
+    /// Labels in the order their devices are listed and laid out.
+    order: Vec<String>,
     tuning: HashMap<String, Tuning>,
-    failed: bool,
+    failed: Arc<AtomicBool>,
     pub effect: Effect,
     pub brightness: f32,
     /// Every LED is black while set.
@@ -50,30 +156,45 @@ impl Engine {
     pub fn new(backends: Vec<Box<dyn Backend>>) -> Self {
         let mut engine = Engine {
             slots: Vec::new(),
+            order: Vec::new(),
             tuning: HashMap::new(),
-            failed: false,
+            failed: Arc::default(),
             effect: Effect::default(),
             brightness: 1.0,
             paused: false,
         };
-        engine.set_backends(backends.into_iter().map(|b| (b.name().to_string(), b)).collect());
+        for backend in backends {
+            let label = backend.name().to_string();
+            engine.add(&label, vec![backend]);
+        }
         engine
     }
 
-    /// Replaces every backend. The label groups backends in `status`.
-    pub fn set_backends(&mut self, backends: Vec<(String, Box<dyn Backend>)>) {
-        self.slots = backends
-            .into_iter()
-            .map(|(label, backend)| {
-                let devices = backend
-                    .devices()
-                    .into_iter()
-                    .map(|device| Placed { home: device.rect, device })
-                    .collect();
-                Slot { label, backend, devices, error: None }
-            })
-            .collect();
+    /// Adds backends under `label`, which groups them in `status`. Labels keep the order they first came in.
+    pub fn add(&mut self, label: &str, backends: Vec<Box<dyn Backend>>) {
+        if !self.order.iter().any(|known| known == label) {
+            self.order.push(label.to_string());
+        }
+        for backend in backends {
+            let devices: Vec<Placed> =
+                backend.devices().into_iter().map(|device| Placed { home: device.rect, device }).collect();
+            let names = devices.iter().map(|p| (p.device.id.clone(), p.device.name.clone())).collect();
+            let link = Arc::new(Link::default());
+            let pusher = spawn_pusher(backend, names, link.clone(), self.failed.clone());
+            self.slots.push(Slot { label: label.to_string(), devices, link, pusher: Some(pusher) });
+        }
+        let order = &self.order;
+        self.slots.sort_by_key(|slot| order.iter().position(|known| *known == slot.label));
         self.layout();
+    }
+
+    /// Takes out every backend under `label`. Frames it has not sent yet are dropped.
+    pub fn remove(&mut self, label: &str) -> Removed {
+        let (gone, kept): (Vec<Slot>, Vec<Slot>) =
+            std::mem::take(&mut self.slots).into_iter().partition(|slot| slot.label == label);
+        self.slots = kept;
+        self.layout();
+        Removed(gone.into_iter().filter_map(|mut slot| slot.pusher.take()).collect())
     }
 
     /// Switch, brightness and canvas placement of one device. `rect: None` means the default spot.
@@ -109,25 +230,46 @@ impl Engine {
         })
     }
 
+    /// Backend label and device for every backend that still takes frames.
+    pub fn driven(&self) -> Vec<(&str, &Device)> {
+        let working = self.slots.iter().filter(|slot| slot.link.mail().error.is_none());
+        working.flat_map(|slot| slot.devices.iter().map(move |p| (slot.label.as_str(), &p.device))).collect()
+    }
+
     /// Label, device count and push error of every backend.
     pub fn status(&self) -> Vec<(String, usize, Option<String>)> {
-        self.slots.iter().map(|s| (s.label.clone(), s.devices.len(), s.error.clone())).collect()
+        self.slots.iter().map(|s| (s.label.clone(), s.devices.len(), s.link.mail().error.clone())).collect()
     }
 
     /// True once after a backend started failing.
     pub fn take_failed(&mut self) -> bool {
-        std::mem::take(&mut self.failed)
+        self.failed.swap(false, Ordering::Relaxed)
     }
 
-    /// Sends one black frame to every enabled device.
+    /// Queues one black frame for every enabled device.
     pub fn blackout(&mut self) {
         self.black(None);
     }
 
-    /// Renders the effect at time `t`, pushes it to every device and returns what was sent.
+    /// Waits, for at most `limit`, until the backends have sent everything queued so far.
+    pub fn flush(&self, limit: Duration) {
+        let deadline = Instant::now() + limit;
+        for slot in &self.slots {
+            let mut mail = slot.link.mail();
+            while mail.error.is_none() && (mail.busy || mail.batch.iter().any(Option::is_some)) {
+                let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                    return;
+                };
+                mail = slot.link.wake.wait_timeout(mail, left).unwrap_or_else(|e| e.into_inner()).0;
+            }
+        }
+    }
+
+    /// Renders the effect at time `t`, hands it to every backend and returns what was rendered.
     pub fn render(&mut self, t: f32, inputs: &Inputs) -> Vec<Frame> {
         let mut frames = Vec::new();
-        for slot in &mut self.slots {
+        for slot in &self.slots {
+            let mut batch = Batch::with_capacity(slot.devices.len());
             for p in &slot.devices {
                 let device = &p.device;
                 let tuning = self.tuning.get(&device.id).copied().unwrap_or_default();
@@ -141,30 +283,22 @@ impl Engine {
                 } else {
                     vec![Color::BLACK; device.leds.len()]
                 };
-                let pushed = if tuning.enabled && slot.error.is_none() {
-                    slot.backend.push(&device.id, &colors)
-                } else {
-                    Ok(())
-                };
-                if let Err(e) = pushed {
-                    slot.error = Some(format!("{}: {e}", device.name));
-                    self.failed = true;
-                }
+                batch.push(tuning.enabled.then(|| colors.clone()));
                 frames.push(Frame { device: device.id.clone(), colors });
             }
+            slot.link.post(batch);
         }
         frames
     }
 
-    fn black(&mut self, only: Option<&str>) {
-        for slot in self.slots.iter_mut().filter(|s| s.error.is_none()) {
-            for p in &slot.devices {
+    fn black(&self, only: Option<&str>) {
+        for slot in &self.slots {
+            let batch = slot.devices.iter().map(|p| {
                 let id = p.device.id.as_str();
                 let enabled = self.tuning.get(id).is_none_or(|t| t.enabled);
-                if only.map_or(enabled, |o| o == id) {
-                    let _ = slot.backend.push(id, &vec![Color::BLACK; p.device.leds.len()]);
-                }
-            }
+                only.map_or(enabled, |o| o == id).then(|| vec![Color::BLACK; p.device.leds.len()])
+            });
+            slot.link.post(batch.collect());
         }
     }
 
@@ -219,12 +353,16 @@ fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
 mod tests {
     use super::*;
     use crate::{DeviceKind, VirtualBackend};
-    use std::sync::{Arc, Mutex};
 
-    /// Three devices that all claim the whole canvas; counts pushes and can be made to fail.
+    const SOON: Duration = Duration::from_secs(5);
+
+    /// Three devices that all claim the whole canvas; counts pushes, can be made to fail or to dawdle.
     struct Fake {
         pushes: Arc<Mutex<Vec<String>>>,
+        /// What each device was sent last.
+        last: Arc<Mutex<HashMap<String, Vec<Color>>>>,
         fail: bool,
+        delay: Duration,
     }
 
     impl Backend for Fake {
@@ -239,15 +377,17 @@ mod tests {
                 .collect()
         }
 
-        fn push(&mut self, device_id: &str, _colors: &[Color]) -> Result<(), String> {
+        fn push(&mut self, device_id: &str, colors: &[Color]) -> Result<(), String> {
+            thread::sleep(self.delay);
             self.pushes.lock().unwrap().push(device_id.to_string());
+            self.last.lock().unwrap().insert(device_id.to_string(), colors.to_vec());
             if self.fail { Err("gone".into()) } else { Ok(()) }
         }
     }
 
     fn fake(fail: bool) -> (Engine, Arc<Mutex<Vec<String>>>) {
         let pushes = Arc::new(Mutex::new(Vec::new()));
-        let backend = Fake { pushes: pushes.clone(), fail };
+        let backend = Fake { pushes: pushes.clone(), last: Arc::default(), fail, delay: Duration::ZERO };
         (Engine::new(vec![Box::new(VirtualBackend), Box::new(backend)]), pushes)
     }
 
@@ -307,8 +447,10 @@ mod tests {
     fn disabled_device_goes_black_once_then_is_left_alone() {
         let (mut engine, pushes) = fake(false);
         engine.set_device("a", false, 1.0, None);
+        engine.flush(SOON);
         assert_eq!(*pushes.lock().unwrap(), ["a"]);
         let frames = engine.render(1.0, &Inputs::default());
+        engine.flush(SOON);
         assert!(all_black(frames.iter().find(|f| f.device == "a").unwrap()));
         assert_eq!(*pushes.lock().unwrap(), ["a", "b", "c"]);
     }
@@ -317,12 +459,60 @@ mod tests {
     fn failing_backend_is_reported_and_skipped() {
         let (mut engine, pushes) = fake(true);
         assert_eq!(engine.render(1.0, &Inputs::default()).len(), 9);
+        engine.flush(SOON);
         assert!(engine.take_failed());
         assert!(!engine.take_failed());
         engine.render(2.0, &Inputs::default());
+        engine.flush(SOON);
         assert_eq!(pushes.lock().unwrap().len(), 1);
         let status = engine.status();
         assert_eq!(status[0], ("virtual".to_string(), 6, None));
         assert!(status[1].2.as_deref().unwrap().contains("gone"));
+        assert!(engine.driven().iter().all(|(label, _)| *label == "virtual"));
+    }
+
+    #[test]
+    fn a_slow_backend_holds_up_nothing_and_gets_the_newest_frame() {
+        let pushes = Arc::new(Mutex::new(Vec::new()));
+        let last = Arc::new(Mutex::new(HashMap::new()));
+        let delay = Duration::from_millis(60);
+        let slow = Fake { pushes: pushes.clone(), last: last.clone(), fail: false, delay };
+        let mut engine = Engine::new(vec![Box::new(slow)]);
+        let started = Instant::now();
+        let mut newest = Vec::new();
+        for i in 0..20 {
+            newest = engine.render(i as f32, &Inputs::default());
+        }
+        engine.set_device("b", false, 1.0, None);
+        assert!(started.elapsed() < Duration::from_millis(50), "render waited for the backend");
+        engine.flush(SOON);
+        // 20 frames for 3 devices went in; only what was newest when the backend came round goes out
+        let pushes = pushes.lock().unwrap();
+        assert!(pushes.len() <= 9, "{} pushes", pushes.len());
+        // however the frames were batched, each device ends on the last thing it was told
+        let last = last.lock().unwrap();
+        for frame in &newest {
+            let black = vec![Color::BLACK; frame.colors.len()];
+            let expected = if frame.device == "b" { &black } else { &frame.colors };
+            assert_eq!(&last[&frame.device], expected, "{}", frame.device);
+        }
+        assert_ne!(last["a"], vec![Color::BLACK; 10]);
+    }
+
+    #[test]
+    fn backends_are_swapped_by_label_and_keep_their_order() {
+        let (mut engine, pushes) = fake(false);
+        let more = Fake { pushes: pushes.clone(), last: Arc::default(), fail: false, delay: Duration::ZERO };
+        engine.remove("virtual").wait(SOON);
+        assert_eq!(engine.status().len(), 1);
+        engine.add("virtual", vec![Box::new(VirtualBackend)]);
+        engine.add("fake", vec![Box::new(more)]);
+        let labels: Vec<String> = engine.status().into_iter().map(|(label, ..)| label).collect();
+        assert_eq!(labels, ["virtual", "fake", "fake"]);
+        engine.remove("fake").wait(SOON);
+        engine.render(1.0, &Inputs::default());
+        engine.flush(SOON);
+        assert!(pushes.lock().unwrap().is_empty());
+        assert_eq!(engine.devices().len(), 6);
     }
 }

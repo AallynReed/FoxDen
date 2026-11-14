@@ -3,6 +3,7 @@
 mod autostart;
 mod commands;
 mod config;
+mod detect;
 mod fans;
 mod state;
 mod tray;
@@ -27,9 +28,7 @@ fn main() {
             if !settings.start_minimized {
                 tray::show_window(handle);
             }
-            if settings.openrgb_enabled || settings.native_drivers {
-                state::reload_backends(handle, &shared);
-            }
+            app.manage(state::spawn_worker(handle.clone(), shared.clone()));
             state::spawn_render(handle.clone(), shared.clone());
             state::spawn_saver(shared);
             fans::start(handle);
@@ -56,6 +55,7 @@ fn main() {
             commands::delete_profile,
             commands::set_settings,
             commands::rescan,
+            commands::detect,
             fans::get_fans,
             fans::set_fan_config,
             fans::set_fan_sim,

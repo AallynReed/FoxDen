@@ -4,10 +4,41 @@ mod hidpp;
 mod msi;
 
 use foxrgb_core::Backend;
-use hidapi::HidApi;
+use hidapi::{BusType, HidApi};
 
 fn supported(vid: u16, pid: u16) -> bool {
     matches!((vid, pid), (msi::VID, msi::PID) | (hidpp::VID, hidpp::G502_RECEIVER | hidpp::G515_RECEIVER))
+}
+
+/// One HID collection as the system lists it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HidInfo {
+    pub vendor: u16,
+    pub product: u16,
+    pub name: String,
+    pub manufacturer: String,
+    pub usage_page: u16,
+    pub usage: u16,
+    /// Plugged in over USB, not Bluetooth or a virtual bus.
+    pub usb: bool,
+}
+
+/// Every HID collection on the system, read from its device list without opening any.
+pub fn enumerate() -> Vec<HidInfo> {
+    let Ok(api) = HidApi::new() else {
+        return Vec::new();
+    };
+    api.device_list()
+        .map(|d| HidInfo {
+            vendor: d.vendor_id(),
+            product: d.product_id(),
+            name: d.product_string().unwrap_or_default().trim().to_string(),
+            manufacturer: d.manufacturer_string().unwrap_or_default().trim().to_string(),
+            usage_page: d.usage_page(),
+            usage: d.usage(),
+            usb: matches!(d.bus_type(), BusType::Usb),
+        })
+        .collect()
 }
 
 /// HID collections of the supported devices, read from the system's device list without opening any.

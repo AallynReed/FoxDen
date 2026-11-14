@@ -10,7 +10,7 @@
   </head>
   <body>
     <h1 class="sr-only">FoxRGB</h1>
-    <aside class="side" aria-label="Lighting controls">
+    <aside class="side" aria-label="Controls">
       <div class="tabs" role="tablist" aria-label="Sections">
         <button type="button" role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
         <button type="button" role="tab" id="tab-devices" aria-controls="panel-devices" aria-selected="false" tabindex="-1">Devices</button>
@@ -21,21 +21,35 @@
 
       <section class="panel" id="panel-effects" role="tabpanel" aria-labelledby="tab-effects">
         <h2 id="effect-heading">Effect</h2>
+        <input type="text" class="wide" id="effect-search" placeholder="Search effects" aria-label="Search effects" autocomplete="off" spellcheck="false" />
         <div class="picks" id="effect-list" role="radiogroup" aria-labelledby="effect-heading"></div>
+        <p class="hint" id="effect-none" hidden>No effects match. Clear the search to see them all.</p>
         <h2>Parameters</h2>
         <div class="fields" id="params"></div>
         <p class="hint" id="params-empty" hidden>This effect has no parameters.</p>
+        <div class="actions">
+          <button type="button" id="effect-reset">Reset to defaults</button>
+          <button type="button" id="effect-random">Randomise</button>
+        </div>
       </section>
 
       <section class="panel" id="panel-devices" role="tabpanel" aria-labelledby="tab-devices" hidden>
         <h2 id="devices-heading">Devices</h2>
         <ul class="list" id="device-list" aria-labelledby="devices-heading"></ul>
         <p class="hint" id="devices-empty" hidden>No devices found. Check the backends under Settings, then rescan.</p>
-        <h2>Layout</h2>
-        <p class="hint">Drag a device on the canvas to move it, or its corner to resize it. With the canvas focused, arrow keys move the selected device and Shift with an arrow key resizes it.</p>
-        <div class="actions">
-          <button type="button" id="reset-layout">Reset layout</button>
+        <p class="hint" id="canvas-hint">Select a device to set its brightness, position and size, or drag it on the canvas. Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead. [ and ] select the previous or next device.</p>
+
+        <h2 id="detected-heading">Detected hardware</h2>
+        <div class="field">
+          <label for="set-auto">Automatic detection</label>
+          <input type="checkbox" class="switch" id="set-auto" data-setting="auto_detect" aria-describedby="auto-hint" />
         </div>
+        <p class="hint" id="auto-hint">Notices devices being plugged in or removed, and an OpenRGB server starting or stopping.</p>
+        <div class="actions">
+          <button type="button" id="detect">Detect now</button>
+        </div>
+        <ul class="list" id="detected-list" aria-labelledby="detected-heading"></ul>
+        <p class="hint" id="detected-empty" hidden>No lighting hardware detected yet.</p>
       </section>
 
       <section class="panel" id="panel-fans" role="tabpanel" aria-labelledby="tab-fans" hidden></section>
@@ -45,22 +59,30 @@
         <form class="fields" id="profile-form">
           <label for="profile-name">Save current effect and brightness as</label>
           <div class="row">
-            <input type="text" id="profile-name" maxlength="40" autocomplete="off" spellcheck="false" />
+            <input type="text" id="profile-name" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="profile-name-problem" />
             <button type="submit">Save</button>
           </div>
+          <p class="problem" id="profile-name-problem" hidden></p>
         </form>
         <h2 id="profiles-heading">Saved profiles</h2>
         <ul class="list" id="profile-list" aria-labelledby="profiles-heading"></ul>
         <p class="hint" id="profiles-empty" hidden>No profiles saved yet.</p>
+        <h2>Effect as JSON</h2>
+        <p class="hint">Copy the current effect to share it or keep it in a file. Paste one to apply it.</p>
+        <div class="actions">
+          <button type="button" id="effect-copy">Copy</button>
+          <button type="button" id="effect-paste">Paste or edit</button>
+        </div>
       </section>
 
       <section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
         <h2>Rendering</h2>
         <div class="field range">
-          <label for="set-fps">Frame rate</label>
-          <output id="set-fps-out" for="set-fps"></output>
+          <label for="set-fps">Frame rate (fps)</label>
           <input type="range" id="set-fps" min="10" max="60" step="1" data-setting="fps" />
+          <input type="number" class="exact" id="set-fps-box" aria-label="Frame rate" aria-describedby="set-fps-box-problem" />
         </div>
+        <p class="problem" id="set-fps-box-problem" hidden></p>
 
         <h2>OpenRGB</h2>
         <div class="field">
@@ -69,12 +91,14 @@
         </div>
         <div class="field">
           <label for="set-host">Host</label>
-          <input type="text" id="set-host" data-setting="openrgb_host" data-invalid="Host cannot be empty." autocomplete="off" spellcheck="false" />
+          <input type="text" id="set-host" data-setting="openrgb_host" data-invalid="Enter a host name or address." autocomplete="off" spellcheck="false" aria-describedby="set-host-problem" />
         </div>
+        <p class="problem" id="set-host-problem" hidden></p>
         <div class="field">
           <label for="set-port">Port</label>
-          <input type="number" id="set-port" min="1" max="65535" data-setting="openrgb_port" data-invalid="Port must be a whole number from 1 to 65535." />
+          <input type="number" id="set-port" min="1" max="65535" step="1" data-setting="openrgb_port" data-invalid="Port must be a whole number from 1 to 65535." aria-describedby="set-port-problem" />
         </div>
+        <p class="problem" id="set-port-problem" hidden></p>
 
         <h2>Devices</h2>
         <div class="field">
@@ -102,7 +126,7 @@
         </div>
 
         <h2 id="backends-heading">Backends</h2>
-        <ul class="list backends" id="backend-list" aria-labelledby="backends-heading"></ul>
+        <ul class="list backends" id="backend-list" tabindex="-1" aria-labelledby="backends-heading"></ul>
         <div class="actions">
           <button type="button" id="rescan">Rescan devices</button>
         </div>
@@ -111,20 +135,107 @@
 
     <main class="stage">
       <div class="bar" role="group" aria-label="Output">
-        <span class="summary" id="summary"></span>
+        <button type="button" id="undo" aria-keyshortcuts="Control+Z" aria-disabled="true">Undo</button>
+        <button type="button" id="redo" aria-keyshortcuts="Control+Y" aria-disabled="true">Redo</button>
+        <span class="grow"></span>
         <label for="brightness">Brightness</label>
         <input type="range" id="brightness" min="0" max="1" step="0.01" value="1" />
-        <output id="brightness-out" for="brightness">100%</output>
+        <span class="percent"><input type="number" class="exact" id="brightness-box" aria-label="Brightness in per cent" />%</span>
         <button type="button" id="pause">Pause</button>
+      </div>
+      <div class="bar tools" role="group" aria-label="Canvas">
+        <label class="check" title="Hold Alt while dragging to ignore the grid"><input type="checkbox" id="view-snap" />Snap to grid</label>
+        <select id="view-grid" aria-label="Grid size">
+          <option value="0.025">2.5%</option>
+          <option value="0.05">5%</option>
+          <option value="0.1">10%</option>
+        </select>
+        <label class="check"><input type="checkbox" id="view-labels" />Labels</label>
+        <span class="grow readout" id="readout"></span>
+        <button type="button" id="reset-layout">Reset layout</button>
       </div>
       <div class="error" id="error" role="alert" aria-live="polite" hidden>
         <span id="error-text"></span>
         <button type="button" id="error-close">Dismiss</button>
       </div>
       <div class="canvas-wrap">
-        <canvas id="canvas" tabindex="0" aria-label="Device layout. Arrow keys move the selected device, Shift with an arrow key resizes it."></canvas>
+        <canvas id="canvas" tabindex="0" aria-label="Device layout" aria-describedby="canvas-hint"></canvas>
+      </div>
+      <div class="bar status">
+        <span class="state" id="st-state"></span>
+        <span class="roomy" id="st-count"></span>
+        <span class="roomy" id="st-profile"></span>
+        <span id="st-fps"></span>
+        <button type="button" class="state" id="st-problem" hidden></button>
+        <span class="grow" id="st-note" role="status"></span>
+        <button type="button" id="help-open">Shortcuts</button>
       </div>
     </main>
+
+    <dialog class="sheet" id="help-sheet" aria-labelledby="help-title">
+      <h2 id="help-title">Keyboard shortcuts</h2>
+      <dl>
+        <dt>Ctrl+Z</dt>
+        <dd>Undo the last effect, brightness or layout change</dd>
+        <dt>Ctrl+Y</dt>
+        <dd>Redo it. Ctrl+Shift+Z does the same</dd>
+        <dt>Ctrl+S</dt>
+        <dd>Save over the profile in use, or name a new one</dd>
+        <dt>Ctrl+F</dt>
+        <dd>Search effects</dd>
+        <dt>Space</dt>
+        <dd>Pause or resume</dd>
+        <dt>[ and ]</dt>
+        <dd>Select the previous or next device</dd>
+        <dt>Arrow keys</dt>
+        <dd>Move the selected device by 1% of the canvas</dd>
+        <dt>Ctrl+arrow keys</dt>
+        <dd>Move it by 5%</dd>
+        <dt>Shift+arrow keys</dt>
+        <dd>Resize it by 1%</dd>
+        <dt>Ctrl+Shift+arrow keys</dt>
+        <dd>Resize it by 5%</dd>
+        <dt>G</dt>
+        <dd>Snap to grid on or off</dd>
+        <dt>L</dt>
+        <dd>Show or hide labels on the canvas</dd>
+        <dt>Esc</dt>
+        <dd>Deselect the device</dd>
+        <dt>?</dt>
+        <dd>Show this list</dd>
+      </dl>
+      <p class="hint">Space and the arrow keys act on the canvas while it has focus or no control does. The other single keys work anywhere except in a text field or a drop-down list.</p>
+      <form method="dialog" class="actions">
+        <button type="submit">Close</button>
+        <label class="check" title="Space, [, ], G, L and ?"><input type="checkbox" id="view-keys" />Single-key shortcuts</label>
+      </form>
+    </dialog>
+
+    <dialog class="sheet" id="name-sheet" aria-labelledby="name-title">
+      <form method="dialog" class="fields" id="name-form">
+        <h2 id="name-title"></h2>
+        <label for="name-input">Name</label>
+        <input type="text" class="wide" id="name-input" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="name-input-problem" />
+        <p class="problem" id="name-input-problem" hidden></p>
+        <div class="actions">
+          <button type="submit">Save</button>
+          <button type="button" id="name-cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="sheet" id="json-sheet" aria-labelledby="json-title">
+      <form method="dialog" class="fields" id="json-form">
+        <h2 id="json-title">Effect as JSON</h2>
+        <label for="json-text" id="json-hint"></label>
+        <textarea id="json-text" rows="11" spellcheck="false" aria-describedby="json-text-problem"></textarea>
+        <p class="problem" id="json-text-problem" hidden></p>
+        <div class="actions">
+          <button type="submit">Apply</button>
+          <button type="button" id="json-cancel">Cancel</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="mock.js"></script>
     <script src="fans-mock.js"></script>

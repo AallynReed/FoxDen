@@ -2,12 +2,30 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const state = { snap: null };
+// Undo history of the effect, brightness and layout, read from the snapshots.
+const hist = { steps: [], at: -1, quiet: 0, sent: null, stamp: 0 };
 const $ = (id) => document.getElementById(id);
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const typing = (t) => t.isContentEditable || t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && /^(text|number)$/.test(t.type));
 let renderQueued = false;
+let noteTimer = 0;
+let frames = 0;
+let known = null;
+let listed = false;
+let lastProfile = null;
+let settle = null;
 
 function showError(text) {
-  $("error-text").textContent = text;
+  setState($("error-text"), "warn", sentence(text));
   $("error").hidden = false;
+}
+
+// A short line in the status bar saying what just happened.
+function note(text) {
+  const line = $("st-note");
+  line.textContent = line.title = text;
+  clearTimeout(noteTimer);
+  if (text) noteTimer = setTimeout(note, 8000, "");
 }
 
 // Resolves to undefined when the command failed; the error is already on screen.
@@ -22,6 +40,19 @@ async function call(name, args) {
   }
 }
 
+function renderStatus(snap) {
+  const leds = snap.devices.reduce((n, d) => n + d.leds.length, 0);
+  const broken = snap.backends.filter((b) => b.error);
+  const profile = snap.active_profile || (lastProfile && lastProfile + ", edited");
+  setState($("st-state"), snap.paused ? "off" : "on", snap.paused ? "Paused" : "Running");
+  setText($("st-count"), plural(snap.devices.length, "device") + ", " + plural(leds, "LED"));
+  setText($("st-profile"), profile ? "Profile " + profile : "No profile");
+  $("st-profile").title = profile || "";
+  $("st-problem").hidden = !broken.length;
+  if (broken.length === 1) setState($("st-problem"), "warn", (BACKENDS[broken[0].name] || broken[0].name) + " error");
+  else if (broken.length) setState($("st-problem"), "warn", broken.length + " backend errors");
+}
+
 function render() {
   renderQueued = false;
   const snap = state.snap;
@@ -29,22 +60,10 @@ function render() {
   renderBar(snap);
   renderEffects(snap);
   renderDevices(snap);
+  renderDetected(snap);
   renderProfiles(snap);
   renderSettings(snap);
-  if (typeof renderFeatures === "function") renderFeatures(snap);
-}
-
-function loadFeatures() {
-  document.head.append(el("link", { rel: "stylesheet", href: "features.css" }));
-  const script = el("script", { src: "features.js" });
-  script.onload = () => {
-    try {
-      featuresInit();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-  document.head.append(script);
+  renderStatus(snap);
 }
 
 function scheduleRender() {
@@ -53,46 +72,249 @@ function scheduleRender() {
   requestAnimationFrame(render);
 }
 
+// Says which devices came or went since the last snapshot.
+function noteChanges(snap) {
+  const detected = snap.detected || [];
+  const now = new Map([...detected, ...snap.devices].map((d) => [d.id, d.name]));
+  const names = (from, to) => [...new Set([...from].filter(([id]) => !to.has(id)).map(([, name]) => name))];
+  const list = (found) => (found.length > 3 ? plural(found.length, "device") : found.join(", "));
+  // The first detection pass lists all it finds at once, which is not news.
+  if (known && !listed) for (const d of detected) known.set(d.id, d.name);
+  listed = listed || detected.length > 0;
+  if (known) {
+    const added = names(now, known);
+    const gone = names(known, now);
+    if (added.length) note("Added: " + list(added));
+    else if (gone.length) note("Removed: " + list(gone));
+  }
+  known = now;
+}
+
+function undoable(snap) {
+  return { effect: snap.effect, brightness: snap.brightness, rects: Object.fromEntries(snap.devices.map((d) => [d.id, d.rect])) };
+}
+
+// What changed between two states: a label for the user, and a key that tells one kind of edit from another.
+function difference(a, b) {
+  const fields = Object.keys({ ...a.effect, ...b.effect }).filter((k) => !same(a.effect[k], b.effect[k]));
+  const moved = Object.keys(b.rects).filter((id) => a.rects[id] && !same(a.rects[id], b.rects[id]));
+  const parts = [];
+  if (fields.length) parts.push(["effect", fields.includes("kind") ? "kind" : fields]);
+  if (a.brightness !== b.brightness) parts.push(["brightness", ""]);
+  if (moved.length) parts.push(["layout", moved]);
+  return parts.length ? { label: parts.map((p) => p[0]).join(" and "), key: String(parts) } : null;
+}
+
+function renderHistory() {
+  const show = (id, verb, change) => {
+    $(id).setAttribute("aria-disabled", !change);
+    $(id).title = change ? verb + " " + change.label + " change" : "Nothing to " + verb.toLowerCase();
+  };
+  show("undo", "Undo", hist.at > 0 && hist.steps[hist.at]);
+  show("redo", "Redo", hist.steps[hist.at + 1]);
+}
+
+function track(snap) {
+  if (hist.quiet) return;
+  const now = undoable(snap);
+  const last = hist.steps[hist.at];
+  const change = last && difference(last, now);
+  const time = performance.now();
+  const tip = hist.at > 0 && hist.at === hist.steps.length - 1;
+  // One edit lasts while the pointer stays down, or while its changes follow each other closely.
+  const since = held ? pressed : time - 600;
+  if (!change) {
+    // Nothing to undo, but a device that has just appeared joins the current step.
+    hist.at = Math.max(hist.at, 0);
+    hist.steps[hist.at] = { ...last, ...now, rects: { ...(last && last.rects), ...now.rects } };
+  } else if (tip && last.key === change.key && hist.stamp > since) {
+    // Still the same edit: a slider being dragged, a key held down.
+    hist.steps[hist.at] = { ...last, ...now };
+    if (!difference(hist.steps[hist.at - 1], now)) hist.steps.length = hist.at--;
+  } else {
+    hist.steps.length = hist.at + 1;
+    hist.steps.push({ ...now, ...change });
+    if (hist.steps.length > 100) hist.steps.shift();
+    hist.at = hist.steps.length - 1;
+  }
+  if (change) hist.stamp = time;
+  renderHistory();
+}
+
+// Runs several commands as one step: the history looks again only once they have settled.
+async function quietly(run) {
+  hist.quiet++;
+  try {
+    await run();
+  } finally {
+    setTimeout(() => {
+      if (--hist.quiet || !state.snap) return;
+      hist.sent = null;
+      followProfile(state.snap);
+      track(state.snap);
+      scheduleRender();
+    }, 150);
+  }
+}
+
+// Undo with -1, redo with 1.
+function step(by) {
+  const to = hist.steps[hist.at + by];
+  if (!to || preview.drag) return;
+  const from = hist.sent || undoable(state.snap);
+  const { label } = hist.steps[by < 0 ? hist.at : hist.at + 1];
+  hist.at += by;
+  hist.sent = to;
+  renderHistory();
+  note((by < 0 ? "Undid " : "Redid ") + label + " change");
+  quietly(async () => {
+    if (!same(from.effect, to.effect)) await call("set_effect", { effect: to.effect });
+    if (from.brightness !== to.brightness) await call("set_brightness", { value: to.brightness });
+    for (const [id, rect] of Object.entries(to.rects)) {
+      const device = findDevice(id);
+      if (device && from.rects[id] && !same(from.rects[id], rect)) await sendRect(device, rect);
+    }
+  });
+}
+
+// The profile in use: the active one, or the one that was active before it was edited.
+function followProfile(snap) {
+  if (snap.active_profile) lastProfile = snap.active_profile;
+  else if (!snap.profiles.includes(lastProfile)) lastProfile = null;
+}
+
+// Resolves true at the next snapshot, or false when none comes within `ms`.
+function nextSnapshot(ms) {
+  return new Promise((done) => {
+    settle = done;
+    setTimeout(done, ms, false);
+  });
+}
+
 function setSnapshot(snap) {
   state.snap = snap;
   lastUsed[snap.effect.kind] = snap.effect;
+  // Profiles loaded on the way through a rename or a duplicate are not the one in use.
+  if (!hist.quiet) followProfile(snap);
   previewSnapshot();
+  track(snap);
+  noteChanges(snap);
+  scheduleRender();
+  if (settle) settle(true);
+  settle = null;
+}
+
+function showTab(tab) {
+  for (const t of document.querySelectorAll("[role=tab]")) {
+    const on = t === tab;
+    t.setAttribute("aria-selected", on);
+    t.tabIndex = on ? 0 : -1;
+    $(t.getAttribute("aria-controls")).hidden = !on;
+  }
   scheduleRender();
 }
 
 function wireTabs() {
   const tabs = [...document.querySelectorAll("[role=tab]")];
-  const show = (tab) => {
-    for (const t of tabs) {
-      const on = t === tab;
-      t.setAttribute("aria-selected", on);
-      t.tabIndex = on ? 0 : -1;
-      $(t.getAttribute("aria-controls")).hidden = !on;
-    }
-    scheduleRender();
-  };
   tabs.forEach((tab, i) => {
-    tab.onclick = () => show(tab);
+    tab.onclick = () => showTab(tab);
     tab.onkeydown = (e) => {
-      const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-      if (!step) return;
-      const next = tabs[(i + step + tabs.length) % tabs.length];
-      show(next);
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault();
+      const next = tabs[(to + tabs.length) % tabs.length];
+      showTab(next);
       next.focus();
     };
   });
+}
+
+function openHelp() {
+  if (!$("help-sheet").open) $("help-sheet").showModal();
+}
+
+// Ctrl+S saves over the profile in use, or asks for a name when there is none.
+function saveShortcut() {
+  const name = lastProfile;
+  if (name) return call("save_profile", { name }).then((out) => out !== undefined && note("Saved profile " + name));
+  showTab($("tab-profiles"));
+  $("profile-name").focus();
+  note("Name the profile, then press Enter");
+}
+
+function selectNext(by) {
+  const devices = state.snap.devices;
+  const i = devices.findIndex((d) => d.id === preview.selected);
+  const next = devices[i < 0 ? (by > 0 ? 0 : devices.length - 1) : (i + by + devices.length) % devices.length];
+  if (!next) return;
+  selectDevice(next.id);
+  note("Selected " + next.name);
+}
+
+function onShortcut(e) {
+  if (e.defaultPrevented || !state.snap || e.altKey || document.querySelector("dialog[open]")) return;
+  const t = e.target;
+  const key = e.key.toLowerCase();
+  const loose = t === document.body || t === document.documentElement;
+  if (ARROWS[e.key]) {
+    if (loose) onKeyDown(e);
+  } else if (e.ctrlKey || e.metaKey) {
+    // The Fans tab keeps its own undo history.
+    if ((key === "z" || key === "y") && !typing(t) && !t.closest("#panel-fans")) {
+      e.preventDefault();
+      step(key === "y" || e.shiftKey ? 1 : -1);
+    } else if (key === "s") {
+      e.preventDefault();
+      saveShortcut();
+    } else if (key === "f") {
+      e.preventDefault();
+      showTab($("tab-effects"));
+      $("effect-search").focus();
+      $("effect-search").select();
+    }
+  } else if (typing(t) || t.tagName === "SELECT") {
+    return;
+  } else if (key === "escape") {
+    selectDevice(null);
+  } else if (!view.keys) {
+    return;
+  } else if (key === "?") {
+    e.preventDefault();
+    openHelp();
+  } else if (key === "[" || key === "]") {
+    selectNext(key === "]" ? 1 : -1);
+  } else if (key === "g") {
+    setView({ snap: !view.snap });
+    note(view.snap ? "Snap to grid on" : "Snap to grid off");
+  } else if (key === "l") {
+    setView({ labels: !view.labels });
+    note(view.labels ? "Labels shown" : "Labels hidden");
+  } else if (key === " " && (loose || t === preview.canvas)) {
+    e.preventDefault();
+    $("pause").click();
+  }
 }
 
 async function init() {
   wireTabs();
   wirePanels();
   $("error-close").onclick = () => ($("error").hidden = true);
+  $("help-open").onclick = openHelp;
+  $("st-problem").onclick = () => showSetting("backend-list");
+  document.addEventListener("keydown", onShortcut);
   previewInit($("canvas"));
   await listen("snapshot", (e) => setSnapshot(e.payload));
-  await listen("frame", (e) => previewFrames(e.payload));
+  await listen("frame", (e) => {
+    frames++;
+    previewFrames(e.payload);
+  });
+  setInterval(() => {
+    setText($("st-fps"), frames + " fps");
+    frames = 0;
+  }, 1000);
   const snap = await call("get_snapshot");
-  if (snap) setSnapshot(snap);
-  loadFeatures();
+  // A snapshot event that got here first is the newer of the two.
+  if (snap && !state.snap) setSnapshot(snap);
 }
 
 init().catch((e) => showError(String(e)));

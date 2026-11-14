@@ -7,12 +7,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use foxrgb_fan::{FanBackend, SimBackend};
 use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
 
 const USAGE: &str = "usage: foxrgb-service <command>
 
-  run [--sim]  run in this console until Ctrl+C (--sim uses simulated fans)
+  run [--sim]  run in this console until Ctrl+C or a shutdown request
+               (--sim starts with simulated fans switched on)
   install      register the Windows service, started at boot
   uninstall    stop and remove the service
   start        start the installed service
@@ -32,19 +32,27 @@ unsafe extern "system" fn on_console_event(kind: u32) -> i32 {
 }
 
 fn run(sim: bool) -> Result<(), String> {
-    let mut backends: Vec<Box<dyn FanBackend>> = Vec::new();
-    if sim {
-        backends.push(Box::<SimBackend>::default());
-    }
     if unsafe { SetConsoleCtrlHandler(Some(on_console_event), 1) } == 0 {
         return Err("cannot install the Ctrl+C handler".into());
     }
-    let running = host::start(host::data_dir(), backends, pipe::PIPE_NAME)?;
-    while !INTERRUPTED.load(Ordering::Relaxed) {
+    let running = host::start(
+        host::data_dir(),
+        foxrgb_hwmon::backends,
+        sim,
+        host::Mode::Console,
+        pipe::PIPE_NAME,
+    )?;
+    let outcome = loop {
+        if INTERRUPTED.load(Ordering::Relaxed) {
+            break Ok(());
+        }
+        if let Some(outcome) = running.ended() {
+            break outcome;
+        }
         thread::sleep(Duration::from_millis(100));
-    }
+    };
     running.stop();
-    Ok(())
+    outcome
 }
 
 fn main() -> ExitCode {

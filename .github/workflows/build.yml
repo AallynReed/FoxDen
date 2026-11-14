@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CACHE_PATHS: |
+        ~/.cargo/registry/index
+        ~/.cargo/registry/cache
+        target
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - run: rustup toolchain install stable --profile minimal --component clippy --no-self-update
+
+      # A cache built by another compiler is rebuilt in full, so the version is part of the key.
+      - id: rustc
+        run: |
+          "version=$((rustc --version).Split()[1])" >> $env:GITHUB_OUTPUT
+
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: cargo-${{ steps.rustc.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ steps.rustc.outputs.version }}-
+
+      - run: cargo test --workspace
+
+      - run: cargo clippy --workspace --all-targets
+
+      # The npm package is the Tauri CLI already compiled; cargo install takes far longer.
+      - name: Build the installer
+        run: |
+          Remove-Item target/release/bundle -Recurse -Force -ErrorAction Ignore
+          npx --yes "@tauri-apps/cli@2" build --config packaging/tauri.bundle.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FoxRGB-setup
+          path: target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+      # A cache saved from a tag can only be read by that tag, so only branch runs save one.
+      - if: github.ref_type == 'branch' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}
