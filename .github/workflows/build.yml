@@ -48,7 +48,15 @@ jobs:
       - name: Lint
         run: cargo clippy --workspace --all-targets
 
+      - name: Download PawnIO
+        run: |
+          Invoke-WebRequest https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe -OutFile packaging/PawnIO_setup.exe
+          if ((Get-FileHash packaging/PawnIO_setup.exe).Hash -ne '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032') { throw 'PawnIO_setup.exe hash mismatch' }
+
       - name: Compile installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           Remove-Item target/release/bundle -Recurse -Force -ErrorAction Ignore
           npx --yes "@tauri-apps/cli@2.12.4" build --config packaging/tauri.bundle.json
@@ -57,7 +65,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: FoxRGB-setup
-          path: target/release/bundle/nsis/*-setup.exe
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            target/release/bundle/nsis/*-setup.exe.sig
           if-no-files-found: error
 
       - name: Save cache

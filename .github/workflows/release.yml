@@ -60,5 +60,10 @@ jobs:
           fi
           sha256sum -- *-setup.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" *-setup.exe SHA256SUMS.txt \
+          file="$(echo *-setup.exe)"
+          jq -n --arg v "${GITHUB_REF_NAME#v}" --arg sig "$(cat "$file.sig")" \
+            --arg url "https://github.com/$GH_REPO/releases/download/$GITHUB_REF_NAME/$file" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{version: $v, pub_date: $date, platforms: {"windows-x86_64": {signature: $sig, url: $url}}}' > latest.json
+          gh release create "$GITHUB_REF_NAME" "$file" "$file.sig" latest.json SHA256SUMS.txt \
             --draft --verify-tag --generate-notes --title "FoxRGB ${GITHUB_REF_NAME#v}"

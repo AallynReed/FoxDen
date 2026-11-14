@@ -26,7 +26,9 @@
   },
   "bundle": {
     "active": false,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "publisher": "FoxRGB",
     "icon": [
       "icons/32x32.png",
@@ -40,6 +42,17 @@
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM3MDExMkE0MjVBMjI4MkEKUldRcUtLSWxwQklCTjdpMXd1bFJOYllDSW5KNFhhdmlsWUNSREtoYnFBTmtHcGNESG5yWEpWWHcK",
+      "endpoints": [
+        "https://github.com/AallynReed/FoxRGB/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

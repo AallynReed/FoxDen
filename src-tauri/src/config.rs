@@ -23,6 +23,8 @@ pub struct Settings {
     pub autostart: bool,
     /// Watch for hardware being plugged in or removed and for the OpenRGB server.
     pub auto_detect: bool,
+    /// Download and install new releases from GitHub.
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -32,12 +34,13 @@ impl Default for Settings {
             openrgb_enabled: false,
             openrgb_host: "127.0.0.1".into(),
             openrgb_port: 6742,
-            native_drivers: false,
-            show_virtual: true,
+            native_drivers: true,
+            show_virtual: false,
             close_to_tray: true,
             start_minimized: false,
             autostart: false,
             auto_detect: true,
+            auto_update: true,
         }
     }
 }

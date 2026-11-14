@@ -149,6 +149,7 @@
       start_minimized: false,
       autostart: false,
       auto_detect: true,
+      auto_update: true,
     },
   };
 

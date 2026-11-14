@@ -8,6 +8,7 @@ mod fans;
 mod service_lights;
 mod state;
 mod tray;
+mod updater;
 
 use std::sync::{Arc, Mutex};
 
@@ -22,6 +23,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_window(app)
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(shared.clone())
         .setup(|app| {
             let handle = app.handle();
@@ -39,6 +41,7 @@ fn main() {
             }
             app.manage(state::spawn_worker(handle.clone(), shared.clone()));
             state::spawn_render(handle.clone(), shared.clone());
+            updater::start(handle, shared.clone());
             state::spawn_saver(shared);
             fans::start(handle);
             Ok(())

@@ -591,9 +591,16 @@ mod tests {
         keys
     }
 
+    /// The defaults, with the simulated devices on.
+    fn simulated() -> Config {
+        let mut config = Config::default();
+        config.settings.show_virtual = true;
+        config
+    }
+
     #[test]
     fn snapshot_has_the_shape_the_ui_expects() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new(simulated());
         state
             .engine
             .set_device("virtual:gpu", false, 0.5, Some([0.25, 0.5, 0.25, 0.125]));
@@ -617,6 +624,7 @@ mod tests {
             keys(&json["settings"]),
             [
                 "auto_detect",
+                "auto_update",
                 "autostart",
                 "close_to_tray",
                 "fps",
@@ -628,7 +636,7 @@ mod tests {
                 "start_minimized"
             ]
         );
-        assert_eq!(json["settings"]["native_drivers"], false);
+        assert_eq!(json["settings"]["native_drivers"], true);
         assert_eq!(json["settings"]["autostart"], false);
         assert_eq!(json["settings"]["auto_detect"], true);
         assert_eq!(json["detected"], json!([]));
@@ -677,7 +685,7 @@ mod tests {
 
     #[test]
     fn snapshot_lists_what_detection_found() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new(simulated());
         state.found = vec![Found {
             id: "usb:1b1c:0001".into(),
             name: "Corsair device".into(),
@@ -726,7 +734,7 @@ mod tests {
             }
         }
 
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new(simulated());
         state.engine.add("hid", vec![Box::new(Unplugged)]);
         assert!(!state.failing("hid"));
         state.engine.render(0.0, &Inputs::default());
@@ -737,7 +745,7 @@ mod tests {
 
     #[test]
     fn reload_swaps_one_group_and_leaves_the_rest() {
-        let shared: Shared = Arc::new(Mutex::new(AppState::new(Config::default())));
+        let shared: Shared = Arc::new(Mutex::new(AppState::new(simulated())));
         let mut watch = Watch::default();
         let status = |name: &str| {
             lock(&shared)
@@ -814,7 +822,7 @@ mod tests {
 
     #[test]
     fn loading_a_profile_replaces_effect_and_brightness() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new(simulated());
         let profile = config::Profile {
             effect: Effect::Cycle { speed: 2.0 },
             brightness: 0.25,
@@ -830,7 +838,7 @@ mod tests {
 
     #[test]
     fn an_edited_profile_is_no_longer_active() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new(simulated());
         let profile = Profile {
             effect: Effect::Cycle { speed: 2.0 },
             brightness: 0.25,

@@ -4,9 +4,17 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "resources": {
       "../target/release/foxrgb-service.exe": "foxrgb-service.exe",
+      "../packaging/PawnIO_setup.exe": "PawnIO_setup.exe",
       "../LICENSE": "LICENSE.txt"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "../packaging/installer-hooks.nsh"
+      }
     }
   }
 }
