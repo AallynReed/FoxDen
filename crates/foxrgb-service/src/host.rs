@@ -373,8 +373,9 @@ pub(crate) mod tests {
     }
 
     pub fn scratch(name: &str) -> PathBuf {
-        let base =
-            std::env::var_os("FOXRGB_DATA_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
+        // Beside the test binary by default, so nothing is left in the system temp folder.
+        let beside = || std::env::current_exe().unwrap().with_file_name("foxrgb-service-tests");
+        let base = std::env::var_os("FOXRGB_DATA_DIR").map_or_else(beside, PathBuf::from);
         let dir = base.join(format!("test-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
