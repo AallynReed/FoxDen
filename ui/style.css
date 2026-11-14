@@ -264,12 +264,97 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   background: var(--accent);
 }
 
-input[type="color"] {
-  width: 48px;
-  height: 32px;
-  padding: 2px;
+.chip {
+  flex: none;
+  width: 20px;
+  height: 20px;
   border: 1px solid var(--stroke);
-  background: var(--raised);
+}
+
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 5px;
+  font: 13px/20px var(--mono);
+}
+
+.swatch[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+
+.picker {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+}
+
+#params .picker .range {
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+}
+
+.picker input[type="range"]::-webkit-slider-runnable-track {
+  height: 10px;
+  background: var(--track, var(--stroke));
+}
+
+.picker input[type="range"]::-webkit-slider-thumb {
+  width: 10px;
+  height: 20px;
+  margin-top: -5px;
+  border: 1px solid var(--panel);
+}
+
+input.hex {
+  width: 88px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+}
+
+.swatches {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+}
+
+.tile {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  padding: 2px;
+  border: 1px solid transparent;
+}
+
+.tile .chip {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tile:hover {
+  border-color: var(--stroke);
+}
+
+.tile:has(input:checked) {
+  padding: 1px;
+  border: 2px solid var(--text);
+}
+
+.tile:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 input[type="checkbox"] {
@@ -415,9 +500,10 @@ input.switch::after {
   line-height: 16px;
 }
 
+/* Never fewer than six rows; the panel scrolls instead. */
 .picks {
   gap: 0;
-  min-height: 98px;
+  min-height: 194px;
   overflow-y: auto;
   border: 1px solid var(--line);
 }
@@ -448,7 +534,8 @@ input.switch::after {
   outline-offset: -2px;
 }
 
-.pick input {
+.pick input,
+.tile input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -741,6 +828,7 @@ input.switch::after {
 }
 
 .bar {
+  position: relative;
   display: flex;
   flex: none;
   align-items: center;
@@ -750,6 +838,17 @@ input.switch::after {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
   white-space: nowrap;
+}
+
+/* The bar has no room for a line of its own, so the message hangs below the field. */
+.problem.under {
+  position: absolute;
+  top: 100%;
+  right: 12px;
+  z-index: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--error-line);
+  background: var(--error-bg);
 }
 
 .bar > * {

@@ -4,8 +4,25 @@ const BUSES = { usb: "USB", network: "Network" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
 const ROUTES = { native: ["Native driver", "set-native"], openrgb: ["OpenRGB", "set-openrgb"] };
 const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "Unsupported"] };
+const PRESETS = [
+  ["Red", "#FF0000"],
+  ["Orange", "#FF6A00"],
+  ["Yellow", "#FFD000"],
+  ["Green", "#00C850"],
+  ["Cyan", "#00C8FF"],
+  ["Blue", "#0050FF"],
+  ["Violet", "#963CFF"],
+  ["Pink", "#FF3CA0"],
+  ["White", "#FFFFFF"],
+  ["Black", "#000000"],
+];
 
 const lastUsed = {};
+const recent = [];
+try {
+  recent.push(...JSON.parse(localStorage.getItem("foxrgb.colours")).filter((c) => /^#[0-9A-F]{6}$/.test(c)).slice(0, 8));
+} catch {}
+let picker = null;
 let held = null;
 let pressed = 0;
 let pendingEffect = null;
@@ -25,8 +42,7 @@ document.addEventListener("pointerup", () => (held = null), true);
 document.addEventListener("pointercancel", () => (held = null), true);
 document.addEventListener("focusout", () => scheduleRender());
 
-const toHex = (c) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
-const fromHex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const toHex = (c) => ("#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")).toUpperCase();
 const plural = (n, word) => n.toLocaleString("en-GB") + " " + word + (n === 1 ? "" : "s");
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const words = (s) => sentence(s).replace(/_/g, " ");
@@ -50,20 +66,19 @@ function setState(node, mark, text) {
 
 function read(input) {
   if (input.type === "checkbox") return input.checked;
-  if (input.type === "color") return fromHex(input.value);
   if (input.type === "range" || input.type === "number") return Number(input.value);
   return input.value;
 }
 
 // A control the user is dragging or typing in keeps its own value.
 function busy(input) {
-  return input === held || (input === document.activeElement && /^(text|number|color)$/.test(input.type));
+  return input === held || (input === document.activeElement && /^(text|number)$/.test(input.type));
 }
 
 function put(input, value) {
   if (value === undefined || busy(input) || input.hasAttribute("aria-invalid")) return;
   if (input.type === "checkbox") input.checked = Boolean(value);
-  else input.value = input.type === "color" ? toHex(value) : value;
+  else if (input.type !== "button") input.value = value;
   if (input.show) input.show(value);
 }
 
@@ -82,37 +97,220 @@ function throttled(fn) {
   };
 }
 
-// Marks a field as wrong and says why, beside it when it has a line for that.
+// Marks a field as wrong and says why on its line: its own, or one it shares with its neighbours.
 function flag(input, problem) {
   if (problem) input.setAttribute("aria-invalid", "true");
   else input.removeAttribute("aria-invalid");
-  const line = $(input.id + "-problem");
-  if (line) {
-    setText(line, problem);
-    line.hidden = !problem;
-  } else if (problem) note(problem);
+  input.problem = problem;
+  const line = input.line || $(input.id + "-problem");
+  if (!line) return problem && note(problem);
+  line.fields = (line.fields || new Set()).add(input);
+  const first = [...line.fields].find((field) => field.isConnected && field.problem);
+  setText(line, first ? first.problem : "");
+  line.hidden = !first;
+}
+
+// Gives a field the line that explains a value it cannot use.
+function explain(input, line) {
+  input.line = line;
+  input.setAttribute("aria-describedby", line.id);
+}
+
+// Such a value stays in the field until it is put right. Escape puts the last good one back.
+function revert(input, restore) {
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !input.hasAttribute("aria-invalid")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    flag(input, "");
+    restore();
+  });
 }
 
 // Ties a slider to the number field beside it. A scale of 100 shows 0 to 1 as a percentage.
-function pair(range, box, scale, send) {
+function pair(range, box, scale, send, line) {
   const digits = (String(range.step * scale).split(".")[1] || "").length;
+  const what = box.getAttribute("aria-label").replace(" in per cent", "");
+  const shown = (value) => (value * scale).toFixed(digits);
   Object.assign(box, { min: range.min * scale, max: range.max * scale, step: range.step * scale });
+  if (line) explain(box, line);
   range.show = (value = Number(range.value)) => {
-    if (box !== document.activeElement) box.value = (value * scale).toFixed(digits);
+    if (box !== document.activeElement && !box.hasAttribute("aria-invalid")) box.value = shown(value);
   };
   range.oninput = () => {
+    flag(box, "");
     range.show();
     send(Number(range.value));
   };
   box.oninput = () => {
     const value = Number(Number(box.value).toFixed(digits));
     const ok = box.value !== "" && value >= box.min && value <= box.max;
-    flag(box, ok ? "" : `${box.getAttribute("aria-label")} must be from ${box.min} to ${box.max}.`);
+    flag(box, ok ? "" : `${what} must be from ${box.min} to ${box.max}${scale === 100 ? "%" : ""}.`);
     if (!ok) return;
     range.value = value / scale;
     send(value / scale);
   };
-  box.onblur = () => flag(box, "");
+  revert(box, () => (box.value = shown(Number(range.value))));
+}
+
+function toHsv([r, g, b]) {
+  const max = Math.max(r, g, b);
+  const span = max - Math.min(r, g, b);
+  let h = 0;
+  if (span) h = max === r ? (g - b) / span : max === g ? (b - r) / span + 2 : (r - g) / span + 4;
+  return [(h * 60 + 360) % 360, max ? (span / max) * 100 : 0, max / 2.55];
+}
+
+function fromHsv([h, s, v]) {
+  const part = (n) => {
+    const k = (n + h / 60) % 6;
+    return Math.round(v * 2.55 * (1 - (s / 100) * Math.max(0, Math.min(k, 4 - k, 1))));
+  };
+  return [part(5), part(3), part(1)];
+}
+
+// Three or six hex digits as a colour, or null.
+function fromHex(text) {
+  const digits = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text.trim());
+  if (!digits) return null;
+  const six = digits[1].length === 3 ? digits[1].replace(/./g, "$&$&") : digits[1];
+  return [0, 2, 4].map((i) => parseInt(six.slice(i, i + 2), 16));
+}
+
+// A slider track of flat blocks, one for each colour.
+function blocks(colours) {
+  const stop = (c, i) => `rgb(${c}) ${(i / colours.length) * 100}% ${((i + 1) / colours.length) * 100}%`;
+  return "linear-gradient(to right, " + colours.map(stop).join(", ") + ")";
+}
+
+// Colours picked earlier, newest first. Kept by the web view like the view options.
+function remember(rgb) {
+  const hex = toHex(rgb);
+  if (PRESETS.some(([, preset]) => preset === hex)) return;
+  recent.splice(0, recent.length, hex, ...recent.filter((c) => c !== hex).slice(0, 7));
+  try {
+    localStorage.setItem("foxrgb.colours", JSON.stringify(recent));
+  } catch {}
+}
+
+// A colour field: a swatch that opens sliders, a hex field and ready-made colours below its row.
+function colourField(param, id) {
+  const chip = el("span", { className: "chip" });
+  const code = el("span", { id: id + "-code" });
+  const button = el("button", { type: "button", className: "swatch", id }, chip, code);
+  const problem = el("p", { className: "problem", id: id + "-problem", hidden: true });
+  const hex = el("input", { type: "text", className: "hex", id: id + "-hex", maxLength: 7, autocomplete: "off", spellcheck: false });
+  const picks = el("div", { className: "swatches" });
+  const panel = el("div", { className: "picker", id: id + "-picker", hidden: true });
+  let rgb = null;
+  let hsv = [0, 0, 0];
+  let before = null;
+  let sentAt = 0;
+  let timer = 0;
+
+  // A colour chosen here. The app is told, and its echo is not taken as news for a moment.
+  const choose = (next, keep) => {
+    rgb = next;
+    if (!keep) hsv = toHsv(rgb);
+    sentAt = performance.now();
+    paint();
+    queueEffect(param.name, rgb);
+    clearTimeout(timer);
+    timer = setTimeout(scheduleRender, 350);
+  };
+
+  const sliders = [["Hue", 360], ["Saturation", 100], ["Brightness", 100]].map(([name, max], n) => {
+    const range = el("input", { type: "range", min: 0, max, step: 1, id: id + "-" + n });
+    const box = el("input", { type: "number", className: "exact" });
+    box.setAttribute("aria-label", name);
+    const set = (value) => {
+      hsv[n] = value;
+      choose(fromHsv(hsv), true);
+    };
+    pair(range, box, 1, set, problem);
+    panel.append(el("div", { className: "field range" }, el("label", { htmlFor: range.id, textContent: name }), range, box));
+    return range;
+  });
+
+  function paint() {
+    const text = toHex(rgb);
+    const [h, s, v] = hsv;
+    const steps = (count, at) => blocks(Array.from({ length: count }, (_, i) => fromHsv(at(((i + 0.5) / count) * 100))));
+    chip.style.background = text;
+    setText(code, text);
+    if (hex !== document.activeElement && !hex.hasAttribute("aria-invalid")) hex.value = text;
+    sliders.forEach((range, n) => {
+      range.value = Math.round(hsv[n]);
+      range.show();
+    });
+    sliders[0].style.setProperty("--track", steps(12, (k) => [k * 3.6, 100, 100]));
+    sliders[1].style.setProperty("--track", steps(8, (k) => [h, k, v]));
+    sliders[2].style.setProperty("--track", steps(8, (k) => [h, s, k]));
+    for (const radio of picks.querySelectorAll("input")) radio.checked = radio.value === text;
+  }
+
+  function fill() {
+    const pick = ([name, colour]) => {
+      const radio = el("input", { type: "radio", name: id + "-pick", value: colour });
+      const square = el("span", { className: "chip" });
+      radio.setAttribute("aria-label", name);
+      radio.onchange = () => choose(fromHex(colour));
+      square.style.background = colour;
+      return el("label", { className: "tile", title: name }, radio, square);
+    };
+    const row = (title, colours) => [el("span", { className: "meta", textContent: title }), el("div", { className: "tiles" }, ...colours.map(pick))];
+    picks.replaceChildren(...row("Presets", PRESETS), ...(recent.length ? row("Recent", recent.map((c) => [c, c])) : []));
+  }
+
+  function open(on) {
+    if (on === !panel.hidden || !rgb) return;
+    if (on && picker) picker.close();
+    picker = on ? { close: () => open(false) } : null;
+    if (on) fill();
+    else if (!same(before, rgb)) remember(rgb);
+    before = rgb;
+    for (const field of panel.querySelectorAll("[aria-invalid]")) flag(field, "");
+    panel.hidden = !on;
+    button.setAttribute("aria-expanded", on);
+    paint();
+  }
+
+  // Follows the app, except while a colour is being chosen here.
+  button.show = (value) => {
+    if (performance.now() - sentAt < 300 || panel.contains(held) || same(value, rgb)) return;
+    rgb = value;
+    if (!same(fromHsv(hsv), rgb)) hsv = toHsv(rgb);
+    paint();
+  };
+  button.onclick = () => open(panel.hidden);
+  button.dataset.param = param.name;
+  button.setAttribute("aria-expanded", "false");
+  button.setAttribute("aria-controls", panel.id);
+  button.setAttribute("aria-labelledby", id + "-label " + code.id);
+  hex.oninput = () => {
+    const typed = fromHex(hex.value);
+    flag(hex, typed ? "" : "Enter a colour as six hex digits, such as #FF6A00.");
+    if (typed) choose(typed);
+  };
+  hex.onblur = () => {
+    if (!hex.hasAttribute("aria-invalid")) hex.value = toHex(rgb);
+  };
+  explain(hex, problem);
+  revert(hex, () => (hex.value = toHex(rgb)));
+  picks.setAttribute("role", "radiogroup");
+  picks.setAttribute("aria-label", "Ready-made colours");
+  panel.append(el("div", { className: "field" }, el("label", { htmlFor: hex.id, textContent: "Hex" }), hex), problem, picks);
+  panel.setAttribute("role", "group");
+  panel.setAttribute("aria-labelledby", id + "-label");
+  const close = (e) => {
+    if (e.key !== "Escape" || panel.hidden) return;
+    e.preventDefault();
+    open(false);
+    button.focus();
+  };
+  button.addEventListener("keydown", close);
+  panel.addEventListener("keydown", close);
+  return el("div", { className: "field colour" }, el("label", { htmlFor: id, id: id + "-label", textContent: param.label }), button, panel);
 }
 
 function queueEffect(name, value) {
@@ -168,18 +366,18 @@ function filterEffects() {
 function paramRow(param) {
   const control = param.control;
   const id = "param-" + param.name;
+  if (control.type === "color") return colourField(param, id);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
   if (control.type === "range") {
     input = el("input", { type: "range", min: control.min, max: control.max, step: control.step });
     const box = el("input", { type: "number", className: "exact" });
     box.setAttribute("aria-label", param.label);
-    pair(input, box, 1, (value) => queueEffect(param.name, value));
+    pair(input, box, 1, (value) => queueEffect(param.name, value), $("params-problem"));
     row.classList.add("range");
     row.append(input, box);
   } else {
-    if (control.type === "color") input = el("input", { type: "color" });
-    else if (control.type === "toggle") input = el("input", { type: "checkbox", className: "switch" });
+    if (control.type === "toggle") input = el("input", { type: "checkbox", className: "switch" });
     else input = el("select", {}, ...(control.options || []).map((o) => el("option", { value: o, textContent: words(o) })));
     input.oninput = () => queueEffect(param.name, read(input));
     row.append(input);
@@ -211,7 +409,9 @@ function renderEffects(snap) {
   const paramKey = snap.effect.kind + JSON.stringify(params);
   if (box.dataset.key !== paramKey) {
     box.dataset.key = paramKey;
+    if (picker) picker.close();
     box.replaceChildren(...params.map(paramRow));
+    $("params-problem").hidden = true;
   }
   for (const input of box.querySelectorAll("[data-param]")) put(input, snap.effect[input.dataset.param]);
   $("params-empty").hidden = params.length > 0;
@@ -242,18 +442,24 @@ function deviceRow(device) {
   const level = el("input", { type: "range", min: 0, max: 1, step: 0.01, id: "device-level-" + ++rowCount });
   const box = el("input", { type: "number", className: "exact" });
   const reset = el("button", { type: "button", textContent: "Reset position" });
+  const problem = el("p", { className: "problem", id: "device-problem-" + rowCount, hidden: true });
   const send = throttled((change) => {
     const now = findDevice(device.id);
     if (now) call("set_device", { id: now.id, enabled: now.enabled, brightness: now.brightness, rect: now.rect, ...change });
   });
   const fields = ["X", "Y", "Width", "Height"].map((label, n) => {
     const input = el("input", { type: "number", className: "exact", min: 0, max: 100, step: 0.5 });
-    input.onchange = () => {
-      const now = findDevice(device.id);
+    const typed = () => {
       const value = input.value === "" ? NaN : input.value / 100;
       const ok = value >= 0 && value <= 1;
       flag(input, ok ? "" : label + " must be from 0 to 100.");
-      if (!now || !ok) return;
+      return ok ? value : null;
+    };
+    input.oninput = typed;
+    input.onchange = () => {
+      const now = findDevice(device.id);
+      const value = typed();
+      if (!now || value === null) return;
       // Only the field that was edited changes; the others show rounded values.
       const rect = now.rect.slice();
       rect[n] = value;
@@ -261,7 +467,11 @@ function deviceRow(device) {
       const h = clamp(rect[3], MIN_SIZE, 1);
       sendRect(now, [clamp(rect[0], 0, 1 - w), clamp(rect[1], 0, 1 - h), w, h]);
     };
-    input.onblur = () => flag(input, "");
+    explain(input, problem);
+    revert(input, () => {
+      const now = findDevice(device.id);
+      if (now) input.value = (rectOf(now)[n] * 100).toFixed(1);
+    });
     return el("label", { textContent: label }, input);
   });
   const place = fields.map((field) => field.lastChild);
@@ -270,7 +480,7 @@ function deviceRow(device) {
   on.onchange = () => send({ enabled: on.checked });
   on.setAttribute("aria-label", "Enable " + device.name);
   box.setAttribute("aria-label", "Brightness in per cent");
-  pair(level, box, 100, (brightness) => send({ brightness }));
+  pair(level, box, 100, (brightness) => send({ brightness }), problem);
   reset.onclick = () => resetPosition(device.id);
 
   const details = el(
@@ -286,6 +496,7 @@ function deviceRow(device) {
     ),
     el("p", { className: "meta", textContent: "Position and size, in % of the canvas" }),
     el("div", { className: "place" }, ...fields),
+    problem,
     el("div", { className: "actions" }, reset),
   );
   const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, status, on), details);
