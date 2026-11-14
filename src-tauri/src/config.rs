@@ -162,6 +162,13 @@ mod tests {
         assert!(webview_dir().starts_with(dir()));
     }
 
+    // The setup program takes its version from tauri.conf.json, the binaries from Cargo.toml.
+    #[test]
+    fn the_setup_program_and_the_binaries_carry_one_version() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["version"], env!("CARGO_PKG_VERSION"));
+    }
+
     #[test]
     fn saves_and_loads() {
         let dir = scratch("roundtrip");
