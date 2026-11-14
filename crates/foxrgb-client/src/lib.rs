@@ -103,6 +103,7 @@ struct Worker {
 
 /// Talks to the service over one connection, opened when needed and again after it breaks.
 pub struct Client {
+    pipe: String,
     worker: Mutex<Worker>,
     timeout: Duration,
 }
@@ -111,14 +112,15 @@ impl Client {
     /// No call waits longer than `timeout` for its answer, whatever the service does.
     pub fn new(pipe: &str, timeout: Duration) -> Client {
         let (jobs, queue) = mpsc::channel::<Job>();
-        let pipe = pipe.to_string();
+        let name = pipe.to_string();
         thread::spawn(move || {
             let mut conn = None;
             for job in queue {
-                let _ = job.reply.send(talk(&pipe, &mut conn, &job.line));
+                let _ = job.reply.send(talk(&name, &mut conn, &job.line));
             }
         });
         Client {
+            pipe: pipe.to_string(),
             worker: Mutex::new(Worker { jobs, late: None }),
             timeout,
         }
@@ -144,8 +146,17 @@ impl Client {
     }
 
     /// Asks a service run from a console to release the fans and exit. An installed one refuses.
+    /// Sent on a connection of its own: an answer the service still owes must not keep the
+    /// request to stop from reaching it.
     pub fn shutdown(&self) -> Result<(), String> {
-        self.ask::<IgnoredAny>(&Request::Shutdown).map(drop)
+        let line = serde_json::to_string(&Request::Shutdown).map_err(|e| e.to_string())?;
+        let (reply, answer) = mpsc::channel();
+        let pipe = self.pipe.clone();
+        thread::spawn(move || reply.send(talk(&pipe, &mut None, &line)));
+        let line = answer
+            .recv_timeout(self.timeout)
+            .map_err(|_| SILENT.to_string())??;
+        verdict::<IgnoredAny>(&line).map(drop)
     }
 
     /// Never fails: a service that is missing or misbehaving is a state of its own.
@@ -174,14 +185,7 @@ impl Client {
 
     fn ask<T: DeserializeOwned>(&self, request: &Request) -> Result<T, String> {
         let line = self.exchange(serde_json::to_string(request).map_err(|e| e.to_string())?)?;
-        let odd = |e| format!("the service sent a reply that makes no sense: {e}");
-        let verdict: Verdict = serde_json::from_str(&line).map_err(odd)?;
-        if !verdict.ok {
-            return Err(verdict
-                .error
-                .unwrap_or_else(|| "the service refused the request".into()));
-        }
-        serde_json::from_str(&line).map_err(odd)
+        verdict(&line)
     }
 
     fn exchange(&self, line: String) -> Reply {
@@ -205,6 +209,18 @@ impl Client {
             }
         }
     }
+}
+
+/// What a reply line holds, or the service's reason for refusing.
+fn verdict<T: DeserializeOwned>(line: &str) -> Result<T, String> {
+    let odd = |e| format!("the service sent a reply that makes no sense: {e}");
+    let verdict: Verdict = serde_json::from_str(line).map_err(odd)?;
+    if !verdict.ok {
+        return Err(verdict
+            .error
+            .unwrap_or_else(|| "the service refused the request".into()));
+    }
+    serde_json::from_str(line).map_err(odd)
 }
 
 /// The id of the process that serves `pipe`, if one does.

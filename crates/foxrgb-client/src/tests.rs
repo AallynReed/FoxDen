@@ -355,6 +355,35 @@ fn a_silent_service_cannot_hold_a_call_past_the_timeout() {
 }
 
 #[test]
+fn a_shutdown_gets_through_while_another_answer_is_owed() {
+    let stopped = Arc::new(AtomicBool::new(false));
+    let seen = stopped.clone();
+    let pipe = serve("stop", move |mut peer| {
+        while let Some(line) = peer.read() {
+            if line.contains("shutdown") {
+                seen.store(true, Ordering::Relaxed);
+                peer.write(r#"{"ok":true}"#);
+            }
+            // Anything else is never answered.
+        }
+    });
+    let client = Client::new(&pipe, QUICK);
+    assert_eq!(client.status(), Err(SILENT.into()));
+    assert_eq!(client.set_sim(true), Err(SILENT.into()));
+    assert_eq!(client.shutdown(), Ok(()));
+    assert!(stopped.load(Ordering::Relaxed));
+}
+
+#[test]
+fn a_shutdown_that_is_never_answered_gives_up_in_time() {
+    let pipe = serve("deaf", |mut peer| while peer.read().is_some() {});
+    let client = Client::new(&pipe, QUICK);
+    let start = Instant::now();
+    assert_eq!(client.shutdown(), Err(SILENT.into()));
+    assert!(start.elapsed() < QUICK * 6, "{:?}", start.elapsed());
+}
+
+#[test]
 fn an_answer_that_comes_late_is_not_taken_for_the_next_one() {
     let held = Arc::new(AtomicBool::new(true));
     let gate = held.clone();
