@@ -30,7 +30,8 @@ The setup program has been built this way. It has never been run.
 The first line keeps your user folder, and with it your Windows user name, out of the binaries.
 Without it they contain the paths of the dependency sources under `%USERPROFILE%\.cargo`.
 
-`.github/workflows/build.yml` builds the same installer on GitHub, on a manual run or a `v*` tag.
+`.github/workflows/build.yml` builds the same installer on GitHub. It only runs when started by
+hand, from the Actions tab or with `gh workflow run build.yml`.
 
 ## The two config files
 
