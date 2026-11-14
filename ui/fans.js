@@ -1006,7 +1006,7 @@
       ui.nowMark.setAttribute("transform", "translate(" + x + "," + py(asked) + ")");
       setText(ui.now, hot.name + " is at " + reading(hot.value) + ", so the curve asks for " + percent(asked) + ".");
     } else {
-      setText(ui.now, gone.length ? sentence(silent(gone)) + ", so fans on this curve run at full speed." : "No sensor chosen.");
+      setText(ui.now, gone.length ? "Fans on this curve run at full speed, because " + silent(gone) + "." : "No sensor chosen.");
     }
   }
 
