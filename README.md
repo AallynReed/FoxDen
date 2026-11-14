@@ -1,5 +1,7 @@
 # FoxRGB
 
+[![Discord](https://img.shields.io/badge/Discord-Foxhearth-5865F2?logo=discord&logoColor=white)](https://discord.gg/VGTaqW3vwn)
+
 Free lighting and fan control for Windows, written in Rust. Standalone: it drives the hardware
 with its own drivers, with nothing else to install.
 
