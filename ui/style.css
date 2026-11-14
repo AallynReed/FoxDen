@@ -883,11 +883,42 @@ dialog.sheet::backdrop {
   width: min(560px, calc(100vw - 32px));
 }
 
+/* The list scrolls; its title and the buttons stay in view. */
+#help-sheet[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.keys {
+  min-height: 0;
+  margin: 12px -16px 0;
+  padding: 0 16px 12px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.keys:focus-visible {
+  outline-offset: -2px;
+}
+
+.sheet h3 {
+  margin: 12px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
 .sheet dl {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 184px minmax(0, 1fr);
   gap: 2px 16px;
-  margin: 12px 0;
+  margin: 0;
+}
+
+.keys .hint {
+  margin-top: 12px;
 }
 
 .sheet dt {

@@ -174,37 +174,58 @@
 
     <dialog class="sheet" id="help-sheet" aria-labelledby="help-title">
       <h2 id="help-title">Keyboard shortcuts</h2>
-      <dl>
-        <dt>Ctrl+Z</dt>
-        <dd>Undo the last effect, brightness, device or layout change</dd>
-        <dt>Ctrl+Y</dt>
-        <dd>Redo it. Ctrl+Shift+Z does the same</dd>
-        <dt>Ctrl+S</dt>
-        <dd>Save over the profile in use, or name a new one</dd>
-        <dt>Ctrl+F</dt>
-        <dd>Search effects</dd>
-        <dt>Space</dt>
-        <dd>Pause or resume</dd>
-        <dt>[ and ]</dt>
-        <dd>Select the previous or next device</dd>
-        <dt>Arrow keys</dt>
-        <dd>Move the selected device by 1% of the canvas</dd>
-        <dt>Ctrl+arrow keys</dt>
-        <dd>Move it by 5%</dd>
-        <dt>Shift+arrow keys</dt>
-        <dd>Resize it by 1%</dd>
-        <dt>Ctrl+Shift+arrow keys</dt>
-        <dd>Resize it by 5%</dd>
-        <dt>G</dt>
-        <dd>Snap to grid on or off</dd>
-        <dt>L</dt>
-        <dd>Show or hide labels on the canvas</dd>
-        <dt>Esc</dt>
-        <dd>Deselect the device</dd>
-        <dt>?</dt>
-        <dd>Show this list</dd>
-      </dl>
-      <p class="hint">Space and the arrow keys act on the canvas while it has focus or no control does. The other single keys work anywhere except in a text field or a drop-down list.</p>
+      <div class="keys" tabindex="0" role="group" aria-labelledby="help-title">
+        <h3>Anywhere</h3>
+        <dl>
+          <dt>Ctrl+Z</dt>
+          <dd>Undo the last effect, brightness, device or layout change</dd>
+          <dt>Ctrl+Y</dt>
+          <dd>Redo it. Ctrl+Shift+Z does the same</dd>
+          <dt>Ctrl+S</dt>
+          <dd>Save over the profile in use, or name a new one</dd>
+          <dt>Ctrl+F</dt>
+          <dd>Search effects</dd>
+          <dt>?</dt>
+          <dd>Show this list</dd>
+        </dl>
+        <h3>While the Fans tab is open</h3>
+        <dl>
+          <dt>Ctrl+S</dt>
+          <dd>Apply the fan changes instead</dd>
+          <dt>Ctrl+Z</dt>
+          <dd>Undo the last fan edit instead</dd>
+          <dt>Arrow keys</dt>
+          <dd>Move the focused curve point by 1 °C or 1%</dd>
+          <dt>Shift+arrow keys</dt>
+          <dd>Move it by 5</dd>
+          <dt>Delete</dt>
+          <dd>Remove the focused curve point</dd>
+        </dl>
+        <h3>Canvas</h3>
+        <dl>
+          <dt>Space</dt>
+          <dd>Pause or resume</dd>
+          <dt>[ and ]</dt>
+          <dd>Select the previous or next device</dd>
+          <dt>Arrow keys</dt>
+          <dd>Move the selected device by 1% of the canvas</dd>
+          <dt>Ctrl+arrow keys</dt>
+          <dd>Move it by 5%</dd>
+          <dt>Shift+arrow keys</dt>
+          <dd>Resize it by 1%</dd>
+          <dt>Ctrl+Shift+arrow keys</dt>
+          <dd>Resize it by 5%</dd>
+          <dt>Alt while dragging</dt>
+          <dd>Ignore the grid</dd>
+          <dt>G</dt>
+          <dd>Snap to grid on or off</dd>
+          <dt>L</dt>
+          <dd>Show or hide labels on the canvas</dd>
+          <dt>Esc</dt>
+          <dd>Deselect the device</dd>
+        </dl>
+        <p class="hint">Space and the arrow keys act on the canvas while it has focus or no control does. The other single keys work anywhere except in a text field or a drop-down list.</p>
+      </div>
       <form method="dialog" class="actions">
         <button type="submit">Close</button>
         <label class="check" title="Space, [, ], G, L and ?"><input type="checkbox" id="view-keys" />Single-key shortcuts</label>

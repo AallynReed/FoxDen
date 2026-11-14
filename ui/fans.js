@@ -4,6 +4,8 @@
   if (!root || !window.__TAURI__) return;
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
+  // The status bar's passing line, from main.js.
+  const tell = window.note;
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const T_MIN = 20;
@@ -181,7 +183,7 @@
     hold();
   }
 
-  // Keeps focus in the tab when the control that had it has gone, so that Ctrl+Z still lands here.
+  // Keeps focus in the tab when the control that had it has gone.
   function hold() {
     const active = document.activeElement;
     if (!root.contains(active) || !active.checkVisibility()) (ui.bar.hidden ? ui.views.querySelector(":checked") : ui.undo).focus();
@@ -670,7 +672,7 @@
     ui.save.setAttribute("role", "status");
     ui.apply = button("Apply", "primary");
     ui.revert = button("Revert");
-    ui.undo = button("Undo");
+    ui.undo = button("Undo edit");
     ui.apply.title = "Ctrl+S";
     ui.apply.setAttribute("aria-keyshortcuts", "Control+S");
     ui.undo.title = "Ctrl+Z";
@@ -1168,24 +1170,24 @@
   buildBar();
   root.replaceChildren(ui.views, ui.status, ui.curves, ui.rules, ui.bar);
 
-  root.addEventListener("keydown", (e) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
-    const key = e.key.toLowerCase();
-    const typing = /^(text|number)$/.test(e.target.type);
-    if (key === "s") {
-      e.preventDefault();
+  // Ctrl+S and Ctrl+Z while this tab is shown. main.js sends them here, wherever the focus is.
+  window.fanKeys = {
+    apply(target) {
       // What is being typed goes in first. When it could not be taken as typed, nothing is sent.
-      if (typing) {
+      if (root.contains(target) && /^(text|number)$/.test(target.type)) {
         problem = null;
-        e.target.dispatchEvent(new Event("change"));
+        target.dispatchEvent(new Event("change"));
         if (problem) return;
       }
+      if (live.service !== "running") tell(edited() ? "Start the service to apply the fan changes" : "No fan changes to apply");
+      else if (!edited()) tell("No fan changes to apply");
       apply();
-    } else if (key === "z" && !typing) {
-      e.preventDefault();
+    },
+    undo() {
+      if (!past.length) tell("No fan edit to undo");
       undo();
-    }
-  });
+    },
+  };
   // A config that arrived while a field had focus is taken up once the field is left.
   root.addEventListener("focusout", () =>
     setTimeout(() => {

@@ -215,6 +215,11 @@ function showTab(tab) {
     t.tabIndex = on ? 0 : -1;
     $(t.getAttribute("aria-controls")).hidden = !on;
   }
+  // In the Fans tab Ctrl+Z and Ctrl+Y belong to the fan draft; these buttons keep to the lighting.
+  for (const [id, keys] of [["undo", "Control+Z"], ["redo", "Control+Y"]]) {
+    if (tab.id === "tab-fans") $(id).removeAttribute("aria-keyshortcuts");
+    else $(id).setAttribute("aria-keyshortcuts", keys);
+  }
   scheduleRender();
 }
 
@@ -263,13 +268,16 @@ function onShortcut(e) {
   if (ARROWS[e.key]) {
     if (loose) onKeyDown(e);
   } else if (e.ctrlKey || e.metaKey) {
-    // The Fans tab keeps its own undo history.
-    if ((key === "z" || key === "y") && !typing(t) && !t.closest("#panel-fans")) {
+    // While the Fans tab is shown these keys act on its draft, wherever the focus is.
+    const fans = !$("panel-fans").hidden && window.fanKeys;
+    if ((key === "z" || key === "y") && !typing(t)) {
       e.preventDefault();
-      step(key === "y" || e.shiftKey ? 1 : -1);
+      if (!fans) step(key === "y" || e.shiftKey ? 1 : -1);
+      else if (key === "z" && !e.shiftKey) fans.undo();
     } else if (key === "s") {
       e.preventDefault();
-      saveShortcut();
+      if (fans) fans.apply(t);
+      else saveShortcut();
     } else if (key === "f") {
       e.preventDefault();
       showTab($("tab-effects"));
