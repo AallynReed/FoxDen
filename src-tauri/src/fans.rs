@@ -55,6 +55,10 @@ pub fn start(app: &AppHandle) {
         eprintln!("fans: {e}");
     }
     thread::spawn(|| {
+        // A record that names no running service is from a run that was killed after its service went.
+        if !left_behind() {
+            let _ = fs::remove_file(record());
+        }
         loop {
             poll(false);
             thread::sleep(Duration::from_secs(1));
@@ -125,8 +129,9 @@ fn start_child() -> Result<(), String> {
     }
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("foxrgb-service.exe");
+    // Told who started it, the service hands the fans back and exits even when the app is killed.
     let mut service = Command::new(&exe)
-        .arg("run")
+        .args(["run", "--parent", &std::process::id().to_string()])
         .env("FOXRGB_DATA_DIR", config::dir().join("service"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())

@@ -45,8 +45,9 @@ The installer copies `foxrgb-service.exe` and does nothing else with it. Registe
 Windows service stays a manual step from an elevated prompt. Do not register it from the per-user
 folder: a service running as LocalSystem must not start from a directory the user can write to.
 
-Quit FoxRGB from its tray menu before updating or uninstalling. The installer only looks for a
-running `foxrgb.exe`; a service the app started can outlive it and keep `foxrgb-service.exe` in use.
+Quit FoxRGB from its tray menu before updating or uninstalling. A service the app started stops
+when the app does, however the app was closed, but it needs a moment to hand the fans back, and
+until then `foxrgb-service.exe` is in use. The installer only looks for a running `foxrgb.exe`.
 
 Uninstalling leaves `%APPDATA%\com.foxrgb.desktop`, where the settings, the profiles, the web view's
 data and the files of a service the app started are, unless "Delete the application data" is ticked.
