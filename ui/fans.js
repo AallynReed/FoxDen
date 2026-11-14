@@ -48,6 +48,7 @@
   const output = (fan) => (fan.duty == null ? "" : percent(fan.duty) + " · ") + speed(fan.rpm);
   const message = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
   const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const quoted = (name) => '"' + name + '"';
   const list = new Intl.ListFormat("en-GB", { type: "conjunction" });
 
   function el(tag, props, ...children) {
@@ -400,8 +401,31 @@
     render();
   }
 
+  // What the service would refuse in the draft, with the control that puts it right.
+  function fault() {
+    const bare = draft.curves.findIndex((c) => !c.sensors.length);
+    if (bare >= 0) {
+      return { view: "curves", curve: bare, text: "Curve " + quoted(draft.curves[bare].name) + " has no sensor. Choose at least one.", target: () => ui.choices.querySelector("input") || ui.name };
+    }
+    const rule = draft.rules.find((r) => r.min_duty > r.max_duty);
+    if (!rule) return null;
+    const card = () => [...ui.ruleList.children].find((c) => c.fan === rule.fan);
+    return { view: "rules", text: fanName(rule.fan) + ": the minimum must not be above the maximum.", target: () => card() && card().parts.min };
+  }
+
   async function apply() {
     if (!edited() || pending || live.service !== "running") return;
+    // Nothing is sent while the draft has a fault this tab can see. The key or button leads to it instead.
+    const wrong = fault();
+    if (wrong) {
+      if (wrong.curve !== undefined) chosen = wrong.curve;
+      go(wrong.view);
+      problem = { where: "apply", text: "Not applied. " + wrong.text, rejected: true };
+      render();
+      const target = wrong.target();
+      if (target) target.focus();
+      return;
+    }
     const sent = pack(draft);
     pending = "apply";
     problem = null;
@@ -419,10 +443,35 @@
     render();
   }
 
+  // The service's reasons for refusing a config, in the words and units of this tab.
+  const REFUSALS = [
+    [/^curve name '(.*)' is used more than once$/, (c) => "Two curves are called " + quoted(c) + ". Give one of them another name."],
+    [/^curve '(.*)' has no sensors$/, (c) => "Curve " + quoted(c) + " has no sensor. Choose at least one."],
+    [/^curve '(.*)' has no points$/, (c) => "Curve " + quoted(c) + " has no points. Add at least one."],
+    [/^curve '(.*)' has a point that is not a finite number$/, (c) => "A point of curve " + quoted(c) + " is not a number."],
+    [/^curve '(.*)' has a duty outside 0 to 1$/, (c) => "A duty of curve " + quoted(c) + " is outside 0 to 100%."],
+    [/^curve '(.*)' points must be sorted by rising temperature$/, (c) => "Each point of curve " + quoted(c) + " must be hotter than the one before it."],
+    [/^curve '(.*)' hysteresis must be from 0 to 30$/, (c) => "The hysteresis of curve " + quoted(c) + " must be from 0 to 30 °C."],
+    [/^fan '(.*)' has more than one rule$/, (f) => fanName(f) + " has more than one rule."],
+    [/^fan '(.*)' uses unknown curve '(.*)'$/, (f, c) => fanName(f) + " follows " + quoted(c) + ", which is not among the curves."],
+    [/^fan '(.*)' needs duties from 0 to 1, /, (f) => fanName(f) + ": the minimum must not be above the maximum, and both must be from 0 to 100%."],
+    [/^fan '(.*)' ramp must be /, (f) => fanName(f) + ": the ramp must be at least 1% per second."],
+  ];
+  const UNSAVED = "The changes are in use, but the service could not save them. They will be gone when it starts again.";
+
+  function plain(text) {
+    // The one refusal that comes after the config has taken effect.
+    if (text.startsWith("config applied")) return UNSAVED;
+    for (const [pattern, say] of REFUSALS) {
+      const found = pattern.exec(text);
+      if (found) return "Not applied. " + say(...found.slice(1));
+    }
+    return "Not applied. " + sentence(text) + ".";
+  }
+
   // Puts the service's objection beside the control it is about and goes there.
   function reject(text) {
-    // The one refusal that comes after the config has taken effect.
-    const said = (text.startsWith("config applied") ? "" : "Not applied: ") + text;
+    const said = plain(text);
     const longest = (a, b) => b.length - a.length;
     const fan = ruleFans()
       .map((f) => f.id)
@@ -879,7 +928,7 @@
       { className: "fan-card" },
       el("div", { className: "fan-card-head" }, name, tag, now),
       wrong,
-      el("div", { className: "field" }, el("label", { htmlFor: curve.id, textContent: "Curve" }), curve),
+      el("div", { className: "fields" }, el("label", { htmlFor: curve.id, textContent: "Curve" }), curve),
       el(
         "div",
         { className: "fan-trio" },
@@ -1020,6 +1069,7 @@
       const { radio, name, tag } = ui.curveList.children[i].parts;
       radio.checked = i === chosen;
       setText(name, curve.name);
+      name.title = curve.name;
       const was = saved.curves.find((c) => c.name === curve.name);
       setText(tag, !was ? "New" : JSON.stringify(was) !== JSON.stringify(curve) ? "Edited" : "");
     });
@@ -1103,6 +1153,8 @@
       setText(parts.now, fan.live ? output(fan.live) : "not connected");
       say(parts.wrong, fan.live ? trouble(fan.live) : "");
       if (document.activeElement !== parts.curve) parts.curve.value = rule ? rule.curve : "";
+      // A long curve name is cut short in the list, so it is also the tooltip.
+      parts.curve.title = rule ? rule.curve : "";
       for (const [input, value] of [[parts.min, rule ? rule.min_duty : 0], [parts.max, rule ? rule.max_duty : 1], [parts.ramp, rule ? rule.ramp : 0.2]]) {
         input.disabled = !rule;
         if (document.activeElement !== input) input.value = trim(value * 100);

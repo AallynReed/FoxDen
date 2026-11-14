@@ -100,10 +100,14 @@
   border-bottom: 1px solid var(--line);
 }
 
+#panel-fans select {
+  width: 100%;
+  max-width: none;
+}
+
 .fan-rows .name,
 .fan-curves .name,
-.fan-check .name,
-.fan-card-head .name {
+.fan-check .name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -373,19 +377,28 @@
   border: 1px solid var(--line);
 }
 
+/* The name has a line to itself and wraps; the tag and the reading share the next one. */
 .fan-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: 2px 8px;
 }
 
 .fan-card-head .name {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
   font-weight: 600;
 }
 
 .fan-card-head .fan-num {
+  margin-left: auto;
   color: var(--muted);
   font-size: 12px;
+}
+
+.fan-card .fields {
+  gap: 4px;
 }
 
 .fan-trio {

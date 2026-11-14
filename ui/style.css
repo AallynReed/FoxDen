@@ -518,6 +518,23 @@ input.switch::after {
   border-left: 3px solid transparent;
 }
 
+.pick .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A word that says what state a row is in. */
+.tag {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
 .pick:hover {
   background: var(--hover);
 }
@@ -668,27 +685,32 @@ input.switch::after {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
+  min-height: 36px;
   padding: 0 10px 0 0;
 }
 
+/* A name too long for its row wraps, so the tag beside it never hides part of it. */
 .device-head .name {
   flex: 1;
   align-self: stretch;
   min-width: 0;
   height: auto;
-  padding: 0 0 0 12px;
-  overflow: hidden;
+  padding: 7px 0 7px 12px;
   border: 0;
   background: none;
+  overflow-wrap: anywhere;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .device.selected .name {
   padding-left: 10px;
   font-weight: 600;
+}
+
+.device .tag {
+  padding: 0 4px;
+  border: 1px solid var(--stroke);
 }
 
 .device-head .name:hover {

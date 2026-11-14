@@ -1,4 +1,4 @@
-const BACKENDS = { virtual: "Virtual", openrgb: "OpenRGB", hid: "Native HID", audio: "Audio capture", screen: "Screen capture" };
+const BACKENDS = { virtual: "Simulated", openrgb: "OpenRGB", hid: "Native HID", audio: "Audio capture", screen: "Screen capture" };
 const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
@@ -44,6 +44,7 @@ document.addEventListener("focusout", () => scheduleRender());
 
 const toHex = (c) => ("#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")).toUpperCase();
 const plural = (n, word) => n.toLocaleString("en-GB") + " " + word + (n === 1 ? "" : "s");
+const simulated = (device) => device.backend === "virtual";
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const words = (s) => sentence(s).replace(/_/g, " ");
 
@@ -352,15 +353,38 @@ function randomise() {
   call("set_effect", { effect });
 }
 
+// The effect in use stays listed and says so, so that the list always has a row to tab to.
 function filterEffects() {
   const q = $("effect-search").value.trim().toLowerCase();
+  const kind = state.snap && state.snap.effect.kind;
   let shown = 0;
   for (const pick of $("effect-list").children) {
-    pick.hidden = !pick.textContent.toLowerCase().includes(q);
-    if (!pick.hidden) shown++;
+    const { radio, label, tag } = pick.parts;
+    const match = label.textContent.toLowerCase().includes(q);
+    pick.hidden = !match && radio.value !== kind;
+    tag.hidden = match;
+    if (match) shown++;
   }
-  $("effect-list").hidden = !shown;
   $("effect-none").hidden = shown > 0;
+}
+
+// Arrow down goes from the search into the list, Enter takes its first match.
+function searchKey(e) {
+  const search = $("effect-search");
+  if (e.key === "Escape" && search.value) {
+    search.value = "";
+    filterEffects();
+  } else if (e.key === "ArrowDown" || (e.key === "Enter" && search.value.trim())) {
+    const rows = [...$("effect-list").children].filter((pick) => !pick.hidden);
+    const found = rows.filter((pick) => pick.parts.tag.hidden);
+    const used = e.key === "ArrowDown" && found.find((pick) => pick.parts.radio.checked);
+    const row = used || found[0] || rows[0];
+    if (!row) return;
+    e.preventDefault();
+    if (e.key === "ArrowDown") row.parts.radio.focus();
+    // As with the arrow keys inside the list, going to an effect chooses it.
+    row.parts.radio.click();
+  }
 }
 
 function paramRow(param) {
@@ -395,13 +419,15 @@ function renderEffects(snap) {
     list.replaceChildren(
       ...snap.catalog.map((info) => {
         const radio = el("input", { type: "radio", name: "effect", value: info.default.kind });
+        const label = el("span", { className: "name", textContent: info.label });
+        const tag = el("span", { className: "tag", textContent: "In use", hidden: true });
         radio.onchange = () => chooseEffect(radio.value);
-        return el("label", { className: "pick" }, radio, el("span", { textContent: info.label }));
+        return Object.assign(el("label", { className: "pick" }, radio, label, tag), { parts: { radio, label, tag } });
       }),
     );
-    filterEffects();
   }
   for (const radio of list.querySelectorAll("input")) radio.checked = radio.value === snap.effect.kind;
+  filterEffects();
 
   const box = $("params");
   const info = currentInfo();
@@ -499,7 +525,9 @@ function deviceRow(device) {
     problem,
     el("div", { className: "actions" }, reset),
   );
-  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, status, on), details);
+  // The preview devices are not hardware, and every row of one says so.
+  const tag = el("span", { className: "tag", textContent: "Simulated", hidden: !simulated(device) });
+  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, tag, status, on), details);
   row.parts = { name, status, on, level, meta, place, details };
   return row;
 }
@@ -791,11 +819,7 @@ function wirePanels() {
 
   const search = $("effect-search");
   search.oninput = filterEffects;
-  search.onkeydown = (e) => {
-    if (e.key !== "Escape" || !search.value) return;
-    search.value = "";
-    filterEffects();
-  };
+  search.onkeydown = searchKey;
   $("effect-reset").onclick = () => currentInfo() && call("set_effect", { effect: currentInfo().default });
   $("effect-random").onclick = randomise;
   $("effect-copy").onclick = copyEffect;

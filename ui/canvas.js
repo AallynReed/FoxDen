@@ -108,9 +108,14 @@ function drawDevice(ctx, device) {
   }
   ctx.globalAlpha = 1;
 
+  // A simulated device has a broken outline, and says so in its label where that fits.
   ctx.strokeStyle = selected ? PAINT.accent : hovered ? PAINT.text : PAINT.stroke;
+  ctx.setLineDash(simulated(device) ? [4, 3] : []);
   ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
-  const label = device.enabled ? device.name : device.name + " (off)";
+  ctx.setLineDash([]);
+  const off = device.enabled ? "" : " (off)";
+  const full = simulated(device) ? device.name + (device.enabled ? " (simulated)" : " (simulated, off)") : device.name + off;
+  const label = selected || hovered || labelWidth(ctx, full) <= w ? full : device.name + off;
   if (selected || hovered || (view.labels && labelWidth(ctx, label) <= w)) {
     ctx.fillStyle = selected || hovered ? PAINT.text : PAINT.muted;
     ctx.fillText(label, x, y - 5);

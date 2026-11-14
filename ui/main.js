@@ -42,10 +42,14 @@ async function call(name, args) {
 
 function renderStatus(snap) {
   const leds = snap.devices.reduce((n, d) => n + d.leds.length, 0);
+  const sim = snap.devices.filter(simulated).length;
+  const all = snap.devices.length;
   const broken = snap.backends.filter((b) => b.error);
   const profile = snap.active_profile || (lastProfile && lastProfile + ", edited");
+  // Says when the count is not hardware, or not all of it.
+  const count = sim && sim === all ? plural(sim, "simulated device") : plural(all, "device") + (sim ? ", " + sim + " simulated" : "");
   setState($("st-state"), snap.paused ? "off" : "on", snap.paused ? "Paused" : "Running");
-  setText($("st-count"), plural(snap.devices.length, "device") + ", " + plural(leds, "LED"));
+  setText($("st-count"), count + ", " + plural(leds, "LED"));
   setText($("st-profile"), profile ? "Profile " + profile : "No profile");
   $("st-profile").title = profile || "";
   $("st-problem").hidden = !broken.length;
