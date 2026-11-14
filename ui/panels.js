@@ -108,8 +108,9 @@ function flag(input, problem) {
     if (problem) note(problem);
     return;
   }
-  line.fields = (line.fields || new Set()).add(input);
-  const first = [...line.fields].find((field) => field.isConnected && field.problem);
+  // Fields of an effect that is no longer shown drop out here.
+  line.fields = new Set([...(line.fields || []), input].filter((field) => field.isConnected));
+  const first = [...line.fields].find((field) => field.problem);
   setText(line, first ? first.problem : "");
   line.hidden = !first;
 }
