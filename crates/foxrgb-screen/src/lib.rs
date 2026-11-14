@@ -287,9 +287,9 @@ mod tests {
         thread::sleep(INTERVAL * 10);
         let late = gdi_objects();
         drop(capture);
-        // One more is the screen DC of a grab in progress.
+        // Two more are the screen DC and bitmap of a grab in progress.
         assert!(
-            late <= early + 1,
+            late <= early + 2,
             "GDI objects went from {early} to {late} while capturing"
         );
     }
