@@ -10,7 +10,7 @@ mod tray;
 
 use std::sync::{Arc, Mutex};
 
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 
 use state::{AppState, Shared, lock};
 
@@ -22,6 +22,10 @@ fn main() {
         .manage(shared.clone())
         .setup(|app| {
             let handle = app.handle();
+            // Made here and not by Tauri, so that the web view's data goes where the rest does.
+            for window in &app.config().app.windows {
+                WebviewWindowBuilder::from_config(handle, window)?.data_directory(config::webview_dir()).build()?;
+            }
             let shared = app.state::<Shared>().inner().clone();
             let settings = lock(&shared).config.settings.clone();
             tray::create(handle)?;

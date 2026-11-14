@@ -100,12 +100,20 @@ fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(d: D) -> Re
     Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
-/// `FOXRGB_CONFIG_DIR` if set, otherwise `%APPDATA%\FoxRGB`.
+/// The app's identifier. The uninstaller's "delete application data" box removes the folder of that name.
+const FOLDER: &str = "com.foxrgb.desktop";
+
+/// Where everything the app keeps goes: `FOXRGB_CONFIG_DIR` if set, otherwise `%APPDATA%\com.foxrgb.desktop`.
 pub fn dir() -> PathBuf {
     match std::env::var_os("FOXRGB_CONFIG_DIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join("FoxRGB"),
+        _ => PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join(FOLDER),
     }
+}
+
+/// The web view's own data. Left to itself it would go to a second folder that `FOXRGB_CONFIG_DIR` does not move.
+pub fn webview_dir() -> PathBuf {
+    dir().join("webview")
 }
 
 /// Never fails: a missing file gives the defaults, a corrupt one is renamed aside first.
@@ -143,6 +151,15 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn the_folder_has_the_name_the_uninstaller_removes() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["identifier"], FOLDER);
+        // The window is made in main.rs, which gives the web view its folder.
+        assert_eq!(conf["app"]["windows"][0]["create"], false);
+        assert!(webview_dir().starts_with(dir()));
     }
 
     #[test]

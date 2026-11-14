@@ -57,8 +57,10 @@ runs from, and `cargo run -p foxrgb` alone does not build it. The app starts the
 ordinary program for the session, needs no administrator rights for that, and stops it when it
 quits.
 
-Settings are kept in `%APPDATA%\FoxRGB\config.json`, and the files of a service the app started in
-a `service` folder beside it. Set `FOXRGB_CONFIG_DIR` to use another folder.
+Everything the app keeps is in `%APPDATA%\com.foxrgb.desktop`: the settings and profiles in
+`config.json`, the files of a service the app started in `service`, and the web view's own data,
+which holds the view options, in `webview`. Set `FOXRGB_CONFIG_DIR` to use another folder for all
+of it.
 
 The service also runs by hand, with `--sim` to start with simulated fans:
 

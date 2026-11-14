@@ -47,7 +47,9 @@ folder: a service running as LocalSystem must not start from a directory the use
 Quit FoxRGB from its tray menu before updating or uninstalling. The installer only looks for a
 running `foxrgb.exe`; a service the app started can outlive it and keep `foxrgb-service.exe` in use.
 
-Uninstalling leaves the settings in `%APPDATA%\FoxRGB`.
+Uninstalling leaves `%APPDATA%\com.foxrgb.desktop`, where the settings, the profiles, the web view's
+data and the files of a service the app started are, unless "Delete the application data" is ticked.
+The folder is named after the app's identifier because that is the one the box removes.
 
 ## Icons
 
