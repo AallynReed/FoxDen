@@ -27,17 +27,16 @@ No real hardware has been driven:
   service.
 - SMBus RAM and GPU lighting are not started.
 
-There is no release yet. The setup program builds, and the release build of the app and the
-service has been run from the build folder. The setup program itself has never been run, and
-neither GitHub workflow has run.
+The setup program builds on GitHub, where the tests pass too, and the release build of the app and
+the service has been run from the build folder. The setup program itself has never been run.
 
 [PLAN.md](PLAN.md) says what is done, how far each part was checked and what is left to do by hand.
 
 ## Install
 
-There is nothing to download yet. Until the first release, build the setup program as described
-under Build. It has been built and unpacked but never run, so what follows is what it is set up to
-do, not what it has been seen doing.
+Setup programs are attached to the [releases](../../releases) on GitHub. Until the first one is
+published, build the setup program as described under Build. It has been built and unpacked but
+never run, so what follows is what it is set up to do, not what it has been seen doing.
 
 `FoxRGB_<version>_x64-setup.exe` installs for the current user into `%LOCALAPPDATA%\FoxRGB`, asks
 for no administrator rights and adds a Start menu entry. It is not signed, so Windows SmartScreen

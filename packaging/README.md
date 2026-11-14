@@ -54,7 +54,8 @@ git push origin :refs/tags/v0.1.0
 git tag -d v0.1.0
 ```
 
-Neither workflow has run yet.
+`build.yml` has run on GitHub: the tests, clippy and the installer took 17 minutes on the
+two-core runner of a private repository.
 
 ## The two config files
 
