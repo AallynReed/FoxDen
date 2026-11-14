@@ -19,19 +19,22 @@ jobs:
         ~/.cargo/registry/cache
         target
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - run: rustup toolchain install stable --profile minimal --component clippy --no-self-update
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy --no-self-update
 
-      # A cache built by another compiler is rebuilt in full, so the version is part of the key.
-      - id: rustc
+      - name: Rust version
+        id: rustc
         run: |
           "version=$((rustc --version).Split()[1])" >> $env:GITHUB_OUTPUT
 
-      # A release is built from nothing: only branch runs read or write the cache.
-      - id: cache
+      # Releases build without the cache.
+      - name: Restore cache
+        id: cache
         if: github.ref_type == 'branch'
         uses: actions/cache/restore@v6
         with:
@@ -39,23 +42,26 @@ jobs:
           key: cargo-${{ steps.rustc.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ steps.rustc.outputs.version }}-
 
-      - run: cargo test --workspace --locked
+      - name: Test
+        run: cargo test --workspace --locked
 
-      - run: cargo clippy --workspace --all-targets
+      - name: Lint
+        run: cargo clippy --workspace --all-targets
 
-      # The npm package is the Tauri CLI already compiled; cargo install takes far longer.
       - name: Compile installer
         run: |
           Remove-Item target/release/bundle -Recurse -Force -ErrorAction Ignore
           npx --yes "@tauri-apps/cli@2.12.4" build --config packaging/tauri.bundle.json
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
         with:
           name: FoxRGB-setup
           path: target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
 
-      - if: github.ref_type == 'branch' && steps.cache.outputs.cache-hit != 'true'
+      - name: Save cache
+        if: github.ref_type == 'branch' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ env.CACHE_PATHS }}
