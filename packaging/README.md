@@ -55,8 +55,9 @@ The folder is named after the app's identifier because that is the one the box r
 
 ## Icons
 
-`src-tauri/icons/make-icons.ps1` draws every icon file. Run it again after changing the design.
+`src-tauri/icons/icon.svg` is the icon. `make-icons.ps1` beside it renders every icon file from it
+with `cargo tauri icon`. Run it again after changing the drawing.
 
 The app takes its window and tray icon from the exe at the large icon size, 32 px at 100 % scaling,
 and Windows shrinks that for the title bar and the tray. Half-transparent edge pixels come out dark
-when it does, which is why the outline has none.
+when it does, which the icon's dark tile hides.

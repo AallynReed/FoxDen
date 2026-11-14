@@ -1,0 +1,62 @@
+<svg role="img" aria-label="FoxRGB app icon: an orange baby fox with eyes only with cream fur markings in front of its rainbow tail" width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#1B1D27"/>
+<stop offset="1" stop-color="#0A0B10"/>
+</linearGradient>
+<linearGradient id="spec" gradientUnits="userSpaceOnUse" x1="150" y1="420" x2="336" y2="182">
+<stop offset="0" stop-color="#FF2E55"/>
+<stop offset="0.25" stop-color="#FFB020"/>
+<stop offset="0.5" stop-color="#2EE67A"/>
+<stop offset="0.75" stop-color="#1EC8FF"/>
+<stop offset="1" stop-color="#5B5BFF"/>
+</linearGradient>
+<linearGradient id="vol" gradientUnits="userSpaceOnUse" x1="150" y1="200" x2="308" y2="322">
+<stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+<stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/>
+<stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+<stop offset="1" stop-color="#000000" stop-opacity="0.3"/>
+</linearGradient>
+<path id="tail" d="M150 420 C110 330 110 190 230 130 C290 100 350 92 400 108 C356 146 318 200 300 250 C280 305 190 372 150 420 Z"/>
+<clipPath id="tailClip"><use href="#tail"/></clipPath>
+<filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+<feGaussianBlur stdDeviation="30"/>
+</filter>
+<path id="body" d="M135 360 C120 400 125 440 150 446 L230 446 C255 440 260 400 245 360 Z"/>
+<path id="earL" d="M96 262 L88 136 Q86 122 100 128 L178 204 Z"/>
+<path id="earR" d="M284 262 L292 136 Q294 122 280 128 L202 204 Z"/>
+<path id="head" d="M190 200 C240 200 285 235 302 300 C270 345 230 372 190 372 C150 372 110 345 78 300 C95 235 140 200 190 200 Z"/>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<rect x="1" y="1" width="510" height="510" rx="111" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
+<g transform="translate(0 -26)">
+<g transform="translate(205 432) rotate(68.4) scale(-0.883 0.883) translate(-150 -420)">
+<use href="#tail" fill="url(#spec)" opacity="0.45" filter="url(#glow)"/>
+<use href="#tail" fill="url(#spec)"/>
+<g clip-path="url(#tailClip)">
+<path d="M226 128 Q225.6 161.3 257 153.4 Q256.7 186.8 288.2 178.9 Q287.8 212.2 319.2 204.3 L430 220 L430 70 L200 70 Z" fill="#F6F8FF"/>
+</g>
+<use href="#tail" fill="url(#vol)"/>
+</g>
+<g fill="#12131A" stroke="#12131A" stroke-width="12" stroke-linejoin="round">
+<use href="#body"/>
+<use href="#earL"/>
+<use href="#earR"/>
+<use href="#head"/>
+</g>
+<use href="#body" fill="#F0761A"/>
+<ellipse cx="190" cy="408" rx="27" ry="34" fill="#FFF1DF"/>
+<ellipse cx="166" cy="440" rx="17" ry="10" fill="#FF8E2B"/>
+<ellipse cx="214" cy="440" rx="17" ry="10" fill="#FF8E2B"/>
+<use href="#earL" fill="#F0761A"/>
+<use href="#earR" fill="#F0761A"/>
+<path d="M108 230 L103 158 L150 204 Z" fill="#FFDDBB"/>
+<path d="M272 230 L277 158 L230 204 Z" fill="#FFDDBB"/>
+<use href="#head" fill="#FF8E2B"/>
+<path d="M78 300 C110 318 158 312 190 286 C222 312 270 318 302 300 C270 345 230 372 190 372 C150 372 110 345 78 300 Z" fill="#FFF1DF"/>
+<circle cx="142" cy="284" r="15" fill="#23140F"/>
+<circle cx="238" cy="284" r="15" fill="#23140F"/>
+<circle cx="147" cy="279" r="5" fill="#FFFFFF"/>
+<circle cx="243" cy="279" r="5" fill="#FFFFFF"/>
+</g>
+</svg>
