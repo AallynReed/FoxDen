@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FoxRGB</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <aside>
+      <h1>Fox<span>RGB</span></h1>
+
+      <section>
+        <label for="effect">Effect</label>
+        <select id="effect"></select>
+        <div id="params"></div>
+      </section>
+
+      <section>
+        <label for="brightness">Brightness <output id="brightness-out">100%</output></label>
+        <input id="brightness" type="range" min="0" max="1" step="0.01" value="1" />
+      </section>
+
+      <p class="note">Preview only. These are virtual devices; no hardware is being driven yet.</p>
+    </aside>
+
+    <main>
+      <canvas id="canvas"></canvas>
+    </main>
+
+    <script src="main.js"></script>
+  </body>
+</html>
