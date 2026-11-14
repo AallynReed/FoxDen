@@ -395,24 +395,30 @@ impl Host {
     /// Watches the control loop. When a pass gets stuck, the fans go back to the firmware and
     /// every fan says why until the loop is back.
     fn watch(&self) {
-        let mut stuck = false;
+        // Whether the fans were handed back, and whether the log knows they could not be.
+        let (mut stuck, mut held) = (false, false);
         while !self.stopping() {
             thread::sleep(STALL / 20);
             let began = *locked(&self.busy);
             let late = began.is_some_and(|began| began.elapsed() > STALL);
             if late && !stuck {
-                // Not taken while a pass holds the state; tried again on the next round.
                 stuck = self.stalled();
-            } else if !late && stuck {
-                stuck = false;
+                if !stuck && !held {
+                    held = true;
+                    let fans = "with the fans, which cannot be handed back from here";
+                    log(&self.dir, &format!("{STUCK} {fans}"));
+                }
+            } else if !late && (stuck || held) {
+                (stuck, held) = (false, false);
                 log(&self.dir, "the control loop is running again");
             }
         }
     }
 
-    /// Hands the fans back because a pass is stuck. False when the state could not be had.
+    /// Hands the fans back because a pass is stuck. False when that pass has the fans itself,
+    /// which shows in the state staying locked.
     fn stalled(&self) -> bool {
-        let Some(mut state) = within(&self.state, Duration::ZERO) else {
+        let Some(mut state) = within(&self.state, Duration::from_millis(200)) else {
             return false;
         };
         if self.stopping() {
@@ -664,6 +670,8 @@ pub(crate) mod tests {
         panics: Arc<AtomicU32>,
         /// Refuses to be released.
         stuck: bool,
+        /// Writes do not return while this is set.
+        hangs: Arc<AtomicBool>,
     }
 
     impl FanBackend for Probe {
@@ -689,6 +697,9 @@ pub(crate) mod tests {
             None
         }
         fn set_duty(&mut self, _duty: f32) -> Result<(), String> {
+            while self.hangs.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(5));
+            }
             let left = self.panics.load(Ordering::Relaxed);
             if left > 0 {
                 self.panics.store(left - 1, Ordering::Relaxed);
@@ -930,6 +941,34 @@ pub(crate) mod tests {
         slow.held.store(false, Ordering::Relaxed);
         wait_for("the pass to end", || locked(&host.busy).is_none());
         assert!(!driven(&host));
+    }
+
+    #[test]
+    fn a_write_that_hangs_is_logged_and_does_not_hold_up_the_stop() {
+        let probe = Probe::default();
+        let running = start_probe("hang-write", &probe);
+        wait_for("the first duty", || driven(&running.host));
+        let dir = running.host.dir.clone();
+
+        probe.hangs.store(true, Ordering::Relaxed);
+        wait_for("the log to say so", || {
+            log_of(&dir).contains("with the fans, which cannot be handed back")
+        });
+        // Nothing can release a fan that is in the middle of a write, but the process can end.
+        let asked = Instant::now();
+        running.stop();
+        assert!(asked.elapsed() < PATIENCE * 4, "{:?}", asked.elapsed());
+        assert!(!probe.released.load(Ordering::Relaxed));
+        probe.hangs.store(false, Ordering::Relaxed);
+        let log = log_of(&dir);
+        assert!(log.contains("which were not released"), "{log}");
+        assert!(
+            log.ends_with(
+                "stopped
+"
+            ),
+            "{log}"
+        );
     }
 
     #[test]
