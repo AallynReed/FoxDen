@@ -1189,6 +1189,7 @@ dependencies = [
 name = "foxrgb-client"
 version = "0.1.0"
 dependencies = [
+ "foxrgb-core",
  "foxrgb-fan",
  "serde",
  "serde_json",
@@ -1246,8 +1247,10 @@ dependencies = [
 name = "foxrgb-service"
 version = "0.1.0"
 dependencies = [
+ "foxrgb-core",
  "foxrgb-fan",
  "foxrgb-hwmon",
+ "foxrgb-smbus",
  "serde",
  "serde_json",
  "windows-service",

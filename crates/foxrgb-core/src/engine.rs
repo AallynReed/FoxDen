@@ -136,7 +136,11 @@ struct Tuning {
 
 impl Default for Tuning {
     fn default() -> Self {
-        Tuning { enabled: true, brightness: 1.0, rect: None }
+        Tuning {
+            enabled: true,
+            brightness: 1.0,
+            rect: None,
+        }
     }
 }
 
@@ -176,31 +180,55 @@ impl Engine {
             self.order.push(label.to_string());
         }
         for backend in backends {
-            let devices: Vec<Placed> =
-                backend.devices().into_iter().map(|device| Placed { home: device.rect, device }).collect();
-            let names = devices.iter().map(|p| (p.device.id.clone(), p.device.name.clone())).collect();
+            let devices: Vec<Placed> = backend
+                .devices()
+                .into_iter()
+                .map(|device| Placed {
+                    home: device.rect,
+                    device,
+                })
+                .collect();
+            let names = devices
+                .iter()
+                .map(|p| (p.device.id.clone(), p.device.name.clone()))
+                .collect();
             let link = Arc::new(Link::default());
             let pusher = spawn_pusher(backend, names, link.clone(), self.failed.clone());
-            self.slots.push(Slot { label: label.to_string(), devices, link, pusher: Some(pusher) });
+            self.slots.push(Slot {
+                label: label.to_string(),
+                devices,
+                link,
+                pusher: Some(pusher),
+            });
         }
         let order = &self.order;
-        self.slots.sort_by_key(|slot| order.iter().position(|known| *known == slot.label));
+        self.slots
+            .sort_by_key(|slot| order.iter().position(|known| *known == slot.label));
         self.layout();
     }
 
     /// Takes out every backend under `label`. Frames it has not sent yet are dropped.
     pub fn remove(&mut self, label: &str) -> Removed {
-        let (gone, kept): (Vec<Slot>, Vec<Slot>) =
-            std::mem::take(&mut self.slots).into_iter().partition(|slot| slot.label == label);
+        let (gone, kept): (Vec<Slot>, Vec<Slot>) = std::mem::take(&mut self.slots)
+            .into_iter()
+            .partition(|slot| slot.label == label);
         self.slots = kept;
         self.layout();
-        Removed(gone.into_iter().filter_map(|mut slot| slot.pusher.take()).collect())
+        Removed(
+            gone.into_iter()
+                .filter_map(|mut slot| slot.pusher.take())
+                .collect(),
+        )
     }
 
     /// Switch, brightness and canvas placement of one device. `rect: None` means the default spot.
     pub fn set_device(&mut self, id: &str, enabled: bool, brightness: f32, rect: Option<[f32; 4]>) {
         let was_enabled = self.tuning.get(id).is_none_or(|t| t.enabled);
-        let tuning = Tuning { enabled, brightness: brightness.clamp(0.0, 1.0), rect };
+        let tuning = Tuning {
+            enabled,
+            brightness: brightness.clamp(0.0, 1.0),
+            rect,
+        };
         self.tuning.insert(id.to_string(), tuning);
         self.layout();
         if was_enabled && !enabled {
@@ -217,7 +245,9 @@ impl Engine {
 
     /// Devices with their effective canvas rects.
     pub fn devices(&self) -> Vec<Device> {
-        self.views().map(|(_, device, _, _)| device.clone()).collect()
+        self.views()
+            .map(|(_, device, _, _)| device.clone())
+            .collect()
     }
 
     /// Backend label, device, enabled and brightness for every device.
@@ -225,20 +255,43 @@ impl Engine {
         self.slots.iter().flat_map(move |slot| {
             slot.devices.iter().map(move |p| {
                 let tuning = self.tuning.get(&p.device.id).copied().unwrap_or_default();
-                (slot.label.as_str(), &p.device, tuning.enabled, tuning.brightness)
+                (
+                    slot.label.as_str(),
+                    &p.device,
+                    tuning.enabled,
+                    tuning.brightness,
+                )
             })
         })
     }
 
     /// Backend label and device for every backend that still takes frames.
     pub fn driven(&self) -> Vec<(&str, &Device)> {
-        let working = self.slots.iter().filter(|slot| slot.link.mail().error.is_none());
-        working.flat_map(|slot| slot.devices.iter().map(move |p| (slot.label.as_str(), &p.device))).collect()
+        let working = self
+            .slots
+            .iter()
+            .filter(|slot| slot.link.mail().error.is_none());
+        working
+            .flat_map(|slot| {
+                slot.devices
+                    .iter()
+                    .map(move |p| (slot.label.as_str(), &p.device))
+            })
+            .collect()
     }
 
     /// Label, device count and push error of every backend.
     pub fn status(&self) -> Vec<(String, usize, Option<String>)> {
-        self.slots.iter().map(|s| (s.label.clone(), s.devices.len(), s.link.mail().error.clone())).collect()
+        self.slots
+            .iter()
+            .map(|s| {
+                (
+                    s.label.clone(),
+                    s.devices.len(),
+                    s.link.mail().error.clone(),
+                )
+            })
+            .collect()
     }
 
     /// True once after a backend started failing.
@@ -260,7 +313,12 @@ impl Engine {
                 let Some(left) = deadline.checked_duration_since(Instant::now()) else {
                     return;
                 };
-                mail = slot.link.wake.wait_timeout(mail, left).unwrap_or_else(|e| e.into_inner()).0;
+                mail = slot
+                    .link
+                    .wake
+                    .wait_timeout(mail, left)
+                    .unwrap_or_else(|e| e.into_inner())
+                    .0;
             }
         }
     }
@@ -274,7 +332,11 @@ impl Engine {
                 let device = &p.device;
                 let tuning = self.tuning.get(&device.id).copied().unwrap_or_default();
                 let lit = tuning.enabled && !self.paused;
-                let k = if lit { self.brightness * tuning.brightness } else { 0.0 };
+                let k = if lit {
+                    self.brightness * tuning.brightness
+                } else {
+                    0.0
+                };
                 let colors: Vec<Color> = if k > 0.0 {
                     device
                         .canvas_positions()
@@ -284,7 +346,10 @@ impl Engine {
                     vec![Color::BLACK; device.leds.len()]
                 };
                 batch.push(tuning.enabled.then(|| colors.clone()));
-                frames.push(Frame { device: device.id.clone(), colors });
+                frames.push(Frame {
+                    device: device.id.clone(),
+                    colors,
+                });
             }
             slot.link.post(batch);
         }
@@ -296,7 +361,8 @@ impl Engine {
             let batch = slot.devices.iter().map(|p| {
                 let id = p.device.id.as_str();
                 let enabled = self.tuning.get(id).is_none_or(|t| t.enabled);
-                only.map_or(enabled, |o| o == id).then(|| vec![Color::BLACK; p.device.leds.len()])
+                only.map_or(enabled, |o| o == id)
+                    .then(|| vec![Color::BLACK; p.device.leds.len()])
             });
             slot.link.post(batch.collect());
         }
@@ -337,7 +403,10 @@ fn free_spot(grid: [u32; 2], taken: &[[f32; 4]]) -> [f32; 4] {
         for col in 1..50 {
             let (x, y) = (col as f32 * STEP, row as f32 * STEP);
             let padded = [x - GAP, y - GAP, w + 2.0 * GAP, h + 2.0 * GAP];
-            if x + w <= 1.0 - STEP && y + h <= 1.0 - STEP && !taken.iter().any(|t| overlaps(padded, *t)) {
+            if x + w <= 1.0 - STEP
+                && y + h <= 1.0 - STEP
+                && !taken.iter().any(|t| overlaps(padded, *t))
+            {
                 return [x, y, w, h];
             }
         }
@@ -380,15 +449,30 @@ mod tests {
         fn push(&mut self, device_id: &str, colors: &[Color]) -> Result<(), String> {
             thread::sleep(self.delay);
             self.pushes.lock().unwrap().push(device_id.to_string());
-            self.last.lock().unwrap().insert(device_id.to_string(), colors.to_vec());
-            if self.fail { Err("gone".into()) } else { Ok(()) }
+            self.last
+                .lock()
+                .unwrap()
+                .insert(device_id.to_string(), colors.to_vec());
+            if self.fail {
+                Err("gone".into())
+            } else {
+                Ok(())
+            }
         }
     }
 
     fn fake(fail: bool) -> (Engine, Arc<Mutex<Vec<String>>>) {
         let pushes = Arc::new(Mutex::new(Vec::new()));
-        let backend = Fake { pushes: pushes.clone(), last: Arc::default(), fail, delay: Duration::ZERO };
-        (Engine::new(vec![Box::new(VirtualBackend), Box::new(backend)]), pushes)
+        let backend = Fake {
+            pushes: pushes.clone(),
+            last: Arc::default(),
+            fail,
+            delay: Duration::ZERO,
+        };
+        (
+            Engine::new(vec![Box::new(VirtualBackend), Box::new(backend)]),
+            pushes,
+        )
     }
 
     fn all_black(frame: &Frame) -> bool {
@@ -423,7 +507,11 @@ mod tests {
         let devices = engine.devices();
         for (i, a) in devices.iter().enumerate() {
             let [x, y, w, h] = a.rect;
-            assert!(x >= 0.0 && y >= 0.0 && x + w <= 1.0 && y + h <= 1.0, "{} is off the canvas", a.id);
+            assert!(
+                x >= 0.0 && y >= 0.0 && x + w <= 1.0 && y + h <= 1.0,
+                "{} is off the canvas",
+                a.id
+            );
             for b in &devices[i + 1..] {
                 assert!(!overlaps(a.rect, b.rect), "{} overlaps {}", a.id, b.id);
             }
@@ -435,7 +523,8 @@ mod tests {
     #[test]
     fn saved_rect_wins_and_reset_restores_the_default() {
         let (mut engine, _) = fake(false);
-        let rect_of = |e: &Engine, id: &str| e.devices().into_iter().find(|d| d.id == id).unwrap().rect;
+        let rect_of =
+            |e: &Engine, id: &str| e.devices().into_iter().find(|d| d.id == id).unwrap().rect;
         let default = rect_of(&engine, "a");
         engine.set_device("a", true, 1.0, Some([0.1, 0.2, 0.3, 0.4]));
         assert_eq!(rect_of(&engine, "a"), [0.1, 0.2, 0.3, 0.4]);
@@ -476,7 +565,12 @@ mod tests {
         let pushes = Arc::new(Mutex::new(Vec::new()));
         let last = Arc::new(Mutex::new(HashMap::new()));
         let delay = Duration::from_millis(250);
-        let slow = Fake { pushes: pushes.clone(), last: last.clone(), fail: false, delay };
+        let slow = Fake {
+            pushes: pushes.clone(),
+            last: last.clone(),
+            fail: false,
+            delay,
+        };
         let mut engine = Engine::new(vec![Box::new(slow)]);
         let started = Instant::now();
         let mut newest = Vec::new();
@@ -484,7 +578,10 @@ mod tests {
             newest = engine.render(i as f32, &Inputs::default());
         }
         engine.set_device("b", false, 1.0, None);
-        assert!(started.elapsed() < Duration::from_millis(200), "render waited for the backend");
+        assert!(
+            started.elapsed() < Duration::from_millis(200),
+            "render waited for the backend"
+        );
         engine.flush(SOON);
         // 20 frames for 3 devices went in; only what was newest when the backend came round goes out
         let pushes = pushes.lock().unwrap();
@@ -493,7 +590,11 @@ mod tests {
         let last = last.lock().unwrap();
         for frame in &newest {
             let black = vec![Color::BLACK; frame.colors.len()];
-            let expected = if frame.device == "b" { &black } else { &frame.colors };
+            let expected = if frame.device == "b" {
+                &black
+            } else {
+                &frame.colors
+            };
             assert_eq!(&last[&frame.device], expected, "{}", frame.device);
         }
         assert_ne!(last["a"], vec![Color::BLACK; 10]);
@@ -502,12 +603,21 @@ mod tests {
     #[test]
     fn backends_are_swapped_by_label_and_keep_their_order() {
         let (mut engine, pushes) = fake(false);
-        let more = Fake { pushes: pushes.clone(), last: Arc::default(), fail: false, delay: Duration::ZERO };
+        let more = Fake {
+            pushes: pushes.clone(),
+            last: Arc::default(),
+            fail: false,
+            delay: Duration::ZERO,
+        };
         engine.remove("virtual").wait(SOON);
         assert_eq!(engine.status().len(), 1);
         engine.add("virtual", vec![Box::new(VirtualBackend)]);
         engine.add("fake", vec![Box::new(more)]);
-        let labels: Vec<String> = engine.status().into_iter().map(|(label, ..)| label).collect();
+        let labels: Vec<String> = engine
+            .status()
+            .into_iter()
+            .map(|(label, ..)| label)
+            .collect();
         assert_eq!(labels, ["virtual", "fake", "fake"]);
         engine.remove("fake").wait(SOON);
         engine.render(1.0, &Inputs::default());

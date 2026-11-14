@@ -128,7 +128,9 @@ fn start_child() -> Result<(), String> {
         finish(&mut old);
     }
 
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("foxrgb-service.exe");
+    let exe = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .with_file_name("foxrgb-service.exe");
     // Told who started it, the service hands the fans back and exits even when the app is killed.
     let mut service = Command::new(&exe)
         .args(["run", "--parent", &std::process::id().to_string()])
@@ -143,7 +145,9 @@ fn start_child() -> Result<(), String> {
     let deadline = Instant::now() + STARTUP;
     while LINK.client.status().is_err() {
         if let Ok(Some(status)) = service.try_wait() {
-            return Err(format!("the service stopped as soon as it started ({status})"));
+            return Err(format!(
+                "the service stopped as soon as it started ({status})"
+            ));
         }
         if Instant::now() > deadline {
             let _ = service.kill();
@@ -164,7 +168,9 @@ fn record() -> PathBuf {
 
 /// True while the pipe is served by a service that an earlier run of the app started.
 fn left_behind() -> bool {
-    let started: Option<u32> = fs::read_to_string(record()).ok().and_then(|id| id.trim().parse().ok());
+    let started: Option<u32> = fs::read_to_string(record())
+        .ok()
+        .and_then(|id| id.trim().parse().ok());
     started.is_some() && started == server_pid(PIPE)
 }
 

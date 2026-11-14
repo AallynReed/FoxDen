@@ -145,7 +145,11 @@ fn curve_interpolates_and_clamps() {
         (80.0, 1.0),
         (120.0, 1.0),
     ] {
-        assert!(close(c.duty_at(temp), want), "{temp} gave {}", c.duty_at(temp));
+        assert!(
+            close(c.duty_at(temp), want),
+            "{temp} gave {}",
+            c.duty_at(temp)
+        );
     }
     let flat = Curve {
         points: vec![(40.0, 0.5)],
@@ -490,7 +494,10 @@ fn fan_that_refuses_writes_and_release_stays_marked() {
         controller.tick(1.0);
     }
     let status = controller.tick(1.0);
-    assert_eq!(status.fans[0].error.as_deref(), Some("write failed; release failed"));
+    assert_eq!(
+        status.fans[0].error.as_deref(),
+        Some("write failed; release failed")
+    );
 
     // Every tick tries again until the fan lets go.
     shared.lock().unwrap().fail_release = false;
@@ -509,7 +516,10 @@ fn swapping_backends_releases_touched_fans_first() {
     let (mut controller, old) = bench(1, 2, simple(0.0, 1000.0));
     controller.tick(1.0);
     let new = rig(2, 1);
-    assert_eq!(controller.set_backends(vec![Box::new(BenchBackend(new.clone()))]), Ok(()));
+    assert_eq!(
+        controller.set_backends(vec![Box::new(BenchBackend(new.clone()))]),
+        Ok(())
+    );
     assert_eq!(old.lock().unwrap().releases, [1, 0]);
 
     // The config carries over to the new hardware.
@@ -566,31 +576,67 @@ fn validation_rejects_bad_configs() {
 
     type Spoil = Box<dyn Fn(&mut FanConfig)>;
     let cases: Vec<(&str, Spoil)> = vec![
-        ("duplicate curve name", Box::new(|c| c.curves[1].name = "a".into())),
+        (
+            "duplicate curve name",
+            Box::new(|c| c.curves[1].name = "a".into()),
+        ),
         ("no sensors", Box::new(|c| c.curves[0].sensors.clear())),
         ("no points", Box::new(|c| c.curves[0].points.clear())),
-        ("unsorted points", Box::new(|c| c.curves[0].points.swap(0, 2))),
-        ("repeated temperature", Box::new(|c| c.curves[0].points[1].0 = 30.0)),
+        (
+            "unsorted points",
+            Box::new(|c| c.curves[0].points.swap(0, 2)),
+        ),
+        (
+            "repeated temperature",
+            Box::new(|c| c.curves[0].points[1].0 = 30.0),
+        ),
         ("duty above 1", Box::new(|c| c.curves[0].points[2].1 = 1.5)),
         ("duty below 0", Box::new(|c| c.curves[0].points[0].1 = -0.1)),
-        ("NaN temperature", Box::new(|c| c.curves[0].points[0].0 = f32::NAN)),
-        ("infinite temperature", Box::new(|c| c.curves[0].points[2].0 = f32::INFINITY)),
+        (
+            "NaN temperature",
+            Box::new(|c| c.curves[0].points[0].0 = f32::NAN),
+        ),
+        (
+            "infinite temperature",
+            Box::new(|c| c.curves[0].points[2].0 = f32::INFINITY),
+        ),
         ("NaN duty", Box::new(|c| c.curves[0].points[0].1 = f32::NAN)),
-        ("negative hysteresis", Box::new(|c| c.curves[0].hysteresis = -1.0)),
-        ("hysteresis above 30", Box::new(|c| c.curves[0].hysteresis = 30.5)),
-        ("NaN hysteresis", Box::new(|c| c.curves[0].hysteresis = f32::NAN)),
-        ("unknown curve", Box::new(|c| c.rules[0].curve = "nope".into())),
-        ("min above max", Box::new(|c| (c.rules[0].min_duty, c.rules[0].max_duty) = (0.9, 0.5))),
+        (
+            "negative hysteresis",
+            Box::new(|c| c.curves[0].hysteresis = -1.0),
+        ),
+        (
+            "hysteresis above 30",
+            Box::new(|c| c.curves[0].hysteresis = 30.5),
+        ),
+        (
+            "NaN hysteresis",
+            Box::new(|c| c.curves[0].hysteresis = f32::NAN),
+        ),
+        (
+            "unknown curve",
+            Box::new(|c| c.rules[0].curve = "nope".into()),
+        ),
+        (
+            "min above max",
+            Box::new(|c| (c.rules[0].min_duty, c.rules[0].max_duty) = (0.9, 0.5)),
+        ),
         ("min below 0", Box::new(|c| c.rules[0].min_duty = -0.1)),
         ("max above 1", Box::new(|c| c.rules[0].max_duty = 1.1)),
         ("NaN min", Box::new(|c| c.rules[0].min_duty = f32::NAN)),
         ("NaN max", Box::new(|c| c.rules[0].max_duty = f32::NAN)),
-        ("two rules for one fan", Box::new(|c| c.rules[1].fan = "f0".into())),
+        (
+            "two rules for one fan",
+            Box::new(|c| c.rules[1].fan = "f0".into()),
+        ),
         ("zero ramp", Box::new(|c| c.rules[0].ramp = 0.0)),
         ("negative ramp", Box::new(|c| c.rules[0].ramp = -0.2)),
         ("ramp below 0.01", Box::new(|c| c.rules[0].ramp = 0.009)),
         ("NaN ramp", Box::new(|c| c.rules[0].ramp = f32::NAN)),
-        ("infinite ramp", Box::new(|c| c.rules[0].ramp = f32::INFINITY)),
+        (
+            "infinite ramp",
+            Box::new(|c| c.rules[0].ramp = f32::INFINITY),
+        ),
     ];
     for (what, spoil) in cases {
         let mut bad = good.clone();
@@ -598,11 +644,18 @@ fn validation_rejects_bad_configs() {
         assert!(bad.validate().is_err(), "{what} was accepted");
 
         let (mut controller, _shared) = bench(1, 2, good.clone());
-        assert!(controller.set_config(bad.clone()).is_err(), "{what} was applied");
+        assert!(
+            controller.set_config(bad.clone()).is_err(),
+            "{what} was applied"
+        );
         assert_eq!(controller.config(), &good, "{what} replaced the old config");
 
         let (controller, _shared) = bench(1, 2, bad);
-        assert_eq!(controller.config(), &FanConfig::default(), "{what} survived new()");
+        assert_eq!(
+            controller.config(),
+            &FanConfig::default(),
+            "{what} survived new()"
+        );
     }
 }
 
@@ -643,7 +696,10 @@ fn config_json_fills_missing_fields() {
     assert_eq!(config.rules[0].ramp, 0.2);
     assert_eq!(config.validate(), Ok(()));
 
-    assert_eq!(serde_json::from_str::<FanConfig>("{}").unwrap(), FanConfig::default());
+    assert_eq!(
+        serde_json::from_str::<FanConfig>("{}").unwrap(),
+        FanConfig::default()
+    );
 }
 
 #[test]
@@ -696,14 +752,23 @@ fn sim_closed_loop_settles() {
         assert!(now < 70.0, "{} is not being cooled: {now}", sensor.id);
     }
     for (i, fan) in last.fans.iter().enumerate() {
-        assert!(duty(last, i) > duty(&idle, i), "{} did not speed up", fan.id);
+        assert!(
+            duty(last, i) > duty(&idle, i),
+            "{} did not speed up",
+            fan.id
+        );
         assert!(fan.rpm.unwrap() > idle.fans[i].rpm.unwrap());
     }
 
     // Nothing moves any more over the last two minutes.
     for status in &history[480..] {
         for i in 0..last.fans.len() {
-            assert_eq!(duty(status, i), duty(last, i), "{} is hunting", last.fans[i].id);
+            assert_eq!(
+                duty(status, i),
+                duty(last, i),
+                "{} is hunting",
+                last.fans[i].id
+            );
         }
         for i in 0..last.sensors.len() {
             let drift = status.sensors[i].value.unwrap() - last.sensors[i].value.unwrap();

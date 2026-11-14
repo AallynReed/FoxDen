@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use foxrgb_core::{Backend, Color};
 use foxrgb_fan::{Controller, FanBackend, FanConfig, Probe, SimBackend, Status};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -173,9 +174,19 @@ struct Settings {
 enum Request {
     Status,
     GetConfig,
-    SetConfig { config: FanConfig },
-    SetSim { on: bool },
+    SetConfig {
+        config: FanConfig,
+    },
+    SetSim {
+        on: bool,
+    },
     Shutdown,
+    /// Lighting on the SMBus, which only a service running as SYSTEM can reach.
+    Lights,
+    SetLights {
+        device: String,
+        colors: Vec<Color>,
+    },
 }
 
 struct State {
@@ -200,6 +211,8 @@ pub struct Host {
     stop: AtomicBool,
     /// Why the process should end: a shutdown request, or a control loop that keeps panicking.
     ended: Mutex<Option<Result<(), String>>>,
+    /// SMBus lighting, opened on the first request for it.
+    lights: Mutex<Option<Vec<Box<dyn Backend>>>>,
 }
 
 impl Host {
@@ -239,6 +252,7 @@ impl Host {
             unsaved: Mutex::new(false),
             stop: AtomicBool::new(false),
             ended: Mutex::new(None),
+            lights: Mutex::new(None),
         }
     }
 
@@ -285,6 +299,25 @@ impl Host {
                 }
                 Mode::Service => fail(NO_SHUTDOWN.into()),
             },
+            Ok(Request::Lights) => {
+                let mut lights = locked(&self.lights);
+                if lights.as_ref().is_none_or(|found| found.is_empty()) {
+                    *lights = Some(foxrgb_smbus::probe().unwrap_or_default());
+                }
+                let devices: Vec<_> = lights.iter().flatten().flat_map(|b| b.devices()).collect();
+                json!({"ok": true, "devices": devices})
+            }
+            Ok(Request::SetLights { device, colors }) => {
+                let mut lights = locked(&self.lights);
+                let backend = lights
+                    .iter_mut()
+                    .flatten()
+                    .find(|b| b.devices().iter().any(|d| d.id == device));
+                done(match backend {
+                    Some(backend) => backend.push(&device, &colors),
+                    None => Err(format!("unknown device {device}")),
+                })
+            }
             Err(e) => fail(format!("bad request: {e}")),
         };
         (reply.to_string(), shutdown)

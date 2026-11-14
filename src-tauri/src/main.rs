@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod detect;
 mod fans;
+mod service_lights;
 mod state;
 mod tray;
 
@@ -18,13 +19,17 @@ fn main() {
     let shared: Shared = Arc::new(Mutex::new(AppState::new(config::load(&config::dir()))));
 
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_window(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_window(app)
+        }))
         .manage(shared.clone())
         .setup(|app| {
             let handle = app.handle();
             // Made here and not by Tauri, so that the web view's data goes where the rest does.
             for window in &app.config().app.windows {
-                WebviewWindowBuilder::from_config(handle, window)?.data_directory(config::webview_dir()).build()?;
+                WebviewWindowBuilder::from_config(handle, window)?
+                    .data_directory(config::webview_dir())
+                    .build()?;
             }
             let shared = app.state::<Shared>().inner().clone();
             let settings = lock(&shared).config.settings.clone();

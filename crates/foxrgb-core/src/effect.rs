@@ -6,22 +6,88 @@ use std::f32::consts::{PI, TAU};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Effect {
-    Static { color: Color },
-    Breathing { color: Color, speed: f32 },
-    Cycle { speed: f32 },
-    Rainbow { speed: f32, scale: f32, angle: f32 },
-    Gradient { from: Color, to: Color, speed: f32, scale: f32 },
-    Wave { color: Color, background: Color, speed: f32, width: f32, angle: f32 },
-    Comet { color: Color, background: Color, speed: f32, length: f32, angle: f32 },
-    Sparkle { color: Color, background: Color, speed: f32, density: f32 },
-    Plasma { speed: f32, scale: f32 },
-    Fire { speed: f32, intensity: f32 },
-    Ripple { color: Color, background: Color, speed: f32, width: f32, rings: f32 },
-    RadialRainbow { speed: f32, repeats: f32, twist: f32 },
-    ColorShift { first: Color, second: Color, third: Color, use_third: bool, speed: f32 },
-    AudioSpectrum { color: Color, rainbow: bool, sensitivity: f32 },
-    AudioPulse { color: Color, sensitivity: f32, floor: f32 },
-    ScreenAmbience { saturation: f32, brightness: f32 },
+    Static {
+        color: Color,
+    },
+    Breathing {
+        color: Color,
+        speed: f32,
+    },
+    Cycle {
+        speed: f32,
+    },
+    Rainbow {
+        speed: f32,
+        scale: f32,
+        angle: f32,
+    },
+    Gradient {
+        from: Color,
+        to: Color,
+        speed: f32,
+        scale: f32,
+    },
+    Wave {
+        color: Color,
+        background: Color,
+        speed: f32,
+        width: f32,
+        angle: f32,
+    },
+    Comet {
+        color: Color,
+        background: Color,
+        speed: f32,
+        length: f32,
+        angle: f32,
+    },
+    Sparkle {
+        color: Color,
+        background: Color,
+        speed: f32,
+        density: f32,
+    },
+    Plasma {
+        speed: f32,
+        scale: f32,
+    },
+    Fire {
+        speed: f32,
+        intensity: f32,
+    },
+    Ripple {
+        color: Color,
+        background: Color,
+        speed: f32,
+        width: f32,
+        rings: f32,
+    },
+    RadialRainbow {
+        speed: f32,
+        repeats: f32,
+        twist: f32,
+    },
+    ColorShift {
+        first: Color,
+        second: Color,
+        third: Color,
+        use_third: bool,
+        speed: f32,
+    },
+    AudioSpectrum {
+        color: Color,
+        rainbow: bool,
+        sensitivity: f32,
+    },
+    AudioPulse {
+        color: Color,
+        sensitivity: f32,
+        floor: f32,
+    },
+    ScreenAmbience {
+        saturation: f32,
+        brightness: f32,
+    },
 }
 
 /// How the UI edits one parameter.
@@ -57,15 +123,27 @@ const NAVY: Color = Color(0, 12, 40);
 const WHITE: Color = Color(255, 255, 255);
 
 fn range(name: &'static str, label: &'static str, min: f32, max: f32, step: f32) -> ParamInfo {
-    ParamInfo { name, label, control: Control::Range { min, max, step } }
+    ParamInfo {
+        name,
+        label,
+        control: Control::Range { min, max, step },
+    }
 }
 
 fn color(name: &'static str, label: &'static str) -> ParamInfo {
-    ParamInfo { name, label, control: Control::Color }
+    ParamInfo {
+        name,
+        label,
+        control: Control::Color,
+    }
 }
 
 fn toggle(name: &'static str, label: &'static str) -> ParamInfo {
-    ParamInfo { name, label, control: Control::Toggle }
+    ParamInfo {
+        name,
+        label,
+        control: Control::Toggle,
+    }
 }
 
 fn smooth(k: f32) -> f32 {
@@ -118,7 +196,11 @@ fn heat_color(heat: f32) -> Color {
 
 impl Default for Effect {
     fn default() -> Self {
-        Effect::Rainbow { speed: 1.0, scale: 1.0, angle: 0.0 }
+        Effect::Rainbow {
+            speed: 1.0,
+            scale: 1.0,
+            angle: 0.0,
+        }
     }
 }
 
@@ -139,7 +221,12 @@ impl Effect {
             },
             EffectInfo {
                 label: "Gradient",
-                default: Effect::Gradient { from: ORANGE, to: VIOLET, speed: 1.0, scale: 1.0 },
+                default: Effect::Gradient {
+                    from: ORANGE,
+                    to: VIOLET,
+                    speed: 1.0,
+                    scale: 1.0,
+                },
                 params: vec![color("from", "From"), color("to", "To"), speed(), scale()],
             },
             EffectInfo {
@@ -149,7 +236,10 @@ impl Effect {
             },
             EffectInfo {
                 label: "Breathing",
-                default: Effect::Breathing { color: ORANGE, speed: 1.0 },
+                default: Effect::Breathing {
+                    color: ORANGE,
+                    speed: 1.0,
+                },
                 params: vec![main(), speed()],
             },
             EffectInfo {
@@ -159,7 +249,13 @@ impl Effect {
             },
             EffectInfo {
                 label: "Wave",
-                default: Effect::Wave { color: CYAN, background: NAVY, speed: 1.0, width: 0.4, angle: 0.0 },
+                default: Effect::Wave {
+                    color: CYAN,
+                    background: NAVY,
+                    speed: 1.0,
+                    width: 0.4,
+                    angle: 0.0,
+                },
                 params: vec![main(), background(), speed(), width(), angle()],
             },
             EffectInfo {
@@ -181,27 +277,59 @@ impl Effect {
             },
             EffectInfo {
                 label: "Sparkle",
-                default: Effect::Sparkle { color: WHITE, background: NAVY, speed: 1.0, density: 0.3 },
-                params: vec![main(), background(), speed(), range("density", "Density", 0.0, 1.0, 0.05)],
+                default: Effect::Sparkle {
+                    color: WHITE,
+                    background: NAVY,
+                    speed: 1.0,
+                    density: 0.3,
+                },
+                params: vec![
+                    main(),
+                    background(),
+                    speed(),
+                    range("density", "Density", 0.0, 1.0, 0.05),
+                ],
             },
             EffectInfo {
                 label: "Plasma",
-                default: Effect::Plasma { speed: 1.0, scale: 1.0 },
+                default: Effect::Plasma {
+                    speed: 1.0,
+                    scale: 1.0,
+                },
                 params: vec![speed(), scale()],
             },
             EffectInfo {
                 label: "Fire",
-                default: Effect::Fire { speed: 1.0, intensity: 1.0 },
+                default: Effect::Fire {
+                    speed: 1.0,
+                    intensity: 1.0,
+                },
                 params: vec![speed(), range("intensity", "Intensity", 0.2, 2.0, 0.05)],
             },
             EffectInfo {
                 label: "Ripple",
-                default: Effect::Ripple { color: CYAN, background: NAVY, speed: 1.0, width: 0.4, rings: 3.0 },
-                params: vec![main(), background(), speed(), width(), range("rings", "Rings", 1.0, 8.0, 0.5)],
+                default: Effect::Ripple {
+                    color: CYAN,
+                    background: NAVY,
+                    speed: 1.0,
+                    width: 0.4,
+                    rings: 3.0,
+                },
+                params: vec![
+                    main(),
+                    background(),
+                    speed(),
+                    width(),
+                    range("rings", "Rings", 1.0, 8.0, 0.5),
+                ],
             },
             EffectInfo {
                 label: "Radial rainbow",
-                default: Effect::RadialRainbow { speed: 1.0, repeats: 1.0, twist: 0.0 },
+                default: Effect::RadialRainbow {
+                    speed: 1.0,
+                    repeats: 1.0,
+                    twist: 0.0,
+                },
                 params: vec![
                     speed(),
                     range("repeats", "Repeats", 1.0, 6.0, 1.0),
@@ -227,7 +355,11 @@ impl Effect {
             },
             EffectInfo {
                 label: "Audio spectrum",
-                default: Effect::AudioSpectrum { color: ORANGE, rainbow: true, sensitivity: 1.0 },
+                default: Effect::AudioSpectrum {
+                    color: ORANGE,
+                    rainbow: true,
+                    sensitivity: 1.0,
+                },
                 params: vec![
                     toggle("rainbow", "Colour by band"),
                     color("color", "Bar colour"),
@@ -236,12 +368,23 @@ impl Effect {
             },
             EffectInfo {
                 label: "Audio pulse",
-                default: Effect::AudioPulse { color: ORANGE, sensitivity: 1.0, floor: 0.1 },
-                params: vec![main(), sensitivity(), range("floor", "Idle brightness", 0.0, 1.0, 0.05)],
+                default: Effect::AudioPulse {
+                    color: ORANGE,
+                    sensitivity: 1.0,
+                    floor: 0.1,
+                },
+                params: vec![
+                    main(),
+                    sensitivity(),
+                    range("floor", "Idle brightness", 0.0, 1.0, 0.05),
+                ],
             },
             EffectInfo {
                 label: "Screen ambience",
-                default: Effect::ScreenAmbience { saturation: 1.0, brightness: 1.0 },
+                default: Effect::ScreenAmbience {
+                    saturation: 1.0,
+                    brightness: 1.0,
+                },
                 params: vec![
                     range("saturation", "Saturation", 0.0, 3.0, 0.05),
                     range("brightness", "Brightness", 0.2, 3.0, 0.05),
@@ -252,7 +395,10 @@ impl Effect {
 
     /// True when the effect reads `Inputs::audio`.
     pub fn uses_audio(&self) -> bool {
-        matches!(self, Effect::AudioSpectrum { .. } | Effect::AudioPulse { .. })
+        matches!(
+            self,
+            Effect::AudioSpectrum { .. } | Effect::AudioPulse { .. }
+        )
     }
 
     /// True when the effect reads `Inputs::screen`.
@@ -266,22 +412,44 @@ impl Effect {
             Effect::Static { color } => color,
             Effect::Breathing { color, speed } => color.scale(0.5 - 0.5 * (t * speed * 2.0).cos()),
             Effect::Cycle { speed } => Color::hsv(t * speed * 0.1, 1.0, 1.0),
-            Effect::Rainbow { speed, scale, angle } => {
-                Color::hsv(along(x, y, angle) * scale - t * speed * 0.2, 1.0, 1.0)
-            }
-            Effect::Gradient { from, to, speed, scale } => {
+            Effect::Rainbow {
+                speed,
+                scale,
+                angle,
+            } => Color::hsv(along(x, y, angle) * scale - t * speed * 0.2, 1.0, 1.0),
+            Effect::Gradient {
+                from,
+                to,
+                speed,
+                scale,
+            } => {
                 let phase = (x * scale - t * speed * 0.2).rem_euclid(1.0);
                 from.lerp(to, 1.0 - (phase * 2.0 - 1.0).abs())
             }
-            Effect::Wave { color, background, speed, width, angle } => {
-                background.lerp(color, band(along(x, y, angle) - t * speed * 0.2, width))
-            }
-            Effect::Comet { color, background, speed, length, angle } => {
+            Effect::Wave {
+                color,
+                background,
+                speed,
+                width,
+                angle,
+            } => background.lerp(color, band(along(x, y, angle) - t * speed * 0.2, width)),
+            Effect::Comet {
+                color,
+                background,
+                speed,
+                length,
+                angle,
+            } => {
                 let behind = (t * speed * 0.3 - along(x, y, angle)).rem_euclid(1.0);
                 let k = (1.0 - behind / length.max(1e-3)).clamp(0.0, 1.0);
                 background.lerp(color, k * k)
             }
-            Effect::Sparkle { color, background, speed, density } => {
+            Effect::Sparkle {
+                color,
+                background,
+                speed,
+                density,
+            } => {
                 let (cx, cy) = ((x * 256.0).floor() as i32, (y * 256.0).floor() as i32);
                 let time = t * speed * 2.0 + hash(cx, cy, -1);
                 let bucket = time.floor();
@@ -300,43 +468,76 @@ impl Effect {
             }
             Effect::Fire { speed, intensity } => {
                 let rise = t * speed * 2.0;
-                let n = 0.65 * noise(x * 6.0, y * 4.0 + rise) + 0.35 * noise(x * 13.0, y * 9.0 + rise * 1.8);
+                let n = 0.65 * noise(x * 6.0, y * 4.0 + rise)
+                    + 0.35 * noise(x * 13.0, y * 9.0 + rise * 1.8);
                 // Cooling with height lets the noise shape the flames.
                 heat_color(0.7 * n + 0.45 - (1.0 - y) * 1.1 / intensity.max(0.05))
             }
-            Effect::Ripple { color, background, speed, width, rings } => {
+            Effect::Ripple {
+                color,
+                background,
+                speed,
+                width,
+                rings,
+            } => {
                 let r = (x - 0.5).hypot(y - 0.5);
                 background.lerp(color, band(r * rings - t * speed * 0.3, width))
             }
-            Effect::RadialRainbow { speed, repeats, twist } => {
+            Effect::RadialRainbow {
+                speed,
+                repeats,
+                twist,
+            } => {
                 let (dx, dy) = (x - 0.5, y - 0.5);
                 let turn = dy.atan2(dx) / TAU;
                 let hue = turn * repeats.round().max(1.0) + dx.hypot(dy) * twist - t * speed * 0.2;
                 Color::hsv(hue, 1.0, 1.0)
             }
-            Effect::ColorShift { first, second, third, use_third, speed } => {
+            Effect::ColorShift {
+                first,
+                second,
+                third,
+                use_third,
+                speed,
+            } => {
                 let colors = [first, second, third];
                 let count = if use_third { 3 } else { 2 };
                 let p = (t * speed * 0.1).rem_euclid(1.0) * count as f32;
                 let i = p as usize;
                 colors[i % count].lerp(colors[(i + 1) % count], smooth(p.fract()))
             }
-            Effect::AudioSpectrum { color, rainbow, sensitivity } => {
+            Effect::AudioSpectrum {
+                color,
+                rainbow,
+                sensitivity,
+            } => {
                 let i = ((x.clamp(0.0, 1.0) * AUDIO_BANDS as f32) as usize).min(AUDIO_BANDS - 1);
                 let height = (inputs.audio.bands[i] * sensitivity).clamp(0.0, 1.0);
                 let hue = i as f32 / AUDIO_BANDS as f32 * 0.85;
-                let bar = if rainbow { Color::hsv(hue, 1.0, 1.0) } else { color };
+                let bar = if rainbow {
+                    Color::hsv(hue, 1.0, 1.0)
+                } else {
+                    color
+                };
                 // A bar fades out over a sixteenth of the canvas at its top.
                 bar.scale(height * 17.0 - (1.0 - y) * 16.0)
             }
-            Effect::AudioPulse { color, sensitivity, floor } => {
+            Effect::AudioPulse {
+                color,
+                sensitivity,
+                floor,
+            } => {
                 let level = (inputs.audio.level * sensitivity).clamp(0.0, 1.0);
                 color.scale(mix(floor, 1.0, level))
             }
-            Effect::ScreenAmbience { saturation, brightness } => {
+            Effect::ScreenAmbience {
+                saturation,
+                brightness,
+            } => {
                 let Color(r, g, b) = inputs.screen.sample(x, y);
                 let grey = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
-                let f = |c: u8| ((grey + (c as f32 - grey) * saturation) * brightness).round() as u8;
+                let f =
+                    |c: u8| ((grey + (c as f32 - grey) * saturation) * brightness).round() as u8;
                 Color(f(r), f(g), f(b))
             }
         }
@@ -357,23 +558,38 @@ mod tests {
     }
 
     fn busy_inputs() -> Inputs {
-        let mut audio = AudioFrame { level: 0.6, bands: [0.0; AUDIO_BANDS] };
+        let mut audio = AudioFrame {
+            level: 0.6,
+            bands: [0.0; AUDIO_BANDS],
+        };
         for (i, b) in audio.bands.iter_mut().enumerate() {
             *b = i as f32 / AUDIO_BANDS as f32;
         }
         let pixels = (0..8u8).map(|i| Color(i * 30, 255 - i * 30, 90)).collect();
-        Inputs { audio, screen: ScreenFrame { width: 4, height: 2, pixels } }
+        Inputs {
+            audio,
+            screen: ScreenFrame {
+                width: 4,
+                height: 2,
+                pixels,
+            },
+        }
     }
 
     #[test]
     fn static_ignores_position_and_time() {
-        let e = Effect::Static { color: Color(1, 2, 3) };
+        let e = Effect::Static {
+            color: Color(1, 2, 3),
+        };
         assert_eq!(at(&e, 0.0, 0.0, 0.0), at(&e, 0.9, 0.3, 42.0));
     }
 
     #[test]
     fn breathing_starts_dark() {
-        let e = Effect::Breathing { color: Color(255, 255, 255), speed: 1.0 };
+        let e = Effect::Breathing {
+            color: Color(255, 255, 255),
+            speed: 1.0,
+        };
         assert_eq!(at(&e, 0.0, 0.0, 0.0), Color::BLACK);
     }
 
@@ -394,7 +610,12 @@ mod tests {
         for info in Effect::catalog() {
             let json = serde_json::to_value(&info.default).unwrap();
             for p in &info.params {
-                assert!(json.get(p.name).is_some(), "{} has no field {}", info.label, p.name);
+                assert!(
+                    json.get(p.name).is_some(),
+                    "{} has no field {}",
+                    info.label,
+                    p.name
+                );
             }
         }
     }
@@ -411,7 +632,12 @@ mod tests {
                     Control::Range { min, max, step } => {
                         let v = value.as_f64().unwrap() as f32;
                         assert!(min < max && step > 0.0, "{} {}", info.label, p.name);
-                        assert!((min..=max).contains(&v), "{} {} out of range", info.label, p.name);
+                        assert!(
+                            (min..=max).contains(&v),
+                            "{} {} out of range",
+                            info.label,
+                            p.name
+                        );
                     }
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
@@ -428,7 +654,10 @@ mod tests {
         for (i, a) in catalog.iter().enumerate() {
             for b in &catalog[i + 1..] {
                 assert_ne!(a.label, b.label);
-                assert_ne!(std::mem::discriminant(&a.default), std::mem::discriminant(&b.default));
+                assert_ne!(
+                    std::mem::discriminant(&a.default),
+                    std::mem::discriminant(&b.default)
+                );
             }
         }
     }
@@ -446,7 +675,12 @@ mod tests {
     fn kinds_are_snake_case() {
         let kinds: Vec<String> = Effect::catalog()
             .iter()
-            .map(|i| serde_json::to_value(&i.default).unwrap()["kind"].as_str().unwrap().to_string())
+            .map(|i| {
+                serde_json::to_value(&i.default).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
             .collect();
         let expected = [
             "rainbow",
@@ -479,11 +713,23 @@ mod tests {
                 for xi in 0..=8 {
                     for yi in 0..=8 {
                         let (x, y) = (xi as f32 / 8.0, yi as f32 / 8.0);
-                        assert_eq!(e.sample(x, y, t, &inputs), e.sample(x, y, t, &inputs), "{}", info.label);
+                        assert_eq!(
+                            e.sample(x, y, t, &inputs),
+                            e.sample(x, y, t, &inputs),
+                            "{}",
+                            info.label
+                        );
                     }
                 }
             }
-            for v in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 2.0, 1.0e30] {
+            for v in [
+                f32::NAN,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                -1.0,
+                2.0,
+                1.0e30,
+            ] {
                 e.sample(v, v, v, &inputs);
                 e.sample(v, 0.5, 1.0, &Inputs::default());
             }
@@ -493,8 +739,14 @@ mod tests {
     #[test]
     fn input_flags_match_what_sampling_reads() {
         let busy = busy_inputs();
-        let audio = Inputs { audio: busy.audio, ..Inputs::default() };
-        let screen = Inputs { screen: busy.screen, ..Inputs::default() };
+        let audio = Inputs {
+            audio: busy.audio,
+            ..Inputs::default()
+        };
+        let screen = Inputs {
+            screen: busy.screen,
+            ..Inputs::default()
+        };
         for info in Effect::catalog() {
             let e = &info.default;
             let reacts = |inputs: &Inputs| {
@@ -514,13 +766,22 @@ mod tests {
         for info in Effect::catalog() {
             let json = serde_json::to_value(&info.default).unwrap();
             for p in &info.params {
-                let Control::Range { min, max, .. } = p.control else { continue };
+                let Control::Range { min, max, .. } = p.control else {
+                    continue;
+                };
                 // 1e39 becomes infinity as an f32.
-                for v in [min as f64, max as f64, 0.0, -1.0, 1.0e-9, -1.0e6, 1.0e6, 1.0e39] {
+                for v in [
+                    min as f64, max as f64, 0.0, -1.0, 1.0e-9, -1.0e6, 1.0e6, 1.0e39,
+                ] {
                     let mut json = json.clone();
                     json[p.name] = v.into();
                     let e: Effect = serde_json::from_value(json).unwrap();
-                    for (x, y, t) in [(0.0, 0.0, 0.0), (0.5, 0.5, 1.7), (1.0, 1.0, 9.0e4), (0.3, 0.9, -4.0)] {
+                    for (x, y, t) in [
+                        (0.0, 0.0, 0.0),
+                        (0.5, 0.5, 1.7),
+                        (1.0, 1.0, 9.0e4),
+                        (0.3, 0.9, -4.0),
+                    ] {
                         e.sample(x, y, t, &inputs);
                     }
                 }
@@ -531,12 +792,24 @@ mod tests {
     #[test]
     fn wave_band_sits_on_the_background() {
         let (c, bg) = (Color(255, 0, 0), Color(0, 0, 40));
-        let e = Effect::Wave { color: c, background: bg, speed: 1.0, width: 0.2, angle: 0.0 };
+        let e = Effect::Wave {
+            color: c,
+            background: bg,
+            speed: 1.0,
+            width: 0.2,
+            angle: 0.0,
+        };
         assert_eq!(at(&e, 0.5, 0.5, 0.0), c);
         assert_eq!(at(&e, 0.1, 0.5, 0.0), bg);
         // One fifth of a period later the band has moved along x.
         assert_eq!(at(&e, 0.7, 0.2, 1.0), c);
-        let up = Effect::Wave { color: c, background: bg, speed: 1.0, width: 0.2, angle: 90.0 };
+        let up = Effect::Wave {
+            color: c,
+            background: bg,
+            speed: 1.0,
+            width: 0.2,
+            angle: 90.0,
+        };
         assert_eq!(at(&up, 0.1, 0.5, 0.0), c);
         assert_eq!(at(&up, 0.5, 0.1, 0.0), bg);
     }
@@ -544,7 +817,13 @@ mod tests {
     #[test]
     fn comet_head_leads_a_fading_tail() {
         let c = Color(255, 255, 255);
-        let e = Effect::Comet { color: c, background: Color::BLACK, speed: 1.0, length: 0.5, angle: 0.0 };
+        let e = Effect::Comet {
+            color: c,
+            background: Color::BLACK,
+            speed: 1.0,
+            length: 0.5,
+            angle: 0.0,
+        };
         // At t = 1 the head is at x = 0.3.
         let head = light(at(&e, 0.3, 0.5, 1.0));
         let mid = light(at(&e, 0.15, 0.5, 1.0));
@@ -557,7 +836,12 @@ mod tests {
     fn sparkle_density_sets_how_many_points_twinkle() {
         let (c, bg) = (Color(255, 255, 255), Color(0, 0, 20));
         let lit = |density: f32| {
-            let e = Effect::Sparkle { color: c, background: bg, speed: 1.0, density };
+            let e = Effect::Sparkle {
+                color: c,
+                background: bg,
+                speed: 1.0,
+                density,
+            };
             let mut n = 0;
             for xi in 0..32 {
                 for yi in 0..32 {
@@ -570,23 +854,36 @@ mod tests {
         assert!((150..450).contains(&lit(0.3)), "{}", lit(0.3));
         assert!(lit(1.0) > 900, "{}", lit(1.0));
         // Every point comes and goes.
-        let e = Effect::Sparkle { color: c, background: bg, speed: 1.0, density: 0.3 };
+        let e = Effect::Sparkle {
+            color: c,
+            background: bg,
+            speed: 1.0,
+            density: 0.3,
+        };
         for xi in 0..8 {
-            let on = (0..40).filter(|&i| at(&e, xi as f32 / 8.0, 0.4, i as f32 * 0.5) != bg).count();
+            let on = (0..40)
+                .filter(|&i| at(&e, xi as f32 / 8.0, 0.4, i as f32 * 0.5) != bg)
+                .count();
             assert!((1..40).contains(&on), "{on}");
         }
     }
 
     #[test]
     fn plasma_moves_and_varies() {
-        let e = Effect::Plasma { speed: 1.0, scale: 1.0 };
+        let e = Effect::Plasma {
+            speed: 1.0,
+            scale: 1.0,
+        };
         assert_ne!(at(&e, 0.1, 0.1, 0.0), at(&e, 0.6, 0.8, 0.0));
         assert_ne!(at(&e, 0.4, 0.4, 0.0), at(&e, 0.4, 0.4, 1.0));
     }
 
     #[test]
     fn fire_is_brighter_at_the_bottom() {
-        let e = Effect::Fire { speed: 1.0, intensity: 1.0 };
+        let e = Effect::Fire {
+            speed: 1.0,
+            intensity: 1.0,
+        };
         let mean = |y: f32| {
             let mut sum = 0.0;
             for xi in 0..16 {
@@ -603,19 +900,34 @@ mod tests {
 
     #[test]
     fn fire_flickers() {
-        let e = Effect::Fire { speed: 1.0, intensity: 1.0 };
+        let e = Effect::Fire {
+            speed: 1.0,
+            intensity: 1.0,
+        };
         assert_ne!(at(&e, 0.5, 0.8, 0.0), at(&e, 0.5, 0.8, 0.4));
     }
 
     #[test]
     fn ripple_rings_are_round_and_expand() {
-        let e = Effect::Ripple { color: CYAN, background: NAVY, speed: 1.0, width: 0.4, rings: 3.0 };
+        let e = Effect::Ripple {
+            color: CYAN,
+            background: NAVY,
+            speed: 1.0,
+            width: 0.4,
+            rings: 3.0,
+        };
         for t in [0.0, 0.7, 2.0] {
             assert_eq!(at(&e, 0.8, 0.5, t), at(&e, 0.2, 0.5, t));
             assert_eq!(at(&e, 0.8, 0.5, t), at(&e, 0.5, 0.8, t));
         }
         // The ring at radius 0.25 has grown to 0.4 one second later.
-        let ring = Effect::Ripple { color: CYAN, background: NAVY, speed: 1.0, width: 0.2, rings: 2.0 };
+        let ring = Effect::Ripple {
+            color: CYAN,
+            background: NAVY,
+            speed: 1.0,
+            width: 0.2,
+            rings: 2.0,
+        };
         assert_eq!(at(&ring, 0.75, 0.5, 0.0), CYAN);
         assert_eq!(at(&ring, 0.9, 0.5, 0.0), NAVY);
         assert_eq!(at(&ring, 0.9, 0.5, 1.0), CYAN);
@@ -624,25 +936,45 @@ mod tests {
 
     #[test]
     fn radial_rainbow_follows_the_angle_and_rotates() {
-        let e = Effect::RadialRainbow { speed: 1.0, repeats: 1.0, twist: 0.0 };
+        let e = Effect::RadialRainbow {
+            speed: 1.0,
+            repeats: 1.0,
+            twist: 0.0,
+        };
         assert_eq!(at(&e, 0.9, 0.5, 0.0), Color(255, 0, 0));
         assert_eq!(at(&e, 0.9, 0.5, 0.0), at(&e, 0.6, 0.5, 0.0));
         assert_ne!(at(&e, 0.9, 0.5, 0.0), at(&e, 0.5, 0.9, 0.0));
         assert_ne!(at(&e, 0.9, 0.5, 0.0), at(&e, 0.9, 0.5, 1.0));
-        let twice = Effect::RadialRainbow { speed: 1.0, repeats: 2.0, twist: 0.0 };
+        let twice = Effect::RadialRainbow {
+            speed: 1.0,
+            repeats: 2.0,
+            twist: 0.0,
+        };
         assert_eq!(at(&twice, 0.9, 0.5, 0.0), at(&twice, 0.1, 0.5, 0.0));
     }
 
     #[test]
     fn colour_shift_visits_each_colour_in_turn() {
         let (a, b, c) = (Color(255, 0, 0), Color(0, 255, 0), Color(0, 0, 255));
-        let three = Effect::ColorShift { first: a, second: b, third: c, use_third: true, speed: 1.0 };
+        let three = Effect::ColorShift {
+            first: a,
+            second: b,
+            third: c,
+            use_third: true,
+            speed: 1.0,
+        };
         // Speed 1 is a ten second cycle.
         assert_eq!(at(&three, 0.2, 0.9, 0.0), a);
         assert_eq!(at(&three, 0.2, 0.9, 10.0 / 3.0 + 0.001), b);
         assert_eq!(at(&three, 0.2, 0.9, 20.0 / 3.0 + 0.001), c);
         assert_eq!(at(&three, 0.2, 0.9, 5.0), Color(0, 128, 128));
-        let two = Effect::ColorShift { first: a, second: b, third: c, use_third: false, speed: 1.0 };
+        let two = Effect::ColorShift {
+            first: a,
+            second: b,
+            third: c,
+            use_third: false,
+            speed: 1.0,
+        };
         assert_eq!(at(&two, 0.0, 0.0, 5.0), b);
         assert_eq!(at(&two, 0.0, 0.0, 2.5), Color(128, 128, 0));
         for i in 0..200 {
@@ -655,7 +987,11 @@ mod tests {
         let mut inputs = Inputs::default();
         inputs.audio.bands[4] = 1.0;
         let green = Color(0, 255, 0);
-        let e = Effect::AudioSpectrum { color: green, rainbow: false, sensitivity: 1.0 };
+        let e = Effect::AudioSpectrum {
+            color: green,
+            rainbow: false,
+            sensitivity: 1.0,
+        };
         for band in 0..AUDIO_BANDS {
             let x = (band as f32 + 0.5) / AUDIO_BANDS as f32;
             for y in [0.05, 0.5, 0.95] {
@@ -669,10 +1005,18 @@ mod tests {
     fn spectrum_bars_grow_from_the_bottom() {
         let mut inputs = Inputs::default();
         inputs.audio.bands = [0.5; AUDIO_BANDS];
-        let e = Effect::AudioSpectrum { color: WHITE, rainbow: false, sensitivity: 1.0 };
+        let e = Effect::AudioSpectrum {
+            color: WHITE,
+            rainbow: false,
+            sensitivity: 1.0,
+        };
         assert_eq!(e.sample(0.3, 0.9, 0.0, &inputs), WHITE);
         assert_eq!(e.sample(0.3, 0.2, 0.0, &inputs), Color::BLACK);
-        let loud = Effect::AudioSpectrum { color: WHITE, rainbow: false, sensitivity: 2.0 };
+        let loud = Effect::AudioSpectrum {
+            color: WHITE,
+            rainbow: false,
+            sensitivity: 2.0,
+        };
         assert_eq!(loud.sample(0.3, 0.2, 0.0, &inputs), WHITE);
     }
 
@@ -680,30 +1024,54 @@ mod tests {
     fn spectrum_colours_bars_by_band() {
         let mut inputs = Inputs::default();
         inputs.audio.bands = [1.0; AUDIO_BANDS];
-        let e = Effect::AudioSpectrum { color: WHITE, rainbow: true, sensitivity: 1.0 };
+        let e = Effect::AudioSpectrum {
+            color: WHITE,
+            rainbow: true,
+            sensitivity: 1.0,
+        };
         assert_eq!(e.sample(0.0, 0.5, 0.0, &inputs), Color(255, 0, 0));
-        assert_ne!(e.sample(0.0, 0.5, 0.0, &inputs), e.sample(0.5, 0.5, 0.0, &inputs));
-        assert_ne!(e.sample(0.5, 0.5, 0.0, &inputs), e.sample(1.0, 0.5, 0.0, &inputs));
+        assert_ne!(
+            e.sample(0.0, 0.5, 0.0, &inputs),
+            e.sample(0.5, 0.5, 0.0, &inputs)
+        );
+        assert_ne!(
+            e.sample(0.5, 0.5, 0.0, &inputs),
+            e.sample(1.0, 0.5, 0.0, &inputs)
+        );
     }
 
     #[test]
     fn pulse_follows_the_level() {
         let c = Color(200, 100, 0);
-        let e = Effect::AudioPulse { color: c, sensitivity: 1.0, floor: 0.0 };
+        let e = Effect::AudioPulse {
+            color: c,
+            sensitivity: 1.0,
+            floor: 0.0,
+        };
         let mut inputs = Inputs::default();
         assert_eq!(e.sample(0.5, 0.5, 0.0, &inputs), Color::BLACK);
         inputs.audio.level = 0.5;
         assert_eq!(e.sample(0.5, 0.5, 0.0, &inputs), Color(100, 50, 0));
         inputs.audio.level = 1.0;
         assert_eq!(e.sample(0.1, 0.9, 5.0, &inputs), c);
-        let idle = Effect::AudioPulse { color: c, sensitivity: 1.0, floor: 0.5 };
-        assert_eq!(idle.sample(0.5, 0.5, 0.0, &Inputs::default()), Color(100, 50, 0));
+        let idle = Effect::AudioPulse {
+            color: c,
+            sensitivity: 1.0,
+            floor: 0.5,
+        };
+        assert_eq!(
+            idle.sample(0.5, 0.5, 0.0, &Inputs::default()),
+            Color(100, 50, 0)
+        );
     }
 
     #[test]
     fn ambience_returns_the_screen_pixel() {
         let inputs = busy_inputs();
-        let e = Effect::ScreenAmbience { saturation: 1.0, brightness: 1.0 };
+        let e = Effect::ScreenAmbience {
+            saturation: 1.0,
+            brightness: 1.0,
+        };
         for xi in 0..=10 {
             for yi in 0..=10 {
                 let (x, y) = (xi as f32 / 10.0, yi as f32 / 10.0);
@@ -716,10 +1084,21 @@ mod tests {
     #[test]
     fn ambience_boosts_saturation_and_brightness() {
         let pixel = Color(120, 100, 80);
-        let screen = ScreenFrame { width: 1, height: 1, pixels: vec![pixel] };
-        let inputs = Inputs { screen, ..Inputs::default() };
+        let screen = ScreenFrame {
+            width: 1,
+            height: 1,
+            pixels: vec![pixel],
+        };
+        let inputs = Inputs {
+            screen,
+            ..Inputs::default()
+        };
         let sample = |saturation, brightness| {
-            Effect::ScreenAmbience { saturation, brightness }.sample(0.5, 0.5, 0.0, &inputs)
+            Effect::ScreenAmbience {
+                saturation,
+                brightness,
+            }
+            .sample(0.5, 0.5, 0.0, &inputs)
         };
         let vivid = sample(2.0, 1.0);
         assert!(vivid.0 > pixel.0 && vivid.2 < pixel.2, "{vivid:?}");

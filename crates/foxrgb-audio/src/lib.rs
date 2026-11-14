@@ -49,7 +49,11 @@ impl AudioCapture {
     /// Starts loopback capture on a background thread. Capture stops when the value is dropped.
     pub fn start() -> Result<Self, String> {
         let shared = Arc::new(Shared {
-            ring: Mutex::new(Ring { samples: vec![0.0; RING_LEN].into(), rate: 48_000, fresh: false }),
+            ring: Mutex::new(Ring {
+                samples: vec![0.0; RING_LEN].into(),
+                rate: 48_000,
+                fresh: false,
+            }),
             frame: Mutex::default(),
             failed: AtomicBool::new(false),
         });
@@ -63,7 +67,11 @@ impl AudioCapture {
                 .map_err(|e| e.to_string())?
         };
         opened.recv().map_err(|e| e.to_string())??;
-        Ok(Self { shared, stop, worker: Some(worker) })
+        Ok(Self {
+            shared,
+            stop,
+            worker: Some(worker),
+        })
     }
 
     /// Latest analysis. Cheap; called once per rendered frame.
@@ -105,7 +113,10 @@ fn run(shared: &Arc<Shared>, stopped: &Receiver<()>, ready: &Sender<Result<(), S
         if now - checked > RECHECK {
             checked = now;
             // follow the default device when it changes or comes back
-            if input.as_ref().is_none_or(|(_, device)| *device != default_name()) {
+            if input
+                .as_ref()
+                .is_none_or(|(_, device)| *device != default_name())
+            {
                 drop(input.take());
                 // an error from the stream just closed must not close the new one
                 shared.failed.store(false, Ordering::Relaxed);
@@ -137,7 +148,9 @@ fn default_name() -> Option<String> {
 
 /// Starts a loopback stream on the default output device and returns it with the device's name.
 fn open(shared: &Arc<Shared>) -> Result<(Stream, Option<String>), String> {
-    let device = cpal::default_host().default_output_device().ok_or("no audio output device")?;
+    let device = cpal::default_host()
+        .default_output_device()
+        .ok_or("no audio output device")?;
     let config = device.default_output_config().map_err(|e| e.to_string())?;
     let format = config.sample_format();
     let config = config.config();
@@ -160,7 +173,11 @@ fn open(shared: &Arc<Shared>) -> Result<(Stream, Option<String>), String> {
 }
 
 /// An input stream on an output device is a loopback of what it plays.
-fn listen<T>(device: &cpal::Device, config: &cpal::StreamConfig, shared: &Arc<Shared>) -> Result<Stream, String>
+fn listen<T>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    shared: &Arc<Shared>,
+) -> Result<Stream, String>
 where
     T: SizedSample,
     f32: FromSample<T>,
@@ -195,7 +212,9 @@ pub fn band_edges() -> [f32; AUDIO_BANDS + 1] {
 
 /// Samples analysed at a sample rate: a power of two that keeps bins under 24 Hz wide.
 fn window_len(rate: u32) -> usize {
-    (rate as usize / 24).next_power_of_two().clamp(256, RING_LEN)
+    (rate as usize / 24)
+        .next_power_of_two()
+        .clamp(256, RING_LEN)
 }
 
 /// Amplitude per band of the newest samples; a full-scale sine reads about 1 in its band.
@@ -213,7 +232,9 @@ pub fn spectrum(samples: &[f32], rate: u32) -> [f32; AUDIO_BANDS] {
     let edges = band_edges();
     std::array::from_fn(|band| {
         let start = (edges[band] / bin_hz).ceil() as usize;
-        let end = ((edges[band + 1] / bin_hz).ceil() as usize).max(start.saturating_add(1)).min(n / 2);
+        let end = ((edges[band + 1] / bin_hz).ceil() as usize)
+            .max(start.saturating_add(1))
+            .min(n / 2);
         let power: f32 = (start..end).map(|k| re[k] * re[k] + im[k] * im[k]).sum();
         // 4 / n undoes the Hann window's gain, 1.5 is its noise bandwidth in bins
         (power / 1.5).sqrt() * 4.0 / n as f32
@@ -263,7 +284,11 @@ struct Meter {
 
 impl Meter {
     fn new() -> Self {
-        Self { frame: AudioFrame::default(), band_ceiling: MIN_CEILING_DB, level_ceiling: MIN_CEILING_DB }
+        Self {
+            frame: AudioFrame::default(),
+            band_ceiling: MIN_CEILING_DB,
+            level_ceiling: MIN_CEILING_DB,
+        }
     }
 
     fn update(&mut self, raw: &[f32; AUDIO_BANDS], dt: f32) -> AudioFrame {
@@ -288,7 +313,9 @@ fn to_db(amplitude: f32) -> f32 {
 
 /// Slow automatic gain: the ceiling jumps to a new peak and sinks back slowly.
 fn ceiling(old: f32, peak_db: f32, dt: f32) -> f32 {
-    (old - CEILING_FALL_DB * dt).max(peak_db).max(MIN_CEILING_DB)
+    (old - CEILING_FALL_DB * dt)
+        .max(peak_db)
+        .max(MIN_CEILING_DB)
 }
 
 fn scale(db: f32, ceiling: f32) -> f32 {
@@ -309,7 +336,9 @@ mod tests {
     use super::*;
 
     fn sine(hz: f32, rate: u32) -> Vec<f32> {
-        (0..window_len(rate)).map(|i| (2.0 * PI * hz * i as f32 / rate as f32).sin()).collect()
+        (0..window_len(rate))
+            .map(|i| (2.0 * PI * hz * i as f32 / rate as f32).sin())
+            .collect()
     }
 
     #[test]
@@ -317,7 +346,10 @@ mod tests {
         assert_eq!(spectrum(&[0.0; 4096], 48_000), [0.0; AUDIO_BANDS]);
         assert_eq!(spectrum(&[], 48_000), [0.0; AUDIO_BANDS]);
         assert_eq!(spectrum(&[1.0; 64], 0), [0.0; AUDIO_BANDS]);
-        assert_eq!(Meter::new().update(&[0.0; AUDIO_BANDS], 0.01), AudioFrame::default());
+        assert_eq!(
+            Meter::new().update(&[0.0; AUDIO_BANDS], 0.01),
+            AudioFrame::default()
+        );
     }
 
     #[test]
@@ -328,7 +360,11 @@ mod tests {
                 let hz = (edges[band] * edges[band + 1]).sqrt();
                 let bands = spectrum(&sine(hz, rate), rate);
                 let loudest = (0..AUDIO_BANDS).max_by(|&a, &b| bands[a].total_cmp(&bands[b]));
-                assert_eq!(loudest, Some(band), "{hz} Hz sampled at {rate} Hz: {bands:?}");
+                assert_eq!(
+                    loudest,
+                    Some(band),
+                    "{hz} Hz sampled at {rate} Hz: {bands:?}"
+                );
             }
         }
         let full_scale = spectrum(&sine(1000.0, 48_000), 48_000)[8];
@@ -363,7 +399,11 @@ mod tests {
     #[test]
     fn meter_survives_broken_samples() {
         let in_range = |frame: AudioFrame| {
-            frame.bands.iter().chain([&frame.level]).all(|v| (0.0..=1.0).contains(v))
+            frame
+                .bands
+                .iter()
+                .chain([&frame.level])
+                .all(|v| (0.0..=1.0).contains(v))
         };
         let mut meter = Meter::new();
         for bad in [f32::INFINITY, f32::NAN, 1e30, -1.0] {

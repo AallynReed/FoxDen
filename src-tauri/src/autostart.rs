@@ -14,10 +14,16 @@ pub fn set(enabled: bool) -> Result<(), String> {
     } else {
         reg.args(["delete", RUN_KEY, "/v", "FoxRGB", "/f"]);
     }
-    let output = reg.creation_flags(CREATE_NO_WINDOW).output().map_err(|e| format!("reg: {e}"))?;
+    let output = reg
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("reg: {e}"))?;
     // Removing a value that is not there fails, which is fine.
     if enabled && !output.status.success() {
-        return Err(format!("reg: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(format!(
+            "reg: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
     Ok(())
 }

@@ -49,17 +49,30 @@ pub fn set_device(
 ) -> Reply {
     update(&app, &shared, |s| {
         let devices = s.engine.devices();
-        let device = devices.iter().find(|d| d.id == id).ok_or_else(|| format!("unknown device {id}"))?;
+        let device = devices
+            .iter()
+            .find(|d| d.id == id)
+            .ok_or_else(|| format!("unknown device {id}"))?;
         if rect.iter().any(|v| !v.is_finite()) || rect[2] <= 0.0 || rect[3] <= 0.0 {
             return Err("invalid device rectangle".into());
         }
         // Only a rect the user actually moved becomes a saved override.
-        let moved = rect.iter().zip(device.rect).any(|(a, b)| (a - b).abs() > 1e-4);
+        let moved = rect
+            .iter()
+            .zip(device.rect)
+            .any(|(a, b)| (a - b).abs() > 1e-4);
         let saved = s.config.devices.get(&id).and_then(|d| d.rect);
         let rect = if moved { Some(rect) } else { saved };
         let brightness = brightness.clamp(0.0, 1.0);
         s.engine.set_device(&id, enabled, brightness, rect);
-        s.config.devices.insert(id, DeviceConfig { enabled, brightness, rect });
+        s.config.devices.insert(
+            id,
+            DeviceConfig {
+                enabled,
+                brightness,
+                rect,
+            },
+        );
         Ok(())
     })
 }
@@ -82,7 +95,10 @@ pub fn save_profile(app: AppHandle, shared: State<'_, Shared>, name: String) -> 
         if name.is_empty() {
             return Err("profile name is empty".into());
         }
-        let profile = Profile { effect: s.engine.effect.clone(), brightness: s.engine.brightness };
+        let profile = Profile {
+            effect: s.engine.effect.clone(),
+            brightness: s.engine.brightness,
+        };
         s.config.profiles.insert(name.clone(), profile);
         s.config.active_profile = Some(name);
         Ok(())
@@ -97,7 +113,10 @@ pub fn load_profile(app: AppHandle, shared: State<'_, Shared>, name: String) -> 
 #[tauri::command]
 pub fn delete_profile(app: AppHandle, shared: State<'_, Shared>, name: String) -> Reply {
     update(&app, &shared, |s| {
-        s.config.profiles.remove(&name).ok_or_else(|| format!("no profile named {name}"))?;
+        s.config
+            .profiles
+            .remove(&name)
+            .ok_or_else(|| format!("no profile named {name}"))?;
         if s.config.active_profile.as_deref() == Some(name.as_str()) {
             s.config.active_profile = None;
         }
@@ -106,8 +125,16 @@ pub fn delete_profile(app: AppHandle, shared: State<'_, Shared>, name: String) -
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, shared: State<'_, Shared>, jobs: State<'_, Jobs>, settings: Settings) -> Reply {
-    let settings = Settings { fps: settings.fps.clamp(10, 60), ..settings };
+pub fn set_settings(
+    app: AppHandle,
+    shared: State<'_, Shared>,
+    jobs: State<'_, Jobs>,
+    settings: Settings,
+) -> Reply {
+    let settings = Settings {
+        fps: settings.fps.clamp(10, 60),
+        ..settings
+    };
     let old = lock(&shared).config.settings.clone();
     if settings.autostart != old.autostart {
         autostart::set(settings.autostart)?;
@@ -140,5 +167,6 @@ pub fn detect(jobs: State<'_, Jobs>) -> Reply {
 
 /// Hands the work to the hardware thread; a "snapshot" follows when it is done.
 fn queue(jobs: &Jobs, job: Job) -> Reply {
-    jobs.send(job).map_err(|_| "the hardware thread has stopped".to_string())
+    jobs.send(job)
+        .map_err(|_| "the hardware thread has stopped".to_string())
 }

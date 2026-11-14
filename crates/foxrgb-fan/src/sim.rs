@@ -80,7 +80,9 @@ pub struct SimBackend {
 }
 
 fn lock(model: &Mutex<Model>) -> MutexGuard<'_, Model> {
-    model.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    model
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 impl SimBackend {

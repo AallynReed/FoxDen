@@ -53,7 +53,11 @@ pub struct DeviceConfig {
 
 impl Default for DeviceConfig {
     fn default() -> Self {
-        DeviceConfig { enabled: true, brightness: 1.0, rect: None }
+        DeviceConfig {
+            enabled: true,
+            brightness: 1.0,
+            rect: None,
+        }
     }
 }
 
@@ -147,7 +151,9 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::current_exe().unwrap().with_file_name(format!("foxrgb-test-{name}"));
+        let dir = std::env::current_exe()
+            .unwrap()
+            .with_file_name(format!("foxrgb-test-{name}"));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -155,7 +161,8 @@ mod tests {
 
     #[test]
     fn the_folder_has_the_name_the_uninstaller_removes() {
-        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(conf["identifier"], FOLDER);
         // The window is made in main.rs, which gives the web view its folder.
         assert_eq!(conf["app"]["windows"][0]["create"], false);
@@ -165,18 +172,30 @@ mod tests {
     // The setup program takes its version from tauri.conf.json, the binaries from Cargo.toml.
     #[test]
     fn the_setup_program_and_the_binaries_carry_one_version() {
-        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert_eq!(conf["version"], env!("CARGO_PKG_VERSION"));
     }
 
     #[test]
     fn saves_and_loads() {
         let dir = scratch("roundtrip");
-        let device = DeviceConfig { enabled: false, brightness: 0.5, rect: Some([0.1, 0.2, 0.3, 0.4]) };
-        let profile = Profile { effect: Effect::Cycle { speed: 2.0 }, brightness: 0.2 };
+        let device = DeviceConfig {
+            enabled: false,
+            brightness: 0.5,
+            rect: Some([0.1, 0.2, 0.3, 0.4]),
+        };
+        let profile = Profile {
+            effect: Effect::Cycle { speed: 2.0 },
+            brightness: 0.2,
+        };
         let config = Config {
             brightness: 0.4,
-            settings: Settings { fps: 48, openrgb_enabled: true, ..Default::default() },
+            settings: Settings {
+                fps: 48,
+                openrgb_enabled: true,
+                ..Default::default()
+            },
             devices: BTreeMap::from([("virtual:gpu".to_string(), device)]),
             profiles: BTreeMap::from([("Night".to_string(), profile)]),
             active_profile: Some("Night".into()),
@@ -205,9 +224,27 @@ mod tests {
         let config = load(&dir);
         assert_eq!(config.brightness, 0.5);
         assert_eq!(config.effect, Effect::default());
-        assert_eq!(config.settings, Settings { fps: 60, ..Default::default() });
-        assert_eq!(config.devices["a"], DeviceConfig { enabled: false, ..Default::default() });
-        assert_eq!(config.profiles["p"], Profile { effect: Effect::default(), brightness: 1.0 });
+        assert_eq!(
+            config.settings,
+            Settings {
+                fps: 60,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            config.devices["a"],
+            DeviceConfig {
+                enabled: false,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            config.profiles["p"],
+            Profile {
+                effect: Effect::default(),
+                brightness: 1.0
+            }
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -220,10 +257,19 @@ mod tests {
         fs::write(dir.join(FILE), text).unwrap();
         let settings = load(&dir).settings;
         assert!(settings.auto_detect);
-        assert_eq!((settings.fps, settings.openrgb_port, settings.show_virtual), (48, 6743, false));
+        assert_eq!(
+            (settings.fps, settings.openrgb_port, settings.show_virtual),
+            (48, 6743, false)
+        );
         assert!(settings.openrgb_enabled && settings.start_minimized && !settings.close_to_tray);
         // and the switch survives a round trip once it is off
-        let off = Config { settings: Settings { auto_detect: false, ..settings }, ..Default::default() };
+        let off = Config {
+            settings: Settings {
+                auto_detect: false,
+                ..settings
+            },
+            ..Default::default()
+        };
         save(&dir, &off).unwrap();
         assert!(!load(&dir).settings.auto_detect);
         fs::remove_dir_all(&dir).unwrap();

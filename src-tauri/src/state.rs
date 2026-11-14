@@ -69,7 +69,11 @@ pub struct Kinds {
 }
 
 impl Kinds {
-    pub const ALL: Kinds = Kinds { virt: true, openrgb: true, hid: true };
+    pub const ALL: Kinds = Kinds {
+        virt: true,
+        openrgb: true,
+        hid: true,
+    };
 
     pub fn any(self) -> bool {
         self.virt || self.openrgb || self.hid
@@ -180,7 +184,10 @@ impl AppState {
         let hardware = GROUPS.into_iter().map(|name| {
             let mine = || slots.iter().filter(|(label, ..)| label == name);
             let outcome = self.loaded.get(name);
-            let error = outcome.cloned().flatten().or_else(|| mine().find_map(|(.., e)| e.clone()));
+            let error = outcome
+                .cloned()
+                .flatten()
+                .or_else(|| mine().find_map(|(.., e)| e.clone()));
             BackendStatus {
                 name: name.into(),
                 active: outcome.is_some() && error.is_none(),
@@ -198,13 +205,18 @@ impl AppState {
 
     /// Whether a backend of this group has stopped taking frames.
     fn failing(&self, name: &str) -> bool {
-        self.engine.status().iter().any(|(label, _, error)| label == name && error.is_some())
+        self.engine
+            .status()
+            .iter()
+            .any(|(label, _, error)| label == name && error.is_some())
     }
 
     /// Connected to OpenRGB and shown at least one device. An empty list is read again later,
     /// because a server that is still starting up announces its devices to nobody.
     fn openrgb_settled(&self) -> bool {
-        self.backends().iter().any(|b| b.name == "openrgb" && b.active && b.devices > 0)
+        self.backends()
+            .iter()
+            .any(|b| b.name == "openrgb" && b.active && b.devices > 0)
     }
 
     /// What detection found, joined with what the backends drive right now.
@@ -219,7 +231,11 @@ impl AppState {
     }
 
     pub fn load_profile(&mut self, name: &str) -> Result<(), String> {
-        let profile = self.config.profiles.get(name).ok_or_else(|| format!("no profile named {name}"))?;
+        let profile = self
+            .config
+            .profiles
+            .get(name)
+            .ok_or_else(|| format!("no profile named {name}"))?;
         self.engine.effect = profile.effect.clone();
         self.engine.brightness = profile.brightness.clamp(0.0, 1.0);
         self.config.active_profile = Some(name.to_string());
@@ -228,7 +244,10 @@ impl AppState {
 
     /// Forgets the active profile once the live effect or brightness no longer match it.
     pub fn check_profile(&mut self) {
-        let live = Profile { effect: self.engine.effect.clone(), brightness: self.engine.brightness };
+        let live = Profile {
+            effect: self.engine.effect.clone(),
+            brightness: self.engine.brightness,
+        };
         let name = self.config.active_profile.as_ref();
         if name.is_some_and(|n| self.config.profiles.get(n) != Some(&live)) {
             self.config.active_profile = None;
@@ -273,7 +292,11 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         let enabled = {
             let state = lock(&shared);
             let settings = &state.config.settings;
-            Kinds { virt: false, openrgb: settings.openrgb_enabled, hid: settings.native_drivers }
+            Kinds {
+                virt: false,
+                openrgb: settings.openrgb_enabled,
+                hid: settings.native_drivers,
+            }
         };
         if enabled.any() {
             reload(&shared, &mut watch, enabled);
@@ -292,7 +315,11 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
             }
             let (settings, settled, failing) = {
                 let state = lock(&shared);
-                (state.config.settings.clone(), state.openrgb_settled(), state.failing("hid"))
+                (
+                    state.config.settings.clone(),
+                    state.openrgb_settled(),
+                    state.failing("hid"),
+                )
             };
             if asked || settings.auto_detect {
                 // The board, memory and cards stay put: WMI is asked again only while it has given nothing.
@@ -310,7 +337,11 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                 }
                 // Only what the user has switched on and whose hardware changed is connected again.
                 let hid = (change.native || died) && !done.hid;
-                let stale = Kinds { virt: false, openrgb: change.openrgb && !done.openrgb, hid };
+                let stale = Kinds {
+                    virt: false,
+                    openrgb: change.openrgb && !done.openrgb,
+                    hid,
+                };
                 if stale.any() {
                     reload(&shared, &mut watch, stale);
                 }
@@ -346,9 +377,14 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
         },
         _ => {
             let mut backends = foxrgb_hid::probe();
-            // Memory needs PawnIO and administrator rights; without them only USB devices are driven.
-            if let Ok(more) = foxrgb_smbus::probe() {
-                backends.extend(more);
+            // Memory needs PawnIO and administrator rights, or the installed service that has them.
+            match foxrgb_smbus::probe() {
+                Ok(more) => backends.extend(more),
+                Err(_) => {
+                    if let Some(service) = crate::service_lights::probe() {
+                        backends.push(Box::new(service));
+                    }
+                }
             }
             (backends, None)
         }
@@ -399,7 +435,10 @@ struct Input<T> {
 
 impl<T> Input<T> {
     fn off() -> Self {
-        Input { capture: None, error: None }
+        Input {
+            capture: None,
+            error: None,
+        }
     }
 
     /// Starts or drops the capture to match `wanted`. True when its status changed.
@@ -413,7 +452,12 @@ impl<T> Input<T> {
             return false;
         }
         match start() {
-            Ok(capture) => *self = Input { capture: Some(capture), error: None },
+            Ok(capture) => {
+                *self = Input {
+                    capture: Some(capture),
+                    error: None,
+                }
+            }
             Err(e) => self.error = Some(e),
         }
         true
@@ -441,19 +485,35 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                 let mut state = lock(&shared);
                 let effect = &state.engine.effect;
                 let wanted = (effect.uses_audio(), effect.uses_screen());
-                (state.config.settings.fps, wanted.0, wanted.1, std::mem::take(&mut state.retry_inputs))
+                (
+                    state.config.settings.fps,
+                    wanted.0,
+                    wanted.1,
+                    std::mem::take(&mut state.retry_inputs),
+                )
             };
             let audio_changed = audio.sync(want_audio, retry, AudioCapture::start);
             let screen_changed = screen.sync(want_screen, retry, ScreenCapture::start);
-            inputs.audio = audio.capture.as_ref().map(|c| c.frame()).unwrap_or_default();
-            inputs.screen = screen.capture.as_ref().map(|c| c.frame()).unwrap_or_default();
+            inputs.audio = audio
+                .capture
+                .as_ref()
+                .map(|c| c.frame())
+                .unwrap_or_default();
+            inputs.screen = screen
+                .capture
+                .as_ref()
+                .map(|c| c.frame())
+                .unwrap_or_default();
 
             let changed = audio_changed || screen_changed;
             // The engine only queues the frame here; each backend sends it on its own thread.
             let (frames, failed) = {
                 let mut state = lock(&shared);
                 if changed {
-                    state.inputs = [audio.status("audio"), screen.status("screen")].into_iter().flatten().collect();
+                    state.inputs = [audio.status("audio"), screen.status("screen")]
+                        .into_iter()
+                        .flatten()
+                        .collect();
                 }
                 // f32 seconds turn coarse after days of uptime, so the clock wraps.
                 let t = (start.elapsed().as_secs_f64() % CLOCK_WRAP) as f32;
@@ -521,7 +581,12 @@ mod tests {
     use std::net::TcpListener;
 
     fn keys(value: &Value) -> Vec<&str> {
-        let mut keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         keys.sort_unstable();
         keys
     }
@@ -529,20 +594,38 @@ mod tests {
     #[test]
     fn snapshot_has_the_shape_the_ui_expects() {
         let mut state = AppState::new(Config::default());
-        state.engine.set_device("virtual:gpu", false, 0.5, Some([0.25, 0.5, 0.25, 0.125]));
+        state
+            .engine
+            .set_device("virtual:gpu", false, 0.5, Some([0.25, 0.5, 0.25, 0.125]));
         let json = serde_json::to_value(state.snapshot()).unwrap();
         assert_eq!(
             keys(&json),
             [
-                "active_profile", "backends", "brightness", "catalog", "detected", "devices", "effect", "paused",
-                "profiles", "settings"
+                "active_profile",
+                "backends",
+                "brightness",
+                "catalog",
+                "detected",
+                "devices",
+                "effect",
+                "paused",
+                "profiles",
+                "settings"
             ]
         );
         assert_eq!(
             keys(&json["settings"]),
             [
-                "auto_detect", "autostart", "close_to_tray", "fps", "native_drivers", "openrgb_enabled",
-                "openrgb_host", "openrgb_port", "show_virtual", "start_minimized"
+                "auto_detect",
+                "autostart",
+                "close_to_tray",
+                "fps",
+                "native_drivers",
+                "openrgb_enabled",
+                "openrgb_host",
+                "openrgb_port",
+                "show_virtual",
+                "start_minimized"
             ]
         );
         assert_eq!(json["settings"]["native_drivers"], false);
@@ -550,8 +633,26 @@ mod tests {
         assert_eq!(json["settings"]["auto_detect"], true);
         assert_eq!(json["detected"], json!([]));
 
-        let gpu = json["devices"].as_array().unwrap().iter().find(|d| d["id"] == "virtual:gpu").unwrap();
-        assert_eq!(keys(gpu), ["backend", "brightness", "enabled", "grid", "id", "kind", "leds", "name", "rect"]);
+        let gpu = json["devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["id"] == "virtual:gpu")
+            .unwrap();
+        assert_eq!(
+            keys(gpu),
+            [
+                "backend",
+                "brightness",
+                "enabled",
+                "grid",
+                "id",
+                "kind",
+                "leds",
+                "name",
+                "rect"
+            ]
+        );
         assert_eq!(gpu["backend"], "virtual");
         assert_eq!(gpu["kind"], "gpu");
         assert_eq!(gpu["enabled"], false);
@@ -560,9 +661,18 @@ mod tests {
         assert_eq!(gpu["grid"], json!([12, 1]));
 
         let backends = json["backends"].as_array().unwrap();
-        assert_eq!(backends[0], json!({ "name": "virtual", "active": true, "devices": 6, "error": null }));
-        assert_eq!(backends[1], json!({ "name": "openrgb", "active": false, "devices": 0, "error": null }));
-        assert_eq!(backends[2], json!({ "name": "hid", "active": false, "devices": 0, "error": null }));
+        assert_eq!(
+            backends[0],
+            json!({ "name": "virtual", "active": true, "devices": 6, "error": null })
+        );
+        assert_eq!(
+            backends[1],
+            json!({ "name": "openrgb", "active": false, "devices": 0, "error": null })
+        );
+        assert_eq!(
+            backends[2],
+            json!({ "name": "hid", "active": false, "devices": 0, "error": null })
+        );
     }
 
     #[test]
@@ -580,7 +690,10 @@ mod tests {
         let json = serde_json::to_value(state.snapshot()).unwrap();
         let detected = json["detected"].as_array().unwrap();
         assert_eq!(detected.len(), 2);
-        assert_eq!(keys(&detected[0]), ["bus", "id", "kind", "name", "note", "route", "state"]);
+        assert_eq!(
+            keys(&detected[0]),
+            ["bus", "id", "kind", "name", "note", "route", "state"]
+        );
         assert_eq!(detected[0]["id"], "usb:1b1c:0001");
         assert_eq!(detected[0]["route"], "openrgb");
         assert_eq!(detected[0]["state"], "available");
@@ -598,7 +711,14 @@ mod tests {
             }
 
             fn devices(&self) -> Vec<Device> {
-                vec![Device::grid("hid:unplugged", "Unplugged", DeviceKind::Mouse, [0.0; 4], 1, 1)]
+                vec![Device::grid(
+                    "hid:unplugged",
+                    "Unplugged",
+                    DeviceKind::Mouse,
+                    [0.0; 4],
+                    1,
+                    1,
+                )]
             }
 
             fn push(&mut self, _device_id: &str, _colors: &[Color]) -> Result<(), String> {
@@ -619,38 +739,86 @@ mod tests {
     fn reload_swaps_one_group_and_leaves_the_rest() {
         let shared: Shared = Arc::new(Mutex::new(AppState::new(Config::default())));
         let mut watch = Watch::default();
-        let status = |name: &str| lock(&shared).backends().into_iter().find(|b| b.name == name).unwrap();
-        let free = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let status = |name: &str| {
+            lock(&shared)
+                .backends()
+                .into_iter()
+                .find(|b| b.name == name)
+                .unwrap()
+        };
+        let free = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         {
             let mut state = lock(&shared);
             state.config.settings.openrgb_enabled = true;
             state.config.settings.openrgb_port = free;
         }
-        reload(&shared, &mut watch, Kinds { openrgb: true, ..Kinds::default() });
+        reload(
+            &shared,
+            &mut watch,
+            Kinds {
+                openrgb: true,
+                ..Kinds::default()
+            },
+        );
         assert!(status("openrgb").error.is_some());
         assert!(!lock(&shared).connected("openrgb"));
-        assert_eq!((status("virtual").active, status("virtual").devices), (true, 6));
+        assert_eq!(
+            (status("virtual").active, status("virtual").devices),
+            (true, 6)
+        );
 
         lock(&shared).config.settings.show_virtual = false;
-        reload(&shared, &mut watch, Kinds { virt: true, ..Kinds::default() });
-        assert_eq!((status("virtual").active, status("virtual").devices), (false, 0));
+        reload(
+            &shared,
+            &mut watch,
+            Kinds {
+                virt: true,
+                ..Kinds::default()
+            },
+        );
+        assert_eq!(
+            (status("virtual").active, status("virtual").devices),
+            (false, 0)
+        );
         assert!(status("openrgb").error.is_some());
 
         let mut state = lock(&shared);
         state.config.settings.show_virtual = true;
         state.config.settings.openrgb_enabled = false;
         drop(state);
-        reload(&shared, &mut watch, Kinds { virt: true, openrgb: true, hid: false });
+        reload(
+            &shared,
+            &mut watch,
+            Kinds {
+                virt: true,
+                openrgb: true,
+                hid: false,
+            },
+        );
         assert_eq!(status("virtual").devices, 6);
-        assert_eq!((status("openrgb").active, status("openrgb").error), (false, None));
-        let first = lock(&shared).snapshot().devices.first().map(|d| d.id.clone());
+        assert_eq!(
+            (status("openrgb").active, status("openrgb").error),
+            (false, None)
+        );
+        let first = lock(&shared)
+            .snapshot()
+            .devices
+            .first()
+            .map(|d| d.id.clone());
         assert_eq!(first.as_deref(), Some("virtual:board"));
     }
 
     #[test]
     fn loading_a_profile_replaces_effect_and_brightness() {
         let mut state = AppState::new(Config::default());
-        let profile = config::Profile { effect: Effect::Cycle { speed: 2.0 }, brightness: 0.25 };
+        let profile = config::Profile {
+            effect: Effect::Cycle { speed: 2.0 },
+            brightness: 0.25,
+        };
         state.config.profiles.insert("Night".into(), profile);
         assert!(state.load_profile("Day").is_err());
         state.load_profile("Night").unwrap();
@@ -663,7 +831,10 @@ mod tests {
     #[test]
     fn an_edited_profile_is_no_longer_active() {
         let mut state = AppState::new(Config::default());
-        let profile = Profile { effect: Effect::Cycle { speed: 2.0 }, brightness: 0.25 };
+        let profile = Profile {
+            effect: Effect::Cycle { speed: 2.0 },
+            brightness: 0.25,
+        };
         state.config.profiles.insert("Night".into(), profile);
         state.load_profile("Night").unwrap();
         state.check_profile();

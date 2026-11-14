@@ -43,7 +43,11 @@ mod tests {
 
     #[test]
     fn screen_sample() {
-        let frame = ScreenFrame { width: 2, height: 1, pixels: vec![Color(1, 0, 0), Color(2, 0, 0)] };
+        let frame = ScreenFrame {
+            width: 2,
+            height: 1,
+            pixels: vec![Color(1, 0, 0), Color(2, 0, 0)],
+        };
         assert_eq!(frame.sample(0.1, 0.5), Color(1, 0, 0));
         assert_eq!(frame.sample(1.0, 1.0), Color(2, 0, 0));
         assert_eq!(ScreenFrame::default().sample(0.5, 0.5), Color::BLACK);

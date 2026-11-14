@@ -15,7 +15,11 @@ type Shown = (bool, Vec<String>, Option<String>);
 static SHOWN: Mutex<Option<Shown>> = Mutex::new(None);
 
 fn shown(snapshot: &Snapshot) -> Shown {
-    (snapshot.paused, snapshot.profiles.clone(), snapshot.active_profile.clone())
+    (
+        snapshot.paused,
+        snapshot.profiles.clone(),
+        snapshot.active_profile.clone(),
+    )
 }
 
 fn menu(app: &AppHandle, (paused, profiles, active): &Shown) -> tauri::Result<Menu<Wry>> {

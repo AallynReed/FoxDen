@@ -127,14 +127,18 @@ impl FanConfig {
             }
             for &(temp, duty) in &curve.points {
                 if !temp.is_finite() || !duty.is_finite() {
-                    return Err(format!("curve '{name}' has a point that is not a finite number"));
+                    return Err(format!(
+                        "curve '{name}' has a point that is not a finite number"
+                    ));
                 }
                 if !(0.0..=1.0).contains(&duty) {
                     return Err(format!("curve '{name}' has a duty outside 0 to 1"));
                 }
             }
             if curve.points.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-                return Err(format!("curve '{name}' points must be sorted by rising temperature"));
+                return Err(format!(
+                    "curve '{name}' points must be sorted by rising temperature"
+                ));
             }
             if !(0.0..=30.0).contains(&curve.hysteresis) {
                 return Err(format!("curve '{name}' hysteresis must be from 0 to 30"));
@@ -157,7 +161,9 @@ impl FanConfig {
                 ));
             }
             if !(rule.ramp >= 0.01 && rule.ramp.is_finite()) {
-                return Err(format!("fan '{fan}' ramp must be a finite number of at least 0.01"));
+                return Err(format!(
+                    "fan '{fan}' ramp must be a finite number of at least 0.01"
+                ));
             }
         }
         Ok(())

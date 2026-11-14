@@ -27,21 +27,40 @@ pub struct Device {
 
 impl Device {
     /// A `cols` x `rows` matrix with LEDs at cell centres, row-major.
-    pub fn grid(id: &str, name: &str, kind: DeviceKind, rect: [f32; 4], cols: u32, rows: u32) -> Self {
+    pub fn grid(
+        id: &str,
+        name: &str,
+        kind: DeviceKind,
+        rect: [f32; 4],
+        cols: u32,
+        rows: u32,
+    ) -> Self {
         let leds = (0..rows)
             .flat_map(|r| {
                 (0..cols).map(move |c| {
-                    [(c as f32 + 0.5) / cols as f32, (r as f32 + 0.5) / rows as f32]
+                    [
+                        (c as f32 + 0.5) / cols as f32,
+                        (r as f32 + 0.5) / rows as f32,
+                    ]
                 })
             })
             .collect();
-        Device { id: id.into(), name: name.into(), kind, rect, grid: [cols, rows], leds }
+        Device {
+            id: id.into(),
+            name: name.into(),
+            kind,
+            rect,
+            grid: [cols, rows],
+            leds,
+        }
     }
 
     /// Canvas position of each LED.
     pub fn canvas_positions(&self) -> impl Iterator<Item = (f32, f32)> + '_ {
         let [x, y, w, h] = self.rect;
-        self.leds.iter().map(move |[lx, ly]| (x + lx * w, y + ly * h))
+        self.leds
+            .iter()
+            .map(move |[lx, ly]| (x + lx * w, y + ly * h))
     }
 }
 

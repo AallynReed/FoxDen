@@ -71,9 +71,23 @@ pub struct FanState {
 enum Request<'a> {
     Status,
     GetConfig,
-    SetConfig { config: &'a FanConfig },
-    SetSim { on: bool },
+    SetConfig {
+        config: &'a FanConfig,
+    },
+    SetSim {
+        on: bool,
+    },
     Shutdown,
+    Lights,
+    SetLights {
+        device: &'a str,
+        colors: &'a [foxrgb_core::Color],
+    },
+}
+
+#[derive(Deserialize)]
+struct LightsReply {
+    devices: Vec<foxrgb_core::Device>,
 }
 
 /// The part every reply has.
@@ -128,6 +142,16 @@ impl Client {
 
     pub fn status(&self) -> Result<Report, String> {
         self.ask(&Request::Status)
+    }
+
+    /// Lighting devices only the service can reach, such as memory on the SMBus.
+    pub fn lights(&self) -> Result<Vec<foxrgb_core::Device>, String> {
+        Ok(self.ask::<LightsReply>(&Request::Lights)?.devices)
+    }
+
+    pub fn set_lights(&self, device: &str, colors: &[foxrgb_core::Color]) -> Result<(), String> {
+        self.ask::<IgnoredAny>(&Request::SetLights { device, colors })
+            .map(drop)
     }
 
     pub fn get_config(&self) -> Result<FanConfig, String> {

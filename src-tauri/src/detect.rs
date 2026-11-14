@@ -68,9 +68,27 @@ pub struct Found {
 
 /// USB devices with a driver in foxrgb-hid: ids, name, kind, engine device id.
 const NATIVE: &[(u16, u16, &str, &str, &str)] = &[
-    (0x046D, 0xC539, "Logitech G502 Lightspeed receiver", "mouse", "hid:logitech-c539"),
-    (0x046D, 0xC547, "Logitech G515 Lightspeed TKL receiver", "keyboard", "hid:logitech-c547"),
-    (0x1462, 0x7D99, "MSI Mystic Light controller", "motherboard", "hid:msi-7d99"),
+    (
+        0x046D,
+        0xC539,
+        "Logitech G502 Lightspeed receiver",
+        "mouse",
+        "hid:logitech-c539",
+    ),
+    (
+        0x046D,
+        0xC547,
+        "Logitech G515 Lightspeed TKL receiver",
+        "keyboard",
+        "hid:logitech-c547",
+    ),
+    (
+        0x1462,
+        0x7D99,
+        "MSI Mystic Light controller",
+        "motherboard",
+        "hid:msi-7d99",
+    ),
 ];
 
 /// USB vendor ids OpenRGB has lighting drivers for, checked against its detectors and usb.ids.
@@ -97,12 +115,20 @@ const VENDORS: &[(u16, &str)] = &[
 ];
 
 /// Board makers as WMI spells them.
-const BOARDS: &[(&str, &str)] =
-    &[("micro-star", "MSI"), ("asustek", "ASUS"), ("gigabyte", "Gigabyte"), ("asrock", "ASRock")];
+const BOARDS: &[(&str, &str)] = &[
+    ("micro-star", "MSI"),
+    ("asustek", "ASUS"),
+    ("gigabyte", "Gigabyte"),
+    ("asrock", "ASRock"),
+];
 
 /// Memory makers with lit modules OpenRGB drives.
-const MEMORY: &[(&str, &str)] =
-    &[("corsair", "Corsair"), ("crucial", "Crucial"), ("kingston", "Kingston"), ("patriot", "Patriot")];
+const MEMORY: &[(&str, &str)] = &[
+    ("corsair", "Corsair"),
+    ("crucial", "Crucial"),
+    ("kingston", "Kingston"),
+    ("patriot", "Patriot"),
+];
 
 /// PCI subsystem vendors of the card makers in OpenRGB's pci_ids.h.
 const CARD_MAKERS: &[(u16, &str)] = &[
@@ -129,17 +155,28 @@ pub fn brand(vendor: u16, product_name: &str) -> Option<&'static str> {
     if vendor == 0x03F0 && !product_name.to_lowercase().contains("hyperx") {
         return None;
     }
-    VENDORS.iter().find(|(id, _)| *id == vendor).map(|(_, name)| *name)
+    VENDORS
+        .iter()
+        .find(|(id, _)| *id == vendor)
+        .map(|(_, name)| *name)
 }
 
 fn titled(brand: &str, name: &str) -> String {
-    if name.to_lowercase().contains(&brand.to_lowercase()) { name.to_string() } else { format!("{brand} {name}") }
+    if name.to_lowercase().contains(&brand.to_lowercase()) {
+        name.to_string()
+    } else {
+        format!("{brand} {name}")
+    }
 }
 
 fn usb_kind(name: &str, parts: &[&HidInfo]) -> &'static str {
     let name = name.to_lowercase();
     let says = |words: &[&str]| words.iter().any(|word| name.contains(word));
-    let has = |usage| parts.iter().any(|d| d.usage_page == 0x01 && d.usage == usage);
+    let has = |usage| {
+        parts
+            .iter()
+            .any(|d| d.usage_page == 0x01 && d.usage == usage)
+    };
     if says(&["headset", "headphone", "arctis"]) {
         "headset"
     } else if says(&["microphone", "solocast", "quadcast"]) {
@@ -155,7 +192,11 @@ fn usb_kind(name: &str, parts: &[&HidInfo]) -> &'static str {
 
 /// Vendor and product id of every USB HID device, sorted, one per device.
 fn usb_ids(hid: &[HidInfo]) -> Vec<(u16, u16)> {
-    let mut ids: Vec<(u16, u16)> = hid.iter().filter(|d| d.usb).map(|d| (d.vendor, d.product)).collect();
+    let mut ids: Vec<(u16, u16)> = hid
+        .iter()
+        .filter(|d| d.usb)
+        .map(|d| (d.vendor, d.product))
+        .collect();
     ids.sort_unstable();
     ids.dedup();
     ids
@@ -165,10 +206,18 @@ fn usb_ids(hid: &[HidInfo]) -> Vec<(u16, u16)> {
 pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
     let mut found = Vec::new();
     for (vendor, product) in usb_ids(hid) {
-        let parts: Vec<&HidInfo> =
-            hid.iter().filter(|d| d.usb && (d.vendor, d.product) == (vendor, product)).collect();
-        let label = parts.iter().map(|d| d.name.as_str()).find(|name| !name.is_empty()).unwrap_or("device");
-        let Some(brand) = brand(vendor, label) else { continue };
+        let parts: Vec<&HidInfo> = hid
+            .iter()
+            .filter(|d| d.usb && (d.vendor, d.product) == (vendor, product))
+            .collect();
+        let label = parts
+            .iter()
+            .map(|d| d.name.as_str())
+            .find(|name| !name.is_empty())
+            .unwrap_or("device");
+        let Some(brand) = brand(vendor, label) else {
+            continue;
+        };
         let known = NATIVE.iter().find(|n| (n.0, n.1) == (vendor, product));
         found.push(Found {
             id: format!("usb:{vendor:04x}:{product:04x}"),
@@ -210,14 +259,19 @@ struct VideoController {
 
 fn lookup(table: &[(&str, &'static str)], maker: &str) -> Option<&'static str> {
     let maker = maker.to_lowercase();
-    table.iter().find(|(key, _)| maker.contains(key)).map(|(_, brand)| *brand)
+    table
+        .iter()
+        .find(|(key, _)| maker.contains(key))
+        .map(|(_, brand)| *brand)
 }
 
 fn board(b: &BaseBoard) -> Option<Found> {
     let brand = lookup(BOARDS, b.manufacturer.as_deref()?)?;
     let product = b.product.as_deref()?.trim();
     // "B760M GAMING PLUS WIFI (MS-7D99)" goes by the code in brackets
-    let code = product.rsplit_once('(').map_or(product, |(_, code)| code.trim_end_matches(')'));
+    let code = product
+        .rsplit_once('(')
+        .map_or(product, |(_, code)| code.trim_end_matches(')'));
     Some(Found {
         id: format!("board:{}", code.trim().replace(' ', "-")),
         name: titled(brand, product),
@@ -232,8 +286,16 @@ fn module(m: &PhysicalMemory) -> Option<Found> {
     let brand = lookup(MEMORY, m.manufacturer.as_deref()?)?;
     let part = m.part_number.as_deref().unwrap_or_default().trim();
     let label = if part.is_empty() { "memory" } else { part };
-    let slot = m.device_locator.as_deref().unwrap_or_default().trim().replace(' ', "-");
-    let size = m.capacity.map(|bytes| format!(", {} GB", bytes >> 30)).unwrap_or_default();
+    let slot = m
+        .device_locator
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .replace(' ', "-");
+    let size = m
+        .capacity
+        .map(|bytes| format!(", {} GB", bytes >> 30))
+        .unwrap_or_default();
     let generation = match m.memory_type {
         Some(26) => " DDR4",
         Some(34) => " DDR5",
@@ -241,7 +303,9 @@ fn module(m: &PhysicalMemory) -> Option<Found> {
     };
     Some(Found {
         // sticks of one kit share a part number, so the slot tells them apart
-        id: format!("memory:{part}:{slot}").trim_end_matches(':').to_string(),
+        id: format!("memory:{part}:{slot}")
+            .trim_end_matches(':')
+            .to_string(),
         name: format!("{}{size}{generation}", titled(brand, label)),
         kind: "memory",
         bus: Bus::Memory,
@@ -266,9 +330,15 @@ fn card(v: &VideoController) -> Option<Found> {
     if vendor != 0x10DE && !(vendor == 0x1002 && name.contains("RX")) {
         return None;
     }
-    let brand = CARD_MAKERS.iter().find(|(id, _)| *id == maker).map(|(_, brand)| *brand);
+    let brand = CARD_MAKERS
+        .iter()
+        .find(|(id, _)| *id == maker)
+        .map(|(_, brand)| *brand);
     // the card maker's name takes the place of the chip maker's
-    let model = name.strip_prefix("AMD ").or_else(|| name.strip_prefix("NVIDIA ")).unwrap_or(name);
+    let model = name
+        .strip_prefix("AMD ")
+        .or_else(|| name.strip_prefix("NVIDIA "))
+        .unwrap_or(name);
     Some(Found {
         id: format!("gpu:{vendor:04x}:{device:04x}"),
         name: brand.map_or_else(|| name.to_string(), |brand| titled(brand, model)),
@@ -292,7 +362,9 @@ pub fn system() -> Vec<Found> {
     let modules: Vec<PhysicalMemory> = wmi.query().unwrap_or_default();
     let cards: Vec<VideoController> = wmi.query().unwrap_or_default();
     let parts = boards.iter().filter_map(board);
-    let parts = parts.chain(modules.iter().filter_map(module)).chain(cards.iter().filter_map(card));
+    let parts = parts
+        .chain(modules.iter().filter_map(module))
+        .chain(cards.iter().filter_map(card));
     // two cards of one model, or sticks with no slot name, would share an id
     let mut found: Vec<Found> = Vec::new();
     for part in parts {
@@ -307,7 +379,9 @@ fn reachable(host: &str, port: u16) -> bool {
     let Ok(addresses) = (host, port).to_socket_addrs() else {
         return false;
     };
-    addresses.take(2).any(|address| TcpStream::connect_timeout(&address, PROBE).is_ok())
+    addresses
+        .take(2)
+        .any(|address| TcpStream::connect_timeout(&address, PROBE).is_ok())
 }
 
 /// What two passes are compared by.
@@ -324,7 +398,10 @@ pub fn scan(system: &[Found], settings: &Settings, openrgb_on: bool) -> (Vec<Fou
     let hid = foxrgb_hid::enumerate();
     let mut found = usb(&hid);
     // The board's lighting is its USB controller when we have a driver for that.
-    let controller = found.iter().find(|f| f.kind == "motherboard").and_then(|f| f.native);
+    let controller = found
+        .iter()
+        .find(|f| f.kind == "motherboard")
+        .and_then(|f| f.native);
     found.extend(system.iter().cloned().map(|mut part| {
         if part.bus == Bus::Board {
             part.native = controller;
@@ -332,7 +409,13 @@ pub fn scan(system: &[Found], settings: &Settings, openrgb_on: bool) -> (Vec<Fou
         part
     }));
     let openrgb = openrgb_on || reachable(&settings.openrgb_host, settings.openrgb_port);
-    (found, Fingerprint { usb: usb_ids(&hid), openrgb })
+    (
+        found,
+        Fingerprint {
+            usb: usb_ids(&hid),
+            openrgb,
+        },
+    )
 }
 
 /// What a pass means for the app.
@@ -374,19 +457,35 @@ impl Watch {
     /// `openrgb_on` is false while OpenRGB is not connected or has listed no devices yet.
     pub fn step(&mut self, now: Fingerprint, settings: &Settings, openrgb_on: bool) -> Change {
         let Some(old) = self.last.replace(now.clone()) else {
-            return Change { seen: true, ..Change::default() };
+            return Change {
+                seen: true,
+                ..Change::default()
+            };
         };
         let ours = |print: &Fingerprint| -> Vec<(u16, u16)> {
-            print.usb.iter().copied().filter(|id| NATIVE.iter().any(|n| (n.0, n.1) == *id)).collect()
+            print
+                .usb
+                .iter()
+                .copied()
+                .filter(|id| NATIVE.iter().any(|n| (n.0, n.1) == *id))
+                .collect()
         };
         if now.openrgb && !old.openrgb {
             self.wait = 0;
         }
         let native = settings.native_drivers && ours(&old) != ours(&now);
-        let mut change = Change { seen: old != now, native, openrgb: false };
+        let mut change = Change {
+            seen: old != now,
+            native,
+            openrgb: false,
+        };
         if settings.openrgb_enabled && now.openrgb && !openrgb_on {
             change.openrgb = self.wait == 0;
-            self.wait = if change.openrgb { RETRY_PASSES } else { self.wait - 1 };
+            self.wait = if change.openrgb {
+                RETRY_PASSES
+            } else {
+                self.wait - 1
+            };
         }
         change
     }
@@ -406,7 +505,10 @@ pub struct Live<'a> {
 impl Live<'_> {
     /// How many devices the OpenRGB server lists.
     fn listed(&self) -> usize {
-        self.driven.iter().filter(|(label, _)| *label == "openrgb").count()
+        self.driven
+            .iter()
+            .filter(|(label, _)| *label == "openrgb")
+            .count()
     }
 }
 
@@ -429,7 +531,9 @@ fn same(found: &Found, device: &Device) -> bool {
         return kind == found.kind;
     }
     let name = device.name.to_lowercase();
-    let branded = found.brand.is_some_and(|brand| name.contains(&brand.to_lowercase()));
+    let branded = found
+        .brand
+        .is_some_and(|brand| name.contains(&brand.to_lowercase()));
     let fits = match found.kind {
         // memory and graphics cards are never USB devices
         "other" => !matches!(kind, "memory" | "gpu"),
@@ -441,11 +545,26 @@ fn same(found: &Found, device: &Device) -> bool {
 
 fn status(found: &Found, live: &Live) -> (Route, State, String) {
     let settings = live.settings;
-    if found.native.is_some_and(|id| live.driven.iter().any(|(_, device)| device.id == id)) {
-        return (Route::Native, State::Active, "Driven by FoxRGB's own driver.".into());
+    if found
+        .native
+        .is_some_and(|id| live.driven.iter().any(|(_, device)| device.id == id))
+    {
+        return (
+            Route::Native,
+            State::Active,
+            "Driven by FoxRGB's own driver.".into(),
+        );
     }
-    if live.driven.iter().any(|(label, device)| *label == "openrgb" && same(found, device)) {
-        return (Route::Openrgb, State::Active, "Driven through OpenRGB.".into());
+    if live
+        .driven
+        .iter()
+        .any(|(label, device)| *label == "openrgb" && same(found, device))
+    {
+        return (
+            Route::Openrgb,
+            State::Active,
+            "Driven through OpenRGB.".into(),
+        );
     }
     if found.native.is_some() {
         let note = if settings.native_drivers {
@@ -471,8 +590,16 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
             let note = "FoxRGB cannot light graphics cards yet; its I2C helper is not built.";
             return (Route::None, State::Unsupported, note.into());
         }
-        (_, None) => return (Route::None, State::Unsupported, "FoxRGB has no driver for it yet.".into()),
-        (_, Some(_)) if live.openrgb_on => "OpenRGB is connected but lists no devices yet.".to_string(),
+        (_, None) => {
+            return (
+                Route::None,
+                State::Unsupported,
+                "FoxRGB has no driver for it yet.".into(),
+            );
+        }
+        (_, Some(_)) if live.openrgb_on => {
+            "OpenRGB is connected but lists no devices yet.".to_string()
+        }
         (_, Some(_)) if settings.openrgb_enabled => {
             "OpenRGB is switched on, but FoxRGB is not connected to it.".into()
         }
@@ -495,7 +622,15 @@ pub fn resolve(found: &[Found], live: &Live) -> Vec<Detected> {
         .iter()
         .map(|f| {
             let (route, state, note) = status(f, live);
-            Detected { id: f.id.clone(), name: f.name.clone(), kind: f.kind, bus: f.bus, route, state, note }
+            Detected {
+                id: f.id.clone(),
+                name: f.name.clone(),
+                kind: f.kind,
+                bus: f.bus,
+                route,
+                state,
+                note,
+            }
         })
         .collect();
     if live.openrgb_up || live.openrgb_on {
@@ -503,15 +638,27 @@ pub fn resolve(found: &[Found], live: &Live) -> Vec<Detected> {
         let (state, note) = if live.openrgb_on && live.listed() == 0 {
             (State::Active, "Connected, but it lists no devices yet.")
         } else if live.openrgb_on {
-            (State::Active, "Connected. Its devices are in the device list.")
+            (
+                State::Active,
+                "Connected. Its devices are in the device list.",
+            )
         } else if settings.openrgb_enabled {
-            (State::Available, "It answers, but the connection failed. Rescan to try again.")
+            (
+                State::Available,
+                "It answers, but the connection failed. Rescan to try again.",
+            )
         } else {
-            (State::Available, "Switch on OpenRGB in Settings to use the devices it drives.")
+            (
+                State::Available,
+                "Switch on OpenRGB in Settings to use the devices it drives.",
+            )
         };
         list.push(Detected {
             id: "network:openrgb".into(),
-            name: format!("OpenRGB server at {}:{}", settings.openrgb_host, settings.openrgb_port),
+            name: format!(
+                "OpenRGB server at {}:{}",
+                settings.openrgb_host, settings.openrgb_port
+            ),
             kind: "server",
             bus: Bus::Network,
             route: Route::Openrgb,
@@ -526,8 +673,23 @@ pub fn resolve(found: &[Found], live: &Live) -> Vec<Detected> {
 mod tests {
     use super::*;
 
-    fn hid(vendor: u16, product: u16, usage_page: u16, usage: u16, name: &str, usb: bool) -> HidInfo {
-        HidInfo { vendor, product, usage_page, usage, name: name.into(), manufacturer: String::new(), usb }
+    fn hid(
+        vendor: u16,
+        product: u16,
+        usage_page: u16,
+        usage: u16,
+        name: &str,
+        usb: bool,
+    ) -> HidInfo {
+        HidInfo {
+            vendor,
+            product,
+            usage_page,
+            usage,
+            name: name.into(),
+            manufacturer: String::new(),
+            usb,
+        }
     }
 
     /// The collections the development machine lists, one line each.
@@ -541,7 +703,14 @@ mod tests {
             hid(0x046D, 0xC539, 0xFFBC, 0x0088, "USB Receiver", true),
             hid(0x046D, 0xC547, 0x0001, 0x0006, "USB Receiver", true),
             hid(0x1038, 0x22A1, 0xFFC0, 0x0001, "Arctis Nova 7", true),
-            hid(0x2565, 0x0578, 0x000C, 0x0001, "MSI FORCE GC300 WIRELESS", true),
+            hid(
+                0x2565,
+                0x0578,
+                0x000C,
+                0x0001,
+                "MSI FORCE GC300 WIRELESS",
+                true,
+            ),
             hid(0x1038, 0x22A1, 0x000C, 0x0001, "Arctis Nova 7", true),
             hid(0x046D, 0xC539, 0xFF00, 0x0002, "USB Receiver", true),
             hid(0x1462, 0x7D99, 0x0001, 0x0000, "MYSTIC LIGHT", true),
@@ -552,11 +721,18 @@ mod tests {
     }
 
     fn settings(native_drivers: bool, openrgb_enabled: bool) -> Settings {
-        Settings { native_drivers, openrgb_enabled, ..Settings::default() }
+        Settings {
+            native_drivers,
+            openrgb_enabled,
+            ..Settings::default()
+        }
     }
 
     fn print(usb: &[(u16, u16)], openrgb: bool) -> Fingerprint {
-        Fingerprint { usb: usb.to_vec(), openrgb }
+        Fingerprint {
+            usb: usb.to_vec(),
+            openrgb,
+        }
     }
 
     #[test]
@@ -581,12 +757,24 @@ mod tests {
     fn hid_collections_collapse_into_one_entry_per_device() {
         let found = usb(&desk());
         let ids: Vec<&str> = found.iter().map(|f| f.id.as_str()).collect();
-        assert_eq!(ids, ["usb:03f0:0b8b", "usb:046d:c539", "usb:046d:c547", "usb:1038:22a1", "usb:1462:7d99"]);
+        assert_eq!(
+            ids,
+            [
+                "usb:03f0:0b8b",
+                "usb:046d:c539",
+                "usb:046d:c547",
+                "usb:1038:22a1",
+                "usb:1462:7d99"
+            ]
+        );
         let names: Vec<&str> = found.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names[0], "HyperX SoloCast");
         assert_eq!(names[3], "SteelSeries Arctis Nova 7");
         let kinds: Vec<&str> = found.iter().map(|f| f.kind).collect();
-        assert_eq!(kinds, ["microphone", "mouse", "keyboard", "headset", "motherboard"]);
+        assert_eq!(
+            kinds,
+            ["microphone", "mouse", "keyboard", "headset", "motherboard"]
+        );
         assert_eq!(found[0].native, None);
         assert_eq!(found[1].native, Some("hid:logitech-c539"));
         assert_eq!(found[4].native, Some("hid:msi-7d99"));
@@ -597,19 +785,42 @@ mod tests {
     #[test]
     fn unnamed_devices_fall_back_to_their_hid_usage() {
         // made-up product ids
-        let keys = [hid(0x1B1C, 1, 0x0001, 0x0006, "", true), hid(0x1B1C, 1, 0xFFC2, 0x0004, "", true)];
+        let keys = [
+            hid(0x1B1C, 1, 0x0001, 0x0006, "", true),
+            hid(0x1B1C, 1, 0xFFC2, 0x0004, "", true),
+        ];
         let found = usb(&keys);
-        assert_eq!((found[0].name.as_str(), found[0].kind), ("Corsair device", "keyboard"));
-        let both = [hid(0x1532, 2, 0x0001, 0x0006, "Razer Thing", true), hid(0x1532, 2, 0x0001, 0x0002, "", true)];
+        assert_eq!(
+            (found[0].name.as_str(), found[0].kind),
+            ("Corsair device", "keyboard")
+        );
+        let both = [
+            hid(0x1532, 2, 0x0001, 0x0006, "Razer Thing", true),
+            hid(0x1532, 2, 0x0001, 0x0002, "", true),
+        ];
         let found = usb(&both);
-        assert_eq!((found[0].name.as_str(), found[0].kind), ("Razer Thing", "other"));
+        assert_eq!(
+            (found[0].name.as_str(), found[0].kind),
+            ("Razer Thing", "other")
+        );
     }
 
     #[test]
     fn the_first_pass_reports_and_reloads_nothing() {
         let mut watch = Watch::default();
-        let change = watch.step(print(&[(0x046D, 0xC539)], true), &settings(true, true), false);
-        assert_eq!(change, Change { seen: true, native: false, openrgb: false });
+        let change = watch.step(
+            print(&[(0x046D, 0xC539)], true),
+            &settings(true, true),
+            false,
+        );
+        assert_eq!(
+            change,
+            Change {
+                seen: true,
+                native: false,
+                openrgb: false
+            }
+        );
     }
 
     #[test]
@@ -620,17 +831,48 @@ mod tests {
 
         let mut watch = Watch::default();
         watch.step(quiet.clone(), &settings(true, false), false);
-        assert_eq!(watch.step(quiet.clone(), &settings(true, false), false), Change::default());
+        assert_eq!(
+            watch.step(quiet.clone(), &settings(true, false), false),
+            Change::default()
+        );
         // a device without a native driver changes the list, not the backends
         let change = watch.step(headset_gone.clone(), &settings(true, false), false);
-        assert_eq!(change, Change { seen: true, native: false, openrgb: false });
+        assert_eq!(
+            change,
+            Change {
+                seen: true,
+                native: false,
+                openrgb: false
+            }
+        );
         let change = watch.step(mouse.clone(), &settings(true, false), false);
-        assert_eq!(change, Change { seen: true, native: true, openrgb: false });
+        assert_eq!(
+            change,
+            Change {
+                seen: true,
+                native: true,
+                openrgb: false
+            }
+        );
         let change = watch.step(headset_gone.clone(), &settings(true, false), false);
-        assert_eq!(change, Change { seen: true, native: true, openrgb: false });
+        assert_eq!(
+            change,
+            Change {
+                seen: true,
+                native: true,
+                openrgb: false
+            }
+        );
         // with native drivers off the mouse is only reported
         let change = watch.step(mouse, &settings(false, false), false);
-        assert_eq!(change, Change { seen: true, native: false, openrgb: false });
+        assert_eq!(
+            change,
+            Change {
+                seen: true,
+                native: false,
+                openrgb: false
+            }
+        );
     }
 
     #[test]
@@ -642,7 +884,14 @@ mod tests {
         watch.step(down.clone(), &on, false);
         assert_eq!(watch.step(down.clone(), &on, false), Change::default());
         // the server starts: connect at once
-        assert_eq!(watch.step(up.clone(), &on, false), Change { seen: true, native: false, openrgb: true });
+        assert_eq!(
+            watch.step(up.clone(), &on, false),
+            Change {
+                seen: true,
+                native: false,
+                openrgb: true
+            }
+        );
         // the attempt failed: wait a few passes, then try again
         watch.tried(false);
         for _ in 0..RETRY_PASSES {
@@ -655,7 +904,14 @@ mod tests {
         assert!(watch.step(up.clone(), &on, false).openrgb);
         // a restart we did see go down is picked up the moment it is back
         watch.tried(false);
-        assert_eq!(watch.step(down.clone(), &on, false), Change { seen: true, native: false, openrgb: false });
+        assert_eq!(
+            watch.step(down.clone(), &on, false),
+            Change {
+                seen: true,
+                native: false,
+                openrgb: false
+            }
+        );
         assert!(watch.step(up.clone(), &on, false).openrgb);
     }
 
@@ -676,8 +932,18 @@ mod tests {
         let mut watch = Watch::default();
         watch.step(print(&[], false), &settings(false, false), false);
         let change = watch.step(print(&[], true), &settings(false, false), false);
-        assert_eq!(change, Change { seen: true, native: false, openrgb: false });
-        assert_eq!(watch.step(print(&[], true), &settings(false, false), false), Change::default());
+        assert_eq!(
+            change,
+            Change {
+                seen: true,
+                native: false,
+                openrgb: false
+            }
+        );
+        assert_eq!(
+            watch.step(print(&[], true), &settings(false, false), false),
+            Change::default()
+        );
     }
 
     #[test]
@@ -687,9 +953,18 @@ mod tests {
             product: Some("B760M GAMING PLUS WIFI (MS-7D99)".into()),
         };
         let b = board(&b).unwrap();
-        assert_eq!((b.id.as_str(), b.name.as_str()), ("board:MS-7D99", "MSI B760M GAMING PLUS WIFI (MS-7D99)"));
-        assert_eq!((b.kind, b.bus, b.brand), ("motherboard", Bus::Board, Some("MSI")));
-        let office = BaseBoard { manufacturer: Some("Dell Inc.".into()), product: Some("0X8DXD".into()) };
+        assert_eq!(
+            (b.id.as_str(), b.name.as_str()),
+            ("board:MS-7D99", "MSI B760M GAMING PLUS WIFI (MS-7D99)")
+        );
+        assert_eq!(
+            (b.kind, b.bus, b.brand),
+            ("motherboard", Bus::Board, Some("MSI"))
+        );
+        let office = BaseBoard {
+            manufacturer: Some("Dell Inc.".into()),
+            product: Some("0X8DXD".into()),
+        };
         assert_eq!(board(&office), None);
 
         let m = PhysicalMemory {
@@ -702,7 +977,10 @@ mod tests {
         let stick = module(&m).unwrap();
         assert_eq!(stick.id, "memory:CMH32GX5M2B6000Z30:Controller0-DIMMA2");
         assert_eq!(stick.name, "Corsair CMH32GX5M2B6000Z30, 16 GB DDR5");
-        assert_eq!((stick.kind, stick.bus, stick.brand), ("memory", Bus::Memory, Some("Corsair")));
+        assert_eq!(
+            (stick.kind, stick.bus, stick.brand),
+            ("memory", Bus::Memory, Some("Corsair"))
+        );
         let bare = PhysicalMemory {
             manufacturer: Some("Kingston".into()),
             part_number: None,
@@ -711,16 +989,33 @@ mod tests {
             memory_type: None,
         };
         let bare = module(&bare).unwrap();
-        assert_eq!((bare.id.as_str(), bare.name.as_str()), ("memory", "Kingston memory"));
-        assert_eq!(module(&PhysicalMemory { manufacturer: Some("Samsung".into()), ..m }), None);
+        assert_eq!(
+            (bare.id.as_str(), bare.name.as_str()),
+            ("memory", "Kingston memory")
+        );
+        assert_eq!(
+            module(&PhysicalMemory {
+                manufacturer: Some("Samsung".into()),
+                ..m
+            }),
+            None
+        );
 
         let radeon = VideoController {
             name: Some("AMD Radeon RX 9070 XT".into()),
-            path: Some(r"PCI\VEN_1002&DEV_7550&SUBSYS_061A1043&REV_C0\6&13014B44&0&00000008".into()),
+            path: Some(
+                r"PCI\VEN_1002&DEV_7550&SUBSYS_061A1043&REV_C0\6&13014B44&0&00000008".into(),
+            ),
         };
         let gpu = card(&radeon).unwrap();
-        assert_eq!((gpu.id.as_str(), gpu.name.as_str()), ("gpu:1002:7550", "ASUS Radeon RX 9070 XT"));
-        assert_eq!((gpu.kind, gpu.bus, gpu.brand), ("gpu", Bus::Gpu, Some("ASUS")));
+        assert_eq!(
+            (gpu.id.as_str(), gpu.name.as_str()),
+            ("gpu:1002:7550", "ASUS Radeon RX 9070 XT")
+        );
+        assert_eq!(
+            (gpu.kind, gpu.bus, gpu.brand),
+            ("gpu", Bus::Gpu, Some("ASUS"))
+        );
         let founders = VideoController {
             name: Some("NVIDIA GeForce RTX 4080".into()),
             path: Some(r"PCI\VEN_10DE&DEV_2704&SUBSYS_167A10DE&REV_A1\4&1A2B3C4D&0&0008".into()),
@@ -731,18 +1026,31 @@ mod tests {
             path: Some(r"PCI\VEN_10DE&DEV_2704&SUBSYS_00000000&REV_A1\4&1A2B3C4D&0&0008".into()),
         };
         let unbranded = card(&unbranded).unwrap();
-        assert_eq!((unbranded.name.as_str(), unbranded.brand), ("NVIDIA GeForce RTX 4080", None));
+        assert_eq!(
+            (unbranded.name.as_str(), unbranded.brand),
+            ("NVIDIA GeForce RTX 4080", None)
+        );
         let onboard = VideoController {
             name: Some("Intel(R) UHD Graphics 770".into()),
             path: Some(r"PCI\VEN_8086&DEV_A780&SUBSYS_7D991462&REV_04\3&11583659&0&10".into()),
         };
         assert_eq!(card(&onboard), None);
-        let remote = VideoController { name: Some("Remote".into()), path: Some(r"ROOT\DISPLAY\0000".into()) };
+        let remote = VideoController {
+            name: Some("Remote".into()),
+            path: Some(r"ROOT\DISPLAY\0000".into()),
+        };
         assert_eq!(card(&remote), None);
     }
 
     fn part(id: &str, kind: &'static str, bus: Bus, brand: Option<&'static str>) -> Found {
-        Found { id: id.into(), name: id.into(), kind, bus, native: None, brand }
+        Found {
+            id: id.into(),
+            name: id.into(),
+            kind,
+            bus,
+            native: None,
+            brand,
+        }
     }
 
     #[test]
@@ -751,25 +1059,57 @@ mod tests {
         found.push(part("memory:x", "memory", Bus::Memory, Some("Corsair")));
         found.push(part("gpu:1002:7550", "gpu", Bus::Gpu, Some("ASUS")));
         let off = Settings::default();
-        let idle = |openrgb_up| Live { settings: &off, driven: Vec::new(), openrgb_up, openrgb_on: false };
+        let idle = |openrgb_up| Live {
+            settings: &off,
+            driven: Vec::new(),
+            openrgb_up,
+            openrgb_on: false,
+        };
         let list = resolve(&found, &idle(false));
         let line = |id: &str| list.iter().find(|d| d.id == id).unwrap();
         assert_eq!(list.len(), found.len());
-        assert_eq!((line("usb:046d:c539").route, line("usb:046d:c539").state), (Route::Native, State::Available));
-        assert_eq!((line("usb:1038:22a1").route, line("usb:1038:22a1").state), (Route::Openrgb, State::Available));
-        assert_eq!((line("memory:x").route, line("memory:x").state), (Route::Openrgb, State::Available));
-        assert_eq!((line("gpu:1002:7550").route, line("gpu:1002:7550").state), (Route::None, State::Unsupported));
+        assert_eq!(
+            (line("usb:046d:c539").route, line("usb:046d:c539").state),
+            (Route::Native, State::Available)
+        );
+        assert_eq!(
+            (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
+            (Route::Openrgb, State::Available)
+        );
+        assert_eq!(
+            (line("memory:x").route, line("memory:x").state),
+            (Route::Openrgb, State::Available)
+        );
+        assert_eq!(
+            (line("gpu:1002:7550").route, line("gpu:1002:7550").state),
+            (Route::None, State::Unsupported)
+        );
         // known by its vendor alone, so the note may not promise anything
         let headset = &line("usb:1038:22a1").note;
-        assert!(headset.contains("SteelSeries") && headset.contains("perhaps this one"), "{headset}");
+        assert!(
+            headset.contains("SteelSeries") && headset.contains("perhaps this one"),
+            "{headset}"
+        );
         assert!(headset.contains("Start its server"), "{headset}");
 
         // a running server is listed, and offered rather than used
         let list = resolve(&found, &idle(true));
-        assert!(list.iter().find(|d| d.id == "usb:1038:22a1").unwrap().note.contains("server is running"));
+        assert!(
+            list.iter()
+                .find(|d| d.id == "usb:1038:22a1")
+                .unwrap()
+                .note
+                .contains("server is running")
+        );
         let server = list.last().unwrap();
-        assert_eq!((server.id.as_str(), server.kind, server.bus), ("network:openrgb", "server", Bus::Network));
-        assert_eq!((server.route, server.state), (Route::Openrgb, State::Available));
+        assert_eq!(
+            (server.id.as_str(), server.kind, server.bus),
+            ("network:openrgb", "server", Bus::Network)
+        );
+        assert_eq!(
+            (server.route, server.state),
+            (Route::Openrgb, State::Available)
+        );
         assert_eq!(server.name, "OpenRGB server at 127.0.0.1:6742");
     }
 
@@ -782,7 +1122,11 @@ mod tests {
             found
         };
         let device = |id, name, kind| Device::grid(id, name, kind, [0.0; 4], 1, 2);
-        let mouse = device("hid:logitech-c539", "Logitech G502 Lightspeed", DeviceKind::Mouse);
+        let mouse = device(
+            "hid:logitech-c539",
+            "Logitech G502 Lightspeed",
+            DeviceKind::Mouse,
+        );
         let keys = device("openrgb:0", "Logitech G915 TKL", DeviceKind::Keyboard);
         let ram = device("openrgb:1", "ENE DRAM", DeviceKind::Memory);
         let both = settings(true, true);
@@ -794,16 +1138,34 @@ mod tests {
         };
         let list = resolve(&found, &live);
         let line = |id: &str| list.iter().find(|d| d.id == id).unwrap();
-        assert_eq!((line("usb:046d:c539").route, line("usb:046d:c539").state), (Route::Native, State::Active));
-        assert_eq!((line("usb:046d:c547").route, line("usb:046d:c547").state), (Route::Openrgb, State::Active));
-        assert_eq!((line("memory:x").route, line("memory:x").state), (Route::Openrgb, State::Active));
+        assert_eq!(
+            (line("usb:046d:c539").route, line("usb:046d:c539").state),
+            (Route::Native, State::Active)
+        );
+        assert_eq!(
+            (line("usb:046d:c547").route, line("usb:046d:c547").state),
+            (Route::Openrgb, State::Active)
+        );
+        assert_eq!(
+            (line("memory:x").route, line("memory:x").state),
+            (Route::Openrgb, State::Active)
+        );
         // switched on but not opened
-        assert_eq!((line("usb:1462:7d99").route, line("usb:1462:7d99").state), (Route::Native, State::Available));
+        assert_eq!(
+            (line("usb:1462:7d99").route, line("usb:1462:7d99").state),
+            (Route::Native, State::Available)
+        );
         assert!(line("usb:1462:7d99").note.contains("could not open"));
         // connected but not listed: OpenRGB is no longer offered as the way to drive it
-        assert_eq!((line("usb:1038:22a1").route, line("usb:1038:22a1").state), (Route::None, State::Unsupported));
+        assert_eq!(
+            (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
+            (Route::None, State::Unsupported)
+        );
         assert!(line("usb:1038:22a1").note.contains("does not list"));
-        assert_eq!((line("gpu:1002:7550").route, line("gpu:1002:7550").state), (Route::None, State::Unsupported));
+        assert_eq!(
+            (line("gpu:1002:7550").route, line("gpu:1002:7550").state),
+            (Route::None, State::Unsupported)
+        );
         assert!(line("gpu:1002:7550").note.contains("does not list"));
         assert_eq!(line("network:openrgb").state, State::Active);
         assert!(line("network:openrgb").note.contains("device list"));
@@ -813,13 +1175,25 @@ mod tests {
     fn an_empty_openrgb_list_decides_nothing() {
         let found = usb(&desk());
         let on = settings(false, true);
-        let live = Live { settings: &on, driven: Vec::new(), openrgb_up: true, openrgb_on: true };
+        let live = Live {
+            settings: &on,
+            driven: Vec::new(),
+            openrgb_up: true,
+            openrgb_on: true,
+        };
         let list = resolve(&found, &live);
         let line = |id: &str| list.iter().find(|d| d.id == id).unwrap();
-        assert_eq!((line("usb:1038:22a1").route, line("usb:1038:22a1").state), (Route::Openrgb, State::Available));
+        assert_eq!(
+            (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
+            (Route::Openrgb, State::Available)
+        );
         assert!(line("usb:1038:22a1").note.contains("lists no devices yet"));
         assert_eq!(line("network:openrgb").state, State::Active);
-        assert!(line("network:openrgb").note.contains("lists no devices yet"));
+        assert!(
+            line("network:openrgb")
+                .note
+                .contains("lists no devices yet")
+        );
     }
 
     #[test]
@@ -832,11 +1206,19 @@ mod tests {
         let node = device("openrgb:1", "Corsair Lighting Node Pro", DeviceKind::Strip);
         let on = settings(false, true);
         let state_with = |driven| {
-            let live = Live { settings: &on, driven, openrgb_up: true, openrgb_on: true };
+            let live = Live {
+                settings: &on,
+                driven,
+                openrgb_up: true,
+                openrgb_on: true,
+            };
             resolve(&found, &live)[0].state
         };
         assert_eq!(state_with(vec![("openrgb", &ram)]), State::Unsupported);
-        assert_eq!(state_with(vec![("openrgb", &ram), ("openrgb", &node)]), State::Active);
+        assert_eq!(
+            state_with(vec![("openrgb", &ram), ("openrgb", &node)]),
+            State::Active
+        );
     }
 
     #[test]
@@ -857,10 +1239,19 @@ mod tests {
         });
         assert_eq!(json, expected);
         let buses = [Bus::Usb, Bus::Board, Bus::Memory, Bus::Gpu, Bus::Network];
-        assert_eq!(serde_json::to_string(&buses).unwrap(), r#"["usb","board","memory","gpu","network"]"#);
+        assert_eq!(
+            serde_json::to_string(&buses).unwrap(),
+            r#"["usb","board","memory","gpu","network"]"#
+        );
         let routes = [Route::Native, Route::Openrgb, Route::None];
-        assert_eq!(serde_json::to_string(&routes).unwrap(), r#"["native","openrgb","none"]"#);
+        assert_eq!(
+            serde_json::to_string(&routes).unwrap(),
+            r#"["native","openrgb","none"]"#
+        );
         let states = [State::Active, State::Available, State::Unsupported];
-        assert_eq!(serde_json::to_string(&states).unwrap(), r#"["active","available","unsupported"]"#);
+        assert_eq!(
+            serde_json::to_string(&states).unwrap(),
+            r#"["active","available","unsupported"]"#
+        );
     }
 }
