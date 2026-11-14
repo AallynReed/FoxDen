@@ -1,18 +1,46 @@
 :root {
   --bg: #17181a;
   --panel: #1f2023;
-  --raised: #292a2e;
-  --hover: #323338;
+  --raised: #2a2b30;
+  --hover: #34353b;
   --line: #36373c;
+  --stroke: #7c7d86;
+  --field: #17181a;
   --text: #e7e7ea;
-  --muted: #9d9ea6;
+  --muted: #a3a4ac;
   --accent: #e8822e;
+  --on-accent: #17181a;
   --danger: #f0b4ab;
+  --error-bg: #33211f;
+  --error-line: #8a4a42;
+  --mono: "Cascadia Mono", Consolas, monospace;
+  --cut: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%);
   color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #e7e7ea;
+    --panel: #f3f3f5;
+    --raised: #ffffff;
+    --hover: #e2e2e6;
+    --line: #d0d0d6;
+    --stroke: #6e6f78;
+    --field: #ffffff;
+    --text: #1b1b1f;
+    --muted: #5c5d66;
+    --accent: #a84a00;
+    --on-accent: #ffffff;
+    --danger: #a4262c;
+    --error-bg: #fdf3f4;
+    --error-line: #c98a8d;
+    color-scheme: light;
+  }
 }
 
 * {
   box-sizing: border-box;
+  border-radius: 0;
 }
 
 [hidden] {
@@ -31,20 +59,31 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+  font: 14px/20px "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   user-select: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 h2 {
   margin: 12px 0 0;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--text);
+  font-size: 14px;
   font-weight: 600;
+  line-height: 20px;
 }
 
 h2:first-child {
@@ -55,58 +94,149 @@ button,
 select,
 input[type="text"],
 input[type="number"] {
-  height: 28px;
+  height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: 1px solid var(--stroke);
   background: var(--raised);
   color: var(--text);
   font: inherit;
 }
 
-button:hover {
+button {
+  flex: none;
+  white-space: nowrap;
+}
+
+button:hover,
+select:hover {
   background: var(--hover);
+}
+
+button:active {
+  background: var(--line);
+}
+
+button[type="submit"],
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  clip-path: var(--cut);
+}
+
+button[type="submit"]:hover,
+button[type="submit"]:active,
+button.primary:hover,
+button.primary:active {
+  background: color-mix(in srgb, var(--accent) 86%, var(--text));
+}
+
+button[type="submit"]:focus-visible,
+button.primary:focus-visible {
+  outline-color: var(--on-accent);
+  outline-offset: -4px;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  opacity: 0.5;
+}
+
+select {
+  max-width: 144px;
+  padding: 0 8px;
 }
 
 input[type="text"],
 input[type="number"] {
-  width: 136px;
+  width: 144px;
   padding: 0 8px;
-  background: var(--bg);
+  background: var(--field);
   user-select: text;
 }
 
+input[type="number"],
+output {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
 input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  height: 20px;
+  height: 24px;
   margin: 0;
-  accent-color: var(--accent);
+  border: 0;
+  background: none;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--stroke);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 16px;
+  margin-top: -7px;
+  border: 0;
+  background: var(--text);
+}
+
+input[type="range"]:hover::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  background: var(--accent);
 }
 
 input[type="color"] {
-  width: 44px;
-  height: 28px;
+  width: 48px;
+  height: 32px;
   padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: 1px solid var(--stroke);
   background: var(--raised);
 }
 
 output {
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 
-.switch {
+input[type="checkbox"] {
   appearance: none;
   position: relative;
   flex: none;
-  width: 36px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   margin: 0;
-  border: 1px solid #74757d;
-  border-radius: 10px;
-  background: none;
+  border: 1px solid var(--stroke);
+  background: var(--field);
+}
+
+input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+
+input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+input[type="checkbox"]:not(.switch):checked::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  background: var(--on-accent);
+}
+
+input.switch {
+  width: 40px;
+  height: 20px;
 }
 
 .switch::before {
@@ -116,19 +246,17 @@ output {
   left: 3px;
   width: 12px;
   height: 12px;
-  border-radius: 50%;
-  background: #c9c9cf;
+  background: var(--text);
   transition: transform 0.1s;
 }
 
-.switch:checked {
-  border-color: var(--accent);
-  background: var(--accent);
+input.switch::after {
+  inset: -3px -1px;
 }
 
 .switch:checked::before {
-  background: #17181a;
-  transform: translateX(16px);
+  background: var(--on-accent);
+  transform: translateX(20px);
 }
 
 .side {
@@ -141,32 +269,43 @@ output {
 
 .tabs {
   display: flex;
-  padding: 0 8px;
+  flex: none;
+  height: 44px;
   border-bottom: 1px solid var(--line);
 }
 
 .tabs button {
   flex: 1;
-  height: 40px;
+  height: 100%;
   padding: 0;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+  border-right: 1px solid var(--line);
   background: none;
   color: var(--muted);
 }
 
-.tabs button:hover,
-.tabs button[aria-selected="true"] {
+.tabs button:last-child {
+  border-right: 0;
+}
+
+.tabs button:hover {
+  background: var(--hover);
   color: var(--text);
 }
 
 .tabs button[aria-selected="true"] {
-  border-bottom-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  clip-path: var(--cut);
 }
 
 .tabs button:focus-visible {
-  outline-offset: -2px;
+  outline-offset: -4px;
+}
+
+.tabs button[aria-selected="true"]:focus-visible {
+  outline-color: var(--on-accent);
 }
 
 .panel {
@@ -176,8 +315,11 @@ output {
   gap: 8px;
   min-height: 0;
   padding: 16px;
+  overflow-x: hidden;
   overflow-y: auto;
   scroll-padding: 16px;
+  scrollbar-color: var(--stroke) transparent;
+  scrollbar-width: thin;
 }
 
 .fields,
@@ -191,38 +333,62 @@ output {
   list-style: none;
 }
 
+.fields > label {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .picks {
   gap: 0;
   min-height: 128px;
   overflow-y: auto;
+  border: 1px solid var(--line);
+  scrollbar-color: var(--stroke) transparent;
+  scrollbar-width: thin;
 }
 
 .pick {
+  position: relative;
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
   height: 32px;
-  padding: 0 8px;
-  border-radius: 4px;
+  padding: 0 12px 0 9px;
+  border-left: 3px solid transparent;
 }
 
-.pick:hover,
+.pick:hover {
+  background: var(--hover);
+}
+
 .pick:has(input:checked) {
+  border-left-color: var(--accent);
   background: var(--raised);
+  font-weight: 600;
+  clip-path: var(--cut);
+}
+
+.pick:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .pick input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   margin: 0;
-  accent-color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 4px 8px;
-  min-height: 28px;
+  gap: 4px 12px;
+  min-height: 32px;
 }
 
 .field.range input {
@@ -241,6 +407,7 @@ output {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 4px;
 }
@@ -249,19 +416,21 @@ output {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
+  line-height: 16px;
 }
 
 .device {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px;
+  gap: 8px;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 4px;
 }
 
 .device.selected {
+  padding-left: 10px;
   border-color: var(--accent);
+  border-left-width: 3px;
 }
 
 .device-head {
@@ -284,17 +453,28 @@ output {
   white-space: nowrap;
 }
 
+.device-head .name:hover {
+  text-decoration: underline;
+}
+
 .device-head label,
 .meta {
   color: var(--muted);
   font-size: 12px;
+  line-height: 16px;
 }
 
 .level {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 36px;
+  grid-template-columns: auto minmax(0, 1fr) 40px;
   align-items: center;
   gap: 8px;
+}
+
+.level label {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .level output {
@@ -305,7 +485,10 @@ output {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
+  min-height: 40px;
+  padding: 0 0 0 9px;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
 }
 
 .profile .name {
@@ -316,14 +499,31 @@ output {
   white-space: nowrap;
 }
 
+.profile button {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .profile .tag {
   display: none;
   color: var(--accent);
   font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.profile.active {
+  border-left-color: var(--accent);
 }
 
 .profile.active .tag {
   display: inline;
+}
+
+.profile.active .name {
+  font-weight: 600;
 }
 
 .backends {
@@ -333,7 +533,7 @@ output {
 .backend {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0 8px;
+  gap: 0 12px;
 }
 
 .backend .status {
@@ -344,6 +544,7 @@ output {
   grid-column: 1 / -1;
   color: var(--danger);
   font-size: 12px;
+  line-height: 16px;
   user-select: text;
 }
 
@@ -356,11 +557,13 @@ output {
 
 .bar {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
-  height: 41px;
+  height: 44px;
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
+  background: var(--panel);
 }
 
 .bar .summary {
@@ -372,34 +575,50 @@ output {
   white-space: nowrap;
 }
 
+.bar label {
+  flex: none;
+}
+
 .bar input[type="range"] {
+  flex: none;
   width: 120px;
 }
 
 .bar output {
-  width: 36px;
+  flex: none;
+  width: 40px;
   text-align: right;
 }
 
 .error {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   padding: 4px 8px 4px 16px;
-  border-bottom: 1px solid #5a332e;
-  background: #33211f;
+  border-bottom: 1px solid var(--error-line);
+  background: var(--error-bg);
   color: var(--danger);
 }
 
 .error span {
   flex: 1;
+  min-width: 0;
   user-select: text;
+}
+
+.error button {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .canvas-wrap {
   position: relative;
   flex: 1;
   min-height: 0;
+  background: #17181a;
 }
 
 canvas {
@@ -412,11 +631,57 @@ canvas {
 }
 
 canvas:focus-visible {
+  outline-color: #e8822e;
   outline-offset: -2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .switch::before {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :focus-visible,
+  .pick:has(input:focus-visible) {
+    outline-color: Highlight;
+  }
+
+  input[type="checkbox"],
+  input[type="range"]::-webkit-slider-runnable-track,
+  input[type="range"]::-webkit-slider-thumb,
+  .tabs button[aria-selected="true"] {
+    forced-color-adjust: none;
+  }
+
+  input[type="checkbox"] {
+    border-color: ButtonText;
+    background: Canvas;
+  }
+
+  .switch::before,
+  input[type="range"]::-webkit-slider-runnable-track,
+  input[type="range"]::-webkit-slider-thumb {
+    background: ButtonText;
+  }
+
+  input[type="checkbox"]:checked,
+  .tabs button[aria-selected="true"] {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  input[type="checkbox"]:checked::before {
+    background: HighlightText;
+  }
+
+  .pick:has(input:checked),
+  .device.selected {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }

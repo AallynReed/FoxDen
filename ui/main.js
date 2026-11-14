@@ -31,6 +31,20 @@ function render() {
   renderDevices(snap);
   renderProfiles(snap);
   renderSettings(snap);
+  if (typeof renderFeatures === "function") renderFeatures(snap);
+}
+
+function loadFeatures() {
+  document.head.append(el("link", { rel: "stylesheet", href: "features.css" }));
+  const script = el("script", { src: "features.js" });
+  script.onload = () => {
+    try {
+      featuresInit();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+  document.head.append(script);
 }
 
 function scheduleRender() {
@@ -78,6 +92,7 @@ async function init() {
   await listen("frame", (e) => previewFrames(e.payload));
   const snap = await call("get_snapshot");
   if (snap) setSnapshot(snap);
+  loadFeatures();
 }
 
 init().catch((e) => showError(String(e)));

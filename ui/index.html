@@ -3,11 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <title>FoxRGB</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <aside class="side">
+    <h1 class="sr-only">FoxRGB</h1>
+    <aside class="side" aria-label="Lighting controls">
       <div class="tabs" role="tablist" aria-label="Sections">
         <button type="button" role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
         <button type="button" role="tab" id="tab-devices" aria-controls="panel-devices" aria-selected="false" tabindex="-1">Devices</button>
@@ -24,15 +26,18 @@
       </section>
 
       <section class="panel" id="panel-devices" role="tabpanel" aria-labelledby="tab-devices" hidden>
-        <ul class="list" id="device-list"></ul>
+        <h2 id="devices-heading">Devices</h2>
+        <ul class="list" id="device-list" aria-labelledby="devices-heading"></ul>
         <p class="hint" id="devices-empty" hidden>No devices found. Check the backends under Settings, then rescan.</p>
+        <h2>Layout</h2>
+        <p class="hint">Drag a device on the canvas to move it, or its corner to resize it. With the canvas focused, arrow keys move the selected device and Shift with an arrow key resizes it.</p>
         <div class="actions">
           <button type="button" id="reset-layout">Reset layout</button>
         </div>
-        <p class="hint">Drag a device on the canvas to move it, or its corner to resize it. With the canvas focused, arrow keys move the selected device and Shift with an arrow key resizes it.</p>
       </section>
 
       <section class="panel" id="panel-profiles" role="tabpanel" aria-labelledby="tab-profiles" hidden>
+        <h2>New profile</h2>
         <form class="fields" id="profile-form">
           <label for="profile-name">Save current effect and brightness as</label>
           <div class="row">
@@ -40,8 +45,8 @@
             <button type="submit">Save</button>
           </div>
         </form>
-        <h2>Saved profiles</h2>
-        <ul class="list" id="profile-list"></ul>
+        <h2 id="profiles-heading">Saved profiles</h2>
+        <ul class="list" id="profile-list" aria-labelledby="profiles-heading"></ul>
         <p class="hint" id="profiles-empty" hidden>No profiles saved yet.</p>
       </section>
 
@@ -49,7 +54,7 @@
         <h2>Rendering</h2>
         <div class="field range">
           <label for="set-fps">Frame rate</label>
-          <output id="set-fps-out"></output>
+          <output id="set-fps-out" for="set-fps"></output>
           <input type="range" id="set-fps" min="10" max="60" step="1" data-setting="fps" />
         </div>
 
@@ -70,9 +75,9 @@
         <h2>Devices</h2>
         <div class="field">
           <label for="set-native">Native drivers (experimental)</label>
-          <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" />
+          <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" aria-describedby="native-hint" />
         </div>
-        <p class="hint">Native drivers have not been tested on hardware and are off by default.</p>
+        <p class="hint" id="native-hint">Native drivers have not been tested on hardware and are off by default.</p>
         <div class="field">
           <label for="set-virtual">Show virtual devices</label>
           <input type="checkbox" class="switch" id="set-virtual" data-setting="show_virtual" />
@@ -92,8 +97,8 @@
           <input type="checkbox" class="switch" id="set-autostart" data-setting="autostart" />
         </div>
 
-        <h2>Backends</h2>
-        <ul class="list backends" id="backend-list"></ul>
+        <h2 id="backends-heading">Backends</h2>
+        <ul class="list backends" id="backend-list" aria-labelledby="backends-heading"></ul>
         <div class="actions">
           <button type="button" id="rescan">Rescan devices</button>
         </div>
@@ -101,14 +106,14 @@
     </aside>
 
     <main class="stage">
-      <div class="bar">
+      <div class="bar" role="group" aria-label="Output">
         <span class="summary" id="summary"></span>
         <label for="brightness">Brightness</label>
         <input type="range" id="brightness" min="0" max="1" step="0.01" value="1" />
-        <output id="brightness-out">100%</output>
+        <output id="brightness-out" for="brightness">100%</output>
         <button type="button" id="pause">Pause</button>
       </div>
-      <div class="error" id="error" role="alert" hidden>
+      <div class="error" id="error" role="alert" aria-live="polite" hidden>
         <span id="error-text"></span>
         <button type="button" id="error-close">Dismiss</button>
       </div>

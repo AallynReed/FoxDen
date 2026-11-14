@@ -163,7 +163,7 @@
     },
     reset_layout() {
       const base = layout();
-      state.devices.forEach((d, i) => (d.rect = base[i].rect));
+      state.devices.forEach((d, i) => base[i] && (d.rect = base[i].rect));
     },
     save_profile({ name }) {
       if (!name.trim()) throw "profile name is empty";
@@ -185,7 +185,14 @@
       state.settings = settings;
       start();
     },
-    rescan() {},
+    // Every third scan plugs a headset in or pulls it out.
+    rescan() {
+      state.scans = (state.scans || 0) + 1;
+      if (state.scans % 3) return;
+      const i = state.devices.findIndex((d) => d.id === "virtual:headset");
+      if (i < 0) state.devices.push(grid("virtual:headset", "Headset", "other", [0.72, 0.66, 0.1, 0.1], 2, 2));
+      else state.devices.splice(i, 1);
+    },
   };
 
   const listeners = { frame: new Set(), snapshot: new Set() };

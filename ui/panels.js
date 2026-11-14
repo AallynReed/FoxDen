@@ -206,7 +206,17 @@ function renderProfiles(snap) {
         load.setAttribute("aria-label", "Load " + name);
         remove.setAttribute("aria-label", "Delete " + name);
         load.onclick = () => call("load_profile", { name });
-        remove.onclick = () => call("delete_profile", { name });
+        remove.onclick = () => {
+          if (remove.dataset.armed) return call("delete_profile", { name });
+          remove.dataset.armed = "1";
+          remove.textContent = "Confirm";
+          remove.setAttribute("aria-label", "Confirm deleting " + name);
+          setTimeout(() => {
+            delete remove.dataset.armed;
+            remove.textContent = "Delete";
+            remove.setAttribute("aria-label", "Delete " + name);
+          }, 4000);
+        };
         return el(
           "li",
           { className: "profile" },
