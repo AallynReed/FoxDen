@@ -1118,15 +1118,22 @@ dialog.sheet::backdrop {
 
 @media (forced-colors: active) {
   :focus-visible,
-  .pick:has(input:focus-visible) {
+  .pick:has(input:focus-visible),
+  .tile:has(input:focus-visible) {
     outline-color: Highlight;
   }
 
+  /* The colours on offer in a picker are its content, so they stay as they are. */
   input[type="checkbox"],
   input[type="range"]::-webkit-slider-runnable-track,
   input[type="range"]::-webkit-slider-thumb,
-  .tabs button[aria-selected="true"] {
+  .tabs button[aria-selected="true"],
+  .chip {
     forced-color-adjust: none;
+  }
+
+  .tile:has(input:checked) {
+    border-color: Highlight;
   }
 
   input[type="checkbox"] {

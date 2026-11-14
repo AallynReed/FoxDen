@@ -104,7 +104,10 @@ function flag(input, problem) {
   else input.removeAttribute("aria-invalid");
   input.problem = problem;
   const line = input.line || $(input.id + "-problem");
-  if (!line) return problem && note(problem);
+  if (!line) {
+    if (problem) note(problem);
+    return;
+  }
   line.fields = (line.fields || new Set()).add(input);
   const first = [...line.fields].find((field) => field.isConnected && field.problem);
   setText(line, first ? first.problem : "");
