@@ -7,19 +7,27 @@ pub const VID: u16 = 0x1462;
 pub const PID: u16 = 0x7D99;
 
 const ID: &str = "hid:msi-7d99";
-/// LED slots the board reserves ahead of the headers in a direct frame.
-const ONBOARD_SLOTS: usize = 6;
+/// On-board LEDs, which come first in a direct frame (OpenRGB's 7D99 row).
+const ONBOARD_LEDS: usize = 6;
 /// LEDs per addressable header while all headers share one direct frame.
 pub const HEADER_LEDS: usize = 40;
-/// JRGB1, then JRAINBOW1 and JRAINBOW2.
-pub const LED_COUNT: usize = 1 + 2 * HEADER_LEDS;
+/// On-board, JRGB1, then JRAINBOW1 and JRAINBOW2.
+pub const LED_COUNT: usize = ONBOARD_LEDS + 1 + 2 * HEADER_LEDS;
 
 /// Settings report that hands every zone to per-LED control. Byte 184 is the save flag and stays 0.
 pub fn enable_direct() -> [u8; 185] {
     let mut p = [0u8; 185];
     p[0] = 0x52;
     // (offset, speed and brightness flags) of JRGB1, JPIPE1, JPIPE2, JRAINBOW1, JRAINBOW2, outer fan ring, on-board
-    let mut zones = vec![(1, 0x08), (11, 0x2A), (21, 0x2A), (31, 0x29), (42, 0x29), (64, 0x28), (74, 0xA9)];
+    let mut zones = vec![
+        (1, 0x08),
+        (11, 0x2A),
+        (21, 0x2A),
+        (31, 0x29),
+        (42, 0x29),
+        (64, 0x28),
+        (74, 0xA9),
+    ];
     zones.extend((84..=164).step_by(10).map(|at| (at, 0x28)));
     zones.push((174, 0x2A));
     for (at, flags) in zones {
@@ -40,20 +48,23 @@ pub fn enable_direct() -> [u8; 185] {
     p
 }
 
-/// One frame for all zones: 240 RGB slots, ours start after the on-board ones.
+/// One frame for all zones: 240 RGB slots.
 pub fn direct_frame(colors: &[Color]) -> [u8; 725] {
     let mut p = [0u8; 725];
     p[..5].copy_from_slice(&[0x53, 0x25, 0x06, 0x00, 0x00]);
     for (i, c) in colors.iter().take(LED_COUNT).enumerate() {
-        let at = 5 + (ONBOARD_SLOTS + i) * 3;
+        let at = 5 + i * 3;
         p[at..at + 3].copy_from_slice(&[c.0, c.1, c.2]);
     }
     p
 }
 
 fn device() -> Device {
-    let mut leds = vec![[0.5, 1.0 / 6.0]];
-    for row in [0.5, 5.0 / 6.0] {
+    let mut leds: Vec<[f32; 2]> = (0..ONBOARD_LEDS)
+        .map(|i| [(i as f32 + 0.5) / ONBOARD_LEDS as f32, 0.1])
+        .collect();
+    leds.push([0.5, 0.3]);
+    for row in [0.6, 0.9] {
         leds.extend((0..HEADER_LEDS).map(|i| [(i as f32 + 0.5) / HEADER_LEDS as f32, row]));
     }
     Device {
@@ -61,7 +72,7 @@ fn device() -> Device {
         name: "MSI B760M Gaming Plus WiFi".into(),
         kind: DeviceKind::Motherboard,
         rect: [0.06, 0.10, 0.52, 0.15],
-        grid: [HEADER_LEDS as u32, 3],
+        grid: [HEADER_LEDS as u32, 4],
         leds,
     }
 }
@@ -82,7 +93,9 @@ impl Board {
     pub fn open(hid: HidDevice) -> Result<Self, String> {
         let mut settings = [0u8; 200];
         settings[0] = 0x52;
-        let len = hid.get_feature_report(&mut settings).map_err(|e| e.to_string())?;
+        let len = hid
+            .get_feature_report(&mut settings)
+            .map_err(|e| e.to_string())?;
         if !is_185(len) {
             return Err(format!("settings report is {len} bytes, expected 185"));
         }
@@ -107,7 +120,9 @@ impl Backend for Board {
             return Ok(());
         }
         if self.sent.is_none() {
-            self.hid.send_feature_report(&enable_direct()).map_err(|e| e.to_string())?;
+            self.hid
+                .send_feature_report(&enable_direct())
+                .map_err(|e| e.to_string())?;
         }
         match self.hid.send_feature_report(&direct_frame(colors)) {
             Ok(()) => {
@@ -132,15 +147,41 @@ mod tests {
     fn enable_direct_matches_openrgb_185_controller() {
         let p = enable_direct();
         let expect = [
-            (0, 0x52), (1, 0x01), (5, 0x08), (9, 0x80),
-            (15, 0x2A), (19, 0x80), (25, 0x2A), (29, 0x80),
-            (31, 0x01), (35, 0x29), (39, 0x80), (41, 0x28),
-            (42, 0x01), (46, 0x29), (50, 0x80), (52, 0x28),
-            (53, 0x01), (57, 0x29), (58, 0x00), (61, 0x82), (63, 0x78),
-            (68, 0x28), (72, 0x80),
-            (74, 0x25), (78, 0xA9), (82, 0xBF),
-            (84, 0x01), (88, 0x28), (92, 0x80), (164, 0x01), (168, 0x28), (172, 0x80),
-            (174, 0x01), (178, 0x2A), (182, 0x80),
+            (0, 0x52),
+            (1, 0x01),
+            (5, 0x08),
+            (9, 0x80),
+            (15, 0x2A),
+            (19, 0x80),
+            (25, 0x2A),
+            (29, 0x80),
+            (31, 0x01),
+            (35, 0x29),
+            (39, 0x80),
+            (41, 0x28),
+            (42, 0x01),
+            (46, 0x29),
+            (50, 0x80),
+            (52, 0x28),
+            (53, 0x01),
+            (57, 0x29),
+            (58, 0x00),
+            (61, 0x82),
+            (63, 0x78),
+            (68, 0x28),
+            (72, 0x80),
+            (74, 0x25),
+            (78, 0xA9),
+            (82, 0xBF),
+            (84, 0x01),
+            (88, 0x28),
+            (92, 0x80),
+            (164, 0x01),
+            (168, 0x28),
+            (172, 0x80),
+            (174, 0x01),
+            (178, 0x2A),
+            (182, 0x80),
         ];
         for (at, value) in expect {
             assert_eq!(p[at], value, "byte {at}");
@@ -155,16 +196,17 @@ mod tests {
     #[test]
     fn direct_frame_matches_openrgb_per_led_packet() {
         let mut colors = vec![Color::BLACK; LED_COUNT];
-        colors[0] = Color(1, 2, 3);
-        colors[1] = Color(4, 5, 6);
-        colors[40] = Color(7, 8, 9);
-        colors[41] = Color(10, 11, 12);
-        colors[80] = Color(13, 14, 15);
+        colors[0] = Color(9, 9, 9);
+        colors[6] = Color(1, 2, 3);
+        colors[7] = Color(4, 5, 6);
+        colors[46] = Color(7, 8, 9);
+        colors[47] = Color(10, 11, 12);
+        colors[86] = Color(13, 14, 15);
         let p = direct_frame(&colors);
         assert_eq!(p.len(), 5 + 240 * 3);
         assert_eq!(p[..5], [0x53, 0x25, 0x06, 0x00, 0x00]);
-        assert!(p[5..5 + 6 * 3].iter().all(|&b| b == 0));
         let slot = |n: usize| [p[5 + n * 3], p[6 + n * 3], p[7 + n * 3]];
+        assert_eq!(slot(0), [9, 9, 9]);
         assert_eq!(slot(6), [1, 2, 3]);
         assert_eq!(slot(7), [4, 5, 6]);
         assert_eq!(slot(46), [7, 8, 9]);
