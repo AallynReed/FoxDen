@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-GB">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,27 +7,119 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <aside>
-      <h1>Fox<span>RGB</span></h1>
+    <aside class="side">
+      <div class="tabs" role="tablist" aria-label="Sections">
+        <button type="button" role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
+        <button type="button" role="tab" id="tab-devices" aria-controls="panel-devices" aria-selected="false" tabindex="-1">Devices</button>
+        <button type="button" role="tab" id="tab-profiles" aria-controls="panel-profiles" aria-selected="false" tabindex="-1">Profiles</button>
+        <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
+      </div>
 
-      <section>
-        <label for="effect">Effect</label>
-        <select id="effect"></select>
-        <div id="params"></div>
+      <section class="panel" id="panel-effects" role="tabpanel" aria-labelledby="tab-effects">
+        <h2 id="effect-heading">Effect</h2>
+        <div class="picks" id="effect-list" role="radiogroup" aria-labelledby="effect-heading"></div>
+        <h2>Parameters</h2>
+        <div class="fields" id="params"></div>
+        <p class="hint" id="params-empty" hidden>This effect has no parameters.</p>
       </section>
 
-      <section>
-        <label for="brightness">Brightness <output id="brightness-out">100%</output></label>
-        <input id="brightness" type="range" min="0" max="1" step="0.01" value="1" />
+      <section class="panel" id="panel-devices" role="tabpanel" aria-labelledby="tab-devices" hidden>
+        <ul class="list" id="device-list"></ul>
+        <p class="hint" id="devices-empty" hidden>No devices found. Check the backends under Settings, then rescan.</p>
+        <div class="actions">
+          <button type="button" id="reset-layout">Reset layout</button>
+        </div>
+        <p class="hint">Drag a device on the canvas to move it, or its corner to resize it. With the canvas focused, arrow keys move the selected device and Shift with an arrow key resizes it.</p>
       </section>
 
-      <p class="note">Preview only. These are virtual devices; no hardware is being driven yet.</p>
+      <section class="panel" id="panel-profiles" role="tabpanel" aria-labelledby="tab-profiles" hidden>
+        <form class="fields" id="profile-form">
+          <label for="profile-name">Save current effect and brightness as</label>
+          <div class="row">
+            <input type="text" id="profile-name" maxlength="40" autocomplete="off" spellcheck="false" />
+            <button type="submit">Save</button>
+          </div>
+        </form>
+        <h2>Saved profiles</h2>
+        <ul class="list" id="profile-list"></ul>
+        <p class="hint" id="profiles-empty" hidden>No profiles saved yet.</p>
+      </section>
+
+      <section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+        <h2>Rendering</h2>
+        <div class="field range">
+          <label for="set-fps">Frame rate</label>
+          <output id="set-fps-out"></output>
+          <input type="range" id="set-fps" min="10" max="60" step="1" data-setting="fps" />
+        </div>
+
+        <h2>OpenRGB</h2>
+        <div class="field">
+          <label for="set-openrgb">Connect to an OpenRGB server</label>
+          <input type="checkbox" class="switch" id="set-openrgb" data-setting="openrgb_enabled" />
+        </div>
+        <div class="field">
+          <label for="set-host">Host</label>
+          <input type="text" id="set-host" data-setting="openrgb_host" data-invalid="Host cannot be empty." autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="set-port">Port</label>
+          <input type="number" id="set-port" min="1" max="65535" data-setting="openrgb_port" data-invalid="Port must be a whole number from 1 to 65535." />
+        </div>
+
+        <h2>Devices</h2>
+        <div class="field">
+          <label for="set-native">Native drivers (experimental)</label>
+          <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" />
+        </div>
+        <p class="hint">Native drivers have not been tested on hardware and are off by default.</p>
+        <div class="field">
+          <label for="set-virtual">Show virtual devices</label>
+          <input type="checkbox" class="switch" id="set-virtual" data-setting="show_virtual" />
+        </div>
+
+        <h2>Window</h2>
+        <div class="field">
+          <label for="set-tray">Close to tray</label>
+          <input type="checkbox" class="switch" id="set-tray" data-setting="close_to_tray" />
+        </div>
+        <div class="field">
+          <label for="set-minimised">Start minimised</label>
+          <input type="checkbox" class="switch" id="set-minimised" data-setting="start_minimized" />
+        </div>
+        <div class="field">
+          <label for="set-autostart">Start with Windows</label>
+          <input type="checkbox" class="switch" id="set-autostart" data-setting="autostart" />
+        </div>
+
+        <h2>Backends</h2>
+        <ul class="list backends" id="backend-list"></ul>
+        <div class="actions">
+          <button type="button" id="rescan">Rescan devices</button>
+        </div>
+      </section>
     </aside>
 
-    <main>
-      <canvas id="canvas"></canvas>
+    <main class="stage">
+      <div class="bar">
+        <span class="summary" id="summary"></span>
+        <label for="brightness">Brightness</label>
+        <input type="range" id="brightness" min="0" max="1" step="0.01" value="1" />
+        <output id="brightness-out">100%</output>
+        <button type="button" id="pause">Pause</button>
+      </div>
+      <div class="error" id="error" role="alert" hidden>
+        <span id="error-text"></span>
+        <button type="button" id="error-close">Dismiss</button>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="canvas" tabindex="0" aria-label="Device layout. Arrow keys move the selected device, Shift with an arrow key resizes it."></canvas>
+      </div>
     </main>
 
+    <script src="mock.js"></script>
+    <script src="canvas.js"></script>
+    <script src="panels.js"></script>
     <script src="main.js"></script>
   </body>
 </html>

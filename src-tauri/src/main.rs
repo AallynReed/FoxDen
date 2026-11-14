@@ -1,57 +1,66 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
+mod commands;
+mod config;
+mod state;
+mod tray;
+
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
-use foxrgb_core::{Device, Effect, Engine, Inputs, VirtualBackend};
-use tauri::{Emitter, State};
+use tauri::{Manager, RunEvent, WindowEvent};
 
-type Shared = Arc<Mutex<Engine>>;
-
-const FRAME_TIME: Duration = Duration::from_millis(33);
-
-#[tauri::command]
-fn devices(engine: State<'_, Shared>) -> Vec<Device> {
-    engine.lock().unwrap().devices()
-}
-
-#[tauri::command]
-fn get_state(engine: State<'_, Shared>) -> (Effect, f32) {
-    let engine = engine.lock().unwrap();
-    (engine.effect.clone(), engine.brightness)
-}
-
-#[tauri::command]
-fn set_effect(engine: State<'_, Shared>, effect: Effect) {
-    engine.lock().unwrap().effect = effect;
-}
-
-#[tauri::command]
-fn set_brightness(engine: State<'_, Shared>, value: f32) {
-    engine.lock().unwrap().brightness = value.clamp(0.0, 1.0);
-}
+use state::{AppState, Shared, lock};
 
 fn main() {
-    let engine: Shared = Arc::new(Mutex::new(Engine::new(vec![Box::new(VirtualBackend)])));
-    let ticker = engine.clone();
+    let shared: Shared = Arc::new(Mutex::new(AppState::new(config::load(&config::dir()))));
 
-    tauri::Builder::default()
-        .manage(engine)
-        .setup(move |app| {
-            let handle = app.handle().clone();
-            thread::spawn(move || {
-                let start = Instant::now();
-                let inputs = Inputs::default();
-                loop {
-                    let frames = ticker.lock().unwrap().render(start.elapsed().as_secs_f32(), &inputs);
-                    let _ = handle.emit("frame", &frames);
-                    thread::sleep(FRAME_TIME);
-                }
-            });
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_window(app)))
+        .manage(shared.clone())
+        .setup(|app| {
+            let handle = app.handle();
+            let shared = app.state::<Shared>().inner().clone();
+            let settings = lock(&shared).config.settings.clone();
+            tray::create(handle)?;
+            if !settings.start_minimized {
+                tray::show_window(handle);
+            }
+            if settings.openrgb_enabled || settings.native_drivers {
+                state::reload_backends(handle, &shared);
+            }
+            state::spawn_render(handle.clone(), shared.clone());
+            state::spawn_saver(shared);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![devices, get_state, set_effect, set_brightness])
-        .run(tauri::generate_context!())
-        .expect("failed to run FoxRGB");
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let shared = window.state::<Shared>();
+                if lock(&shared).config.settings.close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_snapshot,
+            commands::set_effect,
+            commands::set_brightness,
+            commands::set_paused,
+            commands::set_device,
+            commands::reset_layout,
+            commands::save_profile,
+            commands::load_profile,
+            commands::delete_profile,
+            commands::set_settings,
+            commands::rescan,
+        ])
+        .build(tauri::generate_context!())
+        .expect("failed to start FoxRGB");
+
+    app.run(move |_, event| {
+        if let RunEvent::Exit = event {
+            state::shutdown(&shared);
+        }
+    });
 }

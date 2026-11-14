@@ -15,4 +15,5 @@ foxrgb-audio = { path = "../crates/foxrgb-audio" }
 foxrgb-screen = { path = "../crates/foxrgb-screen" }
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"

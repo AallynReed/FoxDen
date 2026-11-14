@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 foxrgb-core.workspace = true
+hidapi = "2"
