@@ -45,6 +45,7 @@
   // What a fan is doing now: duty when FoxRGB sets it, then speed.
   const output = (fan) => (fan.duty == null ? "" : percent(fan.duty) + " · ") + speed(fan.rpm);
   const message = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
+  const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   const list = new Intl.ListFormat("en-GB", { type: "conjunction" });
 
   function el(tag, props, ...children) {
@@ -141,7 +142,10 @@
   function take(state) {
     live = state;
     // Without a running service the config in the state is only a placeholder.
-    if (state.service !== "running") return;
+    if (state.service !== "running") {
+      note = "";
+      return;
+    }
     reported = pack(state.config);
     saved = JSON.parse(reported);
     sync();
@@ -364,7 +368,7 @@
       await invoke(action + "_service");
       await refresh();
     } catch (e) {
-      problem = { where: "service", text: message(e) };
+      problem = { where: "service", text: sentence(message(e)) };
     }
     pending = "";
     render();
@@ -378,7 +382,7 @@
       await invoke("set_fan_sim", { on: ui.sim.checked });
       await refresh();
     } catch (e) {
-      problem = { where: "sim", text: message(e) };
+      problem = { where: "sim", text: sentence(message(e)) };
     }
     pending = "";
     render();
@@ -947,7 +951,7 @@
     setText(ui.version, live.version ? "version " + live.version : "");
     let detail = "";
     if (state === "stopped") detail = "Fan control runs in the FoxRGB background service, which is not running.";
-    else if (state === "error") detail = live.detail || "The service did not answer as expected.";
+    else if (state === "error") detail = live.detail ? sentence(live.detail) : "The service did not answer as expected.";
     say(ui.detail, detail);
     ui.start.hidden = !state || running;
     ui.stop.hidden = !state || state === "stopped";

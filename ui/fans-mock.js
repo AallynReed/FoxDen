@@ -8,14 +8,14 @@
   const OFFLINE = "the background service is not running";
   // Id, name and degrees above ambient at full load with stopped fans.
   const SENSORS = [
-    ["sim/cpu", "CPU", 70],
-    ["sim/gpu", "GPU", 60],
+    ["sim/cpu", "Simulated CPU", 70],
+    ["sim/gpu", "Simulated GPU", 60],
   ];
   // Id, name and rpm at full duty.
   const FANS = [
-    ["sim/cpu_fan", "CPU fan", 1800],
-    ["sim/case_fan", "Case fan", 1200],
-    ["sim/gpu_fan", "GPU fan", 3000],
+    ["sim/cpu_fan", "Simulated CPU fan", 1800],
+    ["sim/case_fan", "Simulated case fan", 1200],
+    ["sim/gpu_fan", "Simulated GPU fan", 3000],
   ];
 
   const copy = (v) => JSON.parse(JSON.stringify(v));

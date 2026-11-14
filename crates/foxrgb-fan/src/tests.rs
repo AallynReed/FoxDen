@@ -691,3 +691,27 @@ fn sim_only_moves_when_stepped() {
     sim.step(5.0);
     assert!(sensors[0].read().unwrap() > before);
 }
+
+#[test]
+fn a_swinging_sim_heats_up_and_cools_down_by_itself() {
+    let sim = SimBackend::swinging();
+    let mut sensors = sim.clone().sensors();
+    let mut read = || sensors[0].read().unwrap();
+    let idle = read();
+    for _ in 0..45 {
+        sim.step(1.0);
+    }
+    let busy = read();
+    assert!(busy > idle + 20.0, "{idle} to {busy}");
+    for _ in 0..45 {
+        sim.step(1.0);
+    }
+    assert!(read() < busy - 20.0);
+
+    // a load set by hand stays put
+    sim.set_load(0.0);
+    sim.step(1000.0);
+    let cold = read();
+    sim.step(45.0);
+    assert_eq!(read(), cold);
+}

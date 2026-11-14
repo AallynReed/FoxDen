@@ -358,7 +358,7 @@ impl Host {
 fn backends(hardware: &Hardware, sim: bool) -> Vec<Box<dyn FanBackend>> {
     let mut backends = hardware();
     if sim {
-        backends.push(Box::<SimBackend>::default());
+        backends.push(Box::new(SimBackend::swinging()));
     }
     backends
 }

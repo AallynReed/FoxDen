@@ -2,7 +2,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const state = { snap: null };
-// Undo history of the effect, brightness and layout, read from the snapshots.
+// Undo history of the effect, brightness, devices and layout, read from the snapshots.
 const hist = { steps: [], at: -1, quiet: 0, sent: null, stamp: 0 };
 const $ = (id) => document.getElementById(id);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -91,16 +91,19 @@ function noteChanges(snap) {
 }
 
 function undoable(snap) {
-  return { effect: snap.effect, brightness: snap.brightness, rects: Object.fromEntries(snap.devices.map((d) => [d.id, d.rect])) };
+  const per = (pick) => Object.fromEntries(snap.devices.map((d) => [d.id, pick(d)]));
+  return { effect: snap.effect, brightness: snap.brightness, rects: per((d) => d.rect), levels: per((d) => [d.enabled, d.brightness]) };
 }
 
 // What changed between two states: a label for the user, and a key that tells one kind of edit from another.
 function difference(a, b) {
   const fields = Object.keys({ ...a.effect, ...b.effect }).filter((k) => !same(a.effect[k], b.effect[k]));
-  const moved = Object.keys(b.rects).filter((id) => a.rects[id] && !same(a.rects[id], b.rects[id]));
+  const changed = (key) => Object.keys(b[key]).filter((id) => a[key][id] && !same(a[key][id], b[key][id]));
+  const [moved, tuned] = [changed("rects"), changed("levels")];
   const parts = [];
   if (fields.length) parts.push(["effect", fields.includes("kind") ? "kind" : fields]);
   if (a.brightness !== b.brightness) parts.push(["brightness", ""]);
+  if (tuned.length) parts.push(["device", tuned]);
   if (moved.length) parts.push(["layout", moved]);
   return parts.length ? { label: parts.map((p) => p[0]).join(" and "), key: String(parts) } : null;
 }
@@ -126,7 +129,7 @@ function track(snap) {
   if (!change) {
     // Nothing to undo, but a device that has just appeared joins the current step.
     hist.at = Math.max(hist.at, 0);
-    hist.steps[hist.at] = { ...last, ...now, rects: { ...(last && last.rects), ...now.rects } };
+    hist.steps[hist.at] = { ...last, ...now, rects: { ...(last && last.rects), ...now.rects }, levels: { ...(last && last.levels), ...now.levels } };
   } else if (tip && last.key === change.key && hist.stamp > since) {
     // Still the same edit: a slider being dragged, a key held down.
     hist.steps[hist.at] = { ...last, ...now };
@@ -171,8 +174,9 @@ function step(by) {
     if (!same(from.effect, to.effect)) await call("set_effect", { effect: to.effect });
     if (from.brightness !== to.brightness) await call("set_brightness", { value: to.brightness });
     for (const [id, rect] of Object.entries(to.rects)) {
-      const device = findDevice(id);
-      if (device && from.rects[id] && !same(from.rects[id], rect)) await sendRect(device, rect);
+      if (!findDevice(id) || !from.rects[id] || (same(from.rects[id], rect) && same(from.levels[id], to.levels[id]))) continue;
+      const [enabled, brightness] = to.levels[id];
+      await call("set_device", { id, enabled, brightness, rect: rect.map(tidy) });
     }
   });
 }

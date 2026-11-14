@@ -161,6 +161,7 @@ function filterEffects() {
     pick.hidden = !pick.textContent.toLowerCase().includes(q);
     if (!pick.hidden) shown++;
   }
+  $("effect-list").hidden = !shown;
   $("effect-none").hidden = shown > 0;
 }
 

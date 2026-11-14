@@ -201,6 +201,7 @@ textarea {
 }
 
 input.wide {
+  flex: none;
   width: 100%;
 }
 
@@ -805,9 +806,15 @@ input.switch::after {
   border-left: 1px solid var(--line);
 }
 
+/* The passing note takes what is left over, so it is cut short before the profile name is. */
 .status > .grow {
-  flex-basis: auto;
+  flex: 1 1 0;
+  min-width: 96px;
   color: var(--text);
+}
+
+.status > .grow:empty {
+  min-width: 0;
 }
 
 /* A long profile name is cut short before it pushes anything off the bar. */

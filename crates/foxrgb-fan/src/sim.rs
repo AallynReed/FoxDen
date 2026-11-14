@@ -5,14 +5,19 @@ use crate::{Fan, FanBackend, Sensor};
 const AMBIENT: f32 = 25.0;
 /// Duty the simulated firmware runs a fan at when nobody controls it.
 const FIRMWARE_DUTY: f32 = 0.4;
+/// Seconds for a swinging load to go from idle to busy and back.
+const SWING: f32 = 90.0;
 
 /// Id, name and degrees above ambient at full load with stopped fans.
-const SENSORS: [(&str, &str, f32); 2] = [("sim/cpu", "CPU", 70.0), ("sim/gpu", "GPU", 60.0)];
+const SENSORS: [(&str, &str, f32); 2] = [
+    ("sim/cpu", "Simulated CPU", 70.0),
+    ("sim/gpu", "Simulated GPU", 60.0),
+];
 /// Id, name and rpm at full duty.
 const FANS: [(&str, &str, f32); 3] = [
-    ("sim/cpu_fan", "CPU fan", 1800.0),
-    ("sim/case_fan", "Case fan", 1200.0),
-    ("sim/gpu_fan", "GPU fan", 3000.0),
+    ("sim/cpu_fan", "Simulated CPU fan", 1800.0),
+    ("sim/case_fan", "Simulated case fan", 1200.0),
+    ("sim/gpu_fan", "Simulated GPU fan", 3000.0),
 ];
 
 struct Model {
@@ -22,6 +27,8 @@ struct Model {
     /// `None` while the firmware is in control.
     duties: [Option<f32>; 3],
     rpms: [f32; 3],
+    /// Seconds into the swing, while the load moves by itself.
+    swing: Option<f32>,
 }
 
 impl Default for Model {
@@ -32,6 +39,7 @@ impl Default for Model {
             failed: [false; 2],
             duties: [None; 3],
             rpms: [0.0; 3],
+            swing: None,
         };
         // Start settled, as a machine that has idled for a while.
         model.step(1000.0);
@@ -43,6 +51,10 @@ impl Model {
     fn step(&mut self, dt: f32) {
         if !dt.is_finite() || dt <= 0.0 {
             return;
+        }
+        if let Some(at) = &mut self.swing {
+            *at = (*at + dt) % SWING;
+            self.load = 0.5 - 0.45 * (*at / SWING * std::f32::consts::TAU).cos();
         }
         let duty = self.duties.map(|duty| duty.unwrap_or(FIRMWARE_DUTY));
         // The case fan helps both; each part mostly depends on its own fan.
@@ -72,10 +84,19 @@ fn lock(model: &Mutex<Model>) -> MutexGuard<'_, Model> {
 }
 
 impl SimBackend {
-    /// 0 is idle, 1 is full load.
+    /// A backend whose load rises and falls by itself, so that curves have something to follow.
+    pub fn swinging() -> Self {
+        let sim = SimBackend::default();
+        lock(&sim.model).swing = Some(0.0);
+        sim
+    }
+
+    /// 0 is idle, 1 is full load. Ends a swing.
     pub fn set_load(&self, load: f32) {
         if load.is_finite() {
-            lock(&self.model).load = load.clamp(0.0, 1.0);
+            let mut model = lock(&self.model);
+            model.load = load.clamp(0.0, 1.0);
+            model.swing = None;
         }
     }
 

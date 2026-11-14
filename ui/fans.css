@@ -111,6 +111,14 @@
   white-space: nowrap;
 }
 
+/* Sensor names are long and differ at the end, so they wrap instead. */
+.fan-rows > li:not(.fan-item) .name,
+.fan-check .name {
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .fan-rows > .fan-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
