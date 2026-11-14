@@ -4,11 +4,11 @@ use std::io::Write;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use foxrgb_fan::{Controller, FanBackend, FanConfig, SimBackend, Status};
+use foxrgb_fan::{Controller, FanBackend, FanConfig, Probe, SimBackend, Status};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -32,8 +32,30 @@ const BACK_OFF: [Duration; 3] = if cfg!(test) {
     ]
 };
 
+/// How often the control loop makes a pass.
+const PERIOD: Duration = Duration::from_secs(1);
+/// A pass that takes longer than this is stuck, and the fans go back to the firmware.
+const STALL: Duration = if cfg!(test) {
+    Duration::from_secs(1)
+} else {
+    Duration::from_secs(5)
+};
+/// How long listing the hardware may take before the service goes on without it.
+const LISTING: Duration = if cfg!(test) {
+    Duration::from_secs(1)
+} else {
+    Duration::from_secs(10)
+};
+/// How long a stop or a switch waits for a pass of the control loop to end.
+const PATIENCE: Duration = if cfg!(test) {
+    Duration::from_millis(500)
+} else {
+    Duration::from_secs(3)
+};
+const STUCK: &str = "the control loop is stuck";
+
 /// Lists the hardware backends: at start, and again whenever the simulated one is switched.
-type Hardware = Box<dyn Fn() -> Vec<Box<dyn FanBackend>> + Send + Sync>;
+type Hardware = Arc<dyn Fn() -> Vec<Box<dyn FanBackend>> + Send + Sync>;
 
 #[derive(Clone, Copy)]
 pub enum Mode {
@@ -137,7 +159,12 @@ pub struct Host {
     pub dir: PathBuf,
     hardware: Hardware,
     mode: Mode,
+    /// The sensors. The control loop keeps them locked for a whole pass and reads them with
+    /// `state` unlocked, so a read that hangs holds neither the fans nor the replies.
+    probe: Mutex<Probe>,
     state: Mutex<State>,
+    /// When the pass now under way began.
+    busy: Mutex<Option<Instant>>,
     /// True while the config in force is not the one on disk. Held by every request that
     /// writes a file, which keeps those writes in order.
     unsaved: Mutex<bool>,
@@ -159,14 +186,15 @@ impl Host {
             Settings::default()
         });
         let sim = sim || settings.sim;
-        let hardware: Hardware = Box::new(hardware);
-        let mut controller = Controller::new(backends(&hardware, sim), FanConfig::default());
+        let hardware: Hardware = Arc::new(hardware);
+        let mut controller = Controller::new(list(&dir, &hardware, sim), FanConfig::default());
         if let Err(e) = load_config(&dir).and_then(|config| controller.set_config(config)) {
             log(
                 &dir,
                 &format!("ignoring fans.json, running with an empty config: {e}"),
             );
         }
+        let probe = controller.take_probe();
         let state = State {
             controller,
             status: Status::default(),
@@ -176,7 +204,9 @@ impl Host {
             dir,
             hardware,
             mode,
+            probe: Mutex::new(probe),
             state: Mutex::new(state),
+            busy: Mutex::new(None),
             unsaved: Mutex::new(false),
             stop: AtomicBool::new(false),
             ended: Mutex::new(None),
@@ -184,7 +214,7 @@ impl Host {
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
+        locked(&self.state)
     }
 
     pub fn stopping(&self) -> bool {
@@ -193,8 +223,7 @@ impl Host {
 
     /// Asks the process to end. The first reason given is the one that counts.
     pub fn end(&self, outcome: Result<(), String>) {
-        let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
-        ended.get_or_insert(outcome);
+        locked(&self.ended).get_or_insert(outcome);
     }
 
     /// Answers one request line with one reply line. The flag is set when the process should
@@ -234,7 +263,7 @@ impl Host {
 
     fn set_config(&self, config: FanConfig) -> Result<(), String> {
         // Orders the file writes. The control loop never takes this lock.
-        let mut unsaved = self.unsaved.lock().unwrap_or_else(|e| e.into_inner());
+        let mut unsaved = locked(&self.unsaved);
         {
             let mut state = self.lock();
             if *state.controller.config() != config {
@@ -253,31 +282,9 @@ impl Host {
 
     fn set_sim(&self, on: bool) -> Result<(), String> {
         // Orders the file writes, as in set_config.
-        let _turn = self.unsaved.lock().unwrap_or_else(|e| e.into_inner());
-        let switched = {
-            // Locked throughout, so the control loop waits while the hardware is listed again.
-            let mut state = self.lock();
-            // A switch drives the fans again, which must not happen after the final release.
-            if self.stopping() {
-                return Err("the service is stopping".into());
-            }
-            if state.sim == on {
-                None
-            } else {
-                let fans = &state.status.fans;
-                let driven = fans.iter().filter(|fan| fan.duty.is_some()).count();
-                // The old backends are released and gone before new ones are opened.
-                let emptied = state.controller.set_backends(Vec::new());
-                emptied.map_err(|e| format!("not switched, a fan could not be released: {e}"))?;
-                let backends = backends(&self.hardware, on);
-                state.controller.set_backends(backends)?;
-                state.sim = on;
-                state.status = state.controller.tick(0.0);
-                Some(driven)
-            }
-        };
+        let _turn = locked(&self.unsaved);
         // Written with the state unlocked: a stuck console or disk must not stall the fans.
-        if let Some(driven) = switched {
+        if let Some(driven) = self.switch(on)? {
             let now = if on { "on" } else { "off" };
             let released = format!("fans released first ({driven} had a duty set)");
             log(
@@ -289,9 +296,61 @@ impl Host {
             .map_err(|e| format!("choice applied but not saved: {e}"))
     }
 
+    /// Lists the hardware again, with or without the simulated backend. Gives the number of
+    /// fans that had a duty set, or `None` when nothing had to change.
+    fn switch(&self, on: bool) -> Result<Option<usize>, String> {
+        // The control loop waits for this lock, so no pass runs while the hardware is listed.
+        let Some(mut probe) = within(&self.probe, PATIENCE) else {
+            return Err(format!("{STUCK} reading a sensor; try again later"));
+        };
+        let driven = {
+            let mut state = self.lock();
+            // A switch drives the fans again, which must not happen after the final release.
+            if self.stopping() {
+                return Err("the service is stopping".into());
+            }
+            if state.sim == on {
+                return Ok(None);
+            }
+            // The old backends are released and gone before new ones are opened.
+            let emptied = state.controller.set_backends(Vec::new());
+            emptied.map_err(|e| format!("not switched, a fan could not be released: {e}"))?;
+            let fans = &mut state.status.fans;
+            let driven = fans.iter().filter(|fan| fan.duty.is_some()).count();
+            fans.iter_mut().for_each(|fan| fan.duty = None);
+            driven
+        };
+        *probe = Probe::default();
+        // Listed with the state unlocked, so status requests are answered meanwhile.
+        let backends = list(&self.dir, &self.hardware, on);
+        {
+            let mut state = self.lock();
+            state.controller.set_backends(backends)?;
+            *probe = state.controller.take_probe();
+            state.sim = on;
+        }
+        self.pass(&mut probe, 0.0);
+        Ok(Some(driven))
+    }
+
     fn tick(&self, dt: f32) {
-        let mut state = self.lock();
-        state.status = state.controller.tick(dt);
+        // Kept for the whole pass, so the hardware is not swapped in the middle of it.
+        let mut probe = locked(&self.probe);
+        self.pass(&mut probe, dt);
+    }
+
+    /// Reads the sensors, then sets the fans.
+    fn pass(&self, probe: &mut Probe, dt: f32) {
+        *locked(&self.busy) = Some(Instant::now());
+        let readings = probe.read(dt);
+        {
+            let mut state = self.lock();
+            // A pass that was stuck can get here after the fans were handed back for good.
+            if !self.stopping() {
+                state.status = state.controller.apply(dt, readings);
+            }
+        }
+        *locked(&self.busy) = None;
     }
 
     fn control_loop(&self) {
@@ -300,10 +359,61 @@ impl Host {
             let now = Instant::now();
             self.tick((now - last).as_secs_f32());
             last = now;
-            while !self.stopping() && now.elapsed() < Duration::from_secs(1) {
+            while !self.stopping() && now.elapsed() < PERIOD {
                 thread::sleep(Duration::from_millis(50));
             }
         }
+    }
+
+    /// Watches the control loop. When a pass gets stuck, the fans go back to the firmware and
+    /// every fan says why until the loop is back.
+    fn watch(&self) {
+        let mut stuck = false;
+        while !self.stopping() {
+            thread::sleep(STALL / 20);
+            let began = *locked(&self.busy);
+            let late = began.is_some_and(|began| began.elapsed() > STALL);
+            if late && !stuck {
+                // Not taken while a pass holds the state; tried again on the next round.
+                stuck = self.stalled();
+            } else if !late && stuck {
+                stuck = false;
+                log(&self.dir, "the control loop is running again");
+            }
+        }
+    }
+
+    /// Hands the fans back because a pass is stuck. False when the state could not be had.
+    fn stalled(&self) -> bool {
+        let Some(mut state) = within(&self.state, Duration::ZERO) else {
+            return false;
+        };
+        if self.stopping() {
+            return true;
+        }
+        let note = match state.controller.release_all() {
+            Ok(()) => {
+                state.status.fans.iter_mut().for_each(|fan| fan.duty = None);
+                format!("{STUCK}; the fans are back under firmware control")
+            }
+            Err(e) => format!("{STUCK} and some fans were not released: {e}"),
+        };
+        // What was read before the pass got stuck is no longer current.
+        let status = &mut state.status;
+        status
+            .sensors
+            .iter_mut()
+            .for_each(|sensor| sensor.value = None);
+        for fan in &mut status.fans {
+            fan.failsafe = false;
+            fan.error = Some(note.clone());
+        }
+        drop(state);
+        log(
+            &self.dir,
+            &format!("no pass finished within {STALL:?}: {note}"),
+        );
+        true
     }
 
     /// Runs the control loop, starting it again after a panic until the back-off runs out.
@@ -314,6 +424,7 @@ impl Host {
                 return;
             };
             let why = panic_text(&*panic);
+            *locked(&self.busy) = None;
             // A second panic in here must not end this thread before the process is told.
             let _ = catch_unwind(AssertUnwindSafe(|| self.release_all()));
             let Some(&wait) = waits.next() else {
@@ -339,7 +450,14 @@ impl Host {
     }
 
     pub fn release_all(&self) {
-        let mut state = self.lock();
+        // Only a pass that is stuck with the fans themselves keeps the state this long.
+        let Some(mut state) = within(&self.state, PATIENCE) else {
+            log(
+                &self.dir,
+                &format!("{STUCK} with the fans, which were not released"),
+            );
+            return;
+        };
         match state.controller.release_all() {
             Ok(()) => {
                 let fans = &mut state.status.fans;
@@ -355,8 +473,46 @@ impl Host {
     }
 }
 
-fn backends(hardware: &Hardware, sim: bool) -> Vec<Box<dyn FanBackend>> {
-    let mut backends = hardware();
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The lock, unless it stays taken for longer than `patience`.
+fn within<T>(mutex: &Mutex<T>, patience: Duration) -> Option<MutexGuard<'_, T>> {
+    let deadline = Instant::now() + patience;
+    loop {
+        match mutex.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(TryLockError::Poisoned(e)) => return Some(e.into_inner()),
+            Err(TryLockError::WouldBlock) if Instant::now() >= deadline => return None,
+            Err(TryLockError::WouldBlock) => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+}
+
+/// Lists the hardware on a thread of its own, so that a driver which hangs or panics costs
+/// its sensors and not the service. The simulated backend is added here.
+fn list(dir: &Path, hardware: &Hardware, sim: bool) -> Vec<Box<dyn FanBackend>> {
+    let hardware = hardware.clone();
+    let listing = thread::spawn(move || hardware());
+    let deadline = Instant::now() + LISTING;
+    while !listing.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    let mut backends = if !listing.is_finished() {
+        let late = format!("listing the hardware took longer than {LISTING:?}");
+        log(dir, &format!("{late}, going on without it"));
+        Vec::new()
+    } else {
+        listing.join().unwrap_or_else(|panic| {
+            let why = panic_text(&*panic);
+            log(
+                dir,
+                &format!("listing the hardware failed ({why}), going on without it"),
+            );
+            Vec::new()
+        })
+    };
     if sim {
         backends.push(Box::new(SimBackend::swinging()));
     }
@@ -388,6 +544,7 @@ pub struct Running {
     host: Arc<Host>,
     pipe_name: String,
     control: Option<JoinHandle<()>>,
+    watch: Option<JoinHandle<()>>,
     pipe: JoinHandle<()>,
 }
 
@@ -412,12 +569,15 @@ pub fn start(
 
     let h = host.clone();
     let control = thread::spawn(move || h.supervise());
+    let h = host.clone();
+    let watch = thread::spawn(move || h.watch());
     let (h, name) = (host.clone(), pipe_name.to_string());
     let pipe = thread::spawn(move || pipe::serve(&h, &name, first));
     Ok(Running {
         host,
         pipe_name: pipe_name.to_string(),
         control: Some(control),
+        watch: Some(watch),
         pipe,
     })
 }
@@ -426,8 +586,7 @@ impl Running {
     /// Set once the process should end: `Ok` after a shutdown request, `Err` when the control
     /// loop has given up.
     pub fn ended(&self) -> Option<Result<(), String>> {
-        let ended = self.host.ended.lock().unwrap_or_else(|e| e.into_inner());
-        ended.clone()
+        locked(&self.host.ended).clone()
     }
 
     /// Stops both threads and hands the fans back. Dropping does the same.
@@ -439,9 +598,21 @@ impl Drop for Running {
         self.host.stop.store(true, Ordering::Relaxed);
         // Fans first: the pipe shutdown below must not be able to delay the release.
         if let Some(control) = self.control.take() {
-            let _ = control.join();
+            let deadline = Instant::now() + PATIENCE;
+            while !control.is_finished() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            // A loop that is stuck is left behind; it sets nothing once it comes back.
+            if control.is_finished() {
+                let _ = control.join();
+            } else {
+                log(&self.host.dir, &format!("{STUCK}, stopping without it"));
+            }
         }
         self.host.release_all();
+        if let Some(watch) = self.watch.take() {
+            let _ = watch.join();
+        }
         while !self.pipe.is_finished() {
             pipe::wake(&self.pipe_name);
             thread::sleep(Duration::from_millis(20));
@@ -505,6 +676,62 @@ pub(crate) mod tests {
             self.released.store(true, Ordering::Relaxed);
             Ok(())
         }
+    }
+
+    /// A sensor named as the sample curve wants it, which stops answering while `held` is set.
+    #[derive(Clone, Default)]
+    struct Slow {
+        held: Arc<AtomicBool>,
+    }
+
+    impl FanBackend for Slow {
+        fn name(&self) -> &str {
+            "slow"
+        }
+        fn sensors(&mut self) -> Vec<Box<dyn Sensor>> {
+            vec![Box::new(self.clone())]
+        }
+        fn fans(&mut self) -> Vec<Box<dyn Fan>> {
+            Vec::new()
+        }
+    }
+
+    impl Sensor for Slow {
+        fn id(&self) -> &str {
+            "cpu"
+        }
+        fn name(&self) -> &str {
+            "cpu"
+        }
+        fn read(&mut self) -> Option<f32> {
+            while self.held.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Some(40.0)
+        }
+    }
+
+    /// A running host whose probe fan follows the slow sensor.
+    fn start_slow(name: &str, probe: &Probe, slow: &Slow) -> Running {
+        let hardware = {
+            let (probe, slow) = (probe.clone(), slow.clone());
+            move || {
+                vec![
+                    Box::new(slow.clone()) as Box<dyn FanBackend>,
+                    Box::new(probe.clone()),
+                ]
+            }
+        };
+        let running = start(
+            probe_dir(name),
+            hardware,
+            false,
+            Mode::Console,
+            &pipe_name(name),
+        );
+        let running = running.unwrap();
+        wait_for("the first duty", || driven(&running.host));
+        running
     }
 
     /// A data directory whose config drives the probe fan.
@@ -605,6 +832,104 @@ pub(crate) mod tests {
         let log = log_of(&dir);
         assert_eq!(log.matches("starting it again").count(), BACK_OFF.len());
         assert!(log.contains("giving up"), "{log}");
+    }
+
+    #[test]
+    fn a_read_that_hangs_sends_the_fans_back_and_holds_nothing_else() {
+        let (probe, slow) = (Probe::default(), Slow::default());
+        let running = start_slow("hang", &probe, &slow);
+        assert!(!probe.released.load(Ordering::Relaxed));
+
+        slow.held.store(true, Ordering::Relaxed);
+        wait_for("the fans to be handed back", || {
+            probe.released.load(Ordering::Relaxed)
+        });
+        // Requests are still answered, and say what is going on.
+        let status = reply(&running.host, r#"{"cmd":"status"}"#);
+        let fan = &status["status"]["fans"][0];
+        assert_eq!(fan["duty"], Value::Null);
+        assert!(fan["error"].as_str().unwrap().starts_with(STUCK), "{fan}");
+        assert_eq!(status["status"]["sensors"][0]["value"], Value::Null);
+        // The hardware cannot be listed again meanwhile, and the request says so.
+        let asked = Instant::now();
+        let refused = reply(&running.host, r#"{"cmd":"set_sim","on":true}"#);
+        assert_eq!(refused["ok"], false);
+        assert!(refused["error"].as_str().unwrap().starts_with(STUCK));
+        assert_eq!(reply(&running.host, r#"{"cmd":"status"}"#)["sim"], false);
+
+        // Nor does a stop wait for the read.
+        let dir = running.host.dir.clone();
+        running.stop();
+        assert!(asked.elapsed() < PATIENCE * 4, "{:?}", asked.elapsed());
+        slow.held.store(false, Ordering::Relaxed);
+        let log = log_of(&dir);
+        assert!(log.contains("no pass finished"), "{log}");
+        assert!(log.contains("stopping without it"), "{log}");
+        assert!(log.ends_with("stopped\n"), "{log}");
+    }
+
+    #[test]
+    fn a_pass_that_was_stuck_drives_the_fans_again_once_it_is_back() {
+        let (probe, slow) = (Probe::default(), Slow::default());
+        let running = start_slow("back", &probe, &slow);
+        slow.held.store(true, Ordering::Relaxed);
+        wait_for("the fans to be handed back", || {
+            probe.released.load(Ordering::Relaxed)
+        });
+        assert!(!driven(&running.host));
+
+        slow.held.store(false, Ordering::Relaxed);
+        wait_for("the fans to be driven again", || driven(&running.host));
+        let status = reply(&running.host, r#"{"cmd":"status"}"#);
+        assert_eq!(status["status"]["fans"][0]["error"], Value::Null);
+        assert_eq!(status["status"]["sensors"][0]["value"], 40.0);
+        let dir = running.host.dir.clone();
+        wait_for("the log to say so", || {
+            log_of(&dir).contains("the control loop is running again")
+        });
+    }
+
+    #[test]
+    fn a_stuck_pass_sets_nothing_after_the_stop() {
+        let (probe, slow) = (Probe::default(), Slow::default());
+        let running = start_slow("late-pass", &probe, &slow);
+        slow.held.store(true, Ordering::Relaxed);
+        wait_for("the fans to be handed back", || {
+            probe.released.load(Ordering::Relaxed)
+        });
+        let host = running.host.clone();
+        running.stop();
+        // The read comes back only now, and its pass must leave the fans alone.
+        slow.held.store(false, Ordering::Relaxed);
+        wait_for("the pass to end", || locked(&host.busy).is_none());
+        assert!(!driven(&host));
+    }
+
+    #[test]
+    fn hardware_that_takes_too_long_to_list_is_left_out() {
+        let dir = scratch("slow-list");
+        let slow = || {
+            thread::sleep(LISTING * 3);
+            vec![Box::new(Probe::default()) as Box<dyn FanBackend>]
+        };
+        let asked = Instant::now();
+        let host = Host::new(dir.clone(), slow, true, Mode::Console);
+        assert!(asked.elapsed() < LISTING * 2, "{:?}", asked.elapsed());
+        host.tick(1.0);
+        // The simulated fans are there all the same.
+        let ids = fan_ids(&host);
+        assert_eq!(ids.len(), 3, "{ids:?}");
+        assert!(log_of(&dir).contains("took longer"));
+    }
+
+    #[test]
+    fn hardware_that_panics_while_it_is_listed_is_left_out() {
+        let dir = scratch("panic-list");
+        let broken = || -> Vec<Box<dyn FanBackend>> { panic!("this hardware cannot be listed") };
+        let host = Host::new(dir.clone(), broken, true, Mode::Console);
+        host.tick(1.0);
+        assert_eq!(fan_ids(&host).len(), 3);
+        assert!(log_of(&dir).contains("this hardware cannot be listed"));
     }
 
     pub fn scratch(name: &str) -> PathBuf {

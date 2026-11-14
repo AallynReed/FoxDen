@@ -338,11 +338,21 @@
     return fan ? fan.name : id;
   }
 
+  // The sensors of a curve that give no reading, by name.
+  function lost(curve) {
+    const sensor = (id) => live.sensors.find((s) => s.id === id);
+    return curve.sensors.filter((id) => !sensor(id) || sensor(id).value == null).map((id) => (sensor(id) ? sensor(id).name : id));
+  }
+
+  const silent = (names) => list.format(names) + (names.length === 1 ? " gives" : " give") + " no reading";
+
   // What is wrong with a fan right now, in words, or nothing.
   function trouble(fan) {
     if (fan.error) return "Error: " + fan.error;
-    if (fan.failsafe) return "Fail-safe: full speed, because " + fan.curve + " has no sensor reading";
-    return "";
+    if (!fan.failsafe) return "";
+    const curve = saved.curves.find((c) => c.name === fan.curve);
+    const gone = curve ? lost(curve) : [];
+    return "Fail-safe: full speed, because " + (gone.length ? silent(gone) : "a sensor of " + fan.curve + " gives no reading");
   }
 
   // Fans the service reports, then fans that only a rule still names.
@@ -585,7 +595,10 @@
       el("h2", { id: "fan-choices-head", textContent: "Sensors" }),
       ui.choices,
       ui.noChoices,
-      el("p", { className: "hint", textContent: "The hottest of the chosen sensors drives the curve." }),
+      el("p", {
+        className: "hint",
+        textContent: "The hottest of the chosen sensors drives the curve. If one of them stops reading, the fans on this curve run at full speed.",
+      }),
       ui.sensorsProblem,
       el("div", { className: "field" }, el("label", { htmlFor: "fan-hysteresis", textContent: "Hysteresis (°C)" }), ui.hyst),
       el("p", { className: "hint", textContent: "How far the temperature must fall before the duty drops." }),
@@ -931,7 +944,9 @@
       g.setAttribute("aria-valuetext", trim(temp) + " °C, " + percent(duty));
     });
 
-    const hot = hottest(curve);
+    // One lost sensor is enough for full speed, as in the service.
+    const gone = lost(curve);
+    const hot = gone.length ? null : hottest(curve);
     ui.nowLine.style.display = ui.nowMark.style.display = hot ? "" : "none";
     if (hot) {
       const x = Math.round(px(hot.value)) + 0.5;
@@ -940,7 +955,7 @@
       ui.nowMark.setAttribute("transform", "translate(" + x + "," + py(asked) + ")");
       setText(ui.now, hot.name + " is at " + reading(hot.value) + ", so the curve asks for " + percent(asked) + ".");
     } else {
-      setText(ui.now, curve.sensors.length ? "None of the chosen sensors has a reading." : "No sensor chosen.");
+      setText(ui.now, gone.length ? sentence(silent(gone)) + ", so fans on this curve run at full speed." : "No sensor chosen.");
     }
   }
 

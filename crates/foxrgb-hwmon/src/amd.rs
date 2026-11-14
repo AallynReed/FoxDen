@@ -14,7 +14,7 @@ use windows_sys::Win32::System::LibraryLoader::{
 };
 use windows_sys::Win32::System::Memory::{GetProcessHeap, HeapAlloc};
 
-use crate::{Source, plausible, text, wide};
+use crate::{QUICK, plausible, polled, text, wide};
 
 const ADL_OK: c_int = 0;
 const ADL_MAX_PATH: usize = 256;
@@ -206,7 +206,6 @@ fn temperature(data: &PmLogDataOutput, metric: usize) -> Option<f32> {
     plausible(sensor.value as f32)
 }
 
-#[derive(Clone)]
 struct GpuSensor {
     adl: Arc<Mutex<Adl>>,
     card: usize,
@@ -244,13 +243,9 @@ pub fn open() -> Option<Box<dyn FanBackend>> {
         let card = adl.cards.len();
         let before = found.len();
         for (metric, id, label) in SENSORS {
-            if temperature(&data, metric).is_some() {
-                found.push((
-                    card,
-                    metric,
-                    format!("gpu{gpu}/{id}"),
-                    format!("{model} {label}"),
-                ));
+            if let Some(celsius) = temperature(&data, metric) {
+                let (id, name) = (format!("gpu{gpu}/{id}"), format!("{model} {label}"));
+                found.push((card, metric, id, name, celsius));
             }
         }
         if found.len() > before {
@@ -262,17 +257,18 @@ pub fn open() -> Option<Box<dyn FanBackend>> {
     }
 
     let adl = Arc::new(Mutex::new(adl));
-    let sensors = found
-        .into_iter()
-        .map(|(card, metric, id, name)| GpuSensor {
-            adl: adl.clone(),
+    let sensor = |(card, metric, id, name, celsius)| {
+        let adl = adl.clone();
+        let sensor = GpuSensor {
+            adl,
             card,
             metric,
             id,
             name,
-        })
-        .collect();
-    Source::boxed("amd", sensors)
+        };
+        (sensor, celsius)
+    };
+    polled("amd", found.into_iter().map(sensor).collect(), QUICK)
 }
 
 #[cfg(test)]

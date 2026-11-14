@@ -1,10 +1,9 @@
 //! Solid-state drive temperatures through the storage temperature query, which needs no
-//! administrator rights. A worker thread does the asking, so a slow drive never holds up a read.
+//! administrator rights.
 
 use std::mem::{size_of, size_of_val};
 use std::ptr::{null, null_mut};
-use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use foxrgb_fan::{FanBackend, Sensor};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -18,17 +17,15 @@ use windows_sys::Win32::System::Ioctl::{
     StorageDeviceProperty, StorageDeviceSeekPenaltyProperty, StorageDeviceTemperatureProperty,
 };
 
-use crate::{Source, plausible, text, wide};
+use crate::{Pace, plausible, polled, text, wide};
 
 /// Physical drive numbers 0 up to this are tried.
 const DRIVES: u32 = 32;
-/// How often each drive is asked. A busy drive can take over 100 ms to answer.
-const PERIOD: Duration = Duration::from_secs(5);
-/// A reading older than this is no longer handed out.
-const MAX_AGE: Duration = Duration::from_secs(12);
-
-/// When each drive last answered, and with what.
-type Latest = Mutex<Vec<Option<(Instant, f32)>>>;
+/// Drives are asked seldom: a busy one can take over 100 ms to answer.
+const PACE: Pace = Pace {
+    every: Duration::from_secs(5),
+    keep: Duration::from_secs(12),
+};
 
 /// A physical drive opened with no access rights, which is enough to query it.
 struct Drive(HANDLE);
@@ -133,32 +130,8 @@ fn model(descriptor: &[u8], vendor: u32, product: u32) -> Option<String> {
     (!model.is_empty()).then(|| model.to_string())
 }
 
-/// The reading, unless it has grown too old to trust.
-fn current(latest: Option<(Instant, f32)>) -> Option<f32> {
-    let (at, celsius) = latest?;
-    (at.elapsed() < MAX_AGE).then_some(celsius)
-}
-
-/// Asks every drive once per period until the last sensor is gone.
-fn watch(drives: Vec<u32>, latest: Weak<Latest>) {
-    loop {
-        std::thread::sleep(PERIOD);
-        for (slot, &number) in drives.iter().enumerate() {
-            let Some(latest) = latest.upgrade() else {
-                return;
-            };
-            // Opened each time, so no handle is held that would block ejecting the drive.
-            let reading = Drive::open(number).and_then(|drive| drive.temperature());
-            let reading = reading.map(|celsius| (Instant::now(), celsius));
-            latest.lock().unwrap_or_else(|e| e.into_inner())[slot] = reading;
-        }
-    }
-}
-
-#[derive(Clone)]
 struct DiskSensor {
-    latest: Arc<Latest>,
-    slot: usize,
+    number: u32,
     id: String,
     name: String,
 }
@@ -173,12 +146,13 @@ impl Sensor for DiskSensor {
     }
 
     fn read(&mut self) -> Option<f32> {
-        current(self.latest.lock().unwrap_or_else(|e| e.into_inner())[self.slot])
+        // Opened each time, so no handle is held that would block ejecting the drive.
+        Drive::open(self.number)?.temperature()
     }
 }
 
 pub fn open() -> Option<Box<dyn FanBackend>> {
-    let found: Vec<(u32, String, f32)> = (0..DRIVES)
+    let found = (0..DRIVES)
         .filter_map(|number| {
             let drive = Drive::open(number)?;
             // Spinning disks are left out: asking one may wake it or keep it awake.
@@ -187,30 +161,15 @@ pub fn open() -> Option<Box<dyn FanBackend>> {
             }
             let celsius = drive.temperature()?;
             let model = drive.model().unwrap_or_else(|| format!("Disk {number}"));
-            Some((number, model, celsius))
+            let sensor = DiskSensor {
+                number,
+                id: format!("disk{number}/temperature"),
+                name: format!("{model} temperature"),
+            };
+            Some((sensor, celsius))
         })
         .collect();
-    if found.is_empty() {
-        return None;
-    }
-
-    let now = Instant::now();
-    let first = found.iter().map(|&(_, _, celsius)| Some((now, celsius)));
-    let latest: Arc<Latest> = Arc::new(Mutex::new(first.collect()));
-    let sensors = found
-        .iter()
-        .enumerate()
-        .map(|(slot, (number, model, _))| DiskSensor {
-            latest: latest.clone(),
-            slot,
-            id: format!("disk{number}/temperature"),
-            name: format!("{model} temperature"),
-        })
-        .collect();
-    let drives = found.iter().map(|found| found.0).collect();
-    let latest = Arc::downgrade(&latest);
-    std::thread::spawn(move || watch(drives, latest));
-    Source::boxed("disk", sensors)
+    polled("disk", found, PACE)
 }
 
 #[cfg(test)]
@@ -243,15 +202,5 @@ mod tests {
         );
         assert_eq!(model(&descriptor, 0, 0), None);
         assert_eq!(model(&descriptor, 500, 600), None);
-    }
-
-    #[test]
-    fn an_old_reading_is_not_handed_out() {
-        let now = Instant::now();
-        assert_eq!(current(Some((now, 40.0))), Some(40.0));
-        assert_eq!(current(None), None);
-        if let Some(long_ago) = now.checked_sub(MAX_AGE) {
-            assert_eq!(current(Some((long_ago, 40.0))), None);
-        }
     }
 }

@@ -12,7 +12,7 @@ use windows_sys::Win32::System::Performance::{
     PdhCollectQueryData, PdhGetFormattedCounterArrayW, PdhOpenQueryW,
 };
 
-use crate::{Source, plausible, wide};
+use crate::{QUICK, plausible, polled, wide};
 
 const COUNTER: &str = r"\Thermal Zone Information(*)\High Precision Temperature";
 /// The zones are read this many times, this far apart, before any of them is believed.
@@ -127,7 +127,6 @@ fn live(samples: &[Readings]) -> Vec<String> {
         .collect()
 }
 
-#[derive(Clone)]
 struct ZoneSensor {
     zones: Arc<Mutex<Zones>>,
     zone: String,
@@ -166,16 +165,20 @@ pub fn open() -> Option<Box<dyn FanBackend>> {
     }
 
     let zones = Arc::new(Mutex::new(zones));
-    let sensors = live(&samples)
+    let found = live(&samples)
         .into_iter()
-        .map(|zone| ZoneSensor {
-            zones: zones.clone(),
-            id: format!("acpi/{}", label(&zone).to_lowercase()),
-            name: format!("Thermal zone {}", label(&zone)),
-            zone,
+        .filter_map(|zone| {
+            let celsius = find(samples.last()?, &zone)?;
+            let sensor = ZoneSensor {
+                zones: zones.clone(),
+                id: format!("acpi/{}", label(&zone).to_lowercase()),
+                name: format!("Thermal zone {}", label(&zone)),
+                zone,
+            };
+            Some((sensor, celsius))
         })
         .collect();
-    Source::boxed("acpi", sensors)
+    polled("acpi", found, QUICK)
 }
 
 #[cfg(test)]

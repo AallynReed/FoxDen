@@ -156,7 +156,7 @@ fn curve_interpolates_and_clamps() {
 }
 
 #[test]
-fn hottest_readable_sensor_drives_the_curve() {
+fn the_hottest_sensor_drives_the_curve() {
     let config = FanConfig {
         curves: vec![curve("c", &["s0", "s1"], 0.0)],
         rules: vec![rule("f0", "c", 1000.0)],
@@ -165,11 +165,56 @@ fn hottest_readable_sensor_drives_the_curve() {
     set_temp(&shared, 0, Some(40.0));
     set_temp(&shared, 1, Some(65.0));
     assert!(close(duty(&controller.tick(1.0), 0), 0.7));
+    set_temp(&shared, 0, Some(70.0));
+    assert!(close(duty(&controller.tick(1.0), 0), 0.8));
+}
+
+#[test]
+fn losing_one_sensor_of_several_is_failsafe() {
+    let config = FanConfig {
+        curves: vec![curve("c", &["s0", "s1"], 0.0)],
+        rules: vec![rule("f0", "c", 1000.0)],
+    };
+    let (mut controller, shared) = bench(2, 1, config);
+    set_temp(&shared, 0, Some(40.0));
+    set_temp(&shared, 1, Some(65.0));
+    assert!(close(duty(&controller.tick(1.0), 0), 0.7));
+
+    // The cooler sensor that still reads must not slow the fan down.
     set_temp(&shared, 1, None);
     let status = controller.tick(1.0);
-    assert!(close(duty(&status, 0), 0.3));
-    assert!(!status.fans[0].failsafe);
     assert_eq!(status.sensors[1].value, None);
+    assert!(status.fans[0].failsafe);
+    assert_eq!(duty(&status, 0), 1.0);
+
+    // Nor may the hotter one, when it is the cooler one that went.
+    set_temp(&shared, 1, Some(65.0));
+    set_temp(&shared, 0, None);
+    let status = controller.tick(1.0);
+    assert!(status.fans[0].failsafe);
+    assert_eq!(duty(&status, 0), 1.0);
+
+    set_temp(&shared, 0, Some(40.0));
+    let status = controller.tick(1.0);
+    assert!(!status.fans[0].failsafe);
+    assert!(close(duty(&status, 0), 0.7));
+}
+
+#[test]
+fn readings_can_come_from_a_probe_read_elsewhere() {
+    let (mut controller, shared) = bench(1, 1, simple(0.0, 1000.0));
+    let mut probe = controller.take_probe();
+    set_temp(&shared, 0, Some(65.0));
+    let readings = probe.read(1.0);
+    assert_eq!(readings[0].value, Some(65.0));
+    let status = controller.apply(1.0, readings);
+    assert_eq!(status.sensors[0].value, Some(65.0));
+    assert!(close(duty(&status, 0), 0.7));
+
+    // Without its probe the controller has nothing to read.
+    let status = controller.tick(1.0);
+    assert!(status.sensors.is_empty());
+    assert!(status.fans[0].failsafe);
 }
 
 #[test]
@@ -239,7 +284,13 @@ fn failsafe_on_sensor_loss_and_recovery() {
     }
     assert_eq!(shared.lock().unwrap().sets[0].last(), Some(&1.0));
 
+    // One sensor back is not enough.
     set_temp(&shared, 1, Some(30.0));
+    let status = controller.tick(1.0);
+    assert!(status.fans[0].failsafe);
+    assert_eq!(duty(&status, 0), 1.0);
+
+    set_temp(&shared, 0, Some(30.0));
     let status = controller.tick(1.0);
     assert!(!status.fans[0].failsafe);
     assert!(close(duty(&status, 0), 0.9));
@@ -247,14 +298,16 @@ fn failsafe_on_sensor_loss_and_recovery() {
 
 #[test]
 fn curve_with_unknown_sensor_is_failsafe() {
-    let config = FanConfig {
-        curves: vec![curve("c", &["missing"], 0.0)],
-        rules: vec![rule("f0", "c", 0.1)],
-    };
-    let (mut controller, _shared) = bench(1, 1, config);
-    let status = controller.tick(1.0);
-    assert!(status.fans[0].failsafe);
-    assert_eq!(duty(&status, 0), 1.0);
+    for sensors in [&["missing"][..], &["s0", "missing"]] {
+        let config = FanConfig {
+            curves: vec![curve("c", sensors, 0.0)],
+            rules: vec![rule("f0", "c", 0.1)],
+        };
+        let (mut controller, _shared) = bench(1, 1, config);
+        let status = controller.tick(1.0);
+        assert!(status.fans[0].failsafe, "{sensors:?}");
+        assert_eq!(duty(&status, 0), 1.0);
+    }
 }
 
 #[test]
@@ -294,9 +347,10 @@ fn implausible_readings_count_as_unreadable() {
         let status = controller.tick(1.0);
         assert_eq!(status.sensors[0].value, readable.then_some(temp), "{temp}");
         assert_eq!(status.fans[0].failsafe, !readable, "{temp}");
-        // The other sensor keeps its curve going.
-        assert!(!status.fans[1].failsafe, "{temp}");
+        // A curve that also has a working sensor fares no better.
+        assert_eq!(status.fans[1].failsafe, !readable, "{temp}");
     }
+    set_temp(&shared, 0, Some(30.0));
     assert!(close(duty(&controller.tick(1.0), 1), 0.3));
 }
 
@@ -671,9 +725,10 @@ fn sim_failsafe_and_release() {
     let by_id = |id: &str| status.fans.iter().find(|fan| fan.id == id).unwrap();
     assert!(by_id("sim/cpu_fan").failsafe);
     assert_eq!(sim.fan_duty("sim/cpu_fan"), Some(1.0));
-    // The other curves still have a sensor to go by.
+    // So is the curve that has the lost sensor among others, but not the one without it.
+    assert!(by_id("sim/case_fan").failsafe);
+    assert_eq!(sim.fan_duty("sim/case_fan"), Some(1.0));
     assert!(!by_id("sim/gpu_fan").failsafe);
-    assert!(!by_id("sim/case_fan").failsafe);
 
     drop(controller);
     for id in ["sim/cpu_fan", "sim/gpu_fan", "sim/case_fan"] {

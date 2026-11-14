@@ -55,7 +55,7 @@ pub struct FanConfig {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Curve {
     pub name: String,
-    /// Sensor ids. The hottest one drives the curve.
+    /// Sensor ids. The hottest one drives the curve, and all of them have to read.
     pub sensors: Vec<String>,
     /// `(temperature, duty)` points in rising temperature order; duty is 0..=1.
     pub points: Vec<(f32, f32)>,
@@ -130,14 +130,14 @@ impl FanConfig {
                     return Err(format!("curve '{name}' has a point that is not a finite number"));
                 }
                 if !(0.0..=1.0).contains(&duty) {
-                    return Err(format!("curve '{name}' has a duty outside 0..=1"));
+                    return Err(format!("curve '{name}' has a duty outside 0 to 1"));
                 }
             }
             if curve.points.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
                 return Err(format!("curve '{name}' points must be sorted by rising temperature"));
             }
             if !(0.0..=30.0).contains(&curve.hysteresis) {
-                return Err(format!("curve '{name}' hysteresis must be within 0..=30"));
+                return Err(format!("curve '{name}' hysteresis must be from 0 to 30"));
             }
         }
 
@@ -152,7 +152,9 @@ impl FanConfig {
             }
             // Written so that NaN fails every comparison.
             if !(rule.min_duty >= 0.0 && rule.min_duty <= rule.max_duty && rule.max_duty <= 1.0) {
-                return Err(format!("fan '{fan}' needs 0 <= min_duty <= max_duty <= 1"));
+                return Err(format!(
+                    "fan '{fan}' needs duties from 0 to 1, with the minimum not above the maximum"
+                ));
             }
             if !(rule.ramp >= 0.01 && rule.ramp.is_finite()) {
                 return Err(format!("fan '{fan}' ramp must be a finite number of at least 0.01"));
@@ -249,9 +251,38 @@ impl Slot {
     }
 }
 
-pub struct Controller {
+/// The sensor side of the hardware. It can be read apart from the fans, so that a read that
+/// never returns holds nothing a fan needs.
+#[derive(Default)]
+pub struct Probe {
     backends: Vec<Box<dyn FanBackend>>,
     sensors: Vec<Box<dyn Sensor>>,
+}
+
+impl Probe {
+    /// Moves the backends on by `dt` seconds and reads every sensor.
+    pub fn read(&mut self, dt: f32) -> Vec<SensorStatus> {
+        for backend in &mut self.backends {
+            backend.advance(seconds(dt));
+        }
+        self.sensors
+            .iter_mut()
+            .map(|sensor| SensorStatus {
+                id: sensor.id().to_string(),
+                name: sensor.name().to_string(),
+                value: sensor.read().filter(|value| PLAUSIBLE.contains(value)),
+            })
+            .collect()
+    }
+}
+
+/// Elapsed seconds, with anything that is not a positive number counted as none.
+fn seconds(dt: f32) -> f32 {
+    if dt.is_finite() && dt > 0.0 { dt } else { 0.0 }
+}
+
+pub struct Controller {
+    probe: Probe,
     fans: Vec<Slot>,
     config: FanConfig,
     /// Per curve, the temperature that set its current duty.
@@ -267,8 +298,7 @@ impl Controller {
             FanConfig::default()
         };
         let mut controller = Controller {
-            backends: Vec::new(),
-            sensors: Vec::new(),
+            probe: Probe::default(),
             fans: Vec::new(),
             anchors: vec![None; config.curves.len()],
             config,
@@ -277,14 +307,14 @@ impl Controller {
         controller
     }
 
-    fn attach(&mut self, backends: Vec<Box<dyn FanBackend>>) {
-        self.sensors.clear();
+    fn attach(&mut self, mut backends: Vec<Box<dyn FanBackend>>) {
         self.fans.clear();
-        self.backends = backends;
-        for backend in &mut self.backends {
-            self.sensors.extend(backend.sensors());
+        let mut sensors = Vec::new();
+        for backend in &mut backends {
+            sensors.extend(backend.sensors());
             self.fans.extend(backend.fans().into_iter().map(Slot::new));
         }
+        self.probe = Probe { backends, sensors };
     }
 
     /// Swaps the hardware. Every fan the controller had touched is handed back first; if one
@@ -307,31 +337,34 @@ impl Controller {
         &self.config
     }
 
+    /// Takes the sensors out, to be read without holding the controller. `tick` has none to
+    /// read after that: hand the readings to `apply` instead.
+    pub fn take_probe(&mut self) -> Probe {
+        std::mem::take(&mut self.probe)
+    }
+
     /// Reads sensors, evaluates curves and applies duties. `dt` is seconds since the last tick.
     pub fn tick(&mut self, dt: f32) -> Status {
-        let dt = if dt.is_finite() && dt > 0.0 { dt } else { 0.0 };
-        for backend in &mut self.backends {
-            backend.advance(dt);
-        }
+        let sensors = self.probe.read(dt);
+        self.apply(dt, sensors)
+    }
 
-        let sensors: Vec<SensorStatus> = self
-            .sensors
-            .iter_mut()
-            .map(|sensor| SensorStatus {
-                id: sensor.id().to_string(),
-                name: sensor.name().to_string(),
-                value: sensor.read().filter(|value| PLAUSIBLE.contains(value)),
-            })
-            .collect();
+    /// Evaluates the curves against `sensors` and applies duties. `dt` is seconds since the
+    /// last call.
+    pub fn apply(&mut self, dt: f32, sensors: Vec<SensorStatus>) -> Status {
+        let dt = seconds(dt);
+        let reading = |id: &String| sensors.iter().find(|sensor| &sensor.id == id)?.value;
 
-        // Per curve: the duty it asks for, or None when no sensor could be read.
+        // Per curve: the duty it asks for, or None when one of its sensors gives no reading.
         let mut wanted = Vec::with_capacity(self.config.curves.len());
         for (curve, anchor) in self.config.curves.iter().zip(&mut self.anchors) {
-            let hottest = sensors
+            // A sensor that is lost may have been the hottest, so the others are not enough.
+            let hottest = curve
+                .sensors
                 .iter()
-                .filter(|sensor| curve.sensors.contains(&sensor.id))
-                .filter_map(|sensor| sensor.value)
-                .reduce(f32::max);
+                .map(reading)
+                .try_fold(f32::NEG_INFINITY, |hottest, temp| Some(hottest.max(temp?)))
+                .filter(|temp| temp.is_finite());
             *anchor = match (hottest, *anchor) {
                 // Held only while that keeps the duty at or above what the curve asks for now.
                 (Some(temp), Some(held))

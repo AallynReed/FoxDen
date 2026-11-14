@@ -157,6 +157,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
 
+    use foxrgb_fan::{Fan, FanBackend, Sensor};
     use serde_json::{Value, json};
     use windows_sys::Win32::Security::Authorization::{
         ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SE_KERNEL_OBJECT,
@@ -307,15 +308,31 @@ mod tests {
         wait_for("a free place", || try_ask(&open(&name), status).is_some());
     }
 
+    /// Hardware that panics when it is taken up while armed, which a request thread does.
+    struct Trap(Arc<AtomicBool>);
+
+    impl FanBackend for Trap {
+        fn name(&self) -> &str {
+            "trap"
+        }
+        fn sensors(&mut self) -> Vec<Box<dyn Sensor>> {
+            Vec::new()
+        }
+        fn fans(&mut self) -> Vec<Box<dyn Fan>> {
+            assert!(
+                !self.0.load(Ordering::Relaxed),
+                "the trap panics on purpose"
+            );
+            Vec::new()
+        }
+    }
+
     #[test]
     fn a_client_thread_that_panics_gives_its_place_back() {
         let armed = Arc::new(AtomicBool::new(false));
         let hardware = {
             let armed = armed.clone();
-            move || {
-                assert!(!armed.load(Ordering::Relaxed), "listing fails on purpose");
-                Vec::new()
-            }
+            move || vec![Box::new(Trap(armed.clone())) as Box<dyn FanBackend>]
         };
         let (name, dir) = (pipe_name("panic-client"), scratch("panic-client"));
         let _running = start(dir, hardware, false, Mode::Console, &name).unwrap();

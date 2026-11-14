@@ -49,12 +49,12 @@
     FANS.forEach((fan, i) => (model.rpms[i] += (duty[i] * fan[2] - model.rpms[i]) * spin));
   }
 
-  // The service's control loop: hottest sensor, hysteresis, limits, ramp, full speed without a reading.
+  // The service's control loop: hottest sensor, hysteresis, limits, ramp, full speed when a sensor is lost.
   function control(dt, sensors) {
     const config = svc.config;
     const wanted = config.curves.map((curve, i) => {
-      const temps = sensors.filter((s) => curve.sensors.includes(s.id) && s.value !== null).map((s) => s.value);
-      const hottest = temps.length ? Math.max(...temps) : null;
+      const temps = curve.sensors.map((id) => (sensors.find((s) => s.id === id) || { value: null }).value);
+      const hottest = temps.length && !temps.includes(null) ? Math.max(...temps) : null;
       const held = svc.anchors[i];
       const keep =
         hottest !== null &&
@@ -129,12 +129,12 @@
       if (!curve.points.length) return `curve '${name}' has no points`;
       for (const [temp, duty] of curve.points) {
         if (!Number.isFinite(temp) || !Number.isFinite(duty)) return `curve '${name}' has a point that is not a finite number`;
-        if (duty < 0 || duty > 1) return `curve '${name}' has a duty outside 0..=1`;
+        if (duty < 0 || duty > 1) return `curve '${name}' has a duty outside 0 to 1`;
       }
       if (curve.points.some((p, i) => i > 0 && curve.points[i - 1][0] >= p[0])) {
         return `curve '${name}' points must be sorted by rising temperature`;
       }
-      if (!(curve.hysteresis >= 0 && curve.hysteresis <= 30)) return `curve '${name}' hysteresis must be within 0..=30`;
+      if (!(curve.hysteresis >= 0 && curve.hysteresis <= 30)) return `curve '${name}' hysteresis must be from 0 to 30`;
     }
 
     const fans = new Set();
@@ -144,7 +144,7 @@
       fans.add(fan);
       if (!names.has(rule.curve)) return `fan '${fan}' uses unknown curve '${rule.curve}'`;
       if (!(rule.min_duty >= 0 && rule.min_duty <= rule.max_duty && rule.max_duty <= 1)) {
-        return `fan '${fan}' needs 0 <= min_duty <= max_duty <= 1`;
+        return `fan '${fan}' needs duties from 0 to 1, with the minimum not above the maximum`;
       }
       if (!(rule.ramp >= 0.01 && Number.isFinite(rule.ramp))) return `fan '${fan}' ramp must be a finite number of at least 0.01`;
     }
