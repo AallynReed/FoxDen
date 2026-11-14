@@ -27,7 +27,105 @@ No real hardware has been driven:
   service.
 - SMBus RAM and GPU lighting are not started.
 
-[PLAN.md](PLAN.md) says what is done, how far each part was checked and what comes next.
+There is no release yet. The setup program builds, and the release build of the app and the
+service has been run from the build folder. The setup program itself has never been run, and
+neither GitHub workflow has run.
+
+[PLAN.md](PLAN.md) says what is done, how far each part was checked and what is left to do by hand.
+
+## Install
+
+There is nothing to download yet. Until the first release, build the setup program as described
+under Build. It has been built and unpacked but never run, so what follows is what it is set up to
+do, not what it has been seen doing.
+
+`FoxRGB_<version>_x64-setup.exe` installs for the current user into `%LOCALAPPDATA%\FoxRGB`, asks
+for no administrator rights and adds a Start menu entry. It is not signed, so Windows SmartScreen
+warns about a downloaded copy. Windows 11 has the WebView2 runtime the app needs; on a machine
+without it the setup program downloads it from Microsoft.
+
+Uninstall from Settings, Apps, Installed apps. The settings and profiles in
+`%APPDATA%\com.foxrgb.desktop` stay unless "Delete the application data" is ticked.
+
+The setup program puts `foxrgb-service.exe` beside the app and does not register it. The app
+starts it as an ordinary program from the Fans tab and stops it when it quits, which needs no
+administrator rights.
+
+Registering it as a Windows service, so that it runs before anyone logs in, is a step of its own.
+It has never been tried, and there is little reason to yet, because the service cannot drive a real
+fan. From an elevated PowerShell:
+
+```powershell
+$dir = "$env:ProgramFiles\FoxRGB"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Copy-Item "$env:LOCALAPPDATA\FoxRGB\foxrgb-service.exe" $dir
+& "$dir\foxrgb-service.exe" install
+& "$dir\foxrgb-service.exe" start
+```
+
+`install` only registers a copy that ordinary users cannot replace, which is why the file is
+copied out of the per-user folder first. The installed service keeps its files in
+`%ProgramData%\FoxRGB`, which it makes for SYSTEM and Administrators to write to and refuses to use
+when anyone else can write there. To remove it again:
+
+```powershell
+& "$env:ProgramFiles\FoxRGB\foxrgb-service.exe" uninstall
+```
+
+## Build
+
+Needs a current stable Rust (1.97 was used) and the WebView2 runtime.
+
+```powershell
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets
+cargo run -p foxrgb
+```
+
+Build the whole workspace first. The Fans tab starts `foxrgb-service.exe` from the folder the app
+runs from, and `cargo run -p foxrgb` alone does not build it.
+
+The setup program needs the Tauri CLI, once:
+
+```powershell
+cargo install tauri-cli --version "^2" --locked
+```
+
+Then, from the repository root:
+
+```powershell
+$env:CARGO_ENCODED_RUSTFLAGS = "--remap-path-prefix=$env:USERPROFILE=~"
+cargo tauri build --config packaging/tauri.bundle.json
+Remove-Item Env:CARGO_ENCODED_RUSTFLAGS
+```
+
+That builds the service and the app in release mode and writes
+`target\release\bundle\nsis\FoxRGB_<version>_x64-setup.exe`. The first line keeps your Windows user
+name out of the binaries. [packaging/README.md](packaging/README.md) has the details.
+
+A setup program built this way is for testing. Releases are built on GitHub: pushing a tag such as
+`v0.1.0` runs `.github/workflows/release.yml`, which builds the setup program there and drafts a
+release that carries it. The draft is published by hand.
+
+## Running
+
+Everything the app keeps is in `%APPDATA%\com.foxrgb.desktop`: the settings and profiles in
+`config.json`, the files of a service the app started in `service`, and the web view's own data,
+which holds the view options, in `webview`. Set `FOXRGB_CONFIG_DIR` to use another folder for all
+of it.
+
+The service also runs by hand, with `--sim` to start with simulated fans:
+
+```powershell
+cargo run -p foxrgb-service -- run --sim
+```
+
+Run that way it keeps its files in the same `service` folder as one the app starts, or in the
+folder `FOXRGB_DATA_DIR` names. Ctrl+C stops it.
+
+`ui/index.html` also opens in a plain browser, where `ui/mock.js` and `ui/fans-mock.js` stand in
+for the app.
 
 ## Layout
 
@@ -43,40 +141,4 @@ No real hardware has been driven:
 - `src-tauri` - the desktop app (Tauri 2)
 - `ui` - the preview and controls, plain HTML/CSS/JS with no build step
 - `packaging` - installer configuration, see [packaging/README.md](packaging/README.md)
-
-## Running
-
-Needs Rust and the WebView2 runtime (included with Windows 11).
-
-```powershell
-cargo build --workspace
-cargo run -p foxrgb
-cargo test --workspace
-```
-
-Build the whole workspace first. The Fans tab starts `foxrgb-service.exe` from the folder the app
-runs from, and `cargo run -p foxrgb` alone does not build it. The app starts the service as an
-ordinary program for the session, needs no administrator rights for that, and stops it when it
-quits.
-
-Everything the app keeps is in `%APPDATA%\com.foxrgb.desktop`: the settings and profiles in
-`config.json`, the files of a service the app started in `service`, and the web view's own data,
-which holds the view options, in `webview`. Set `FOXRGB_CONFIG_DIR` to use another folder for all
-of it.
-
-The service also runs by hand, with `--sim` to start with simulated fans:
-
-```powershell
-cargo run -p foxrgb-service -- run --sim
-```
-
-Run that way it keeps its files in the same `service` folder as one the app starts, or in the
-folder `FOXRGB_DATA_DIR` names.
-
-Registering it as a Windows service is written but has never been tried. `foxrgb-service install`
-only registers a copy that ordinary users cannot replace, such as one in a folder under Program
-Files. An installed service keeps its files in `%ProgramData%\FoxRGB`, which it makes for SYSTEM
-and Administrators only and refuses to use when anyone else can write there.
-
-`ui/index.html` also opens in a plain browser, where `ui/mock.js` and `ui/fans-mock.js` stand in
-for the app.
+- `.github/workflows` - the build and the release on GitHub

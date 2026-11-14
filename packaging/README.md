@@ -25,13 +25,28 @@ That builds the service, then the app, and writes
 service is picked up from `target\release`. The first build also downloads NSIS into
 `%LOCALAPPDATA%\tauri`.
 
-The setup program has been built this way. It has never been run.
+The setup program has been built this way and unpacked to see what it carries. It has never been
+run.
 
 The first line keeps your user folder, and with it your Windows user name, out of the binaries.
 Without it they contain the paths of the dependency sources under `%USERPROFILE%\.cargo`.
 
-`.github/workflows/build.yml` builds the same installer on GitHub. It only runs when started by
-hand, from the Actions tab or with `gh workflow run build.yml`.
+Neither the setup program nor the binaries are signed.
+
+## Releases
+
+A setup program built on your own machine is for testing. Releases are built on GitHub.
+
+`.github/workflows/build.yml` runs the tests and clippy and builds the same installer there. It
+runs when started by hand, from the Actions tab or with `gh workflow run build.yml`, and as part
+of a release.
+
+`.github/workflows/release.yml` runs when a tag such as `v0.1.0` is pushed. It checks that the tag
+names the version in `Cargo.toml` and `src-tauri/tauri.conf.json`, builds the installer with
+`build.yml` and drafts a release that carries the setup program and its SHA-256 sum. The draft is
+published by hand.
+
+Neither workflow has run yet.
 
 ## The two config files
 
