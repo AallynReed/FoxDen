@@ -30,14 +30,16 @@ jobs:
         run: |
           "version=$((rustc --version).Split()[1])" >> $env:GITHUB_OUTPUT
 
+      # A release is built from nothing: only branch runs read or write the cache.
       - id: cache
+        if: github.ref_type == 'branch'
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.CACHE_PATHS }}
           key: cargo-${{ steps.rustc.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ steps.rustc.outputs.version }}-
 
-      - run: cargo test --workspace
+      - run: cargo test --workspace --locked
 
       - run: cargo clippy --workspace --all-targets
 
@@ -45,7 +47,7 @@ jobs:
       - name: Build the installer
         run: |
           Remove-Item target/release/bundle -Recurse -Force -ErrorAction Ignore
-          npx --yes "@tauri-apps/cli@2" build --config packaging/tauri.bundle.json
+          npx --yes "@tauri-apps/cli@2.12.4" build --config packaging/tauri.bundle.json
 
       - uses: actions/upload-artifact@v7
         with:
@@ -53,7 +55,6 @@ jobs:
           path: target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
 
-      # A cache saved from a tag can only be read by that tag, so only branch runs save one.
       - if: github.ref_type == 'branch' && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:

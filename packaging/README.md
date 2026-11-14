@@ -42,9 +42,17 @@ runs when started by hand, from the Actions tab or with `gh workflow run build.y
 of a release.
 
 `.github/workflows/release.yml` runs when a tag such as `v0.1.0` is pushed. It checks that the tag
-names the version in `Cargo.toml` and `src-tauri/tauri.conf.json`, builds the installer with
-`build.yml` and drafts a release that carries the setup program and its SHA-256 sum. The draft is
-published by hand.
+is on `main` and names the version in `Cargo.toml` and `src-tauri/tauri.conf.json`, builds the
+installer with `build.yml`, without the build cache, and drafts a release that carries the setup
+program and its SHA-256 sum. The draft is published by hand.
+
+A run that failed through no fault of the code can be run again from the Actions tab. When the
+code needs a fix, take the tag away, commit the fix and tag again:
+
+```powershell
+git push origin :refs/tags/v0.1.0
+git tag -d v0.1.0
+```
 
 Neither workflow has run yet.
 
