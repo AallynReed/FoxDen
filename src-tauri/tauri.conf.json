@@ -47,7 +47,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM3MDExMkE0MjVBMjI4MkEKUldRcUtLSWxwQklCTjdpMXd1bFJOYllDSW5KNFhhdmlsWUNSREtoYnFBTmtHcGNESG5yWEpWWHcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2OUExOEQ0OTdDRTBEMDEKUldRQkRjNlgxQmlhdHNRcDlJR2xIcVh4R1dobE1tU0JCMW0yall4U3BoRVdJcW9jTXh1WmVldVQK",
       "endpoints": [
         "https://github.com/AallynReed/FoxRGB/releases/latest/download/latest.json"
       ],
