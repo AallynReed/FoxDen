@@ -16,6 +16,7 @@ pub fn get_snapshot(shared: State<'_, Shared>) -> Result<Snapshot, String> {
 pub fn set_effect(app: AppHandle, shared: State<'_, Shared>, effect: Effect) -> Reply {
     update(&app, &shared, |s| {
         s.engine.effect = effect;
+        s.check_profile();
         Ok(())
     })
 }
@@ -24,6 +25,7 @@ pub fn set_effect(app: AppHandle, shared: State<'_, Shared>, effect: Effect) -> 
 pub fn set_brightness(app: AppHandle, shared: State<'_, Shared>, value: f32) -> Reply {
     update(&app, &shared, |s| {
         s.engine.brightness = value.clamp(0.0, 1.0);
+        s.check_profile();
         Ok(())
     })
 }

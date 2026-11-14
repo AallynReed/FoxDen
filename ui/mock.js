@@ -43,8 +43,8 @@
       params: [colour("from", "From"), colour("to", "To"), speed, scale],
     },
     {
-      label: "Wave",
-      default: { kind: "wave", color: ORANGE, speed: 1, direction: "right", mirror: false },
+      label: "Sweep (mock only)",
+      default: { kind: "sweep", color: ORANGE, speed: 1, direction: "right", mirror: false },
       params: [
         colour("color", "Colour"),
         speed,
@@ -107,7 +107,7 @@
       }
       case "gradient":
         return mix(e.from, e.to, 1 - Math.abs(frac(x * e.scale - t * e.speed * 0.2) * 2 - 1));
-      case "wave": {
+      case "sweep": {
         let d = e.direction === "left" || e.direction === "right" ? x : y;
         if (e.mirror) d = Math.abs(d - 0.5) * 2;
         const sign = e.direction === "right" || e.direction === "down" ? -1 : 1;

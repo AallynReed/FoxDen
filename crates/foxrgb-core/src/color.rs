@@ -15,7 +15,8 @@ impl Color {
         let p = v * (1.0 - s);
         let q = v * (1.0 - s * f);
         let t = v * (1.0 - s * (1.0 - f));
-        let (r, g, b) = match sector as u8 {
+        // A hue a hair below zero wraps to exactly 1.0, which is sector 6.
+        let (r, g, b) = match sector as u8 % 6 {
             0 => (v, t, p),
             1 => (q, v, p),
             2 => (p, v, t),
@@ -53,6 +54,7 @@ mod tests {
         assert_eq!(Color::hsv(1.0 / 3.0, 1.0, 1.0), Color(0, 255, 0));
         assert_eq!(Color::hsv(2.0 / 3.0, 1.0, 1.0), Color(0, 0, 255));
         assert_eq!(Color::hsv(-1.0, 1.0, 1.0), Color(255, 0, 0));
+        assert_eq!(Color::hsv(-1e-9, 1.0, 1.0), Color(255, 0, 0));
     }
 
     #[test]

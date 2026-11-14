@@ -9,7 +9,7 @@ use foxrgb_screen::ScreenCapture;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::config::{self, Config, Settings};
+use crate::config::{self, Config, Profile, Settings};
 use crate::tray;
 
 const SAVE_DELAY: Duration = Duration::from_millis(500);
@@ -138,6 +138,15 @@ impl AppState {
         self.engine.brightness = profile.brightness.clamp(0.0, 1.0);
         self.config.active_profile = Some(name.to_string());
         Ok(())
+    }
+
+    /// Forgets the active profile once the live effect or brightness no longer match it.
+    pub fn check_profile(&mut self) {
+        let live = Profile { effect: self.engine.effect.clone(), brightness: self.engine.brightness };
+        let name = self.config.active_profile.as_ref();
+        if name.is_some_and(|n| self.config.profiles.get(n) != Some(&live)) {
+            self.config.active_profile = None;
+        }
     }
 
     fn to_save(&self) -> Config {
@@ -397,5 +406,18 @@ mod tests {
         assert_eq!(state.engine.brightness, 0.25);
         assert_eq!(state.to_save().active_profile.as_deref(), Some("Night"));
         assert_eq!(state.to_save().brightness, 0.25);
+    }
+
+    #[test]
+    fn an_edited_profile_is_no_longer_active() {
+        let mut state = AppState::new(Config::default());
+        let profile = Profile { effect: Effect::Cycle { speed: 2.0 }, brightness: 0.25 };
+        state.config.profiles.insert("Night".into(), profile);
+        state.load_profile("Night").unwrap();
+        state.check_profile();
+        assert_eq!(state.config.active_profile.as_deref(), Some("Night"));
+        state.engine.brightness = 0.5;
+        state.check_profile();
+        assert_eq!(state.config.active_profile, None);
     }
 }
