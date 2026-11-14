@@ -1,4 +1,4 @@
-use crate::{Backend, Color, Device, Effect};
+use crate::{Backend, Color, Device, Effect, Inputs};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -30,14 +30,14 @@ impl Engine {
     }
 
     /// Renders the effect at time `t`, pushes it to every device and returns what was sent.
-    pub fn render(&mut self, t: f32) -> Vec<Frame> {
+    pub fn render(&mut self, t: f32, inputs: &Inputs) -> Vec<Frame> {
         let (effect, brightness) = (&self.effect, self.brightness);
         let mut frames = Vec::new();
         for (backend, devices) in &mut self.backends {
             for device in devices.iter() {
                 let colors: Vec<Color> = device
                     .canvas_positions()
-                    .map(|(x, y)| effect.sample(x, y, t).scale(brightness))
+                    .map(|(x, y)| effect.sample(x, y, t, inputs).scale(brightness))
                     .collect();
                 if let Err(e) = backend.push(&device.id, &colors) {
                     eprintln!("{}: {}: {e}", backend.name(), device.id);
@@ -58,7 +58,7 @@ mod tests {
     fn one_frame_per_device_one_color_per_led() {
         let mut engine = Engine::new(vec![Box::new(VirtualBackend)]);
         let devices = engine.devices();
-        let frames = engine.render(1.0);
+        let frames = engine.render(1.0, &Inputs::default());
         assert_eq!(frames.len(), devices.len());
         for (frame, device) in frames.iter().zip(&devices) {
             assert_eq!(frame.device, device.id);
@@ -70,6 +70,7 @@ mod tests {
     fn zero_brightness_is_black() {
         let mut engine = Engine::new(vec![Box::new(VirtualBackend)]);
         engine.brightness = 0.0;
-        assert!(engine.render(3.0).iter().all(|f| f.colors.iter().all(|c| *c == Color::BLACK)));
+        let frames = engine.render(3.0, &Inputs::default());
+        assert!(frames.iter().all(|f| f.colors.iter().all(|c| *c == Color::BLACK)));
     }
 }

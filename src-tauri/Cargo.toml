@@ -2,11 +2,17 @@
 name = "foxrgb"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-foxrgb-core = { path = "../crates/foxrgb-core" }
+foxrgb-core.workspace = true
+foxrgb-openrgb = { path = "../crates/foxrgb-openrgb" }
+foxrgb-hid = { path = "../crates/foxrgb-hid" }
+foxrgb-audio = { path = "../crates/foxrgb-audio" }
+foxrgb-screen = { path = "../crates/foxrgb-screen" }
 serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }

@@ -834,10 +834,22 @@ dependencies = [
 name = "foxrgb"
 version = "0.1.0"
 dependencies = [
+ "foxrgb-audio",
  "foxrgb-core",
+ "foxrgb-hid",
+ "foxrgb-openrgb",
+ "foxrgb-screen",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
+]
+
+[[package]]
+name = "foxrgb-audio"
+version = "0.1.0"
+dependencies = [
+ "foxrgb-core",
 ]
 
 [[package]]
@@ -846,6 +858,27 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "foxrgb-hid"
+version = "0.1.0"
+dependencies = [
+ "foxrgb-core",
+]
+
+[[package]]
+name = "foxrgb-openrgb"
+version = "0.1.0"
+dependencies = [
+ "foxrgb-core",
+]
+
+[[package]]
+name = "foxrgb-screen"
+version = "0.1.0"
+dependencies = [
+ "foxrgb-core",
 ]
 
 [[package]]

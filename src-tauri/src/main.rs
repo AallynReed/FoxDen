@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use foxrgb_core::{Device, Effect, Engine, VirtualBackend};
+use foxrgb_core::{Device, Effect, Engine, Inputs, VirtualBackend};
 use tauri::{Emitter, State};
 
 type Shared = Arc<Mutex<Engine>>;
@@ -42,8 +42,9 @@ fn main() {
             let handle = app.handle().clone();
             thread::spawn(move || {
                 let start = Instant::now();
+                let inputs = Inputs::default();
                 loop {
-                    let frames = ticker.lock().unwrap().render(start.elapsed().as_secs_f32());
+                    let frames = ticker.lock().unwrap().render(start.elapsed().as_secs_f32(), &inputs);
                     let _ = handle.emit("frame", &frames);
                     thread::sleep(FRAME_TIME);
                 }
