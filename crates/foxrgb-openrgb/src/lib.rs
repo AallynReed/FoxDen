@@ -315,8 +315,10 @@ fn parse_controller(blob: &[u8], version: u32) -> Result<Controller, String> {
                 .ok_or("matrix map is too large")?;
             let map = r
                 .take(bytes)?
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes(c.try_into().unwrap()));
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| u32::from_le_bytes(*c));
             Some((height, width, map.collect()))
         } else {
             None

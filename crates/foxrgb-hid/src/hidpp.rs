@@ -90,8 +90,8 @@ pub fn set_static(device: u8, feature: u8, kind: Effects, zone: u8, c: Color) ->
 /// Up to four keys per report.
 pub fn set_keys(device: u8, feature: u8, keys: &[(u8, Color)]) -> Report {
     let mut p = [0u8; 16];
-    for (slot, &(zone, c)) in p.chunks_exact_mut(4).zip(keys) {
-        slot.copy_from_slice(&[zone, c.0, c.1, c.2]);
+    for (slot, &(zone, c)) in p.as_chunks_mut::<4>().0.iter_mut().zip(keys) {
+        *slot = [zone, c.0, c.1, c.2];
     }
     long(device, feature, 0x10, &p)
 }

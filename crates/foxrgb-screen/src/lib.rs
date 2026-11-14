@@ -117,7 +117,9 @@ fn bgra_to_frame(bgra: &[u8], width: usize, height: usize) -> ScreenFrame {
         return ScreenFrame::default();
     }
     let pixels = bgra
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .take(width * height)
         .map(|p| Color(p[2], p[1], p[0]))
         .collect();
