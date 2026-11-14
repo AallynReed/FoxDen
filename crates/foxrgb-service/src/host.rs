@@ -140,6 +140,8 @@ fn save<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), String> {
     let tmp = dir.join(format!("{file}.tmp"));
     let write = || -> std::io::Result<()> {
         fs::create_dir_all(dir)?;
+        // A leftover, or a link put there, goes first: the link itself, never what it names.
+        let _ = fs::remove_file(&tmp);
         let mut file = open(
             &tmp,
             OpenOptions::new().write(true).create(true).truncate(true),
