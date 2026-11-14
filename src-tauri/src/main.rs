@@ -3,6 +3,7 @@
 mod autostart;
 mod commands;
 mod config;
+mod fans;
 mod state;
 mod tray;
 
@@ -31,6 +32,7 @@ fn main() {
             }
             state::spawn_render(handle.clone(), shared.clone());
             state::spawn_saver(shared);
+            fans::start(handle);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -54,6 +56,11 @@ fn main() {
             commands::delete_profile,
             commands::set_settings,
             commands::rescan,
+            fans::get_fans,
+            fans::set_fan_config,
+            fans::set_fan_sim,
+            fans::start_service,
+            fans::stop_service,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start FoxRGB");

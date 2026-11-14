@@ -196,7 +196,7 @@
   };
 
   const listeners = { frame: new Set(), snapshot: new Set() };
-  const emit = (event, payload) => listeners[event].forEach((handler) => handler({ event, payload }));
+  const emit = (event, payload) => (listeners[event] || []).forEach((handler) => handler({ event, payload }));
 
   function invoke(name, args) {
     return new Promise((resolve, reject) => {
@@ -212,7 +212,7 @@
   }
 
   function listen(event, handler) {
-    listeners[event].add(handler);
+    (listeners[event] ||= new Set()).add(handler);
     return Promise.resolve(() => listeners[event].delete(handler));
   }
 
@@ -240,4 +240,6 @@
 
   start();
   window.__TAURI__ = { core: { invoke }, event: { listen } };
+  // Other mock files add their commands here.
+  window.__foxMock = { commands, emit };
 })();

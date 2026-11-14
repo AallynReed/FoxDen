@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="dark light" />
     <title>FoxRGB</title>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="fans.css" />
   </head>
   <body>
     <h1 class="sr-only">FoxRGB</h1>
@@ -13,6 +14,7 @@
       <div class="tabs" role="tablist" aria-label="Sections">
         <button type="button" role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
         <button type="button" role="tab" id="tab-devices" aria-controls="panel-devices" aria-selected="false" tabindex="-1">Devices</button>
+        <button type="button" role="tab" id="tab-fans" aria-controls="panel-fans" aria-selected="false" tabindex="-1">Fans</button>
         <button type="button" role="tab" id="tab-profiles" aria-controls="panel-profiles" aria-selected="false" tabindex="-1">Profiles</button>
         <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
       </div>
@@ -35,6 +37,8 @@
           <button type="button" id="reset-layout">Reset layout</button>
         </div>
       </section>
+
+      <section class="panel" id="panel-fans" role="tabpanel" aria-labelledby="tab-fans" hidden></section>
 
       <section class="panel" id="panel-profiles" role="tabpanel" aria-labelledby="tab-profiles" hidden>
         <h2>New profile</h2>
@@ -123,8 +127,10 @@
     </main>
 
     <script src="mock.js"></script>
+    <script src="fans-mock.js"></script>
     <script src="canvas.js"></script>
     <script src="panels.js"></script>
     <script src="main.js"></script>
+    <script src="fans.js"></script>
   </body>
 </html>
