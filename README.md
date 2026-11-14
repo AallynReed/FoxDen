@@ -8,12 +8,14 @@ background service and follow any temperature it can read.
 
 ## Status
 
-Early. The app runs with virtual devices: sixteen effects, a layout editor with undo and redo,
-profiles, settings and a tray icon. Audio and screen effects read live loopback audio and the
-desktop. The Devices tab lists the lighting hardware it recognises and says what could drive it.
+Early. The app runs with simulated devices, which it marks as such: sixteen effects, a layout
+editor with undo and redo, profiles, settings, zoom and a tray icon. Audio and screen effects read
+live loopback audio and the desktop. The Devices tab lists the lighting hardware it recognises and
+says what could drive it.
 
 The Fans tab shows the temperatures the service can read (AMD graphics cards and drives so far)
-and has a curve editor. So far it can only drive simulated fans.
+and has a curve editor. So far it can only drive simulated fans. A fan goes to full speed when a
+sensor its curve needs is lost, and back to the firmware when the service stops or gets stuck.
 
 No real hardware has been driven:
 
