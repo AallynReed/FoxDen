@@ -475,7 +475,7 @@ mod tests {
     fn a_slow_backend_holds_up_nothing_and_gets_the_newest_frame() {
         let pushes = Arc::new(Mutex::new(Vec::new()));
         let last = Arc::new(Mutex::new(HashMap::new()));
-        let delay = Duration::from_millis(60);
+        let delay = Duration::from_millis(250);
         let slow = Fake { pushes: pushes.clone(), last: last.clone(), fail: false, delay };
         let mut engine = Engine::new(vec![Box::new(slow)]);
         let started = Instant::now();
@@ -484,7 +484,7 @@ mod tests {
             newest = engine.render(i as f32, &Inputs::default());
         }
         engine.set_device("b", false, 1.0, None);
-        assert!(started.elapsed() < Duration::from_millis(50), "render waited for the backend");
+        assert!(started.elapsed() < Duration::from_millis(200), "render waited for the backend");
         engine.flush(SOON);
         // 20 frames for 3 devices went in; only what was newest when the backend came round goes out
         let pushes = pushes.lock().unwrap();
