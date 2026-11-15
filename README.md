@@ -12,6 +12,7 @@
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)](https://github.com/AallynReed/FoxRGB/releases/latest)
 [![Licence](https://img.shields.io/github/license/AallynReed/FoxRGB)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Foxhearth-5865F2?logo=discord&logoColor=white)](https://discord.gg/VGTaqW3vwn)
+[![foxhearth.com](https://img.shields.io/badge/foxhearth.com-project_page-e8702a)](https://foxhearth.com/projects/foxrgb)
 
 Free lighting and fan control for Windows. One effect runs across all your devices as a single
 animation, with its own drivers and nothing else to install.
