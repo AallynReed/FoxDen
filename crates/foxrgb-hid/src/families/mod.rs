@@ -13,6 +13,7 @@ mod more_b;
 mod msi_steelseries;
 mod razer;
 mod small;
+mod streamdeck;
 
 /// Every detector of every ported family.
 pub fn detectors() -> Vec<&'static Detector> {
@@ -28,6 +29,7 @@ pub fn detectors() -> Vec<&'static Detector> {
         more_a::detectors(),
         more_b::detectors(),
         generic::detectors(),
+        streamdeck::detectors(),
     ]
     .concat()
 }
