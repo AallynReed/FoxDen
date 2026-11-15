@@ -3,9 +3,11 @@
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
-    DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, SP_DEVICE_INTERFACE_DATA,
-    SP_DEVICE_INTERFACE_DETAIL_DATA_W, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInterfaces,
-    SetupDiGetClassDevsW, SetupDiGetDeviceInterfaceDetailW,
+    DICS_FLAG_GLOBAL, DIGCF_ALLCLASSES, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, DIREG_DEV,
+    SP_DEVICE_INTERFACE_DATA, SP_DEVICE_INTERFACE_DETAIL_DATA_W, SP_DEVINFO_DATA,
+    SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiEnumDeviceInterfaces,
+    SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW, SetupDiGetDeviceInterfaceDetailW,
+    SetupDiOpenDevRegKey,
 };
 use windows_sys::Win32::Devices::Usb::{
     GUID_DEVINTERFACE_USB_DEVICE, PIPE_TRANSFER_TIMEOUT, WINUSB_INTERFACE_HANDLE,
@@ -19,6 +21,8 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE,
     OPEN_EXISTING,
 };
+use windows_sys::Win32::System::Registry::{KEY_READ, RegCloseKey, RegQueryValueExW};
+use windows_sys::core::GUID;
 
 use super::common::Io;
 
@@ -39,7 +43,26 @@ unsafe impl Send for WinUsb {}
 impl WinUsb {
     /// The first present device with these ids, as `libusb_open_device_with_vid_pid` picks it.
     pub fn open(vid: u16, pid: u16, out_ep: u8, in_ep: u8) -> Result<WinUsb, String> {
-        let path = find(vid, pid).ok_or("not present")?;
+        let want = format!("vid_{vid:04x}&pid_{pid:04x}#");
+        let path = find(&GUID_DEVINTERFACE_USB_DEVICE, &want).ok_or("not present")?;
+        WinUsb::at(&path, out_ep, in_ep)
+    }
+
+    /// One interface of a composite device, with WinUSB bound to that interface alone.
+    pub fn open_interface(
+        vid: u16,
+        pid: u16,
+        interface: u8,
+        out_ep: u8,
+        in_ep: u8,
+    ) -> Result<WinUsb, String> {
+        let mi = format!("vid_{vid:04x}&pid_{pid:04x}&mi_{interface:02x}");
+        let guid = interface_guid(&mi).ok_or("not bound to WinUSB")?;
+        let path = find(&guid, &format!("{mi}#")).ok_or("not present")?;
+        WinUsb::at(&path, out_ep, in_ep)
+    }
+
+    fn at(path: &str, out_ep: u8, in_ep: u8) -> Result<WinUsb, String> {
         let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
         // SAFETY: `wide` is NUL-terminated; the handles are closed on every failure path.
         unsafe {
@@ -80,12 +103,84 @@ impl WinUsb {
     }
 }
 
-fn find(vid: u16, pid: u16) -> Option<String> {
-    let want = format!("vid_{vid:04x}&pid_{pid:04x}#");
+/// `{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}` to a GUID.
+pub fn parse_guid(text: &str) -> Option<GUID> {
+    let hex: String = text
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .split('-')
+        .collect();
+    if hex.len() != 32 {
+        return None;
+    }
+    u128::from_str_radix(&hex, 16).ok().map(GUID::from_u128)
+}
+
+/// The interface GUID the WinUSB INF gave the device whose instance id starts `USB\<mi>\`.
+fn interface_guid(mi: &str) -> Option<GUID> {
+    let want = format!("usb\\{mi}\\");
+    let usb: Vec<u16> = "USB".encode_utf16().chain(Some(0)).collect();
+    // SAFETY: every buffer handed to SetupAPI and the registry outlives its call.
+    unsafe {
+        let set = SetupDiGetClassDevsW(
+            null(),
+            usb.as_ptr(),
+            null_mut(),
+            DIGCF_ALLCLASSES | DIGCF_PRESENT,
+        );
+        if set == INVALID_HANDLE_VALUE as isize {
+            return None;
+        }
+        let mut found = None;
+        let mut data: SP_DEVINFO_DATA = std::mem::zeroed();
+        data.cbSize = size_of::<SP_DEVINFO_DATA>() as u32;
+        let mut index = 0;
+        while found.is_none() && SetupDiEnumDeviceInfo(set, index, &mut data) != 0 {
+            index += 1;
+            let mut id = [0u16; 256];
+            if SetupDiGetDeviceInstanceIdW(set, &data, id.as_mut_ptr(), 256, null_mut()) == 0
+                || !text(&id).to_ascii_lowercase().starts_with(&want)
+            {
+                continue;
+            }
+            let key = SetupDiOpenDevRegKey(set, &data, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_READ);
+            if key.is_null() || key == INVALID_HANDLE_VALUE {
+                continue;
+            }
+            for name in ["DeviceInterfaceGUIDs", "DeviceInterfaceGUID"] {
+                let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+                let mut buf = [0u16; 256];
+                let mut size = size_of_val(&buf) as u32;
+                let read = RegQueryValueExW(
+                    key,
+                    name.as_ptr(),
+                    null(),
+                    null_mut(),
+                    buf.as_mut_ptr().cast(),
+                    &mut size,
+                );
+                if read == 0 && found.is_none() {
+                    found = parse_guid(&text(&buf));
+                }
+            }
+            RegCloseKey(key);
+        }
+        SetupDiDestroyDeviceInfoList(set);
+        found
+    }
+}
+
+fn text(buf: &[u16]) -> String {
+    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..end])
+}
+
+fn find(guid: &GUID, want: &str) -> Option<String> {
     // SAFETY: every buffer handed to SetupAPI outlives its call.
     unsafe {
         let set = SetupDiGetClassDevsW(
-            &GUID_DEVINTERFACE_USB_DEVICE,
+            guid,
             null(),
             null_mut(),
             DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
@@ -98,13 +193,7 @@ fn find(vid: u16, pid: u16) -> Option<String> {
         data.cbSize = size_of::<SP_DEVICE_INTERFACE_DATA>() as u32;
         let mut index = 0;
         while found.is_none()
-            && SetupDiEnumDeviceInterfaces(
-                set,
-                null(),
-                &GUID_DEVINTERFACE_USB_DEVICE,
-                index,
-                &mut data,
-            ) != 0
+            && SetupDiEnumDeviceInterfaces(set, null(), guid, index, &mut data) != 0
         {
             index += 1;
             let mut buf = [0u64; 128];
@@ -126,7 +215,7 @@ fn find(vid: u16, pid: u16) -> Option<String> {
             let chars = std::slice::from_raw_parts(start, max);
             let end = chars.iter().position(|&c| c == 0).unwrap_or(max);
             let path = String::from_utf16_lossy(&chars[..end]);
-            if path.to_ascii_lowercase().contains(&want) {
+            if path.to_ascii_lowercase().contains(want) {
                 found = Some(path);
             }
         }
@@ -207,5 +296,22 @@ impl Io for WinUsb {
             WinUsb_ResetPipe(self.usb, self.in_ep);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guids() {
+        let g = parse_guid("{A5DCBF10-6530-11D2-901F-00C04FB951ED}").unwrap();
+        let usb = GUID_DEVINTERFACE_USB_DEVICE;
+        assert_eq!(
+            (g.data1, g.data2, g.data3, g.data4),
+            (usb.data1, usb.data2, usb.data3, usb.data4)
+        );
+        assert!(parse_guid("A5DCBF10-6530-11D2-901F-00C04FB951ED").is_none());
+        assert!(parse_guid("{A5DCBF10-6530-11D2-901F}").is_none());
     }
 }

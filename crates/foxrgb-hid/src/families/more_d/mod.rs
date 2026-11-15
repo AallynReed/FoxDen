@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/ (Corsair Hydro, EVGA USB, NZXT Hue+, HYTE, Arctic, JGINYUE V2, Seagate, Skydimo serial, BlinkyTape, LED strips) (GPL-2.0-or-later).
+//! Ported from OpenRGB Controllers/ (Corsair Hydro, Dygma Raise, EVGA USB, NZXT Hue+, HYTE, Arctic, JGINYUE V2, Seagate, Skydimo serial, Thrustmaster Sol, BlinkyTape, LED strips) (GPL-2.0-or-later).
 
 use std::sync::Mutex;
 
@@ -11,6 +11,7 @@ mod blinkytape;
 mod common;
 mod corsair_hydro;
 mod corsair_hydro2;
+mod dygma_raise;
 mod evga_keyboard;
 mod evga_mouse;
 mod evga_x12;
@@ -23,6 +24,7 @@ mod scsi;
 mod seagate;
 mod serial;
 mod skydimo_serial;
+mod thrustmaster_sol;
 mod winusb;
 
 pub use ledstrip::{LedProtocol, LedStrip, led_strips};
@@ -92,7 +94,9 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
     found.extend(once(&ports, arctic::IDS, arctic::open));
     found.extend(corsair_hydro::probe());
     found.extend(corsair_hydro2::probe());
+    found.extend(on(dygma_raise::IDS).filter_map(dygma_raise::open));
     found.extend(seagate::probe());
+    found.extend(thrustmaster_sol::probe());
     found
 }
 
@@ -108,11 +112,12 @@ mod tests {
         assert_eq!(detectors().len(), 8);
     }
 
-    // Other detectors: serial (BlinkyTape, 2 CNVS, 2 Nexus, Hue+, Skydimo), Arctic, 3 Hydro, Hydro2
+    // Other detectors: serial (BlinkyTape, 2 CNVS, 2 Nexus, Hue+, Skydimo), Arctic, 3 Hydro, Hydro2, Dygma, 6 Sol
     #[test]
     fn other_device_counts() {
         assert_eq!(hyte_mousemat::IDS.len() + hyte_nexus::DEVICES.len(), 4);
         assert_eq!(corsair_hydro::DEVICES.len(), 3);
+        assert_eq!(thrustmaster_sol::DEVICES.len(), 6);
     }
 
     #[test]
