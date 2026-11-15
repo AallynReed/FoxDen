@@ -495,6 +495,9 @@
       return JSON.stringify(report, null, 2);
     },
     send_device_info() {},
+    open_link({ which }) {
+      window.open({ discord: "https://discord.gg/VGTaqW3vwn", kofi: "https://ko-fi.com/aallyn", paypal: "https://paypal.me/waterin" }[which], "_blank");
+    },
     open_logs() {
       window.open("logs.html", "logs", "width=760,height=480");
     },

@@ -340,6 +340,11 @@ async function init() {
   $("error-close").onclick = () => ($("error").hidden = true);
   $("help-open").onclick = openHelp;
   $("logs-open").onclick = $("logs-open-settings").onclick = () => call("open_logs");
+  $("discord-open").onclick = () => call("open_link", { which: "discord" });
+  $("support-open").onclick = () => $("support-sheet").showModal();
+  $("support-kofi").onclick = () => call("open_link", { which: "kofi" });
+  $("support-paypal").onclick = () => call("open_link", { which: "paypal" });
+  $("support-close").onclick = () => $("support-sheet").close();
   $("st-problem").onclick = () => showSetting("backend-list");
   document.addEventListener("keydown", onShortcut);
   previewInit($("canvas"));

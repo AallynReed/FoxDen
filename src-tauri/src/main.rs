@@ -8,6 +8,7 @@ mod detect;
 mod device_info;
 mod fans;
 mod keys;
+mod links;
 mod log;
 mod modules;
 mod report;
@@ -108,6 +109,7 @@ fn main() {
             log::get_logs,
             log::clear_logs,
             log::open_logs,
+            links::open_link,
             device_info::device_info,
             device_info::send_device_info,
             fans::get_fans,

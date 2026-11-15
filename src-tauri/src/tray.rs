@@ -35,6 +35,8 @@ fn menu(app: &AppHandle, (paused, profiles, active): &Shown) -> tauri::Result<Me
         .text("pause", if *paused { "Resume" } else { "Pause" })
         .item(&list.build()?)
         .separator()
+        .text("discord", "Join the Discord")
+        .separator()
         .text("quit", "Quit")
         .build()
 }
@@ -101,6 +103,7 @@ fn on_menu(app: &AppHandle, id: &str) {
             s.engine.paused = !s.engine.paused;
             Ok(())
         }),
+        "discord" => crate::links::open(crate::links::DISCORD),
         "quit" => {
             app.exit(0);
             Ok(())

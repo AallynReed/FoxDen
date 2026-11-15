@@ -435,7 +435,8 @@ input.switch::after {
 }
 
 .tabs button {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-width: 0;
   height: 100%;
   padding: 0 4px;
   border: 0;
@@ -857,6 +858,11 @@ button.icon svg {
   stroke-width: 1.5;
 }
 
+button.heart svg {
+  fill: var(--heart, #e5484d);
+  stroke: none;
+}
+
 .backends {
   gap: 4px;
 }
@@ -1115,6 +1121,15 @@ body.wide .side {
   border-right: 0;
 }
 
+/* The tabs keep the sidebar's width on full-window tabs, so they never move or stretch. */
+body.wide .tabs {
+  padding-right: calc(100% - clamp(320px, 30vw, 380px));
+}
+
+body.wide .tabs button:last-child {
+  border-right: 1px solid var(--line);
+}
+
 body.wide .stage > .bar:not(.status),
 body.wide .canvas-wrap {
   display: none;
@@ -1157,6 +1172,14 @@ body.wide #panel-settings {
   body {
     display: block;
     overflow-y: auto;
+  }
+
+  body.wide .tabs {
+    padding-right: 0;
+  }
+
+  body.wide .tabs button:last-child {
+    border-right: 0;
   }
 
   .side {
