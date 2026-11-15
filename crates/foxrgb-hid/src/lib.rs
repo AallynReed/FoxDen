@@ -9,7 +9,11 @@ use hidapi::{BusType, HidApi};
 fn supported(vid: u16, pid: u16) -> bool {
     matches!(
         (vid, pid),
-        (msi::VID, msi::PID) | (hidpp::VID, hidpp::G502_RECEIVER | hidpp::G515_RECEIVER)
+        (msi::VID, msi::PID)
+            | (
+                hidpp::VID,
+                hidpp::G502_RECEIVER | hidpp::G515_RECEIVER | hidpp::G502_WIRED | hidpp::G515_WIRED
+            )
     )
 }
 
@@ -121,9 +125,13 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
                     board = true;
                 }
             }
-            (hidpp::VID, pid @ (hidpp::G502_RECEIVER | hidpp::G515_RECEIVER))
-                if hidpp::is_long_channel(info.usage_page(), info.usage()) =>
-            {
+            (
+                hidpp::VID,
+                pid @ (hidpp::G502_RECEIVER
+                | hidpp::G515_RECEIVER
+                | hidpp::G502_WIRED
+                | hidpp::G515_WIRED),
+            ) if hidpp::is_long_channel(info.usage_page(), info.usage()) => {
                 if let Ok(hid) = info.open_device(&api)
                     && let Ok(device) = hidpp::Lightspeed::open(hid, pid)
                 {

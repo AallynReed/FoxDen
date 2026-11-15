@@ -1,4 +1,4 @@
-//! Logitech HID++ 2.0 lighting for devices behind a Lightspeed receiver.
+//! Logitech HID++ 2.0 lighting, behind a Lightspeed receiver or on a cable.
 
 use std::time::{Duration, Instant};
 
@@ -8,9 +8,12 @@ use hidapi::HidDevice;
 pub const VID: u16 = 0x046D;
 pub const G502_RECEIVER: u16 = 0xC539;
 pub const G515_RECEIVER: u16 = 0xC547;
+pub const G502_WIRED: u16 = 0xC08D;
+pub const G515_WIRED: u16 = 0xC355;
 
-/// A Lightspeed receiver has its one paired device at index 1.
-const DEVICE: u8 = 0x01;
+/// A Lightspeed receiver has its one paired device at index 1; a device on a cable answers at 0xFF.
+const RECEIVER_INDEX: u8 = 0x01;
+const WIRED_INDEX: u8 = 0xFF;
 const SW_ID: u8 = 0x07;
 
 const COLOR_LED_EFFECTS: u16 = 0x8070;
@@ -136,6 +139,7 @@ pub fn zones_in_page(page: u8, params: &[u8; 16]) -> Vec<u8> {
 
 /// Reports that take a device from `sent` to `colors`; `sent` is empty before the first frame.
 pub fn plan(
+    device: u8,
     effects: Option<(u8, Effects)>,
     per_key: Option<u8>,
     zones: &[u8],
@@ -155,24 +159,24 @@ pub fn plan(
     }
     let mut reports = Vec::new();
     if first && let Some((feature, kind)) = effects {
-        reports.push(sw_control(DEVICE, feature, kind, 3, 6));
+        reports.push(sw_control(device, feature, kind, 3, 6));
     }
     if let Some(feature) = per_key {
         reports.extend(
             changed
                 .chunks(4)
-                .map(|keys| set_keys(DEVICE, feature, keys)),
+                .map(|keys| set_keys(device, feature, keys)),
         );
-        reports.push(frame_end(DEVICE, feature));
+        reports.push(frame_end(device, feature));
         // the reference moves to flags 5 once the first per-key frame is in place
         if first && let Some((feature, Effects::Rgb)) = effects {
-            reports.push(sw_control(DEVICE, feature, Effects::Rgb, 3, 5));
+            reports.push(sw_control(device, feature, Effects::Rgb, 3, 5));
         }
     } else if let Some((feature, kind)) = effects {
         reports.extend(
             changed
                 .iter()
-                .map(|&(zone, c)| set_static(DEVICE, feature, kind, zone, c)),
+                .map(|&(zone, c)| set_static(device, feature, kind, zone, c)),
         );
     }
     reports
@@ -329,6 +333,8 @@ fn due(since_last: Duration, colors: &[Color]) -> bool {
 pub struct Lightspeed {
     hid: HidDevice,
     device: Device,
+    /// HID++ address of the device: 1 behind a receiver, 0xFF on a cable.
+    index: u8,
     keyboard: bool,
     effects: Option<(u8, Effects)>,
     per_key: Option<u8>,
@@ -362,19 +368,25 @@ fn request(hid: &HidDevice, report: &Report) -> Result<[u8; 16], String> {
     Err("no reply from the device".into())
 }
 
-fn feature(hid: &HidDevice, id: u16) -> Result<Option<u8>, String> {
-    let index = request(hid, &get_feature(DEVICE, id))?[0];
+fn feature(hid: &HidDevice, device: u8, id: u16) -> Result<Option<u8>, String> {
+    let index = request(hid, &get_feature(device, id))?[0];
     Ok((index != 0).then_some(index))
 }
 
 impl Lightspeed {
     /// The device behind the receiver. Its features are read now if it is awake, otherwise once it wakes.
-    pub fn open(hid: HidDevice, receiver: u16) -> Result<Self, String> {
-        let keyboard = receiver == G515_RECEIVER;
+    pub fn open(hid: HidDevice, pid: u16) -> Result<Self, String> {
+        let keyboard = matches!(pid, G515_RECEIVER | G515_WIRED);
+        let index = if matches!(pid, G502_WIRED | G515_WIRED) {
+            WIRED_INDEX
+        } else {
+            RECEIVER_INDEX
+        };
+        let id = format!("hid:logitech-{pid:04x}");
         let (zones, device) = if keyboard {
             let keys = tkl_layout();
             let device = Device {
-                id: "hid:logitech-c547".into(),
+                id: id.clone(),
                 name: "Logitech G515 Lightspeed TKL".into(),
                 kind: DeviceKind::Keyboard,
                 rect: [0.06, 0.58, 0.54, 0.32],
@@ -385,7 +397,7 @@ impl Lightspeed {
         } else {
             let rect = [0.70, 0.62, 0.06, 0.22];
             let device = Device::grid(
-                "hid:logitech-c539",
+                &id,
                 "Logitech G502 Lightspeed",
                 DeviceKind::Mouse,
                 rect,
@@ -397,6 +409,7 @@ impl Lightspeed {
         let mut light = Lightspeed {
             hid,
             device,
+            index,
             keyboard,
             effects: None,
             per_key: None,
@@ -415,25 +428,28 @@ impl Lightspeed {
     fn discover(&mut self) -> Result<(), String> {
         self.tried = Instant::now();
         let hid = &self.hid;
-        let effects = match feature(hid, RGB_EFFECTS)? {
+        let device = self.index;
+        let effects = match feature(hid, device, RGB_EFFECTS)? {
             Some(index) => Some((index, Effects::Rgb)),
-            None => feature(hid, COLOR_LED_EFFECTS)?.map(|index| (index, Effects::ColorLed)),
+            None => {
+                feature(hid, device, COLOR_LED_EFFECTS)?.map(|index| (index, Effects::ColorLed))
+            }
         };
         let per_key = if self.keyboard {
-            feature(hid, PER_KEY_V2)?
+            feature(hid, device, PER_KEY_V2)?
         } else {
             None
         };
-        let profiles = match feature(hid, PROFILE_MANAGEMENT)? {
+        let profiles = match feature(hid, device, PROFILE_MANAGEMENT)? {
             Some(index) => Some(Profiles(index, true)),
-            None => feature(hid, ONBOARD_PROFILES)?.map(|index| Profiles(index, false)),
+            None => feature(hid, device, ONBOARD_PROFILES)?.map(|index| Profiles(index, false)),
         };
         let mut reported = Vec::new();
         if let Some(index) = per_key {
             for page in 0..3 {
                 reported.extend(zones_in_page(
                     page,
-                    &request(hid, &zone_page_query(DEVICE, index, page))?,
+                    &request(hid, &zone_page_query(device, index, page))?,
                 ));
             }
         }
@@ -459,13 +475,13 @@ impl Lightspeed {
     /// OpenRGB's order: software control, RGB power on, then host mode.
     fn claim(&self) -> Result<(), String> {
         if let Some((feature, kind)) = self.effects {
-            request(&self.hid, &sw_control(DEVICE, feature, kind, 3, 6))?;
+            request(&self.hid, &sw_control(self.index, feature, kind, 3, 6))?;
             if kind == Effects::Rgb {
-                let _ = request(&self.hid, &power_on(DEVICE, feature));
+                let _ = request(&self.hid, &power_on(self.index, feature));
             }
         }
         if let Some(profiles) = self.profiles {
-            request(&self.hid, &host_mode(DEVICE, profiles, true))?;
+            request(&self.hid, &host_mode(self.index, profiles, true))?;
         }
         Ok(())
     }
@@ -513,7 +529,14 @@ impl Backend for Lightspeed {
                 .map(|(zone, c)| (*zone, *c))
                 .unzip()
         };
-        let reports = plan(self.effects, self.per_key, &zones, &self.sent, &known);
+        let reports = plan(
+            self.index,
+            self.effects,
+            self.per_key,
+            &zones,
+            &self.sent,
+            &known,
+        );
         if reports.is_empty() {
             return Ok(());
         }
@@ -558,10 +581,10 @@ impl Drop for Lightspeed {
             return;
         }
         if let Some((feature, kind)) = self.effects {
-            let _ = self.hid.write(&sw_control(DEVICE, feature, kind, 0, 0));
+            let _ = self.hid.write(&sw_control(self.index, feature, kind, 0, 0));
         }
         if let Some(profiles) = self.profiles {
-            let _ = self.hid.write(&host_mode(DEVICE, profiles, false));
+            let _ = self.hid.write(&host_mode(self.index, profiles, false));
         }
     }
 }
@@ -684,6 +707,7 @@ mod tests {
         let frame = [RED; 3];
         assert!(
             plan(
+                RECEIVER_INDEX,
                 Some((0x0A, Effects::Rgb)),
                 Some(0x0B),
                 &zones,
@@ -694,6 +718,7 @@ mod tests {
         );
         assert!(
             plan(
+                RECEIVER_INDEX,
                 Some((0x06, Effects::ColorLed)),
                 None,
                 &[0, 1],
@@ -708,6 +733,7 @@ mod tests {
     fn plan_first_keyboard_frame_claims_then_paints_every_key() {
         let zones: Vec<u8> = (1..=9).collect();
         let reports = plan(
+            RECEIVER_INDEX,
             Some((0x0A, Effects::Rgb)),
             Some(0x0B),
             &zones,
@@ -737,6 +763,7 @@ mod tests {
         let mut next = [RED; 5];
         next[3] = Color(0, 0, 9);
         let reports = plan(
+            RECEIVER_INDEX,
             Some((0x0A, Effects::Rgb)),
             Some(0x0B),
             &zones,
@@ -751,11 +778,12 @@ mod tests {
     #[test]
     fn plan_mouse_zones_use_static_effect() {
         let effects = Some((0x06, Effects::ColorLed));
-        let first = plan(effects, None, &[0, 1], &[], &[RED, RED]);
+        let first = plan(RECEIVER_INDEX, effects, None, &[0, 1], &[], &[RED, RED]);
         assert_eq!(first.len(), 3);
         assert_eq!(first[0][2..6], [0x06, 0x87, 0x01, 0x00]);
         assert_eq!(first[2][2..9], [0x06, 0x37, 0x01, 0x01, 255, 0, 0]);
         let next = plan(
+            RECEIVER_INDEX,
             effects,
             None,
             &[0, 1],
