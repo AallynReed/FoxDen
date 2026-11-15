@@ -3,10 +3,13 @@
 use crate::registry::Detector;
 
 mod coolermaster_corsair;
+mod generic;
 mod gigabyte_asrock;
 mod logitech;
 mod mixed_a;
 mod mixed_b;
+mod more_a;
+mod more_b;
 mod msi_steelseries;
 mod razer;
 mod small;
@@ -22,6 +25,9 @@ pub fn detectors() -> Vec<&'static Detector> {
         mixed_a::detectors(),
         mixed_b::detectors(),
         small::detectors(),
+        more_a::detectors(),
+        more_b::detectors(),
+        generic::detectors(),
     ]
     .concat()
 }
