@@ -12,6 +12,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
+use foxrgb_core::conflicts::{Closed, Scope};
 use foxrgb_fan::{FanConfig, FanStatus, SensorStatus, Status};
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Serialize};
@@ -76,6 +77,7 @@ enum Request<'a> {
         device: &'a str,
         colors: &'a [foxrgb_core::Color],
     },
+    CloseConflicts(Scope),
 }
 
 #[derive(Deserialize)]
@@ -145,6 +147,11 @@ impl Client {
     pub fn set_lights(&self, device: &str, colors: &[foxrgb_core::Color]) -> Result<(), String> {
         self.ask::<IgnoredAny>(&Request::SetLights { device, colors })
             .map(drop)
+    }
+
+    /// Has the service close what its own list names within `scope`.
+    pub fn close_conflicts(&self, scope: Scope) -> Result<Closed, String> {
+        self.ask(&Request::CloseConflicts(scope))
     }
 
     pub fn get_config(&self) -> Result<FanConfig, String> {

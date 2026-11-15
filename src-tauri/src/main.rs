@@ -3,8 +3,10 @@
 mod autostart;
 mod commands;
 mod config;
+mod conflicts;
 mod detect;
 mod fans;
+mod modules;
 mod service_lights;
 mod state;
 mod tray;
@@ -24,6 +26,7 @@ fn main() {
             tray::show_window(app)
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(shared.clone())
         .setup(|app| {
             let handle = app.handle();
@@ -34,7 +37,13 @@ fn main() {
                     .build()?;
             }
             let shared = app.state::<Shared>().inner().clone();
-            let settings = lock(&shared).config.settings.clone();
+            let (settings, fan_backup) = {
+                let state = lock(&shared);
+                (
+                    state.config.settings.clone(),
+                    state.config.fan_backup.clone(),
+                )
+            };
             tray::create(handle)?;
             let at_sign_in = std::env::args().any(|arg| arg == autostart::TRAY_ARG);
             if !settings.start_minimized && !at_sign_in {
@@ -48,7 +57,7 @@ fn main() {
             state::spawn_render(handle.clone(), shared.clone());
             updater::start(handle, shared.clone());
             state::spawn_saver(shared);
-            fans::start(handle);
+            fans::start(handle, settings.fans_module, fan_backup);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -73,6 +82,13 @@ fn main() {
             commands::set_settings,
             commands::rescan,
             commands::detect,
+            commands::get_conflicts,
+            commands::close_conflicts_now,
+            commands::last_conflicts,
+            updater::check_update,
+            updater::install_update,
+            updater::later_update,
+            updater::get_update,
             fans::get_fans,
             fans::set_fan_config,
             fans::start_service,

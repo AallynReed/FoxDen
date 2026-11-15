@@ -6,7 +6,6 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   nsExec::Exec '"$INSTDIR\PawnIO_setup.exe" -install -silent'
-  Delete "$INSTDIR\PawnIO_setup.exe"
   nsExec::Exec '"$INSTDIR\foxrgb-service.exe" install'
   nsExec::Exec '"$INSTDIR\foxrgb-service.exe" start'
 !macroend

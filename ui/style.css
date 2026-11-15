@@ -1056,6 +1056,38 @@ dialog.sheet::backdrop {
   margin-left: auto;
 }
 
+/* Tabs without the canvas take the whole window; the status bar stays below. */
+body.wide {
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.wide .side {
+  border-right: 0;
+}
+
+body.wide .stage > .bar:not(.status),
+body.wide .canvas-wrap {
+  display: none;
+}
+
+body.wide #panel-settings > * {
+  width: 100%;
+  max-width: 640px;
+}
+
+.sheet .notes {
+  max-height: 240px;
+  margin: 8px 0;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+#update-sheet {
+  width: min(520px, calc(100vw - 32px));
+}
+
 @media (max-width: 1000px) {
   .roomy,
   .readout {
@@ -1084,6 +1116,11 @@ dialog.sheet::backdrop {
   .stage {
     height: 100%;
     min-height: 400px;
+  }
+
+  body.wide .stage {
+    height: auto;
+    min-height: 0;
   }
 
   .bar {

@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use foxrgb_core::conflicts::{Closed, Scope};
 use foxrgb_core::{Backend, Color};
 use foxrgb_fan::{Controller, FanBackend, FanConfig, Probe, Status};
 use serde::de::DeserializeOwned;
@@ -174,6 +175,8 @@ enum Request {
         device: String,
         colors: Vec<Color>,
     },
+    /// Closes software from the service's own list; the request only narrows it.
+    CloseConflicts(Scope),
     #[cfg(test)]
     Panic,
 }
@@ -200,6 +203,7 @@ pub struct Host {
     ended: Mutex<Option<Result<(), String>>>,
     /// SMBus lighting, opened on the first request for it.
     lights: Mutex<Option<Vec<Box<dyn Backend>>>>,
+    closer: fn(Scope) -> Closed,
 }
 
 impl Host {
@@ -230,6 +234,7 @@ impl Host {
             stop: AtomicBool::new(false),
             ended: Mutex::new(None),
             lights: Mutex::new(None),
+            closer: crate::close::run,
         }
     }
 
@@ -292,6 +297,10 @@ impl Host {
                     Some(backend) => backend.push(&device, &colors),
                     None => Err(format!("unknown device {device}")),
                 })
+            }
+            Ok(Request::CloseConflicts(scope)) => {
+                let out = (self.closer)(scope);
+                json!({"ok": true, "closed": out.closed, "left": out.left})
             }
             #[cfg(test)]
             Ok(Request::Panic) => panic!("the request panics on purpose"),
@@ -1029,6 +1038,34 @@ pub(crate) mod tests {
         let fans = status["status"]["fans"].as_array().unwrap();
         let id = |fan: &Value| fan["id"].as_str().unwrap().to_string();
         fans.iter().map(id).collect()
+    }
+
+    #[test]
+    fn close_conflicts_uses_only_the_scope() {
+        static SEEN: Mutex<Vec<Scope>> = Mutex::new(Vec::new());
+        fn fake(scope: Scope) -> Closed {
+            SEEN.lock().unwrap().push(scope);
+            Closed {
+                closed: vec!["Fan Control".into()],
+                left: Vec::new(),
+            }
+        }
+        let mut host = host("close");
+        host.closer = fake;
+        let r = reply(
+            &host,
+            r#"{"cmd":"close_conflicts","lighting":true,"names":["explorer.exe"]}"#,
+        );
+        assert_eq!(
+            r,
+            json!({"ok": true, "closed": ["Fan Control"], "left": []})
+        );
+        assert_eq!(reply(&host, r#"{"cmd":"close_conflicts"}"#)["ok"], true);
+        let lighting = Scope {
+            lighting: true,
+            ..Scope::default()
+        };
+        assert_eq!(*SEEN.lock().unwrap(), [lighting, Scope::default()]);
     }
 
     #[test]

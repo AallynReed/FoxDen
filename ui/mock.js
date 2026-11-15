@@ -149,6 +149,9 @@
       autostart: false,
       auto_detect: true,
       auto_update: true,
+      lighting_module: true,
+      fans_module: true,
+      close_conflicts: true,
     },
   };
 
@@ -389,8 +392,33 @@
       if (state.active === name) state.active = null;
     },
     set_settings({ settings }) {
+      const on = (s) => s.lighting_module || s.fans_module;
+      const changed = on(settings) !== on(state.settings);
       state.settings = { ...settings, fps: clamp(settings.fps, 10, 60) };
       start();
+      const text = on(settings) ? "install PawnIO, then install the FoxRGB service" : "remove the FoxRGB service, then remove PawnIO";
+      if (changed) setTimeout(() => emit("modules", { ok: true, text: "Development build, so nothing was changed. Would: " + text }), 300);
+    },
+    get_conflicts() {
+      return [{ name: "SignalRGB", area: "both", closes: state.settings.close_conflicts }, { name: "Fan Control", area: "fans", closes: state.settings.fans_module }];
+    },
+    close_conflicts_now() {
+      return { closed: ["SignalRGB"], left: [], text: "Closed SignalRGB", at: "09:14" };
+    },
+    last_conflicts() {
+      return { closed: ["SignalRGB"], left: [], text: "Closed SignalRGB", at: "09:14" };
+    },
+    check_update() {
+      const info = { version: "0.4.0", notes: "Mock release notes.", auto: state.settings.auto_update };
+      setTimeout(() => emit("update", info));
+      return info;
+    },
+    install_update() {
+      throw "development builds do not install updates";
+    },
+    later_update() {},
+    get_update() {
+      return null;
     },
     rescan() {},
     // Returns at once, as the app does. The pass then finds the Logitech keyboard unplugged or plugged back in.

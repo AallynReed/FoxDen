@@ -39,8 +39,10 @@ for administrator rights once, to:
 - install [PawnIO](https://pawnio.eu), the signed driver that reaches the RAM's SMBus
 - register the FoxRGB service, which drives the RAM so the app itself runs without admin
 
-Close other lighting software (SignalRGB, Logitech G HUB, iCUE and similar) first: two programs
-cannot drive the same device.
+Two programs cannot drive the same device, so FoxRGB closes other lighting and fan software
+(SignalRGB, Logitech G HUB, iCUE, Fan Control and similar) when it starts. Turn this off under
+Settings, Conflicting software. With both modules (Lighting and Fans) off, FoxRGB removes its
+service and PawnIO; turning one on puts them back.
 
 The setup program is not code signed, so Windows SmartScreen warns about it. Uninstall from
 Settings, Apps; PawnIO stays installed.

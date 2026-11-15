@@ -1,3 +1,4 @@
+mod close;
 mod guard;
 mod host;
 mod pipe;

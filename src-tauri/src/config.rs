@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use foxrgb_core::Effect;
+use foxrgb_fan::FanConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -24,6 +25,10 @@ pub struct Settings {
     pub auto_detect: bool,
     /// Download and install new releases from GitHub.
     pub auto_update: bool,
+    pub lighting_module: bool,
+    pub fans_module: bool,
+    /// Close other lighting and fan software that holds the same devices.
+    pub close_conflicts: bool,
 }
 
 impl Default for Settings {
@@ -39,6 +44,9 @@ impl Default for Settings {
             autostart: true,
             auto_detect: true,
             auto_update: true,
+            lighting_module: true,
+            fans_module: true,
+            close_conflicts: true,
         }
     }
 }
@@ -80,6 +88,8 @@ pub struct Config {
     pub devices: BTreeMap<String, DeviceConfig>,
     pub profiles: BTreeMap<String, Profile>,
     pub active_profile: Option<String>,
+    /// The user's fan config, kept while the Fans module is off.
+    pub fan_backup: Option<FanConfig>,
 }
 
 impl Default for Config {
@@ -91,6 +101,7 @@ impl Default for Config {
             devices: BTreeMap::new(),
             profiles: BTreeMap::new(),
             active_profile: None,
+            fan_backup: None,
         }
     }
 }
@@ -258,6 +269,7 @@ mod tests {
         fs::write(dir.join(FILE), text).unwrap();
         let settings = load(&dir).settings;
         assert!(settings.auto_detect);
+        assert!(settings.lighting_module && settings.fans_module && settings.close_conflicts);
         assert_eq!(
             (settings.fps, settings.openrgb_port, settings.native_drivers),
             (48, 6743, false)

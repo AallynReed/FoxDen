@@ -868,6 +868,14 @@ function wirePanels() {
     call("set_effect", { effect }).then((out) => out !== undefined && note("Effect applied"));
   };
 
+  $("conflicts-refresh").onclick = refreshConflicts;
+  $("conflicts-close").onclick = async () => {
+    const report = await call("close_conflicts_now");
+    if (report) note(report.text);
+    if (report && report.closed.length + report.left.length) showClosed(report);
+    refreshConflicts();
+  };
+
   for (const input of document.querySelectorAll("[data-setting]")) {
     if (input.type === "range") continue;
     const check = () => {
@@ -881,4 +889,94 @@ function wirePanels() {
       if (value !== null) setting(input.dataset.setting, value);
     };
   }
+}
+
+// The outcome of installing or removing what the modules need.
+function showModules(outcome) {
+  const line = $("modules-outcome");
+  setText(line, outcome.text);
+  line.className = outcome.ok ? "hint" : "problem";
+  line.hidden = false;
+  note(outcome.text);
+}
+
+// The last pass that closed or left anything, kept in view.
+function showClosed(report) {
+  const line = $("conflicts-last");
+  if (!report || !report.text) return;
+  setText(line, report.text + (report.at ? " at " + report.at : ""));
+  line.hidden = false;
+}
+
+let conflictsAsked = 0;
+
+async function refreshConflicts() {
+  const asked = ++conflictsAsked;
+  const found = await call("get_conflicts");
+  if (!found || asked !== conflictsAsked) return;
+  $("conflicts-empty").hidden = found.length > 0;
+  $("conflict-list").replaceChildren(
+    ...found.map((app) => {
+      const status = el("span", { className: "state" });
+      if (app.closes) setState(status, "warn", "Running");
+      else setState(status, "off", "Left alone");
+      return el("li", { className: "backend" }, el("span", { textContent: app.name }), status);
+    }),
+  );
+}
+
+const update = { info: null };
+
+function showUpdate(info) {
+  update.info = info;
+  const button = $("update-open");
+  setText(button, "Update to " + info.version);
+  button.hidden = false;
+  setText($("update-status"), "Version " + info.version + " available");
+  setText($("update-title"), "FoxRGB " + info.version);
+  setText($("update-notes"), info.notes || "No release notes.");
+  if (info.auto) note("Updating to " + info.version + " soon. Open the update to put it off.");
+}
+
+async function wireUpdates() {
+  const sheet = $("update-sheet");
+  $("update-open").onclick = () => update.info && !sheet.open && sheet.showModal();
+  $("update-later").onclick = () => {
+    invoke("later_update");
+    sheet.close();
+    note("Update put off");
+  };
+  $("update-install").onclick = async () => {
+    const button = $("update-install");
+    if (button.hasAttribute("aria-disabled")) return;
+    button.setAttribute("aria-disabled", "true");
+    $("update-progress").hidden = false;
+    setText($("update-progress"), "Downloading");
+    try {
+      await invoke("install_update");
+    } catch (e) {
+      setText($("update-progress"), sentence(String(e)));
+      button.removeAttribute("aria-disabled");
+    }
+  };
+  $("update-check").onclick = async () => {
+    const status = $("update-status");
+    setText(status, "Checking");
+    try {
+      const info = await invoke("check_update");
+      if (info) showUpdate(info);
+      else setText(status, "Up to date");
+    } catch (e) {
+      setText(status, sentence(String(e)));
+    }
+  };
+  await listen("update", (e) => showUpdate(e.payload));
+  await listen("update-progress", (e) => {
+    const { done, total } = e.payload;
+    const mb = (n) => (n / 1048576).toFixed(1) + " MB";
+    $("update-progress").hidden = false;
+    setText($("update-progress"), total ? Math.round((done / total) * 100) + "% of " + mb(total) : mb(done));
+  });
+  const known = await call("get_update");
+  if (known) showUpdate(known);
 }

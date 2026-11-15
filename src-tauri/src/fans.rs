@@ -4,6 +4,7 @@ use std::fs;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -11,9 +12,10 @@ use std::time::{Duration, Instant};
 use foxrgb_client::{Client, PIPE, Service, server_pid};
 use foxrgb_fan::FanConfig;
 use tauri::plugin::Builder;
-use tauri::{AppHandle, Emitter, RunEvent, Wry};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
 
 use crate::config;
+use crate::state::{Shared, lock as lock_state};
 
 pub use foxrgb_client::FanState;
 
@@ -37,14 +39,27 @@ static LINK: LazyLock<Link> = LazyLock::new(|| Link {
     child: Mutex::default(),
 });
 static APP: OnceLock<AppHandle> = OnceLock::new();
+/// The Fans module switch.
+static ON: AtomicBool = AtomicBool::new(true);
+static PENDING: Mutex<Pending> = Mutex::new(Pending::Nothing);
+
+/// Work owed to the service once it answers.
+#[derive(Clone, Debug, PartialEq)]
+enum Pending {
+    Nothing,
+    /// Keep the user's config, then hand every fan back to its firmware.
+    Blank,
+    Restore(FanConfig),
+}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Starts the worker that polls the service and emits "fans".
-pub fn start(app: &AppHandle) {
+pub fn start(app: &AppHandle, on: bool, backup: Option<FanConfig>) {
     let _ = APP.set(app.clone());
+    set_module(on, backup);
     // The only way to hear about the app quitting from here.
     let on_quit = Builder::<Wry>::new("fans").on_event(|_, event| {
         if let RunEvent::Exit = event {
@@ -61,6 +76,11 @@ pub fn start(app: &AppHandle) {
             let _ = fs::remove_file(record());
         }
         loop {
+            settle();
+            if !ON.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            }
             let state = poll(false);
             gpu_fan(
                 state
@@ -72,6 +92,59 @@ pub fn start(app: &AppHandle) {
             thread::sleep(Duration::from_secs(1));
         }
     });
+}
+
+/// Switches the Fans module. Off keeps the config and blanks the service; on puts `backup` back.
+pub fn set_module(on: bool, backup: Option<FanConfig>) {
+    ON.store(on, Ordering::Relaxed);
+    *lock(&PENDING) = match (on, backup) {
+        (false, _) => Pending::Blank,
+        (true, Some(backup)) => Pending::Restore(backup),
+        (true, None) => Pending::Nothing,
+    };
+    if !on {
+        gpu_fan(None);
+    }
+}
+
+/// Does the pending work once the service is there to take it.
+pub fn settle() {
+    let pending = lock(&PENDING).clone();
+    let done = match &pending {
+        Pending::Nothing => return,
+        Pending::Blank => blank(),
+        Pending::Restore(config) => {
+            let ok = LINK.client.set_config(config).is_ok();
+            if ok {
+                keep_backup(None);
+            }
+            ok
+        }
+    };
+    let mut slot = lock(&PENDING);
+    if done && *slot == pending {
+        *slot = Pending::Nothing;
+    }
+}
+
+fn blank() -> bool {
+    let Ok(config) = LINK.client.get_config() else {
+        return false;
+    };
+    let empty = FanConfig::default();
+    if config != empty {
+        keep_backup(Some(config));
+    }
+    LINK.client.set_config(&empty).is_ok()
+}
+
+fn keep_backup(config: Option<FanConfig>) {
+    if let Some(app) = APP.get() {
+        let shared = app.state::<Shared>();
+        let mut state = lock_state(&shared);
+        state.config.fan_backup = config;
+        state.changed = Some(Instant::now());
+    }
 }
 
 /// Asks the service how things are and tells the UI when that changed, or always with `force`.
@@ -93,18 +166,29 @@ fn then_tell(result: Result<(), String>) -> Result<(), String> {
     result
 }
 
+const OFF: &str = "the Fans module is off";
+
 #[tauri::command(async)]
 pub fn get_fans() -> Result<FanState, String> {
+    if !ON.load(Ordering::Relaxed) {
+        return Ok(FanState::default());
+    }
     Ok(poll(false))
 }
 
 #[tauri::command(async)]
 pub fn set_fan_config(config: FanConfig) -> Result<(), String> {
+    if !ON.load(Ordering::Relaxed) {
+        return Err(OFF.into());
+    }
     then_tell(LINK.client.set_config(&config))
 }
 
 #[tauri::command(async)]
 pub fn start_service() -> Result<(), String> {
+    if !ON.load(Ordering::Relaxed) {
+        return Err(OFF.into());
+    }
     then_tell(start_child())
 }
 
@@ -178,7 +262,7 @@ fn left_behind() -> bool {
 }
 
 /// Stops the service this app started, if there is one.
-fn stop_child() {
+pub fn stop_child() {
     let mut slot = lock(&LINK.child);
     match slot.take() {
         Some(mut child) => {

@@ -130,6 +130,10 @@ fn fake(name: &str) -> (Client, Arc<Mutex<Vec<Value>>>) {
                     json!({"ok": false, "error": "curve 'cpu' has no points"}).to_string()
                 }
                 Some("set_config" | "shutdown") => json!({"ok": true}).to_string(),
+                Some("close_conflicts") => {
+                    json!({"ok": true, "closed": ["Fan Control"], "left": ["Corsair iCUE"]})
+                        .to_string()
+                }
                 _ => json!({"ok": false, "error": "bad request"}).to_string(),
             };
             log.lock().unwrap().push(request);
@@ -192,6 +196,23 @@ fn calls_send_the_protocol_requests_and_read_the_replies() {
             json!({"cmd": "set_config", "config": config}),
             json!({"cmd": "shutdown"}),
         ]
+    );
+}
+
+#[test]
+fn close_conflicts_sends_the_scope_and_no_names() {
+    let (client, asked) = fake("close");
+    let scope = Scope {
+        lighting: true,
+        fans: false,
+        keep_openrgb: true,
+    };
+    let closed = client.close_conflicts(scope).unwrap();
+    assert_eq!(closed.closed, ["Fan Control"]);
+    assert_eq!(closed.left, ["Corsair iCUE"]);
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [json!({"cmd": "close_conflicts", "lighting": true, "fans": false, "keep_openrgb": true})]
     );
 }
 

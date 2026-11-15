@@ -46,7 +46,8 @@ function renderStatus(snap) {
   const leds = snap.devices.reduce((n, d) => n + d.leds.length, 0);
   const broken = snap.backends.filter((b) => b.error);
   const profile = snap.active_profile || (lastProfile && lastProfile + ", edited");
-  setState($("st-state"), snap.paused ? "off" : "on", snap.paused ? "Paused" : "Running");
+  if (!snap.settings.lighting_module) setState($("st-state"), "off", "Lighting off");
+  else setState($("st-state"), snap.paused ? "off" : "on", snap.paused ? "Paused" : "Running");
   setText($("st-count"), plural(snap.devices.length, "device") + ", " + plural(leds, "LED"));
   setText($("st-profile"), profile ? "Profile " + profile : "No profile");
   $("st-profile").title = profile || "";
@@ -66,6 +67,18 @@ function render() {
   renderProfiles(snap);
   renderSettings(snap);
   renderStatus(snap);
+  renderModules(snap);
+}
+
+const LIGHTING_TABS = ["tab-effects", "tab-devices", "tab-profiles"];
+
+// Hides the tabs of a module that is off, and leaves a hidden tab for the first one shown.
+function renderModules(snap) {
+  const off = { "tab-fans": !snap.settings.fans_module };
+  for (const id of LIGHTING_TABS) off[id] = !snap.settings.lighting_module;
+  for (const tab of document.querySelectorAll("[role=tab]")) tab.hidden = !!off[tab.id];
+  const current = document.querySelector("[role=tab][aria-selected=true]");
+  if (current && current.hidden) showTab(document.querySelector("[role=tab]:not([hidden])"));
 }
 
 function scheduleRender() {
@@ -211,12 +224,16 @@ function setSnapshot(snap) {
 }
 
 function showTab(tab) {
+  if (!tab || tab.hidden) return;
   for (const t of document.querySelectorAll("[role=tab]")) {
     const on = t === tab;
     t.setAttribute("aria-selected", on);
     t.tabIndex = on ? 0 : -1;
     $(t.getAttribute("aria-controls")).hidden = !on;
   }
+  // Only the lighting tabs need the canvas.
+  document.body.classList.toggle("wide", !LIGHTING_TABS.includes(tab.id));
+  if (tab.id === "tab-settings") refreshConflicts();
   // In the Fans tab Ctrl+Z and Ctrl+Y belong to the fan draft; these buttons keep to the lighting.
   for (const [id, keys] of [["undo", "Control+Z"], ["redo", "Control+Y"]]) {
     if (tab.id === "tab-fans") $(id).removeAttribute("aria-keyshortcuts");
@@ -226,10 +243,11 @@ function showTab(tab) {
 }
 
 function wireTabs() {
-  const tabs = [...document.querySelectorAll("[role=tab]")];
-  tabs.forEach((tab, i) => {
+  for (const tab of document.querySelectorAll("[role=tab]")) {
     tab.onclick = () => showTab(tab);
     tab.onkeydown = (e) => {
+      const tabs = [...document.querySelectorAll("[role=tab]:not([hidden])")];
+      const i = tabs.indexOf(tab);
       const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
       if (to === undefined) return;
       e.preventDefault();
@@ -237,7 +255,7 @@ function wireTabs() {
       showTab(next);
       next.focus();
     };
-  });
+  }
 }
 
 function openHelp() {
@@ -324,6 +342,14 @@ async function init() {
   document.addEventListener("keydown", onShortcut);
   previewInit($("canvas"));
   await listen("snapshot", (e) => setSnapshot(e.payload));
+  await listen("modules", (e) => showModules(e.payload));
+  await listen("conflicts", (e) => {
+    if (e.payload.text) note(e.payload.text);
+    showClosed(e.payload);
+    refreshConflicts();
+  });
+  showClosed(await call("last_conflicts"));
+  await wireUpdates();
   await listen("frame", (e) => {
     frames++;
     previewFrames(e.payload);

@@ -1,9 +1,9 @@
 use foxrgb_core::Effect;
 use tauri::{AppHandle, State};
 
-use crate::autostart;
 use crate::config::{DeviceConfig, Profile, Settings};
 use crate::state::{Job, Jobs, Kinds, Shared, Snapshot, lock, update};
+use crate::{autostart, conflicts, fans, modules};
 
 type Reply = Result<(), String>;
 
@@ -140,18 +140,59 @@ pub fn set_settings(
         autostart::set(settings.autostart)?;
     }
     let server = |s: &Settings| (s.openrgb_enabled, s.openrgb_host.clone(), s.openrgb_port);
-    let kinds = Kinds {
-        openrgb: server(&settings) != server(&old),
-        hid: settings.native_drivers != old.native_drivers,
+    let lighting = settings.lighting_module != old.lighting_module;
+    let kinds = if lighting {
+        Kinds::ALL
+    } else {
+        Kinds {
+            openrgb: server(&settings) != server(&old),
+            hid: settings.native_drivers != old.native_drivers,
+        }
     };
-    update(&app, &shared, |s| {
+    let fans = settings.fans_module != old.fans_module;
+    let wanted = |s: &Settings| s.lighting_module || s.fans_module;
+    let (machine, wanted) = (wanted(&settings) != wanted(&old), wanted(&settings));
+    let conflicts = settings.close_conflicts && !old.close_conflicts;
+    let backup = update(&app, &shared, |s| {
         s.config.settings = settings;
         Ok(())
-    })?;
+    })
+    .map(|_| lock(&shared).config.fan_backup.clone())?;
+    if fans {
+        fans::set_module(lock(&shared).config.settings.fans_module, backup);
+    }
+    if machine {
+        modules::apply(&app, wanted);
+    }
     if kinds.any() {
         queue(&jobs, Job::Reload(kinds))?;
     }
+    if conflicts || lighting || fans {
+        queue(&jobs, Job::Detect)?;
+    }
     Ok(())
+}
+
+#[tauri::command(async)]
+pub fn get_conflicts(shared: State<'_, Shared>) -> Vec<conflicts::Found> {
+    let settings = lock(&shared).config.settings.clone();
+    conflicts::running(conflicts::scope(&settings))
+}
+
+#[tauri::command]
+pub fn last_conflicts() -> Option<conflicts::Report> {
+    conflicts::last()
+}
+
+#[tauri::command(async)]
+pub fn close_conflicts_now(shared: State<'_, Shared>) -> conflicts::Report {
+    let settings = lock(&shared).config.settings.clone();
+    let report = conflicts::sweep(conflicts::scope(&settings));
+    conflicts::remember(report.clone());
+    report.unwrap_or_else(|| conflicts::Report {
+        text: "Nothing to close".into(),
+        ..Default::default()
+    })
 }
 
 #[tauri::command]

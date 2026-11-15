@@ -77,6 +77,32 @@
       </section>
 
       <section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+        <h2>Modules</h2>
+        <div class="field">
+          <label for="set-lighting">Lighting</label>
+          <input type="checkbox" class="switch" id="set-lighting" data-setting="lighting_module" aria-describedby="modules-hint" />
+        </div>
+        <div class="field">
+          <label for="set-fans">Fans</label>
+          <input type="checkbox" class="switch" id="set-fans" data-setting="fans_module" aria-describedby="modules-hint" />
+        </div>
+        <p class="hint" id="modules-hint">With both off, FoxRGB removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time.</p>
+        <p class="hint" id="modules-outcome" role="status" hidden></p>
+
+        <h2 id="conflicts-heading">Conflicting software</h2>
+        <div class="field">
+          <label for="set-conflicts">Close conflicting software</label>
+          <input type="checkbox" class="switch" id="set-conflicts" data-setting="close_conflicts" aria-describedby="conflicts-hint" />
+        </div>
+        <p class="hint" id="conflicts-hint">Other lighting and fan apps hold the same devices. FoxRGB closes them at start and whenever it looks for hardware.</p>
+        <ul class="list backends" id="conflict-list" aria-labelledby="conflicts-heading"></ul>
+        <p class="hint" id="conflicts-empty" hidden>None running.</p>
+        <p class="hint" id="conflicts-last" hidden></p>
+        <div class="actions">
+          <button type="button" id="conflicts-close">Close now</button>
+          <button type="button" id="conflicts-refresh">Refresh</button>
+        </div>
+
         <h2>Rendering</h2>
         <div class="field range">
           <label for="set-fps">Frame rate (fps)</label>
@@ -124,6 +150,10 @@
         <div class="field">
           <label for="set-update">Install updates automatically</label>
           <input type="checkbox" class="switch" id="set-update" data-setting="auto_update" />
+        </div>
+        <div class="actions">
+          <button type="button" id="update-check">Check for updates</button>
+          <span class="hint" id="update-status" role="status"></span>
         </div>
         <div class="field">
           <label for="view-zoom">Zoom</label>
@@ -184,6 +214,7 @@
         <span id="st-fps"></span>
         <button type="button" class="state" id="st-problem" hidden></button>
         <span class="grow" id="st-note" role="status"></span>
+        <button type="button" class="primary" id="update-open" hidden></button>
         <button type="button" id="help-open">Shortcuts</button>
       </div>
     </main>
@@ -250,6 +281,16 @@
         <button type="submit">Close</button>
         <label class="check" title="Space, [, ], G, L and ?"><input type="checkbox" id="view-keys" />Single-key shortcuts</label>
       </form>
+    </dialog>
+
+    <dialog class="sheet" id="update-sheet" aria-labelledby="update-title">
+      <h2 id="update-title"></h2>
+      <p class="notes" id="update-notes"></p>
+      <p class="hint" id="update-progress" role="status" hidden></p>
+      <div class="actions">
+        <button type="button" class="primary" id="update-install">Install now</button>
+        <button type="button" id="update-later">Later</button>
+      </div>
     </dialog>
 
     <dialog class="sheet" id="name-sheet" aria-labelledby="name-title">

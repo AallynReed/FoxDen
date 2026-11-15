@@ -9,7 +9,8 @@ use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs};
 use foxrgb_openrgb::OpenRgbBackend;
 use foxrgb_screen::ScreenCapture;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::config::{self, Config, Profile, Settings};
 use crate::detect::{self, Detected, Found, Live, Watch};
@@ -281,13 +282,14 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
     let (jobs, inbox) = mpsc::channel();
     thread::spawn(move || {
         let mut watch = Watch::default();
-        let enabled = {
-            let state = lock(&shared);
-            let settings = &state.config.settings;
-            Kinds {
-                openrgb: settings.openrgb_enabled,
-                hid: settings.native_drivers,
-            }
+        let first = lock(&shared).config.settings.clone();
+        // Closed before the devices are opened, so they are free to take.
+        if first.close_conflicts {
+            close_conflicts(&app, &first);
+        }
+        let enabled = Kinds {
+            openrgb: enabled("openrgb", &first),
+            hid: enabled("hid", &first),
         };
         if enabled.any() {
             reload(&shared, &mut watch, enabled);
@@ -312,7 +314,10 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                     state.failing("hid"),
                 )
             };
-            if asked || settings.auto_detect {
+            if settings.close_conflicts && (asked || settings.auto_detect) {
+                close_conflicts(&app, &settings);
+            }
+            if settings.lighting_module && (asked || settings.auto_detect) {
                 // The board, memory and cards stay put: WMI is asked again only while it has given nothing.
                 if asked && system.is_empty() {
                     system = detect::system();
@@ -350,9 +355,31 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
 }
 
 fn enabled(label: &str, settings: &Settings) -> bool {
-    match label {
-        "openrgb" => settings.openrgb_enabled,
-        _ => settings.native_drivers,
+    settings.lighting_module
+        && match label {
+            "openrgb" => settings.openrgb_enabled,
+            _ => settings.native_drivers,
+        }
+}
+
+/// Closes conflicting software and tells the UI, and with the window hidden a toast too.
+fn close_conflicts(app: &AppHandle, settings: &Settings) {
+    let report = crate::conflicts::sweep(crate::conflicts::scope(settings));
+    if !crate::conflicts::remember(report.clone()) {
+        return;
+    }
+    let Some(report) = report else { return };
+    let _ = app.emit("conflicts", &report);
+    let hidden = app
+        .get_webview_window("main")
+        .is_none_or(|w| !w.is_visible().unwrap_or(false));
+    if hidden {
+        let _ = app
+            .notification()
+            .builder()
+            .title("FoxRGB")
+            .body(&report.text)
+            .show();
     }
 }
 
@@ -385,11 +412,20 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
     let (settings, old) = {
         let mut state = lock(shared);
         state.retry_inputs = true;
-        // HID devices have to be let go before they are probed again.
-        let old = kinds.hid.then(|| state.engine.remove("hid"));
+        let mut old = Vec::new();
+        if !state.config.settings.lighting_module {
+            // Like quitting: one black frame, then every device is let go.
+            state.engine.blackout();
+            state.engine.flush(LAST_FRAME);
+            old.push(state.engine.remove("openrgb"));
+            old.push(state.engine.remove("hid"));
+        } else if kinds.hid {
+            // HID devices have to be let go before they are probed again.
+            old.push(state.engine.remove("hid"));
+        }
         (state.config.settings.clone(), old)
     };
-    if let Some(old) = old {
+    for old in old {
         old.wait(RELEASE);
     }
     let mut fresh = Vec::new();
@@ -473,7 +509,8 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
             let (fps, want_audio, want_screen, retry) = {
                 let mut state = lock(&shared);
                 let effect = &state.engine.effect;
-                let wanted = (effect.uses_audio(), effect.uses_screen());
+                let on = state.config.settings.lighting_module;
+                let wanted = (on && effect.uses_audio(), on && effect.uses_screen());
                 (
                     state.config.settings.fps,
                     wanted.0,
@@ -616,8 +653,11 @@ mod tests {
                 "auto_detect",
                 "auto_update",
                 "autostart",
+                "close_conflicts",
                 "close_to_tray",
+                "fans_module",
                 "fps",
+                "lighting_module",
                 "native_drivers",
                 "openrgb_enabled",
                 "openrgb_host",
@@ -781,6 +821,21 @@ mod tests {
             .first()
             .map(|d| d.id.clone());
         assert_eq!(first.as_deref(), Some("virtual:board"));
+    }
+
+    #[test]
+    fn switching_lighting_off_lets_every_device_go() {
+        let shared: Shared = Arc::new(Mutex::new(with_devices()));
+        lock(&shared).config.settings.lighting_module = false;
+        reload(&shared, &mut Watch::default(), Kinds::ALL);
+        let state = lock(&shared);
+        assert!(state.snapshot().devices.is_empty());
+        assert!(
+            state
+                .backends()
+                .iter()
+                .all(|b| !b.active && b.error.is_none())
+        );
     }
 
     #[test]

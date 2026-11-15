@@ -1,5 +1,6 @@
 mod backend;
 mod color;
+pub mod conflicts;
 mod device;
 mod effect;
 mod engine;
