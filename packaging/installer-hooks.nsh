@@ -2,6 +2,9 @@
 
 !macro NSIS_HOOK_PREINSTALL
   nsExec::Exec '"$INSTDIR\foxrgb-service.exe" stop'
+  ; An app still exiting after starting the update would make the running-app check fail.
+  nsExec::Exec 'taskkill /F /T /IM foxrgb.exe'
+  Sleep 1500
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
