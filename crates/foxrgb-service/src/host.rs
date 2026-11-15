@@ -628,6 +628,7 @@ pub fn hardware() -> Vec<Box<dyn FanBackend>> {
         .iter_mut()
         .any(|b| b.sensors().iter().any(|s| s.id().starts_with("gpu")));
     backends.extend(foxrgb_superio::backends());
+    backends.extend(foxrgb_xpack::fan_backends());
     if amd_card {
         backends.push(Box::new(RelayBackend));
     }

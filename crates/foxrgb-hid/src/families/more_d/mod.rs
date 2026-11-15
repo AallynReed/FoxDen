@@ -3,8 +3,8 @@
 use std::sync::Mutex;
 
 use crate::registry::Detector;
-use serial::Port;
 use foxrgb_core::Backend;
+use serial::Port;
 
 mod arctic;
 mod blinkytape;
@@ -25,7 +25,7 @@ mod seagate;
 mod serial;
 mod skydimo_serial;
 mod thrustmaster_sol;
-mod winusb;
+pub mod winusb;
 
 pub use ledstrip::{LedProtocol, LedStrip, led_strips};
 
@@ -70,6 +70,30 @@ fn once(
         }
     }
     found
+}
+
+/// Ids of the serial and WinUSB devices `probe` opens.
+pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
+    let mut v = vec![
+        (blinkytape::IDS.0, blinkytape::IDS.1, "BlinkyTape"),
+        (nzxt_hue_plus::IDS.0, nzxt_hue_plus::IDS.1, "NZXT Hue+"),
+        (
+            skydimo_serial::IDS.0,
+            skydimo_serial::IDS.1,
+            "Skydimo / Arctic",
+        ),
+        (dygma_raise::IDS.0, dygma_raise::IDS.1, "Dygma Raise"),
+        (0x1B1C, 0x0C09, "Corsair Hydro"),
+    ];
+    v.extend(hyte_mousemat::IDS.iter().map(|&(a, b)| (a, b, "HYTE CNVS")));
+    v.extend(hyte_nexus::DEVICES.iter().copied());
+    v.extend(corsair_hydro::DEVICES.iter().map(|&(p, n)| (0x1B1C, p, n)));
+    v.extend(
+        thrustmaster_sol::DEVICES
+            .iter()
+            .map(|&(p, n)| (0x044F, p, n)),
+    );
+    v
 }
 
 pub fn probe() -> Vec<Box<dyn Backend>> {

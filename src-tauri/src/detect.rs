@@ -220,9 +220,18 @@ fn usb_ids(hid: &[HidInfo]) -> Vec<(u16, u16)> {
 /// Devices of FoxRGB's ported families, matched on vendor and product id.
 const PORTED: &str = "hid:";
 
+/// The OpenRGB ports' HID devices, then foxrgb-xpack's.
+fn devices() -> Vec<(u16, u16, &'static str)> {
+    let mut list = foxrgb_hid::family_devices();
+    for d in foxrgb_xpack::detectors() {
+        list.push((d.vid, d.pid, d.name));
+    }
+    list
+}
+
 fn ported(vendor: u16, product: u16) -> Option<&'static str> {
     static LIST: OnceLock<Vec<(u16, u16, &'static str)>> = OnceLock::new();
-    LIST.get_or_init(foxrgb_hid::family_devices)
+    LIST.get_or_init(devices)
         .iter()
         .find(|d| (d.0, d.1) == (vendor, product))
         .map(|d| d.2)

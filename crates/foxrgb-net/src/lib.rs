@@ -46,6 +46,10 @@ pub struct NetConfig {
     pub dmx: Vec<DmxDevice>,
     pub ddp: Vec<DdpDevice>,
     pub espurna: Vec<EspurnaDevice>,
+    /// WLED, LeetDesk and SRGBmods Wifi LC controllers, driven by foxrgb-xpack.
+    pub wled: Vec<IpOnly>,
+    pub twinkly: Vec<IpOnly>,
+    pub cololight: Vec<IpOnly>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

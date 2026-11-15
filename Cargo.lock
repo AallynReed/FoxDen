@@ -1229,6 +1229,7 @@ dependencies = [
  "foxrgb-smbus",
  "foxrgb-superio",
  "foxrgb-wmi",
+ "foxrgb-xpack",
  "reqwest",
  "serde",
  "serde_json",
@@ -1353,6 +1354,7 @@ dependencies = [
  "foxrgb-smbus",
  "foxrgb-superio",
  "foxrgb-wmi",
+ "foxrgb-xpack",
  "serde",
  "serde_json",
  "windows-service",
@@ -1382,6 +1384,20 @@ version = "0.4.0"
 dependencies = [
  "foxrgb-core",
  "wmi",
+]
+
+[[package]]
+name = "foxrgb-xpack"
+version = "0.4.0"
+dependencies = [
+ "foxrgb-core",
+ "foxrgb-fan",
+ "foxrgb-hid",
+ "foxrgb-net",
+ "hidapi",
+ "serde",
+ "serde_json",
+ "serialport",
 ]
 
 [[package]]
