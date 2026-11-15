@@ -2,7 +2,7 @@
 
 use foxrgb_pawnio::{LPC_IO, Module, SharedLock};
 
-const ISA_MUTEX: &str = r"Global\Access_ISABUS.HTP.Method";
+pub(crate) const ISA_MUTEX: &str = r"Global\Access_ISABUS.HTP.Method";
 const CHIP_ID: u16 = 0xD592;
 const HWM_LDN: u64 = 0x0B;
 const EC_PAGE: u16 = 0x04;
