@@ -31,7 +31,7 @@ pub use nanoleaf::pair as pair_nanoleaf;
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NetConfig {
-    /// Also drive LIFX, Govee, Yeelight, Wiz and Kasa lights found by a broadcast.
+    /// Also drive LIFX, Govee, Yeelight, Wiz, Kasa, WLED, Twinkly and Cololight lights found by a search.
     pub discover: bool,
     pub hue: Vec<HueBridge>,
     pub wiz: Vec<WizLight>,

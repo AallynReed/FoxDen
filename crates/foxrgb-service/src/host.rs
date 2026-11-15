@@ -623,12 +623,22 @@ impl Drop for Running {
 
 /// Every sensor and fan this machine offers: read-only sources, then the board and CPU through PawnIO.
 pub fn hardware() -> Vec<Box<dyn FanBackend>> {
+    let usb = thread::spawn(foxrgb_xpack::fan_backends);
     let mut backends = foxrgb_hwmon::backends();
     let amd_card = backends
         .iter_mut()
         .any(|b| b.sensors().iter().any(|s| s.id().starts_with("gpu")));
     backends.extend(foxrgb_superio::backends());
-    backends.extend(foxrgb_xpack::fan_backends());
+    // A USB hub that never answers costs only the USB fans, not the whole listing.
+    let deadline = Instant::now() + LISTING / 2;
+    while !usb.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    if usb.is_finished()
+        && let Ok(more) = usb.join()
+    {
+        backends.extend(more);
+    }
     if amd_card {
         backends.push(Box::new(RelayBackend));
     }

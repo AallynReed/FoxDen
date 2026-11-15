@@ -11,5 +11,4 @@ foxrgb-hid = { path = "../foxrgb-hid" }
 foxrgb-net = { path = "../foxrgb-net" }
 hidapi = "2"
 serialport = { version = "4", default-features = false }
-serde.workspace = true
 serde_json.workspace = true

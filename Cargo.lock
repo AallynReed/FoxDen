@@ -1395,7 +1395,6 @@ dependencies = [
  "foxrgb-hid",
  "foxrgb-net",
  "hidapi",
- "serde",
  "serde_json",
  "serialport",
 ]

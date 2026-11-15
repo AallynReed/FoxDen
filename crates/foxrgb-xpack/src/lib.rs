@@ -46,6 +46,10 @@ pub fn fan_backends() -> Vec<Box<dyn FanBackend>> {
 
 #[cfg(test)]
 mod tests {
+    /// Keychron boards on SignalRGB's QMK firmware; stock firmware fails the handshake and falls
+    /// through to the OpenRGB Keychron matcher.
+    const FIRMWARE_GATED: [u16; 1] = [0x3434];
+
     #[test]
     fn no_device_is_detected_by_two_families() {
         let ours = super::detectors();
@@ -65,7 +69,7 @@ mod tests {
                         || m.usage_page == a.usage_page)
             });
             assert!(
-                !vendor_wide,
+                !vendor_wide || FIRMWARE_GATED.contains(&a.vid),
                 "{} is claimed by a vendor-wide matcher",
                 a.name
             );
@@ -87,6 +91,14 @@ mod tests {
             assert!(!seen.contains(&(v, p)), "{n} twice");
             seen.push((v, p));
         }
+    }
+
+    // Where an OpenRGB port lights a cooler or hub, this crate adds only its fans.
+    #[test]
+    fn fan_hubs_leave_lighting_to_the_openrgb_ports() {
+        let fox = foxrgb_hid::detectors();
+        let fox_other = foxrgb_hid::other_devices();
+        let ours = super::detectors();
         let mut fans: Vec<(u16, u16)> = Vec::new();
         for (v, p, n) in super::fan_devices() {
             assert!(
@@ -95,6 +107,12 @@ mod tests {
             );
             assert!(!fans.contains(&(v, p)), "fan hub {n} twice");
             fans.push((v, p));
+            if fox.iter().any(|d| (d.vid, d.pid) == (v, p)) {
+                assert!(
+                    !ours.iter().any(|d| (d.vid, d.pid) == (v, p)),
+                    "{n} lit twice"
+                );
+            }
         }
     }
 }
