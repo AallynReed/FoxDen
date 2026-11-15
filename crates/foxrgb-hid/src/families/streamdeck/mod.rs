@@ -205,6 +205,7 @@ mod tests {
             path: "p".into(),
             serial: "S1".into(),
             product: String::new(),
+            bus: crate::registry::Bus::Usb,
         };
         let d = layout(&info, "Elgato Stream Deck MK.2");
         assert_eq!(d.id, "hid:streamdeck-0fd90080-S1");
