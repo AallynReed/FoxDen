@@ -141,6 +141,7 @@ pub fn set_settings(
         autostart::set(settings.autostart)?;
     }
     let server = |s: &Settings| (s.openrgb_enabled, s.openrgb_host.clone(), s.openrgb_port);
+    let net = |s: &Settings| (s.network_enabled, s.network.clone());
     let lighting = settings.lighting_module != old.lighting_module;
     let kinds = if lighting {
         Kinds::ALL
@@ -148,6 +149,7 @@ pub fn set_settings(
         Kinds {
             openrgb: server(&settings) != server(&old),
             hid: settings.native_drivers != old.native_drivers,
+            net: net(&settings) != net(&old),
         }
     };
     let fans = settings.fans_module != old.fans_module;
@@ -204,6 +206,58 @@ pub fn rescan(jobs: State<'_, Jobs>) -> Reply {
 #[tauri::command]
 pub fn detect(jobs: State<'_, Jobs>) -> Reply {
     queue(&jobs, Job::Detect)
+}
+
+/// Searches the local network for lights. Sends nothing while network lights are off.
+#[tauri::command(async)]
+pub fn scan_network(shared: State<'_, Shared>) -> Result<Vec<foxrgb_net::Found>, String> {
+    if !lock(&shared).config.settings.network_enabled {
+        return Err("network lights are off".into());
+    }
+    Ok(foxrgb_net::discover())
+}
+
+const NET: Kinds = Kinds {
+    openrgb: false,
+    hid: false,
+    net: true,
+};
+
+/// Waits up to 35 seconds for the bridge's link button, then adds the bridge.
+#[tauri::command(async)]
+pub fn pair_hue(
+    app: AppHandle,
+    shared: State<'_, Shared>,
+    jobs: State<'_, Jobs>,
+    ip: String,
+) -> Reply {
+    let bridge = foxrgb_net::pair_hue(ip.trim())?;
+    update(&app, &shared, |s| {
+        let list = &mut s.config.settings.network.hue;
+        list.retain(|b| b.ip != bridge.ip);
+        list.push(bridge);
+        Ok(())
+    })?;
+    queue(&jobs, Job::Reload(NET))
+}
+
+/// Waits up to 30 seconds for the panels to be put in pairing mode, then adds them.
+#[tauri::command(async)]
+pub fn pair_nanoleaf(
+    app: AppHandle,
+    shared: State<'_, Shared>,
+    jobs: State<'_, Jobs>,
+    ip: String,
+    port: u16,
+) -> Reply {
+    let panel = foxrgb_net::pair_nanoleaf(ip.trim(), port)?;
+    update(&app, &shared, |s| {
+        let list = &mut s.config.settings.network.nanoleaf;
+        list.retain(|n| n.ip != panel.ip);
+        list.push(panel);
+        Ok(())
+    })?;
+    queue(&jobs, Job::Reload(NET))
 }
 
 /// Hands the work to the hardware thread; a "snapshot" follows when it is done.

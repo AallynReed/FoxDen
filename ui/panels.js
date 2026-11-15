@@ -1,4 +1,4 @@
-const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", audio: "Audio capture", screen: "Screen capture" };
+const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", net: "Network lights", audio: "Audio capture", screen: "Screen capture" };
 const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
@@ -783,9 +783,232 @@ async function copyEffect() {
   }
 }
 
+const IP = ["ip", "Address", "ip"];
+// Each kind of network light: its name, a blank entry as OpenRGB defaults it, and the fields the user sets.
+const NET_KINDS = {
+  hue: {
+    name: "Philips Hue bridge",
+    pair: "Press the link button on the bridge. FoxRGB waits 35 seconds for it.",
+    blank: { ip: "", username: "", clientkey: "" },
+    fields: [IP],
+  },
+  nanoleaf: {
+    name: "Nanoleaf",
+    pair: "Hold the power button on the controller for 5 to 7 seconds, until its lights flash. FoxRGB waits 30 seconds.",
+    blank: { ip: "", port: 16021, auth_token: "" },
+    fields: [IP, ["port", "Port", 1, 65535]],
+  },
+  wiz: {
+    name: "Philips Wiz",
+    blank: { ip: "", use_cool_white: false, use_warm_white: false, white_strategy: "Average" },
+    fields: [IP, ["white_strategy", "White from", ["Average", "Minimum", "None"]], ["use_cool_white", "Cool white", "check"], ["use_warm_white", "Warm white", "check"]],
+  },
+  lifx: {
+    name: "LIFX",
+    blank: { ip: "", name: "", multizone: false, extended_multizone: false },
+    fields: [IP, ["name", "Name", "text"], ["multizone", "Multizone", "check"], ["extended_multizone", "Extended multizone", "check"]],
+  },
+  govee: { name: "Govee", blank: { ip: "" }, fields: [IP] },
+  yeelight: {
+    name: "Yeelight",
+    blank: { ip: "", host_ip: "", music_mode: false },
+    fields: [IP, ["host_ip", "This PC's address", "optip"], ["music_mode", "Music mode", "check"]],
+  },
+  kasa: { name: "Kasa Smart", blank: { ip: "", name: "" }, fields: [IP, ["name", "Name", "text"]] },
+  elgato_key_light: { name: "Elgato Key Light", blank: { ip: "" }, fields: [IP] },
+  elgato_light_strip: { name: "Elgato Light Strip", blank: { ip: "" }, fields: [IP] },
+  e131: {
+    name: "E1.31 (sACN)",
+    blank: { name: "", ip: "", num_leds: 1, start_universe: 1, start_channel: 1, keepalive_time: 0, universe_size: 512 },
+    fields: [
+      ["name", "Name", "text"],
+      ["ip", "Address, empty for multicast", "optip"],
+      ["num_leds", "LEDs", 1, 8192],
+      ["start_universe", "First universe", 1, 63999],
+      ["start_channel", "First channel", 1, 512],
+      ["universe_size", "Universe size", 1, 512],
+      ["keepalive_time", "Keepalive (ms)", 0, 60000],
+    ],
+  },
+  ddp: {
+    name: "DDP",
+    blank: { name: "", ip: "", port: 4048, num_leds: 1, keepalive_time: 1000 },
+    fields: [["name", "Name", "text"], IP, ["port", "Port", 1, 65535], ["num_leds", "LEDs", 1, 8192], ["keepalive_time", "Keepalive (ms)", 0, 60000]],
+  },
+  espurna: { name: "Espurna", blank: { ip: "", port: 80, apikey: "" }, fields: [IP, ["port", "Port", 1, 65535], ["apikey", "API key", "text"]] },
+  dmx: {
+    name: "DMX (serial)",
+    blank: { name: "", port: "COM3", keepalive_time: 0, red_channel: 1, green_channel: 2, blue_channel: 3, brightness_channel: 0 },
+    fields: [
+      ["name", "Name", "text"],
+      ["port", "Serial port", "serial"],
+      ["red_channel", "Red channel", 0, 512],
+      ["green_channel", "Green channel", 0, 512],
+      ["blue_channel", "Blue channel", 0, 512],
+      ["brightness_channel", "Brightness channel", 0, 512],
+      ["keepalive_time", "Keepalive (ms)", 0, 60000],
+    ],
+  },
+};
+let netFound = [];
+let netPairing = "";
+
+// Private, link-local or loopback, as the drivers accept.
+function localIp(text) {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (v4.slice(1).some((n) => Number(n) > 255)) return false;
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+  return /^(::1|f[cd][0-9a-f]{2}:[0-9a-f:]*|fe[89ab][0-9a-f]:[0-9a-f:]*)$/i.test(text);
+}
+
+function netCheck(type, min, max, input) {
+  if (type === "check") return { value: input.checked };
+  const text = input.value.trim();
+  if (Array.isArray(type) || type === "text") return { value: text };
+  if (type === "ip" || type === "optip") {
+    if (!text && type === "optip") return { value: "" };
+    return localIp(text) ? { value: text } : { problem: "Enter an address on this network, such as 192.168.1.20." };
+  }
+  if (type === "serial") return /^COM\d{1,3}$/i.test(text) ? { value: text.toUpperCase() } : { problem: "Enter a serial port, such as COM3." };
+  const n = Number(text);
+  return text !== "" && Number.isInteger(n) && n >= min && n <= max ? { value: n } : { problem: `Enter a whole number from ${min} to ${max}.` };
+}
+
+function saveNet(change) {
+  if (!state.snap) return;
+  const settings = structuredClone(state.snap.settings);
+  change(settings.network);
+  return call("set_settings", { settings });
+}
+
+async function pairNet(kind, item) {
+  if (netPairing) return;
+  netPairing = kind + item.ip;
+  const spec = NET_KINDS[kind];
+  setText($("net-status"), spec.pair);
+  scheduleRender();
+  const out = kind === "hue" ? await call("pair_hue", { ip: item.ip }) : await call("pair_nanoleaf", { ip: item.ip, port: item.port || 16021 });
+  netPairing = "";
+  setText($("net-status"), out === undefined ? "" : "Paired " + spec.name + " at " + item.ip);
+  scheduleRender();
+}
+
+function pairButton(kind, item, paired) {
+  const waiting = netPairing === kind + item.ip;
+  const button = el("button", { type: "button", textContent: waiting ? "Waiting" : paired ? "Pair again" : "Pair" });
+  if (netPairing) button.setAttribute("aria-disabled", "true");
+  button.onclick = () => localIp(item.ip) && pairNet(kind, item);
+  return button;
+}
+
+function netRow(kind, index, item) {
+  const spec = NET_KINDS[kind];
+  const id = `net-${kind}-${index}`;
+  const problem = el("p", { className: "problem", id: id + "-problem", hidden: true });
+  const fields = spec.fields.map(([key, label, type, max]) => {
+    const kindOf = typeof type === "number" ? "number" : type;
+    let input;
+    if (kindOf === "check") input = el("input", { type: "checkbox", checked: Boolean(item[key]) });
+    else if (Array.isArray(type)) input = el("select", {}, ...type.map((o) => el("option", { value: o, textContent: o })));
+    else input = el("input", { type: kindOf === "number" ? "number" : "text", autocomplete: "off", spellcheck: false });
+    if (kindOf === "number") Object.assign(input, { min: type, max, step: 1 });
+    if (kindOf !== "check") input.value = item[key] ?? "";
+    input.id = `${id}-${key}`;
+    const check = () => {
+      const out = netCheck(kindOf, type, max, input);
+      flag(input, out.problem || "");
+      return out;
+    };
+    explain(input, problem);
+    input.oninput = check;
+    input.onchange = () => {
+      const out = check();
+      if (!("problem" in out)) saveNet((n) => (n[kind][index][key] = out.value));
+    };
+    revert(input, () => (input.value = item[key] ?? ""));
+    if (kindOf === "check") return el("label", { className: "check" }, input, label);
+    return el("label", {}, label, input);
+  });
+  const remove = el("button", { type: "button", textContent: "Remove", id: id + "-remove" });
+  remove.onclick = () => saveNet((n) => n[kind].splice(index, 1));
+  const status = el("span", { className: "state" });
+  const actions = el("div", { className: "actions" });
+  if (spec.pair) {
+    const paired = Boolean(item.username || item.auth_token);
+    setState(status, paired ? "on" : "off", paired ? "Paired" : "Not paired");
+    actions.append(Object.assign(pairButton(kind, item, paired), { id: id + "-pair" }));
+  }
+  actions.append(remove);
+  const title = item.name || item.ip || item.port || "New";
+  return el(
+    "li",
+    { className: "net-item" },
+    el("div", { className: "split" }, el("span", { className: "name", textContent: spec.name + ": " + title }), status),
+    el("div", { className: "net-fields" }, ...fields),
+    problem,
+    actions,
+  );
+}
+
+function foundRow(item) {
+  const spec = NET_KINDS[item.family];
+  const added = (state.snap.settings.network[item.family] || []).find((d) => d.ip === item.ip);
+  const row = el("li", { className: "net-item" }, el("div", { className: "split" }, el("span", { className: "name", textContent: item.name || spec.name }), el("span", { className: "meta", textContent: item.ip })));
+  if (spec.pair) row.append(el("div", { className: "actions" }, pairButton(item.family, { ip: item.ip, port: item.port }, Boolean(added && (added.username || added.auth_token)))));
+  else if (added) row.append(el("p", { className: "meta", textContent: "Added" }));
+  else {
+    const add = el("button", { type: "button", textContent: "Add" });
+    add.onclick = () => saveNet((n) => n[item.family].push({ ...spec.blank, ip: item.ip, ...("name" in spec.blank ? { name: item.name } : {}) }));
+    row.append(el("div", { className: "actions" }, add));
+  }
+  return row;
+}
+
+function renderNetwork(snap) {
+  const net = snap.settings.network;
+  $("net-body").hidden = !snap.settings.network_enabled;
+  put($("set-net-discover"), net.discover);
+  const select = $("net-family");
+  if (!select.options.length) select.append(...Object.entries(NET_KINDS).map(([k, s]) => el("option", { value: k, textContent: s.name })));
+  const list = $("net-list");
+  const key = JSON.stringify([net, netPairing, netFound]);
+  const focused = list.contains(document.activeElement) ? document.activeElement : null;
+  // A field being edited keeps its text; the list is rebuilt once focus leaves it.
+  if (list.dataset.key === key || (focused && /^(text|number)$/.test(focused.type)) || list.querySelector("[aria-invalid]")) return;
+  list.dataset.key = key;
+  const rows = Object.keys(NET_KINDS).flatMap((kind) => (net[kind] || []).map((item, i) => netRow(kind, i, item)));
+  list.replaceChildren(...rows);
+  if (focused && focused.id && $(focused.id)) $(focused.id).focus();
+  $("net-empty").hidden = rows.length > 0;
+  $("net-found").replaceChildren(...netFound.map(foundRow));
+}
+
+function wireNetwork() {
+  $("set-net-discover").onchange = () => saveNet((n) => (n.discover = $("set-net-discover").checked));
+  $("net-add").onclick = () => {
+    const kind = $("net-family").value;
+    saveNet((n) => n[kind].push({ ...NET_KINDS[kind].blank }));
+  };
+  $("net-search").onclick = async () => {
+    const button = $("net-search");
+    if (button.hasAttribute("aria-disabled")) return;
+    button.setAttribute("aria-disabled", "true");
+    setText($("net-status"), "Searching");
+    const found = await call("scan_network");
+    button.removeAttribute("aria-disabled");
+    netFound = found || [];
+    setText($("net-status"), found === undefined ? "" : found.length ? "Found " + plural(found.length, "light") : "Nothing found");
+    scheduleRender();
+  };
+}
+
 function renderSettings(snap) {
   for (const input of document.querySelectorAll("[data-setting]")) put(input, snap.settings[input.dataset.setting]);
   $("openrgb-server").hidden = !snap.settings.openrgb_enabled;
+  renderNetwork(snap);
 
   const list = $("backend-list");
   const key = JSON.stringify(snap.backends);
@@ -905,6 +1128,7 @@ function wirePanels() {
     call("set_effect", { effect }).then((out) => out !== undefined && note("Effect applied"));
   };
 
+  wireNetwork();
   $("conflicts-refresh").onclick = refreshConflicts;
   $("conflicts-close").onclick = async () => {
     const report = await call("close_conflicts_now");

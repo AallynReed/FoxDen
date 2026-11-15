@@ -80,6 +80,8 @@ FoxRGB only connects to:
   report holds the error, the FoxRGB version and the hardware ids of your devices, never names,
   serial numbers, paths or addresses.
 - The OpenRGB server you set, `127.0.0.1` unless you change it, to see whether it is running.
+- Network lights (Hue, Wiz, Nanoleaf, LIFX, Govee and the rest), only if you switch them on (off by
+  default), and only at addresses on your local network, never beyond it.
 
 ## Licence
 

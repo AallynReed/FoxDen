@@ -110,6 +110,33 @@
           <p class="hint" id="native-hint">FoxRGB's own drivers. On by default.</p>
         </section>
 
+        <section class="box span" id="net-box">
+          <h2 id="net-heading">Network lights</h2>
+          <div class="field">
+            <label for="set-net">Lights on this network</label>
+            <input type="checkbox" class="switch" id="set-net" data-setting="network_enabled" aria-describedby="net-hint" />
+          </div>
+          <p class="hint" id="net-hint">Philips Hue, Wiz, Nanoleaf, LIFX, Govee, Yeelight, Kasa, Elgato, E1.31, DDP and Espurna lights, and DMX on a serial port. FoxRGB only talks to addresses on your own network. Off by default.</p>
+          <div class="fields" id="net-body">
+            <div class="field">
+              <label for="set-net-discover">Also drive LIFX, Govee, Yeelight, Wiz and Kasa lights it finds</label>
+              <input type="checkbox" class="switch" id="set-net-discover" />
+            </div>
+            <div class="actions">
+              <button type="button" id="net-search">Search network</button>
+              <span class="hint" id="net-status" role="status"></span>
+            </div>
+            <ul class="list net-grid" id="net-found" aria-label="Found on the network"></ul>
+            <h3 id="net-added">Added lights</h3>
+            <div class="row">
+              <select id="net-family" aria-label="Kind of light"></select>
+              <button type="button" id="net-add">Add</button>
+            </div>
+            <ul class="list net-grid" id="net-list" aria-labelledby="net-added"></ul>
+            <p class="hint" id="net-empty">None yet. Search the network, or pick a kind of light and add it by address.</p>
+          </div>
+        </section>
+
         <section class="box">
           <h2>OpenRGB integration</h2>
           <div class="field">

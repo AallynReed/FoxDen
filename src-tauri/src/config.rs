@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use foxrgb_core::Effect;
 use foxrgb_fan::FanConfig;
+use foxrgb_net::NetConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -18,6 +19,9 @@ pub struct Settings {
     pub openrgb_host: String,
     pub openrgb_port: u16,
     pub native_drivers: bool,
+    /// Lights on the local network and DMX, off until the user turns them on.
+    pub network_enabled: bool,
+    pub network: NetConfig,
     pub close_to_tray: bool,
     pub start_minimized: bool,
     pub autostart: bool,
@@ -41,6 +45,8 @@ impl Default for Settings {
             openrgb_host: "127.0.0.1".into(),
             openrgb_port: 6742,
             native_drivers: true,
+            network_enabled: false,
+            network: NetConfig::default(),
             close_to_tray: true,
             start_minimized: false,
             autostart: true,
@@ -288,6 +294,19 @@ mod tests {
         };
         save(&dir, &off).unwrap();
         assert!(!load(&dir).settings.auto_detect);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn network_lights_are_off_and_keep_their_devices() {
+        let dir = scratch("network");
+        assert!(!Settings::default().network_enabled);
+        let text = r#"{"settings":{"network_enabled":true,"network":{"hue":[{"ip":"192.168.1.40","username":"u"}],"e131":[{"num_leds":30}]}}}"#;
+        fs::write(dir.join(FILE), text).unwrap();
+        let settings = load(&dir).settings;
+        assert!(settings.network_enabled);
+        assert_eq!(settings.network.hue[0].username, "u");
+        assert_eq!(settings.network.e131[0].universe_size, 512);
         fs::remove_dir_all(&dir).unwrap();
     }
 
