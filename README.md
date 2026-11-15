@@ -49,6 +49,25 @@ cargo build --workspace
 cargo run -p foxrgb
 ```
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [AallynReed](https://github.com/AallynReed)
+- Approvers: [AallynReed](https://github.com/AallynReed)
+
+## Privacy
+
+FoxRGB only connects to:
+
+- GitHub, a minute after start and then every six hours, to check for a new release. Nothing
+  is sent beyond the request itself.
+- `reports.foxhearth.com`, only if you switch on anonymous error reports (off by default). A
+  report holds the error, the FoxRGB version and the hardware ids of your devices, never names,
+  serial numbers, paths or addresses.
+- The OpenRGB server you set, `127.0.0.1` unless you change it, to see whether it is running.
+
 ## Licence
 
 GPL-2.0-or-later.
