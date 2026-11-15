@@ -32,6 +32,14 @@ pub trait SmBus: Send {
     /// I2C block read of `len` bytes, no length byte on the wire.
     fn i2c_read_block_data(&self, addr: u8, command: u8, len: u8) -> Result<Vec<u8>>;
     fn i2c_write_block_data(&self, addr: u8, command: u8, data: &[u8]) -> Result<()>;
+    /// Raw I2C read of up to `len` bytes, i2c_read_block: no register, no length cap.
+    fn i2c_read(&self, _addr: u8, _len: usize) -> Result<Vec<u8>> {
+        Err("this bus has no raw I2C transfer".into())
+    }
+    /// Raw I2C write, i2c_write_block: no register, no length cap.
+    fn i2c_write(&self, _addr: u8, _data: &[u8]) -> Result<()> {
+        Err("this bus has no raw I2C transfer".into())
+    }
 }
 
 /// A bus shared by every device on it. Lock it for each transaction, never across a sleep.

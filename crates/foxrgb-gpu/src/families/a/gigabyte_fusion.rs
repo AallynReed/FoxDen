@@ -103,7 +103,7 @@ impl Backend for FusionGpu {
 }
 
 #[rustfmt::skip]
-const DEVICES: &[Entry] = &[
+pub(super) const DEVICES: &[Entry] = &[
     ("Gigabyte GTX 1050 G1 Gaming", 0x10DE, 0x1C81, 0x1458, 0x372B, 0x47),
     ("Gigabyte GeForce GTX 1050 Ti G1 Gaming Rev A1", 0x10DE, 0x1C82, 0x1458, 0x372A, 0x47),
     ("Gigabyte GeForce GTX 1050 Ti G1 Gaming", 0x10DE, 0x1C82, 0x1458, 0x372A, 0x48),

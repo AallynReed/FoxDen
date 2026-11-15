@@ -160,6 +160,12 @@ impl SmBus for Bus {
         buf.extend_from_slice(&data[..data.len().min(BLOCK_MAX)]);
         self.write(addr, &buf)
     }
+    fn i2c_read(&self, addr: u8, len: usize) -> Result<Vec<u8>> {
+        self.read(addr, 0, len)
+    }
+    fn i2c_write(&self, addr: u8, data: &[u8]) -> Result<()> {
+        self.write(addr, data)
+    }
 }
 
 type Malloc = extern "system" fn(c_int) -> *mut c_void;
@@ -425,6 +431,17 @@ mod tests {
         let (b, _) = bus(vec![0], 1);
         assert!(b.read_byte_data(0x29, 0x20).is_err());
         assert!(b.write_byte_data(0x29, 0x20, 0).is_ok());
+    }
+
+    // i2c_smbus_amdadl::i2c_xfer: offset 0, the whole packet, no block cap
+    #[test]
+    fn raw_transfer() {
+        let (b, seen) = bus(vec![0xAA, 0xEF, 0x81], ADL_OK);
+        b.i2c_write(0x61, &[7; 122]).unwrap();
+        assert_eq!(b.i2c_read(0x61, 64).unwrap()[..3], [0xAA, 0xEF, 0x81]);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0], (40, 1, 0xC2, 0, 2, 100, 122, vec![7; 122]));
+        assert_eq!(seen[1], (40, 1, 0xC2, 0, 1, 100, 64, vec![]));
     }
 
     // i2c_smbus_amdadl::i2c_smbus_amdadl, PNP string parsing

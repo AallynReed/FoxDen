@@ -99,7 +99,7 @@ impl Backend for AuraGpu {
 }
 
 #[rustfmt::skip]
-const DEVICES: &[Entry] = &[
+pub(super) const DEVICES: &[Entry] = &[
     ("ASUS ROG STRIX GeForce GTX 1050 Gaming OC", 0x10DE, 0x1C81, 0x1043, 0x85D8, 0x29),
     ("ASUS ROG STRIX GeForce GTX 1050 Ti Gaming", 0x10DE, 0x1C82, 0x1043, 0x8611, 0x29),
     ("ASUS ROG STRIX GeForce GTX 1050 Ti Gaming OC", 0x10DE, 0x1C82, 0x1043, 0x85CD, 0x29),
