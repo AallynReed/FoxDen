@@ -1,6 +1,6 @@
 //! Device families ported from OpenRGB, each in its own folder.
 
-use crate::registry::Detector;
+use crate::registry::{Detector, Matcher};
 
 mod coolermaster_corsair;
 mod generic;
@@ -10,6 +10,7 @@ mod mixed_a;
 mod mixed_b;
 mod more_a;
 mod more_b;
+mod more_c;
 mod msi_steelseries;
 mod razer;
 mod small;
@@ -28,8 +29,14 @@ pub fn detectors() -> Vec<&'static Detector> {
         small::detectors(),
         more_a::detectors(),
         more_b::detectors(),
+        more_c::detectors(),
         generic::detectors(),
         streamdeck::detectors(),
     ]
     .concat()
+}
+
+/// Vendor-wide `HID_PID_ANY` lines of the ported families.
+pub fn matchers() -> Vec<&'static Matcher> {
+    more_c::matchers()
 }
