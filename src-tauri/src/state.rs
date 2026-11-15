@@ -454,7 +454,11 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             backends.extend(foxrgb_gpu::probe());
             // Memory needs PawnIO and administrator rights, or the installed service that has them.
             match foxrgb_smbus::probe() {
-                Ok(more) => backends.extend(more),
+                Ok(more) => {
+                    backends.extend(more);
+                    backends.extend(foxrgb_superio::lights());
+                    backends.extend(foxrgb_wmi::lights());
+                }
                 Err(_) => {
                     if let Some(service) = crate::service_lights::probe() {
                         backends.push(Box::new(service));

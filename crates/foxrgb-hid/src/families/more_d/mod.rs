@@ -1,6 +1,9 @@
 //! Ported from OpenRGB Controllers/ (Corsair Hydro, EVGA USB, NZXT Hue+, HYTE, Arctic, JGINYUE V2, Seagate, Skydimo serial, BlinkyTape, LED strips) (GPL-2.0-or-later).
 
+use std::sync::Mutex;
+
 use crate::registry::Detector;
+use serial::Port;
 use foxrgb_core::Backend;
 
 mod arctic;
@@ -39,8 +42,40 @@ pub fn detectors() -> Vec<&'static Detector> {
 
 /// Serial, WinUSB and SCSI devices, which never show in the HID list. A port stays open while a
 /// driver holds it, so a later detector cannot take it too.
+/// Ports on generic USB-serial chips that did not answer as ours, skipped until unplugged:
+/// asking again can block for seconds and DTR can reset the board on them.
+static NOT_OURS: Mutex<Vec<(String, u16, u16)>> = Mutex::new(Vec::new());
+
+fn key(p: &Port) -> (String, u16, u16) {
+    (p.name.clone(), p.vid, p.pid)
+}
+
+/// Opens generic-chip ports once, remembering the ones that are something else.
+fn once(
+    ports: &[Port],
+    ids: (u16, u16),
+    open: fn(&Port) -> Option<Box<dyn Backend>>,
+) -> Vec<Box<dyn Backend>> {
+    let mut skip = NOT_OURS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut found = Vec::new();
+    for p in ports.iter().filter(|p| (p.vid, p.pid) == ids) {
+        if skip.contains(&key(p)) {
+            continue;
+        }
+        match open(p) {
+            Some(dev) => found.push(dev),
+            None => skip.push(key(p)),
+        }
+    }
+    found
+}
+
 pub fn probe() -> Vec<Box<dyn Backend>> {
     let ports = serial::usb_ports();
+    NOT_OURS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|k| ports.iter().any(|p| key(p) == *k));
     let on = |ids: (u16, u16)| ports.iter().filter(move |p| (p.vid, p.pid) == ids);
     let mut found = Vec::new();
     // REGISTER_USB_SERIAL_DETECTOR lines
@@ -52,9 +87,9 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
         found.extend(on((vid, pid)).filter_map(|p| hyte_nexus::open(p, name)));
     }
     found.extend(on(nzxt_hue_plus::IDS).filter_map(nzxt_hue_plus::open));
-    found.extend(on(skydimo_serial::IDS).filter_map(skydimo_serial::open));
+    found.extend(once(&ports, skydimo_serial::IDS, skydimo_serial::open));
     // REGISTER_DETECTOR lines, after the serial ones as in DetectionManager
-    found.extend(on(arctic::IDS).filter_map(arctic::open));
+    found.extend(once(&ports, arctic::IDS, arctic::open));
     found.extend(corsair_hydro::probe());
     found.extend(corsair_hydro2::probe());
     found.extend(seagate::probe());

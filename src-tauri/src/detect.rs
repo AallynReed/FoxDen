@@ -1,6 +1,7 @@
 //! Finds lighting hardware without touching it: the HID device list, WMI and one TCP connect.
 
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use foxrgb_core::{Device, DeviceKind};
@@ -216,6 +217,17 @@ fn usb_ids(hid: &[HidInfo]) -> Vec<(u16, u16)> {
     ids
 }
 
+/// Devices of FoxRGB's ported families, matched on vendor and product id.
+const PORTED: &str = "hid:";
+
+fn ported(vendor: u16, product: u16) -> Option<&'static str> {
+    static LIST: OnceLock<Vec<(u16, u16, &'static str)>> = OnceLock::new();
+    LIST.get_or_init(foxrgb_hid::family_devices)
+        .iter()
+        .find(|d| (d.0, d.1) == (vendor, product))
+        .map(|d| d.2)
+}
+
 /// One entry per USB device we recognise, however many HID collections it shows.
 pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
     let mut found = Vec::new();
@@ -229,17 +241,25 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
             .map(|d| d.name.as_str())
             .find(|name| !name.is_empty())
             .unwrap_or("device");
-        let Some(brand) = brand(vendor, label) else {
+        let brand = brand(vendor, label);
+        let family = ported(vendor, product);
+        if brand.is_none() && family.is_none() {
             continue;
-        };
+        }
         let known = NATIVE.iter().find(|n| (n.0, n.1) == (vendor, product));
+        let name = match (known, family, brand) {
+            (Some(n), _, _) => n.2.to_string(),
+            (None, Some(f), _) => f.to_string(),
+            (None, None, Some(b)) => titled(b, label),
+            (None, None, None) => label.to_string(),
+        };
         found.push(Found {
             id: format!("usb:{vendor:04x}:{product:04x}"),
-            name: known.map_or_else(|| titled(brand, label), |n| n.2.to_string()),
+            name,
             kind: known.map_or_else(|| usb_kind(label, &parts), |n| n.3),
             bus: Bus::Usb,
-            native: known.map(|n| n.4),
-            brand: Some(brand),
+            native: known.map(|n| n.4).or(family.map(|_| PORTED)),
+            brand,
         });
     }
     found
@@ -567,16 +587,27 @@ fn same(found: &Found, device: &Device) -> bool {
 }
 
 /// Probed graphics cards carry no PCI ids, so any card FoxRGB lights counts for a known one.
-fn drives(native: &str, device: &Device) -> bool {
+fn drives(found: &Found, native: &str, device: &Device) -> bool {
+    let usb = found
+        .id
+        .strip_prefix("usb:")
+        .map(|ids| format!("-{}-", ids.replace(':', "")));
     device.id == native
         || (native == GPU && device.kind == DeviceKind::Gpu && device.id.starts_with(GPU))
+        || (native == PORTED
+            && device.id.starts_with(PORTED)
+            && usb.is_some_and(|ids| device.id.contains(&ids)))
 }
 
 fn status(found: &Found, live: &Live) -> (Route, State, String) {
     let settings = live.settings;
     if found
         .native
-        .is_some_and(|id| live.driven.iter().any(|(_, device)| drives(id, device)))
+        .is_some_and(|id| live.driven.iter().any(|(_, device)| drives(found, id, device)))
+        || live
+            .driven
+            .iter()
+            .any(|(_, device)| drives(found, PORTED, device))
     {
         return (
             Route::Native,
