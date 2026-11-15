@@ -137,6 +137,17 @@
           </div>
         </section>
 
+        <section class="box span" id="strip-box">
+          <h2 id="strip-heading">LED strips</h2>
+          <p class="hint" id="strip-hint">Strips on a microcontroller at a serial port: Adalight, TPM2 or Keyboard Visualizer. Keyboard Visualizer also takes udp:address, with the UDP port as the baud rate. Driven by the native drivers.</p>
+          <div class="row">
+            <button type="button" id="strip-add">Add strip</button>
+          </div>
+          <ul class="list net-grid" id="strip-list" aria-labelledby="strip-heading"></ul>
+          <p class="hint" id="strip-empty">None yet.</p>
+          <datalist id="strip-ports"></datalist>
+        </section>
+
         <section class="box">
           <h2>OpenRGB integration</h2>
           <div class="field">

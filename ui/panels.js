@@ -504,6 +504,27 @@ function deviceRow(device) {
     return el("label", { textContent: label }, input);
   });
   const place = fields.map((field) => field.lastChild);
+  const sizes = (device.zones || []).map((zone) => {
+    const input = el("input", { type: "number", className: "exact", min: zone.min, max: zone.max, step: 1 });
+    const typed = () => {
+      const n = input.value === "" ? NaN : Number(input.value);
+      const ok = Number.isInteger(n) && n >= zone.min && n <= zone.max;
+      flag(input, ok ? "" : `${zone.name} takes ${zone.min} to ${zone.max} LEDs.`);
+      return ok ? n : null;
+    };
+    input.oninput = typed;
+    input.onchange = () => {
+      const n = typed();
+      if (n === null || !state.snap) return;
+      const settings = structuredClone(state.snap.settings);
+      settings.zone_leds = { ...settings.zone_leds, [zone.key]: n };
+      call("set_settings", { settings });
+    };
+    explain(input, problem);
+    revert(input, () => (input.value = zone.leds));
+    return el("label", { textContent: zone.name }, input);
+  });
+  const counts = sizes.map((field) => field.lastChild);
 
   name.onclick = () => selectDevice(preview.selected === device.id ? null : device.id);
   on.onchange = () => send({ enabled: on.checked });
@@ -525,24 +546,26 @@ function deviceRow(device) {
     ),
     el("p", { className: "meta", textContent: "Position and size, in % of the canvas" }),
     el("div", { className: "place" }, ...fields),
+    ...(sizes.length ? [el("p", { className: "meta", textContent: "LEDs" }), el("div", { className: "place" }, ...sizes)] : []),
     problem,
     el("div", { className: "actions" }, reset),
   );
   const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, status, on), details);
-  row.parts = { name, status, on, level, meta, place, details };
+  row.parts = { name, status, on, level, meta, place, counts, details };
   return row;
 }
 
 function renderDevices(snap) {
   const list = $("device-list");
-  const key = snap.devices.map((d) => d.id).join("|");
+  const zoneKey = (d) => (d.zones || []).map((z) => [z.key, z.min, z.max].join(",")).join(";");
+  const key = snap.devices.map((d) => d.id + ":" + zoneKey(d)).join("|");
   if (list.dataset.key !== key) {
     list.dataset.key = key;
     list.replaceChildren(...snap.devices.map(deviceRow));
   }
   snap.devices.forEach((device, i) => {
     const row = list.children[i];
-    const { name, status, on, level, meta, place, details } = row.parts;
+    const { name, status, on, level, meta, place, counts, details } = row.parts;
     const selected = device.id === preview.selected;
     const about = [BACKENDS[device.backend] || device.backend, KINDS[device.kind] || words(device.kind), plural(device.leds.length, "LED")];
     row.classList.toggle("selected", selected);
@@ -556,6 +579,7 @@ function renderDevices(snap) {
     put(level, device.brightness);
     const rect = rectOf(device);
     place.forEach((input, n) => put(input, (rect[n] * 100).toFixed(1)));
+    counts.forEach((input, n) => put(input, device.zones[n].leds));
   });
   $("devices-empty").hidden = snap.devices.length > 0;
 
@@ -1005,10 +1029,111 @@ function wireNetwork() {
   };
 }
 
+const PROTOCOLS = { adalight: "Adalight", tpm2: "TPM2", keyboard_visualizer: "Keyboard Visualizer" };
+const STRIP_BLANK = { name: "LED strip", port: "", baud: 115200, leds: 60, protocol: "adalight" };
+let stripPorts = [];
+
+function saveStrips(change) {
+  if (!state.snap) return;
+  const settings = structuredClone(state.snap.settings);
+  change(settings.led_strips);
+  return call("set_settings", { settings });
+}
+
+async function loadPorts() {
+  const ports = await invoke("serial_ports").catch(() => null);
+  if (!ports) return;
+  stripPorts = ports;
+  $("strip-ports").replaceChildren(...ports.map((p) => el("option", { value: p })));
+}
+
+function stripCheck(key, input, protocol) {
+  const text = input.value.trim();
+  if (key === "name" || key === "protocol") return { value: text };
+  if (key === "port") {
+    if (/^COM\d{1,3}$/i.test(text)) return { value: text.toUpperCase() };
+    if (/^udp:\S+$/i.test(text) && protocol === "keyboard_visualizer") return { value: "udp:" + text.slice(4) };
+    return { problem: protocol === "keyboard_visualizer" ? "Enter a serial port such as COM3, or udp:address." : "Enter a serial port, such as COM3." };
+  }
+  const [min, max] = key === "leds" ? [1, 8192] : [1, protocol === "keyboard_visualizer" && /^udp:/i.test(input.port.value) ? 65535 : 4000000];
+  const n = Number(text);
+  return text !== "" && Number.isInteger(n) && n >= min && n <= max ? { value: n } : { problem: `Enter a whole number from ${min} to ${max}.` };
+}
+
+function stripRow(index, item) {
+  const id = "strip-" + index;
+  const problem = el("p", { className: "problem", id: id + "-problem", hidden: true });
+  const inputs = {
+    name: el("input", { type: "text", autocomplete: "off", spellcheck: false }),
+    port: el("input", { type: "text", autocomplete: "off", spellcheck: false, placeholder: "COM3" }),
+    protocol: el("select", {}, ...Object.entries(PROTOCOLS).map(([value, textContent]) => el("option", { value, textContent }))),
+    baud: el("input", { type: "number", min: 1, step: 1 }),
+    leds: el("input", { type: "number", min: 1, max: 8192, step: 1 }),
+  };
+  inputs.port.setAttribute("list", "strip-ports");
+  inputs.port.onfocus = loadPorts;
+  const labels = { name: "Name", port: "Port", protocol: "Protocol", baud: "Baud rate", leds: "LEDs" };
+  const fields = Object.entries(inputs).map(([key, input]) => {
+    input.id = `${id}-${key}`;
+    input.port = inputs.port;
+    input.value = item[key] ?? "";
+    const check = () => {
+      const out = stripCheck(key, input, inputs.protocol.value);
+      flag(input, out.problem || "");
+      return out;
+    };
+    explain(input, problem);
+    input.oninput = check;
+    input.onchange = () => {
+      check();
+      if (key === "protocol") ["port", "baud"].forEach((k) => inputs[k].oninput());
+      // The card is saved whole, once every field is right.
+      const all = Object.entries(inputs).map(([k, i]) => [k, stripCheck(k, i, inputs.protocol.value)]);
+      if (all.some(([, out]) => "problem" in out)) return;
+      saveStrips((s) => (s[index] = Object.fromEntries(all.map(([k, out]) => [k, out.value]))));
+    };
+    revert(input, () => (input.value = item[key] ?? ""));
+    return el("label", {}, labels[key], input);
+  });
+  const remove = el("button", { type: "button", textContent: "Remove", id: id + "-remove" });
+  remove.onclick = () => saveStrips((s) => s.splice(index, 1));
+  return el(
+    "li",
+    { className: "net-item" },
+    el("div", { className: "split" }, el("span", { className: "name", textContent: item.name || "LED strip" }), el("span", { className: "meta", textContent: item.port || "No port" })),
+    el("div", { className: "net-fields" }, ...fields),
+    problem,
+    el("div", { className: "actions" }, remove),
+  );
+}
+
+function renderStrips(snap) {
+  const strips = snap.settings.led_strips || [];
+  const list = $("strip-list");
+  const key = JSON.stringify(strips);
+  const focused = list.contains(document.activeElement) ? document.activeElement : null;
+  if (list.dataset.key === key || (focused && /^(text|number)$/.test(focused.type)) || list.querySelector("[aria-invalid]")) return;
+  list.dataset.key = key;
+  list.replaceChildren(...strips.map((item, i) => stripRow(i, item)));
+  if (focused && focused.id && $(focused.id)) $(focused.id).focus();
+  $("strip-empty").hidden = strips.length > 0;
+}
+
+function wireStrips() {
+  loadPorts();
+  $("strip-add").onclick = async () => {
+    await loadPorts();
+    const used = (state.snap.settings.led_strips || []).map((s) => s.port);
+    const port = stripPorts.find((p) => !used.includes(p)) || "";
+    saveStrips((s) => s.push({ ...STRIP_BLANK, port }));
+  };
+}
+
 function renderSettings(snap) {
   for (const input of document.querySelectorAll("[data-setting]")) put(input, snap.settings[input.dataset.setting]);
   $("openrgb-server").hidden = !snap.settings.openrgb_enabled;
   renderNetwork(snap);
+  renderStrips(snap);
 
   const list = $("backend-list");
   const key = JSON.stringify(snap.backends);
@@ -1129,6 +1254,7 @@ function wirePanels() {
   };
 
   wireNetwork();
+  wireStrips();
   $("conflicts-refresh").onclick = refreshConflicts;
   $("conflicts-close").onclick = async () => {
     const report = await call("close_conflicts_now");
