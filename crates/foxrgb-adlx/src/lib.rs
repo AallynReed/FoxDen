@@ -60,6 +60,7 @@ pub struct Card {
     gpu: Obj,
     pub speed_range: Range,
     pub temperature_range: Range,
+    pub zero_rpm_supported: bool,
 }
 
 unsafe impl Send for Card {}
@@ -120,6 +121,9 @@ impl Card {
                     ranges(fan, &mut speed_range, &mut temperature_range),
                     "GetFanTuningRanges",
                 )?;
+                let zero_supported: extern "system" fn(Obj, *mut u8) -> i32 = method(fan, 8);
+                let mut zero = 0u8;
+                let zero_rpm_supported = zero_supported(fan, &mut zero) == OK && zero != 0;
                 release(gpus);
                 return Ok(Card {
                     tuning,
@@ -127,6 +131,7 @@ impl Card {
                     gpu,
                     speed_range,
                     temperature_range,
+                    zero_rpm_supported,
                 });
             }
             release(gpus);
@@ -221,17 +226,82 @@ impl Drop for Card {
 
 use foxrgb_fan::{Fan, FanBackend, Sensor};
 
-/// The card's fan as one controllable fan. A fixed duty is a flat curve; release puts the
-/// driver's own curve and zero-RPM setting back.
-struct CardFan {
-    card: Card,
-    /// The driver's curve and zero-RPM state, kept from the first write until release.
-    saved: Option<(Vec<Point>, Option<bool>)>,
-    /// Last speed written, in percent, so unchanged duties are not written again.
-    speed: Option<i32>,
+/// What `CardFan` needs from the card, so it can be tested without one.
+trait Tuning: Send {
+    fn speed_range(&self) -> Range;
+    fn temperature_range(&self) -> Range;
+    fn zero_rpm_supported(&self) -> bool;
+    fn curve(&mut self) -> Result<Vec<Point>, String>;
+    fn set_curve(&mut self, points: &[Point]) -> Result<(), String>;
+    fn zero_rpm(&mut self) -> Option<bool>;
+    fn set_zero_rpm(&mut self, on: bool) -> Result<(), String>;
 }
 
-impl Fan for CardFan {
+impl Tuning for Card {
+    fn speed_range(&self) -> Range {
+        self.speed_range
+    }
+    fn temperature_range(&self) -> Range {
+        self.temperature_range
+    }
+    fn zero_rpm_supported(&self) -> bool {
+        self.zero_rpm_supported
+    }
+    fn curve(&mut self) -> Result<Vec<Point>, String> {
+        Card::curve(self)
+    }
+    fn set_curve(&mut self, points: &[Point]) -> Result<(), String> {
+        Card::set_curve(self, points)
+    }
+    fn zero_rpm(&mut self) -> Option<bool> {
+        Card::zero_rpm(self)
+    }
+    fn set_zero_rpm(&mut self, on: bool) -> Result<(), String> {
+        Card::set_zero_rpm(self, on)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    /// A flat curve at this speed, zero RPM off.
+    Flat(i32),
+    /// The driver's own curve with zero RPM on, so the fan stops while the card is cool.
+    Stop,
+}
+
+/// The card's fan as one controllable fan. A fixed duty is a flat curve, and 0% lets the
+/// driver stop the fan; release puts the driver's own curve and zero-RPM setting back.
+struct CardFan<T: Tuning> {
+    card: T,
+    /// The driver's curve and zero-RPM state, kept from the first write until release.
+    saved: Option<(Vec<Point>, Option<bool>)>,
+    /// Last mode written, so unchanged duties are not written again.
+    mode: Option<Mode>,
+    /// Last zero-RPM state written.
+    zero: Option<bool>,
+}
+
+impl<T: Tuning> CardFan<T> {
+    fn new(card: T) -> Self {
+        CardFan {
+            card,
+            saved: None,
+            mode: None,
+            zero: None,
+        }
+    }
+
+    fn mode(&self, duty: f32) -> Mode {
+        let percent = (duty.clamp(0.0, 1.0) * 100.0).round() as i32;
+        if percent == 0 && self.card.zero_rpm_supported() {
+            return Mode::Stop;
+        }
+        let range = self.card.speed_range();
+        Mode::Flat(percent.clamp(range.min, range.max))
+    }
+}
+
+impl<T: Tuning> Fan for CardFan<T> {
     fn id(&self) -> &str {
         "gpu0/fan"
     }
@@ -245,36 +315,57 @@ impl Fan for CardFan {
     }
 
     fn set_duty(&mut self, duty: f32) -> Result<(), String> {
-        let range = self.card.speed_range;
-        let speed = ((duty.clamp(0.0, 1.0) * 100.0).round() as i32).clamp(range.min, range.max);
-        if self.speed == Some(speed) {
+        let mode = self.mode(duty);
+        if self.mode == Some(mode) {
             return Ok(());
         }
         if self.saved.is_none() {
             self.saved = Some((self.card.curve()?, self.card.zero_rpm()));
-            let _ = self.card.set_zero_rpm(false);
         }
-        let temps = self.card.temperature_range;
-        let points: Vec<Point> = (0..5)
-            .map(|i| Point {
-                speed,
-                temperature: temps.min + (temps.max - temps.min) * (i + 1) / 6,
-            })
-            .collect();
-        self.card.set_curve(&points)?;
-        self.speed = Some(speed);
+        self.mode = None;
+        let (curve, zero) = match mode {
+            Mode::Stop => (
+                self.saved.as_ref().map(|s| s.0.clone()).unwrap_or_default(),
+                true,
+            ),
+            Mode::Flat(speed) => {
+                let temps = self.card.temperature_range();
+                let points = (0..5)
+                    .map(|i| Point {
+                        speed,
+                        temperature: temps.min + (temps.max - temps.min) * (i + 1) / 6,
+                    })
+                    .collect();
+                (points, false)
+            }
+        };
+        self.card.set_curve(&curve)?;
+        if self.zero != Some(zero) {
+            match self.card.set_zero_rpm(zero) {
+                Ok(()) => self.zero = Some(zero),
+                // A card that cannot turn zero RPM off still takes the curve.
+                Err(_) if !zero => {}
+                Err(e) => return Err(e),
+            }
+        }
+        self.mode = Some(mode);
         Ok(())
     }
 
     fn release(&mut self) -> Result<(), String> {
-        self.speed = None;
-        if let Some((curve, zero_rpm)) = self.saved.take() {
-            self.card.set_curve(&curve)?;
-            if let Some(on) = zero_rpm {
-                self.card.set_zero_rpm(on)?;
-            }
+        self.mode = None;
+        self.zero = None;
+        let Some((curve, zero)) = self.saved.take() else {
+            return Ok(());
+        };
+        let restored = self.card.set_curve(&curve);
+        let zero_restored = zero.map_or(Ok(()), |on| self.card.set_zero_rpm(on));
+        let result = restored.and(zero_restored);
+        if result.is_err() {
+            // Kept, so the next release tries again.
+            self.saved = Some((curve, zero));
         }
-        Ok(())
+        result
     }
 }
 
@@ -292,13 +383,7 @@ impl FanBackend for CardBackend {
     fn fans(&mut self) -> Vec<Box<dyn Fan>> {
         self.0
             .take()
-            .map(|card| {
-                Box::new(CardFan {
-                    card,
-                    saved: None,
-                    speed: None,
-                }) as Box<dyn Fan>
-            })
+            .map(|card| Box::new(CardFan::new(card)) as Box<dyn Fan>)
             .into_iter()
             .collect()
     }
@@ -314,9 +399,8 @@ pub fn backends() -> Vec<Box<dyn FanBackend>> {
 
 /// The AMD card's fan on its own, for a process in the user's session.
 pub fn fan() -> Result<Box<dyn Fan>, String> {
-    Ok(Box::new(CardFan {
-        card: Card::open()?,
-        saved: None,
-        speed: None,
-    }))
+    Ok(Box::new(CardFan::new(Card::open()?)))
 }
+
+#[cfg(test)]
+mod tests;
