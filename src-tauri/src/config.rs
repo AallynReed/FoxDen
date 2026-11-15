@@ -22,6 +22,10 @@ pub struct Settings {
     /// Lights on the local network and DMX, off until the user turns them on.
     pub network_enabled: bool,
     pub network: NetConfig,
+    /// Serial LED strips the user added.
+    pub led_strips: Vec<LedStripConfig>,
+    /// LED counts of resizable zones, keyed `device#zone`.
+    pub zone_leds: BTreeMap<String, usize>,
     pub close_to_tray: bool,
     pub start_minimized: bool,
     pub autostart: bool,
@@ -47,6 +51,8 @@ impl Default for Settings {
             native_drivers: true,
             network_enabled: false,
             network: NetConfig::default(),
+            led_strips: Vec::new(),
+            zone_leds: BTreeMap::new(),
             close_to_tray: true,
             start_minimized: false,
             autostart: true,
@@ -57,6 +63,46 @@ impl Default for Settings {
             close_conflicts: true,
             send_reports: false,
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LedStripConfig {
+    pub name: String,
+    pub port: String,
+    pub baud: u32,
+    pub leds: usize,
+    /// `adalight`, `tpm2` or `keyboard_visualizer`.
+    pub protocol: String,
+}
+
+impl Default for LedStripConfig {
+    fn default() -> Self {
+        LedStripConfig {
+            name: "LED strip".into(),
+            port: String::new(),
+            baud: 115_200,
+            leds: 60,
+            protocol: "adalight".into(),
+        }
+    }
+}
+
+impl LedStripConfig {
+    /// The strip for foxrgb-hid, if every field is usable.
+    pub fn strip(&self) -> Option<foxrgb_hid::LedStrip> {
+        let port = self.port.trim();
+        if port.is_empty() || self.baud == 0 || self.leds == 0 {
+            return None;
+        }
+        Some(foxrgb_hid::LedStrip {
+            name: self.name.trim().to_string(),
+            port: port.to_string(),
+            baud: self.baud,
+            leds: self.leds,
+            protocol: foxrgb_hid::LedProtocol::from_name(&self.protocol)?,
+        })
     }
 }
 
@@ -148,7 +194,10 @@ pub fn load(dir: &Path) -> Config {
         return Config::default();
     };
     let mut config: Config = serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-        crate::log::warn("config", format!("{FILE} could not be read and was set aside: {e}"));
+        crate::log::warn(
+            "config",
+            format!("{FILE} could not be read and was set aside: {e}"),
+        );
         let _ = fs::rename(&path, dir.join(CORRUPT));
         Config::default()
     });
@@ -308,6 +357,55 @@ mod tests {
         assert_eq!(settings.network.hue[0].username, "u");
         assert_eq!(settings.network.e131[0].universe_size, 512);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn strips_and_zone_lengths_round_trip() {
+        let dir = scratch("strips");
+        fs::write(dir.join(FILE), r#"{"settings":{"fps":40}}"#).unwrap();
+        let old = load(&dir).settings;
+        assert!(old.led_strips.is_empty() && old.zone_leds.is_empty());
+        let text = r#"{"settings":{"led_strips":[{"port":"COM4"},
+            {"name":"Desk","port":"COM5","baud":9600,"leds":30,"protocol":"tpm2"}],
+            "zone_leds":{"hid:asus-aura-usb-x#1":24}}}"#;
+        fs::write(dir.join(FILE), text).unwrap();
+        let config = load(&dir);
+        let s = &config.settings;
+        assert_eq!(
+            s.led_strips[0],
+            LedStripConfig {
+                port: "COM4".into(),
+                ..Default::default()
+            }
+        );
+        let desk = s.led_strips[1].strip().unwrap();
+        assert_eq!((desk.baud, desk.leds), (9600, 30));
+        assert_eq!(desk.protocol, foxrgb_hid::LedProtocol::Tpm2);
+        assert_eq!(s.zone_leds["hid:asus-aura-usb-x#1"], 24);
+        save(&dir, &config).unwrap();
+        assert_eq!(load(&dir), config);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unusable_strips_are_left_out() {
+        let ok = LedStripConfig {
+            port: "COM3".into(),
+            ..Default::default()
+        };
+        assert_eq!(ok.strip().unwrap().leds, 60);
+        let bad = [
+            LedStripConfig::default(),
+            LedStripConfig {
+                leds: 0,
+                ..ok.clone()
+            },
+            LedStripConfig {
+                protocol: "basic_i2c".into(),
+                ..ok.clone()
+            },
+        ];
+        assert!(bad.iter().all(|s| s.strip().is_none()));
     }
 
     #[test]

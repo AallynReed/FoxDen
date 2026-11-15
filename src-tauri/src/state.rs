@@ -14,8 +14,8 @@ use tauri_plugin_notification::NotificationExt;
 
 use crate::config::{self, Config, Profile, Settings};
 use crate::detect::{self, Detected, Found, Live, Watch};
-use crate::tray;
 use crate::keys::KeyCapture;
+use crate::tray;
 
 const SAVE_DELAY: Duration = Duration::from_millis(500);
 /// Seconds after which effect time starts again from zero.
@@ -46,6 +46,29 @@ pub struct DeviceView {
     leds: Vec<[f32; 2]>,
     enabled: bool,
     brightness: f32,
+    /// Zones whose LED count the user sets.
+    zones: Vec<ZoneView>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ZoneView {
+    key: String,
+    name: String,
+    leds: usize,
+    min: usize,
+    max: usize,
+}
+
+impl From<foxrgb_hid::Zone> for ZoneView {
+    fn from(z: foxrgb_hid::Zone) -> Self {
+        ZoneView {
+            key: foxrgb_hid::length_key(&z.device, z.index),
+            name: z.name,
+            leds: z.leds,
+            min: z.min,
+            max: z.max,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -115,6 +138,8 @@ pub struct AppState {
     found: Vec<Found>,
     /// Whether the OpenRGB server answered that pass.
     openrgb_up: bool,
+    /// Resizable zones of the native devices, by device id.
+    zones: HashMap<String, Vec<ZoneView>>,
 }
 
 pub type Shared = Arc<Mutex<AppState>>;
@@ -144,6 +169,7 @@ impl AppState {
             retry_inputs: false,
             found: Vec::new(),
             openrgb_up: false,
+            zones: HashMap::new(),
         }
     }
 
@@ -161,6 +187,10 @@ impl AppState {
                 leds: device.leds.clone(),
                 enabled,
                 brightness,
+                zones: match backend {
+                    "hid" => self.zones.get(&device.id).cloned().unwrap_or_default(),
+                    _ => Vec::new(),
+                },
             })
             .collect();
         Snapshot {
@@ -314,7 +344,10 @@ fn note_changes(snapshot: &Snapshot) {
     }
     seen.devices = now;
     for b in &snapshot.backends {
-        let old = seen.errors.insert(b.name.clone(), b.error.clone()).flatten();
+        let old = seen
+            .errors
+            .insert(b.name.clone(), b.error.clone())
+            .flatten();
         match (&b.error, old) {
             (Some(e), old) if old.as_ref() != Some(e) => crate::log::error(&b.name, e.clone()),
             (None, Some(_)) => crate::log::info(&b.name, "Working again"),
@@ -457,7 +490,15 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
         },
         "net" => (foxrgb_net::probe(&settings.network), None),
         _ => {
-            let mut backends = foxrgb_hid::probe();
+            // Strips first, so the serial probes never write to their ports.
+            let strips: Vec<_> = settings
+                .led_strips
+                .iter()
+                .filter_map(|s| s.strip())
+                .collect();
+            let mut backends = foxrgb_hid::led_strips(&strips);
+            foxrgb_hid::set_lengths(settings.zone_leds.clone());
+            backends.extend(foxrgb_hid::probe());
             backends.extend(foxrgb_gpu::probe());
             // Memory needs PawnIO and administrator rights, or the installed service that has them.
             match foxrgb_smbus::probe() {
@@ -475,6 +516,17 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             (backends, None)
         }
     }
+}
+
+fn group_zones(zones: Vec<foxrgb_hid::Zone>) -> HashMap<String, Vec<ZoneView>> {
+    let mut by_device: HashMap<String, Vec<ZoneView>> = HashMap::new();
+    for z in zones {
+        by_device
+            .entry(z.device.clone())
+            .or_default()
+            .push(z.into());
+    }
+    by_device
 }
 
 /// Reconnects the chosen backend groups and leaves the others running. Worker thread only.
@@ -514,7 +566,11 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
         }
         fresh.push((label, outcome));
     }
+    let zones = kinds.hid.then(foxrgb_hid::resizable);
     let mut state = lock(shared);
+    if let Some(zones) = zones {
+        state.zones = group_zones(zones);
+    }
     for (label, outcome) in fresh {
         state.engine.remove(label);
         state.loaded.remove(label);
@@ -621,9 +677,9 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                         screen.status("screen"),
                         keys.status("keys"),
                     ]
-                        .into_iter()
-                        .flatten()
-                        .collect();
+                    .into_iter()
+                    .flatten()
+                    .collect();
                 }
                 // f32 seconds turn coarse after days of uptime, so the clock wraps.
                 let t = (start.elapsed().as_secs_f64() % CLOCK_WRAP) as f32;
@@ -753,6 +809,7 @@ mod tests {
                 "close_to_tray",
                 "fans_module",
                 "fps",
+                "led_strips",
                 "lighting_module",
                 "native_drivers",
                 "network",
@@ -761,7 +818,8 @@ mod tests {
                 "openrgb_host",
                 "openrgb_port",
                 "send_reports",
-                "start_minimized"
+                "start_minimized",
+                "zone_leds"
             ]
         );
         assert_eq!(json["settings"]["send_reports"], false);
@@ -789,8 +847,29 @@ mod tests {
                 "kind",
                 "leds",
                 "name",
-                "rect"
+                "rect",
+                "zones"
             ]
+        );
+        assert_eq!(gpu["zones"], json!([]));
+        state.zones = group_zones(vec![foxrgb_hid::Zone {
+            device: "virtual:gpu".into(),
+            index: 1,
+            name: "Header 1".into(),
+            leds: 30,
+            min: 0,
+            max: 120,
+        }]);
+        let json = serde_json::to_value(state.snapshot()).unwrap();
+        let gpu = json["devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["id"] == "virtual:gpu")
+            .unwrap();
+        assert_eq!(
+            gpu["zones"],
+            json!([{ "key": "virtual:gpu#1", "name": "Header 1", "leds": 30, "min": 0, "max": 120 }])
         );
         assert_eq!(gpu["backend"], "hid");
         assert_eq!(gpu["kind"], "gpu");
