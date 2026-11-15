@@ -3,8 +3,8 @@
 use std::sync::Mutex;
 
 use crate::registry::Detector;
-use serial::Port;
 use foxrgb_core::Backend;
+use serial::Port;
 
 mod arctic;
 mod blinkytape;
@@ -26,6 +26,14 @@ mod skydimo_serial;
 mod winusb;
 
 pub use ledstrip::{LedProtocol, LedStrip, led_strips};
+
+/// COM ports of USB devices, for picking a strip's port.
+pub fn serial_ports() -> Vec<String> {
+    let mut names: Vec<String> = serial::usb_ports().into_iter().map(|p| p.name).collect();
+    names.sort_by_key(|n| (n[3..].parse::<u32>().unwrap_or(u32::MAX), n.clone()));
+    names.dedup();
+    names
+}
 
 fn sets() -> [&'static [Detector]; 4] {
     [

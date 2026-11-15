@@ -4,12 +4,14 @@ mod families;
 #[path = "families/generic/any/mod.rs"]
 mod generic_any;
 mod hidpp;
+mod lengths;
 mod msi;
 pub mod registry;
 
-pub use families::{LedProtocol, LedStrip, led_strips};
+pub use families::{LedProtocol, LedStrip, led_strips, serial_ports};
 use foxrgb_core::Backend;
 use hidapi::{BusType, HidApi};
+pub use lengths::{Zone, key as length_key, resizable, set_lengths};
 
 fn supported(vid: u16, pid: u16) -> bool {
     matches!(
@@ -164,6 +166,7 @@ pub fn diagnose() -> Vec<String> {
 
 /// Detects supported USB HID lighting devices and returns one backend per device.
 pub fn probe() -> Vec<Box<dyn Backend>> {
+    lengths::clear();
     let Ok(api) = HidApi::new() else {
         return Vec::new();
     };

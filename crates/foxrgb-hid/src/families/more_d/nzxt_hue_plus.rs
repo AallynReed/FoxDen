@@ -52,15 +52,21 @@ impl Proto for HuePlus {
     }
 }
 
+/// The counts the controller reported, or the user's.
+fn sized(id: &str, found: [usize; 2]) -> [usize; 2] {
+    let mut i = 0;
+    found.map(|n| {
+        i += 1;
+        crate::lengths::length(id, i - 1, &format!("Channel {i}"), n, 0, MAX_LEDS)
+    })
+}
+
 pub fn open(port: &Port) -> Option<Box<dyn Backend>> {
     let mut io = Serial::open(&port.name, BAUD, false).ok()?;
-    let channels = [leds_on_channel(&mut io, 1), leds_on_channel(&mut io, 2)];
-    let dev = rows(
-        named_id(FAMILY, &port.name),
-        "NZXT Hue+",
-        DeviceKind::Strip,
-        &channels,
-    );
+    let id = named_id(FAMILY, &port.name);
+    let found = [leds_on_channel(&mut io, 1), leds_on_channel(&mut io, 2)];
+    let channels = sized(&id, found);
+    let dev = rows(id, "NZXT Hue+", DeviceKind::Strip, &channels);
     Some(boxed(Box::new(io), dev, FAMILY, HuePlus { channels }))
 }
 
@@ -68,6 +74,12 @@ pub fn open(port: &Port) -> Option<Box<dyn Backend>> {
 mod tests {
     use super::*;
     use rec::*;
+
+    #[test]
+    fn a_set_length_overrides_the_reported_one() {
+        crate::lengths::set_one("hid:nzxt-hue-plus-test", 1, 16);
+        assert_eq!(sized("hid:nzxt-hue-plus-test", [24, 40]), [24, 16]);
+    }
 
     #[test]
     fn channel_query() {

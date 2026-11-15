@@ -69,6 +69,18 @@ impl Proto for JginyueV2 {
     }
 }
 
+/// Each area at the user's length, up to the maximum the board reports.
+fn sized(id: &str, zones: Vec<(u8, usize)>) -> Vec<(u8, usize)> {
+    zones
+        .into_iter()
+        .enumerate()
+        .map(|(i, (area, max))| {
+            let name = format!("ARGB {}", i + 1);
+            (area, crate::lengths::length(id, i, &name, max, 1, max))
+        })
+        .collect()
+}
+
 /// Only JGINYUE boards, and only with the CDC port Direct mode needs.
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     if !serial::board_manufacturer()
@@ -83,14 +95,10 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         .find(|p| (p.vid, p.pid) == (VID, PID))
         .ok_or("no CDC port for Direct mode")?;
     let cdc = Serial::open(&port.name, BAUD, false)?;
-    let zones = read_zones(&mut hid);
+    let id = hid_id(info, FAMILY);
+    let zones = sized(&id, read_zones(&mut hid));
     let counts: Vec<usize> = zones.iter().map(|z| z.1).collect();
-    let dev = rows(
-        hid_id(info, FAMILY),
-        d.name,
-        DeviceKind::Motherboard,
-        &counts,
-    );
+    let dev = rows(id, d.name, DeviceKind::Motherboard, &counts);
     Ok(boxed(Box::new(cdc), dev, FAMILY, JginyueV2 { zones }))
 }
 
@@ -108,6 +116,14 @@ pub static DETECTORS: &[Detector] = &[det(
 mod tests {
     use super::*;
     use rec::*;
+
+    #[test]
+    fn a_set_length_shortens_an_area() {
+        crate::lengths::set_one("hid:jginyue-v2-test", 1, 500);
+        crate::lengths::set_one("hid:jginyue-v2-test", 0, 12);
+        let zones = sized("hid:jginyue-v2-test", vec![(1, 30), (4, 120)]);
+        assert_eq!(zones, vec![(1, 12), (4, 120)]);
+    }
 
     #[test]
     fn zones_from_status() {

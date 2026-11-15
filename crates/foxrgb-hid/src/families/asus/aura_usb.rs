@@ -13,6 +13,8 @@ const LEDS_PER_PACKET: u16 = 0x14;
 const MODE_DIRECT: u8 = 0xFF;
 /// OpenRGB starts addressable headers at 0 LEDs until the user sizes them.
 const DEFAULT_HEADER_LEDS: usize = 60;
+/// AURA_ADDRESSABLE_MAX_LEDS.
+const MAX_HEADER_LEDS: usize = 120;
 
 /// GetFirmwareVersion and GetConfigTable, which every AuraUSBController sends first.
 pub fn base(io: &mut dyn Io) -> Result<([u8; 16], [u8; 60]), String> {
@@ -145,6 +147,19 @@ impl Proto for Aura {
     }
 }
 
+/// Gives each addressable header the user's LED count.
+pub fn sized(id: &str, channels: &mut [Channel]) {
+    for (n, (i, ch)) in channels
+        .iter_mut()
+        .enumerate()
+        .filter(|(_, c)| !c.fixed)
+        .enumerate()
+    {
+        let name = format!("Header {}", n + 1);
+        ch.leds = crate::lengths::length(id, i, &name, ch.leds, 0, MAX_HEADER_LEDS);
+    }
+}
+
 /// The controller constructors: base queries, then SetGen1 on mainboards.
 pub fn setup(io: &mut dyn Io, mainboard: bool) -> Result<Vec<Channel>, String> {
     let (version, config) = base(io)?;
@@ -163,10 +178,11 @@ fn build(
     mainboard: bool,
 ) -> Result<Box<dyn Backend>, String> {
     let mut io = opened(api, info)?;
-    let channels = setup(io.as_mut(), mainboard)?;
+    let mut channels = setup(io.as_mut(), mainboard)?;
     if channels.is_empty() {
         return Err("no Aura channels".into());
     }
+    sized(&info.device_id(FAMILY), &mut channels);
     let zones: Vec<usize> = channels.iter().map(|c| c.leds).collect();
     let mut dev = stacked(info, FAMILY, d, DeviceKind::Motherboard, &zones);
     if let Some(name) = name {
@@ -346,6 +362,26 @@ mod tests {
         assert_eq!((ar32[0].effect, ar32[1].effect, ar32[2].effect), (2, 0, 1));
         let mut bad = Rec::with(vec![vec![0xEC, 0x02], vec![0xEC, 0x31]]);
         assert!(base(&mut bad).is_err());
+    }
+
+    #[test]
+    fn a_set_length_sizes_the_header() {
+        let config = {
+            let mut c = [0u8; 60];
+            (c[0x1B], c[0x02]) = (5, 2);
+            c
+        };
+        let mut ch = mainboard_channels(&[0; 16], &config);
+        crate::lengths::set_one("hid:aura-test", 2, 200);
+        crate::lengths::set_one("hid:aura-test", 1, 12);
+        sized("hid:aura-test", &mut ch);
+        assert_eq!(ch.iter().map(|c| c.leds).collect::<Vec<_>>(), [5, 12, 120]);
+        let zones: Vec<_> = crate::lengths::resizable()
+            .into_iter()
+            .filter(|z| z.device == "hid:aura-test")
+            .map(|z| (z.index, z.name))
+            .collect();
+        assert_eq!(zones, [(1, "Header 1".into()), (2, "Header 2".into())]);
     }
 
     // SendDirect: 20 LEDs per packet, apply flag on the last

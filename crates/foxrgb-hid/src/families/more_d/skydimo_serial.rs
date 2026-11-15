@@ -197,8 +197,20 @@ fn device(port: &Port, model: &str) -> Device {
     let name = format!("Skydimo {model}");
     match output(model) {
         (n, Some((w, map))) => mapped(id, &name, DeviceKind::Strip, &map, w, n),
+        (n, None) if free(model) => {
+            let n = crate::lengths::length(&id, 0, "Strip", n, 1, n);
+            rows(id, &name, DeviceKind::Strip, &[n])
+        }
         (n, None) => rows(id, &name, DeviceKind::Strip, &[n]),
     }
+}
+
+/// Models whose length is the user's, up to the model's maximum.
+fn free(model: &str) -> bool {
+    MODELS
+        .iter()
+        .find(|m| m.0 == model)
+        .is_none_or(|m| m.1 == Free)
 }
 
 /// Opens the port and keeps it only when a Skydimo answers.
@@ -254,6 +266,19 @@ mod tests {
         assert_eq!(output("SK0402"), (72, None));
         assert_eq!(output("SK0410"), (300, None));
         assert_eq!(output("SK9999"), (150, None));
+    }
+
+    #[test]
+    fn free_models_take_a_set_length() {
+        let port = |name: &str| Port {
+            name: name.into(),
+            vid: IDS.0,
+            pid: IDS.1,
+        };
+        crate::lengths::set_one("hid:skydimo-serial-com93", 0, 90);
+        assert_eq!(device(&port("COM93"), "SK0410").leds.len(), 90);
+        crate::lengths::set_one("hid:skydimo-serial-com94", 0, 90);
+        assert_eq!(device(&port("COM94"), "SK0402").leds.len(), 72);
     }
 
     #[test]

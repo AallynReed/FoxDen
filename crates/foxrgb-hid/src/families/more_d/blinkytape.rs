@@ -2,13 +2,14 @@
 
 use super::common::*;
 use super::serial::{Port, Serial};
-use foxrgb_core::{Backend, Color, DeviceKind};
+use foxrgb_core::{Backend, Color, Device, DeviceKind};
 
 const FAMILY: &str = "blinkytape";
 pub const IDS: (u16, u16) = (0x1D50, 0x605E);
 const BAUD: u32 = 115_200;
 /// OpenRGB leaves the length to the user; a stock BlinkyTape has 60 LEDs.
 const LEDS: usize = 60;
+const MAX_LEDS: usize = 512;
 
 /// SetLEDs: RGB capped at 254, then the 0xFF that ends a frame.
 pub fn frame_packet(colors: &[Color]) -> Vec<u8> {
@@ -28,15 +29,15 @@ impl Proto for BlinkyTape {
     }
 }
 
+fn device(port: &str) -> Device {
+    let id = named_id(FAMILY, port);
+    let n = crate::lengths::length(&id, 0, "Strip", LEDS, 1, MAX_LEDS);
+    rows(id, "BlinkyTape", DeviceKind::Strip, &[n])
+}
+
 pub fn open(port: &Port) -> Option<Box<dyn Backend>> {
     let io = Serial::open(&port.name, BAUD, false).ok()?;
-    let dev = rows(
-        named_id(FAMILY, &port.name),
-        "BlinkyTape",
-        DeviceKind::Strip,
-        &[LEDS],
-    );
-    Some(boxed(Box::new(io), dev, FAMILY, BlinkyTape))
+    Some(boxed(Box::new(io), device(&port.name), FAMILY, BlinkyTape))
 }
 
 #[cfg(test)]
@@ -49,5 +50,12 @@ mod tests {
         let a = [Color(255, 1, 2), Color(3, 4, 255)];
         let [first, _, _] = pushes(BlinkyTape, 2, vec![], &a, &[]);
         assert_eq!(first, vec![w(vec![254, 1, 2, 3, 4, 254, 0xFF])]);
+    }
+
+    #[test]
+    fn a_set_length_changes_the_led_count() {
+        assert_eq!(device("COM91").leds.len(), 60);
+        crate::lengths::set_one("hid:blinkytape-com92", 0, 144);
+        assert_eq!(device("COM92").leds.len(), 144);
     }
 }
