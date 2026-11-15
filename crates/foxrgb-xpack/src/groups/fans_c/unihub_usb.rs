@@ -138,11 +138,13 @@ fn opened(m: &Model) -> Vec<Shared> {
     usb::find(ENE, m.pid)
         .iter()
         .filter_map(|d| usb::open(d, None).ok())
-        .filter(|s| {
-            s.lock()
-                .is_ok_and(|u| u.ctrl_in(fan_read(m.map, 0), 2).is_ok())
-        })
+        .filter(|s| answers(m, s))
         .collect()
+}
+
+fn answers(m: &Model, s: &Shared) -> bool {
+    s.lock()
+        .is_ok_and(|u| u.ctrl_in(fan_read(m.map, 0), 2).is_ok())
 }
 
 struct V1Lights;
@@ -272,8 +274,7 @@ fn same_hub(pid: u16, serial: &str, other: (u16, &str)) -> bool {
         && (serial.is_empty() || other.1.is_empty() || serial.eq_ignore_ascii_case(other.1))
 }
 
-/// Lighting of every controller bound to WinUSB. SL v1.8 and AL v1.7 get their HID reports over the
-/// control pipe, unless their HID collection is still there for the HID driver.
+/// Lighting of WinUSB-bound hubs; SL v1.8 and AL v1.7 get their HID reports by SET_REPORT.
 pub fn lights(pick: Pick) -> Vec<Box<dyn Backend>> {
     let api = HidApi::new().ok();
     let hid = hid_bound(api.as_ref());
@@ -343,7 +344,9 @@ impl FanHub for Unavailable {
 }
 
 struct Hub {
-    usb: Shared,
+    /// Opened on first use when another process held the device at listing.
+    usb: Option<Shared>,
+    at: usb::UsbDevice,
     id: String,
     name: &'static str,
     map: Map,
@@ -354,6 +357,13 @@ struct Hub {
 }
 
 impl Hub {
+    fn link(&mut self) -> Result<Shared, String> {
+        if self.usb.is_none() {
+            self.usb = Some(usb::open(&self.at, None)?);
+        }
+        self.usb.clone().ok_or_else(|| "not open".into())
+    }
+
     fn write_rpm(&self, usb: &Usb, ch: usize, duty: f32) -> Result<(), String> {
         match self.map {
             Map::V1 => {
@@ -388,7 +398,8 @@ impl FanHub for Hub {
             .collect()
     }
     fn rpm(&mut self, ch: usize) -> Option<u32> {
-        let usb = self.usb.lock().ok()?;
+        let usb = self.link().ok()?;
+        let usb = usb.lock().ok()?;
         let b = usb.ctrl_in(fan_read(self.map, ch), 2).ok()?;
         (b.len() >= 2).then(|| u16::from_le_bytes([b[0], b[1]]) as u32)
     }
@@ -397,7 +408,7 @@ impl FanHub for Hub {
         if self.duty[ch] == Some(p) && !self.released[ch] {
             return Ok(());
         }
-        let usb = self.usb.clone();
+        let usb = self.link()?;
         let usb = usb.lock().map_err(|e| e.to_string())?;
         if self.map == Map::V1 && !self.manual {
             usb.ctrl_out(v1::COMMAND, &[v1::FAN_CMD, v1::MANUAL])?;
@@ -414,9 +425,11 @@ impl FanHub for Hub {
         Ok(())
     }
     fn release(&mut self, ch: usize) -> Result<(), String> {
-        let usb = self.usb.clone();
-        let usb = usb.lock().map_err(|e| e.to_string())?;
         self.released[ch] = true;
+        let Some(usb) = self.usb.clone() else {
+            return Ok(());
+        };
+        let usb = usb.lock().map_err(|e| e.to_string())?;
         match self.map {
             Map::V2 => {
                 if self.touched[ch] {
@@ -441,25 +454,27 @@ impl FanHub for Hub {
     }
 }
 
-/// One fan hub per attached control-transfer controller, and one that says why for an SL or AL
-/// hub still on its HID driver.
+/// One fan hub per WinUSB-bound controller, and one saying why for an SL or AL on HID.
 pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     let mut out = Vec::new();
     let mut usb: Vec<(u16, String)> = Vec::new();
     for m in &MODELS {
-        for s in opened(m) {
-            let Ok((id, serial, device)) = s
-                .lock()
-                .map(|u| (u.fan_id(FAMILY), u.serial.clone(), u.device.clone()))
-            else {
+        for at in usb::find_bound(ENE, m.pid) {
+            let open = usb::open(&at, None);
+            if open.as_ref().is_ok_and(|s| !answers(m, s)) {
                 continue;
-            };
+            }
+            let serial = at.serial();
+            if !serial.is_empty() && usb.contains(&(m.pid, serial.clone())) {
+                continue;
+            }
             usb.push((m.pid, serial));
             out.push(with_device(
-                Some(device),
+                Some(usb::lock_for(&at)),
                 Hub {
-                    usb: s,
-                    id,
+                    usb: open.ok(),
+                    id: at.fan_id(FAMILY),
+                    at,
                     name: m.name,
                     map: m.map,
                     duty: [None; CHANNELS],
@@ -505,6 +520,26 @@ mod tests {
         assert_eq!(v2_pwm(3)[2], 0x8F);
         assert_eq!(V2Lights::commit_packet()[..4], [0x00, 0x01, 0xFF, 0x00]);
         assert_eq!(V2Lights::commit_packet().len(), 192);
+    }
+
+    // A hub held by another process at listing stays listed and tries to open on each call.
+    #[test]
+    fn a_held_hub_is_kept_and_opened_later() {
+        let mut hub = Hub {
+            usb: None,
+            at: super::usb::tests::at(0xA100, "HELD1"),
+            id: "fan:h".into(),
+            name: "H",
+            map: Map::V2,
+            duty: [None; CHANNELS],
+            released: [false; CHANNELS],
+            touched: [false; CHANNELS],
+            manual: false,
+        };
+        assert_eq!(hub.rpm(0), None);
+        assert!(hub.set_duty(0, 0.5).is_err());
+        assert_eq!(hub.duty[0], None);
+        assert!(hub.release(0).is_ok());
     }
 
     // A hub still on its HID driver lists its fans and says why none of them can be set.

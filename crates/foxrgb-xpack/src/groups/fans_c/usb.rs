@@ -27,7 +27,6 @@ pub struct Usb {
     pub vid: u16,
     pub pid: u16,
     pub serial: String,
-    /// The lock its lighting frames and fan calls take.
     pub device: Arc<foxrgb_hid::port::Device>,
     key: String,
 }
@@ -91,14 +90,32 @@ impl Usb {
             self.tail()
         )
     }
+}
 
+impl UsbDevice {
+    /// The serial in the path, empty when Windows made the instance up.
+    pub fn serial(&self) -> String {
+        let instance = winusb::instance(&self.path);
+        if instance.contains('&') {
+            String::new()
+        } else {
+            instance.to_string()
+        }
+    }
+
+    fn key(&self) -> String {
+        winusb::instance(&self.path).replace('&', ".")
+    }
+
+    /// Matches `Usb::device_id` with the `fan:` prefix, open or not.
     pub fn fan_id(&self, family: &str) -> String {
-        format!(
-            "fan:{family}-{:04x}{:04x}-{}",
-            self.vid,
-            self.pid,
-            self.tail()
-        )
+        let serial = self.serial();
+        let tail = if serial.is_empty() {
+            self.key()
+        } else {
+            serial
+        };
+        format!("fan:{family}-{:04x}{:04x}-{tail}", self.vid, self.pid)
     }
 }
 
@@ -107,9 +124,34 @@ fn registry() -> &'static Mutex<HashMap<String, Weak<Mutex<Usb>>>> {
     OPEN.get_or_init(Default::default)
 }
 
+/// The device lock of a path, the same before and after it opens.
+pub fn lock_for(dev: &UsbDevice) -> Arc<foxrgb_hid::port::Device> {
+    static LOCKS: Mutex<Vec<(String, Weak<foxrgb_hid::port::Device>)>> = Mutex::new(Vec::new());
+    let full = dev.path.to_ascii_lowercase();
+    let mut locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
+    locks.retain(|(_, d)| d.strong_count() > 0);
+    if let Some(d) = locks
+        .iter()
+        .find_map(|(p, d)| (*p == full).then(|| d.upgrade()).flatten())
+    {
+        return d;
+    }
+    let d = Arc::default();
+    locks.push((full, Arc::downgrade(&d)));
+    d
+}
+
 /// Every attached device with these ids that is bound to WinUSB.
 pub fn find(vid: u16, pid: u16) -> Vec<UsbDevice> {
     WinUsb::paths(vid, pid)
+        .into_iter()
+        .map(|path| UsbDevice { vid, pid, path })
+        .collect()
+}
+
+/// The devices WinUSB is bound to, including ones another process holds open.
+pub fn find_bound(vid: u16, pid: u16) -> Vec<UsbDevice> {
+    WinUsb::bound_paths(vid, pid)
         .into_iter()
         .map(|path| UsbDevice { vid, pid, path })
         .collect()
@@ -128,19 +170,13 @@ pub fn open(dev: &UsbDevice, bulk_ep: Option<u8>) -> Result<Shared, String> {
     if bulk_ep.is_some_and(|ep| !handle.has_pipe(ep)) {
         return Err("bulk endpoint not found".into());
     }
-    let instance = winusb::instance(&dev.path).to_string();
-    let serial = if instance.contains('&') {
-        String::new()
-    } else {
-        instance.clone()
-    };
     let s = Arc::new(Mutex::new(Usb {
         handle: Mutex::new(handle),
         vid: dev.vid,
         pid: dev.pid,
-        serial,
-        key: instance.replace('&', "."),
-        device: Arc::default(),
+        serial: dev.serial(),
+        key: dev.key(),
+        device: lock_for(dev),
     }));
     reg.insert(full, Arc::downgrade(&s));
     Ok(s)
@@ -249,4 +285,32 @@ impl<P: UsbProto> Drop for UsbDriver<P> {
 
 pub fn pause(v: u64) {
     std::thread::sleep(Duration::from_millis(v));
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    pub fn at(pid: u16, instance: &str) -> UsbDevice {
+        UsbDevice {
+            vid: 0x0CF2,
+            pid,
+            path: format!(
+                r"\\?\usb#vid_0cf2&pid_{pid:04x}#{instance}#{{a5dcbf10-6530-11d2-901f-00c04fb951ed}}"
+            ),
+        }
+    }
+
+    // A device another process holds keeps the id and lock it gets once it opens.
+    #[test]
+    fn a_device_has_its_fan_id_and_lock_before_it_opens() {
+        let held = at(0xA100, "ABC123");
+        assert_eq!(held.fan_id("f"), "fan:f-0cf2a100-ABC123");
+        let bare = at(0xA100, "6&1a2b&0&2");
+        assert_eq!(bare.serial(), "");
+        assert_eq!(bare.fan_id("f"), "fan:f-0cf2a100-6.1a2b.0.2");
+        assert!(Arc::ptr_eq(&lock_for(&held), &lock_for(&held.clone())));
+        assert!(!Arc::ptr_eq(&lock_for(&held), &lock_for(&bare)));
+        assert!(open(&held, None).is_err());
+    }
 }

@@ -91,6 +91,24 @@ impl WinUsb {
         out
     }
 
+    /// The paths of `paths` that WinUSB itself is bound to, open or not.
+    pub fn bound_paths(vid: u16, pid: u16) -> Vec<String> {
+        let ids = format!("vid_{vid:04x}&pid_{pid:04x}");
+        let mut guids = interface_guids(&ids);
+        let key = |g: &GUID| (g.data1, g.data2, g.data3, g.data4);
+        guids.sort_by_key(key);
+        guids.dedup_by_key(|g| key(g));
+        let mut out = Vec::new();
+        for g in guids {
+            for p in find_all(&g, &ids) {
+                if !out.contains(&p) {
+                    out.push(p);
+                }
+            }
+        }
+        out
+    }
+
     /// Opens one path from `paths`.
     pub fn at(path: &str, out_ep: u8, in_ep: u8) -> Result<WinUsb, String> {
         let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();

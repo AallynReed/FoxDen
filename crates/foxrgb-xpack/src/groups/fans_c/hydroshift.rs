@@ -139,11 +139,13 @@ fn open_all() -> Vec<Shared> {
     usb::find(NUVOTON, PID)
         .iter()
         .filter_map(|d| usb::open(d, Some(EP_OUT)).ok())
-        .filter(|s| {
-            s.lock()
-                .is_ok_and(|u| exchange(&u, &packet(GET_TEMPERATURE, &[], SHORT_LEN)).is_some())
-        })
+        .filter(answers)
         .collect()
+}
+
+fn answers(s: &Shared) -> bool {
+    s.lock()
+        .is_ok_and(|u| exchange(&u, &packet(GET_TEMPERATURE, &[], SHORT_LEN)).is_some())
 }
 
 struct Lights;
@@ -195,9 +197,20 @@ pub fn lights() -> Vec<Box<dyn Backend>> {
 }
 
 struct Hub {
-    usb: Shared,
+    /// Opened on first use when another process held the device at listing.
+    usb: Option<Shared>,
+    at: usb::UsbDevice,
     id: String,
     level: Option<u16>,
+}
+
+impl Hub {
+    fn link(&mut self) -> Result<Shared, String> {
+        if self.usb.is_none() {
+            self.usb = Some(usb::open(&self.at, Some(EP_OUT))?);
+        }
+        self.usb.clone().ok_or_else(|| "not open".into())
+    }
 }
 
 impl FanHub for Hub {
@@ -214,12 +227,14 @@ impl FanHub for Hub {
         vec!["Liquid Temperature".into()]
     }
     fn rpm(&mut self, _ch: usize) -> Option<u32> {
-        let usb = self.usb.lock().ok()?;
+        let usb = self.link().ok()?;
+        let usb = usb.lock().ok()?;
         let r = exchange(&usb, &packet(GET_PUMP, &[], SHORT_LEN))?;
         (r.len() >= 3).then(|| corrected_rpm(u16::from_be_bytes([r[1], r[2]])))
     }
     fn set_duty(&mut self, _ch: usize, duty: f32) -> Result<(), String> {
-        let usb = self.usb.lock().map_err(|e| e.to_string())?;
+        let usb = self.link()?;
+        let usb = usb.lock().map_err(|e| e.to_string())?;
         // the MCU forgets software mode after a power cycle or L-Connect, so check each time
         let status = exchange(&usb, &packet(GET_TEMPERATURE, &[], SHORT_LEN));
         let synced = status.as_ref().is_none_or(|r| r.get(2) == Some(&0));
@@ -240,30 +255,32 @@ impl FanHub for Hub {
         Ok(())
     }
     fn temperature(&mut self, _sensor: usize) -> Option<f32> {
-        let usb = self.usb.lock().ok()?;
+        let usb = self.link().ok()?;
+        let usb = usb.lock().ok()?;
         let r = exchange(&usb, &packet(GET_TEMPERATURE, &[], SHORT_LEN))?;
         r.get(1).filter(|t| **t > 0).map(|t| *t as f32)
     }
 }
 
+/// One hub per WinUSB-bound AIO, kept when another process holds it so it opens later.
 pub fn fans() -> Vec<Box<dyn FanBackend>> {
-    open_all()
-        .into_iter()
-        .filter_map(|s| {
-            let (id, device) = s
-                .lock()
-                .map(|u| (u.fan_id(FAMILY), u.device.clone()))
-                .ok()?;
-            Some(with_device(
-                Some(device),
-                Hub {
-                    usb: s,
-                    id,
-                    level: None,
-                },
-            ))
-        })
-        .collect()
+    let mut out = Vec::new();
+    for at in usb::find_bound(NUVOTON, PID) {
+        let open = usb::open(&at, Some(EP_OUT));
+        if open.as_ref().is_ok_and(|s| !answers(s)) {
+            continue;
+        }
+        out.push(with_device(
+            Some(usb::lock_for(&at)),
+            Hub {
+                usb: open.ok(),
+                id: at.fan_id(FAMILY),
+                at,
+                level: None,
+            },
+        ));
+    }
+    out
 }
 
 #[cfg(test)]

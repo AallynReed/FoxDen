@@ -558,8 +558,7 @@ mod tests {
         assert_eq!(pump_mode(1.0), EXTREME);
     }
 
-    // Lighting and fans of one cooler step one sequence, and the lighting setup that rewrites
-    // command 3 makes the fans send their packets again.
+    // One sequence for lights and fans; lighting setup rewrites command 3, so fans resend.
     #[test]
     fn lighting_and_fans_share_the_sequence_and_resend_after_setup() {
         use crate::hid::wire::Wire;

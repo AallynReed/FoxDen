@@ -178,8 +178,7 @@ impl Pipe for Client {
     }
 }
 
-/// One worker tick: the fans while the module is on, and whether a service answers either way,
-/// judged as the hubs' lighting judges it.
+/// One worker tick: the fans while the module is on, and whether a service answers, either way.
 fn tick(on: bool, pipe: &impl Pipe) -> (Option<FanState>, bool) {
     if !on {
         return (None, pipe.answers());

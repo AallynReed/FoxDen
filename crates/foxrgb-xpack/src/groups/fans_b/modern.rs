@@ -870,8 +870,7 @@ mod tests {
             .collect()
     }
 
-    // Fans released while lighting holds software mode follow the balanced curve, not a fixed
-    // speed, until lighting lets go and hands the hub back.
+    // Released fans follow the balanced curve while lighting holds the hub, then let go with it.
     #[test]
     fn released_fans_follow_the_liquid_while_lighting_holds_the_hub() {
         use foxrgb_hid::port::{LIGHTS, Port};
