@@ -88,14 +88,14 @@ const NATIVE: &[(u16, u16, &str, &str, &str)] = &[
         0xC08D,
         "Logitech G502 Lightspeed (cable)",
         "mouse",
-        "hid:logitech-c08d",
+        "hid:logitech-c539",
     ),
     (
         0x046D,
         0xC355,
         "Logitech G515 Lightspeed TKL (cable)",
         "keyboard",
-        "hid:logitech-c355",
+        "hid:logitech-c547",
     ),
     (
         0x1462,

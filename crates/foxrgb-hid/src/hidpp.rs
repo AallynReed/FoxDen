@@ -373,6 +373,15 @@ fn feature(hid: &HidDevice, device: u8, id: u16) -> Result<Option<u8>, String> {
     Ok((index != 0).then_some(index))
 }
 
+/// The receiver product id of a model, wired or not.
+pub fn receiver_of(pid: u16) -> u16 {
+    match pid {
+        G502_WIRED => G502_RECEIVER,
+        G515_WIRED => G515_RECEIVER,
+        other => other,
+    }
+}
+
 impl Lightspeed {
     /// The device behind the receiver. Its features are read now if it is awake, otherwise once it wakes.
     pub fn open(hid: HidDevice, pid: u16) -> Result<Self, String> {
@@ -382,12 +391,15 @@ impl Lightspeed {
         } else {
             RECEIVER_INDEX
         };
-        let id = format!("hid:logitech-{pid:04x}");
+        let wired = matches!(pid, G502_WIRED | G515_WIRED);
+        // One id per model, so its layout stays the same over the cable and the receiver.
+        let id = format!("hid:logitech-{:04x}", receiver_of(pid));
+        let link = if wired { " (cable)" } else { " (wireless)" };
         let (zones, device) = if keyboard {
             let keys = tkl_layout();
             let device = Device {
                 id: id.clone(),
-                name: "Logitech G515 Lightspeed TKL".into(),
+                name: format!("Logitech G515 Lightspeed TKL{link}"),
                 kind: DeviceKind::Keyboard,
                 rect: [0.06, 0.58, 0.54, 0.32],
                 grid: [18, 6],
@@ -398,7 +410,7 @@ impl Lightspeed {
             let rect = [0.70, 0.62, 0.06, 0.22];
             let device = Device::grid(
                 &id,
-                "Logitech G502 Lightspeed",
+                &format!("Logitech G502 Lightspeed{link}"),
                 DeviceKind::Mouse,
                 rect,
                 1,

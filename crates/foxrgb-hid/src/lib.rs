@@ -250,6 +250,7 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
     };
     let mut found: Vec<Box<dyn Backend>> = Vec::new();
     let mut board = false;
+    let mut lightspeed: Vec<(u16, hidpp::Lightspeed)> = Vec::new();
     let mut taken: Vec<String> = Vec::new();
     let mut infos = Vec::new();
     for raw in crate::device_list(&api).iter() {
@@ -278,7 +279,7 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
                     && let Ok(hid) = raw.open_device(&api)
                     && let Ok(device) = hidpp::Lightspeed::open(hid, pid)
                 {
-                    found.push(Box::new(device));
+                    lightspeed.push((pid, device));
                 }
                 continue;
             }
@@ -313,6 +314,17 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
         return found;
     }
     // Any-product matchers only see what the fixed detectors and hidpp.rs left.
+    // A keyboard or mouse on its cable is driven there; the receiver's copy of it is left out.
+    let wired: Vec<u16> = lightspeed
+        .iter()
+        .filter(|(pid, _)| hidpp::receiver_of(*pid) != *pid)
+        .map(|(pid, _)| hidpp::receiver_of(*pid))
+        .collect();
+    for (pid, device) in lightspeed {
+        if !wired.contains(&pid) {
+            found.push(Box::new(device));
+        }
+    }
     let mut claimed = Vec::new();
     found.extend(registry::sweep(
         &infos,
