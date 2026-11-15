@@ -43,6 +43,7 @@ async function call(name, args) {
 }
 
 function renderStatus(snap) {
+  setText($("app-version"), snap.version);
   const leds = snap.devices.reduce((n, d) => n + d.leds.length, 0);
   const broken = snap.backends.filter((b) => b.error);
   const profile = snap.active_profile || (lastProfile && lastProfile + ", edited");

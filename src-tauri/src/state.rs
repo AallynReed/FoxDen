@@ -58,6 +58,7 @@ pub struct Snapshot {
     pub profiles: Vec<String>,
     pub active_profile: Option<String>,
     settings: Settings,
+    version: &'static str,
     backends: Vec<BackendStatus>,
     detected: Vec<Detected>,
 }
@@ -168,6 +169,7 @@ impl AppState {
             profiles: self.config.profiles.keys().cloned().collect(),
             active_profile: self.config.active_profile.clone(),
             settings: self.config.settings.clone(),
+            version: env!("CARGO_PKG_VERSION"),
             backends: self.backends(),
             detected: self.detected(),
         }
@@ -720,7 +722,8 @@ mod tests {
                 "effect",
                 "paused",
                 "profiles",
-                "settings"
+                "settings",
+                "version"
             ]
         );
         assert_eq!(

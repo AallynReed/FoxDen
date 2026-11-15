@@ -361,6 +361,7 @@
       profiles: [...state.profiles.keys()].sort(),
       active_profile: state.active,
       settings: s,
+      version: "dev",
       backends,
       detected: detected(),
     });
