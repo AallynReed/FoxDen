@@ -1,7 +1,14 @@
 //! Board fans and temperatures through the Super I/O chip, and the CPU temperature, via PawnIO.
+//! Also board and case lighting reached the same way.
 
 pub mod cpu;
+mod gigabyte_sio;
+mod lights;
+mod msi_rgb;
 pub mod nct6687;
+mod valve;
+
+pub use lights::lights;
 
 use std::sync::Arc;
 

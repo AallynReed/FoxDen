@@ -169,7 +169,7 @@ enum Request {
         config: FanConfig,
     },
     Shutdown,
-    /// Lighting on the SMBus, which only a service running as SYSTEM can reach.
+    /// Lighting on the SMBus, Super I/O and vendor WMI, which only a service running as SYSTEM can reach.
     Lights,
     SetLights {
         device: String,
@@ -201,7 +201,7 @@ pub struct Host {
     stop: AtomicBool,
     /// Why the process should end: a shutdown request, or a control loop that keeps panicking.
     ended: Mutex<Option<Result<(), String>>>,
-    /// SMBus lighting, opened on the first request for it.
+    /// SMBus, Super I/O and WMI lighting, opened on the first request for it.
     lights: Mutex<Option<Vec<Box<dyn Backend>>>>,
     closer: fn(Scope) -> Closed,
 }
@@ -282,7 +282,10 @@ impl Host {
             Ok(Request::Lights) => {
                 let mut lights = locked(&self.lights);
                 if lights.as_ref().is_none_or(|found| found.is_empty()) {
-                    *lights = Some(foxrgb_smbus::probe().unwrap_or_default());
+                    let mut found = foxrgb_smbus::probe().unwrap_or_default();
+                    found.extend(foxrgb_superio::lights());
+                    found.extend(foxrgb_wmi::lights());
+                    *lights = Some(found);
                 }
                 let devices: Vec<_> = lights.iter().flatten().flat_map(|b| b.devices()).collect();
                 json!({"ok": true, "devices": devices})

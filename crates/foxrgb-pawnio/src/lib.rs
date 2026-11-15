@@ -21,6 +21,7 @@ use windows_sys::Win32::System::Threading::{
 pub const SMBUS_I801: &[u8] = include_bytes!("../modules/SmbusI801.bin");
 pub const LPC_IO: &[u8] = include_bytes!("../modules/LpcIO.bin");
 pub const INTEL_MSR: &[u8] = include_bytes!("../modules/IntelMSR.bin");
+pub const LEDS_VALVE: &[u8] = include_bytes!("../modules/LedsValve.bin");
 
 const DEVICE_TYPE: u32 = 41394;
 const fn ctl_code(function: u32) -> u32 {
