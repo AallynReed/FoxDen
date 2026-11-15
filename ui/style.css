@@ -479,6 +479,31 @@ input.switch::after {
   scroll-padding: 16px;
 }
 
+/* A titled panel on the wide tabs. */
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 12px 12px;
+  border: 1px solid var(--line);
+}
+
+.box > h2:first-child {
+  margin: 0 -12px 4px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+}
+
+.box h3 {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
 .fields,
 .picks,
 .list {
@@ -1071,9 +1096,12 @@ body.wide .canvas-wrap {
   display: none;
 }
 
-body.wide #panel-settings > * {
-  width: 100%;
-  max-width: 640px;
+/* One column at the smallest window, two at the default size, never more than three. */
+body.wide #panel-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(min(100%, 400px), calc((100% - 32px) / 3)), 1fr));
+  align-content: start;
+  gap: 16px;
 }
 
 .sheet .notes {

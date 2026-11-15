@@ -16,6 +16,7 @@
     ["board/fan1", "CPU fan", 1800],
     ["board/fan2", "Case fan", 1200],
     ["gpu0/fan", "Graphics card fan", 3000],
+    ["board/pump", "Pump", 2600],
   ];
 
   const copy = (v) => JSON.parse(JSON.stringify(v));
@@ -24,7 +25,7 @@
   const loadAt = (t) => 0.5 - 0.45 * Math.cos((t / 90) * 2 * Math.PI);
 
   const svc = { running: false, time: 0, config: { curves: [], rules: [] }, anchors: [], sensors: [], fans: [] };
-  const model = { temps: [42, 38], duties: [null, null, null], rpms: [0, 0, 0] };
+  const model = { temps: [42, 38], duties: [null, null, null, null], rpms: [0, 0, 0, 0] };
 
   function dutyAt(points, temp) {
     if (temp <= points[0][0]) return points[0][1];
@@ -96,6 +97,7 @@
     const sensors = [
       ...SENSORS.map((sensor, i) => ({ id: sensor[0], name: sensor[1], value: model.temps[i] })),
       { id: "board/system", name: "Mainboard", value: 36 + 2 * Math.sin(svc.time / 50) },
+      { id: "board/mos", name: "VRM", value: 44 + 3 * Math.sin(svc.time / 40) },
       { id: "disk/0", name: "System drive", value: null },
     ];
     svc.sensors = sensors;

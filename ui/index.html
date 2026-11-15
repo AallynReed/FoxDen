@@ -77,104 +77,125 @@
       </section>
 
       <section class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-        <h2>Modules</h2>
-        <div class="field">
-          <label for="set-lighting">Lighting</label>
-          <input type="checkbox" class="switch" id="set-lighting" data-setting="lighting_module" aria-describedby="modules-hint" />
-        </div>
-        <div class="field">
-          <label for="set-fans">Fans</label>
-          <input type="checkbox" class="switch" id="set-fans" data-setting="fans_module" aria-describedby="modules-hint" />
-        </div>
-        <p class="hint" id="modules-hint">With both off, FoxRGB removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time.</p>
-        <p class="hint" id="modules-outcome" role="status" hidden></p>
+        <section class="box">
+          <h2>Modules</h2>
+          <div class="field">
+            <label for="set-lighting">Lighting</label>
+            <input type="checkbox" class="switch" id="set-lighting" data-setting="lighting_module" aria-describedby="modules-hint" />
+          </div>
+          <div class="field">
+            <label for="set-fans">Fans</label>
+            <input type="checkbox" class="switch" id="set-fans" data-setting="fans_module" aria-describedby="modules-hint" />
+          </div>
+          <p class="hint" id="modules-hint">With both off, FoxRGB removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time.</p>
+          <p class="hint" id="modules-outcome" role="status" hidden></p>
+        </section>
 
-        <h2 id="conflicts-heading">Conflicting software</h2>
-        <div class="field">
-          <label for="set-conflicts">Close conflicting software</label>
-          <input type="checkbox" class="switch" id="set-conflicts" data-setting="close_conflicts" aria-describedby="conflicts-hint" />
-        </div>
-        <p class="hint" id="conflicts-hint">Other lighting and fan apps hold the same devices. FoxRGB closes them at start and whenever it looks for hardware.</p>
-        <ul class="list backends" id="conflict-list" aria-labelledby="conflicts-heading"></ul>
-        <p class="hint" id="conflicts-empty" hidden>None running.</p>
-        <p class="hint" id="conflicts-last" hidden></p>
-        <div class="actions">
-          <button type="button" id="conflicts-close">Close now</button>
-          <button type="button" id="conflicts-refresh">Refresh</button>
-        </div>
+        <section class="box">
+          <h2>Rendering</h2>
+          <div class="field range">
+            <label for="set-fps">Frame rate (fps)</label>
+            <input type="range" id="set-fps" min="10" max="60" step="1" data-setting="fps" />
+            <input type="number" class="exact" id="set-fps-box" aria-label="Frame rate" aria-describedby="set-fps-box-problem" />
+          </div>
+          <p class="problem" id="set-fps-box-problem" hidden></p>
+        </section>
 
-        <h2>Rendering</h2>
-        <div class="field range">
-          <label for="set-fps">Frame rate (fps)</label>
-          <input type="range" id="set-fps" min="10" max="60" step="1" data-setting="fps" />
-          <input type="number" class="exact" id="set-fps-box" aria-label="Frame rate" aria-describedby="set-fps-box-problem" />
-        </div>
-        <p class="problem" id="set-fps-box-problem" hidden></p>
+        <section class="box">
+          <h2>Devices</h2>
+          <div class="field">
+            <label for="set-native">Native drivers</label>
+            <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" aria-describedby="native-hint" />
+          </div>
+          <p class="hint" id="native-hint">FoxRGB's own drivers. On by default.</p>
+        </section>
 
-        <h2>OpenRGB</h2>
-        <div class="field">
-          <label for="set-openrgb">Connect to an OpenRGB server</label>
-          <input type="checkbox" class="switch" id="set-openrgb" data-setting="openrgb_enabled" />
-        </div>
-        <div class="field">
-          <label for="set-host">Host</label>
-          <input type="text" id="set-host" data-setting="openrgb_host" data-invalid="Enter a host name or address." autocomplete="off" spellcheck="false" aria-describedby="set-host-problem" />
-        </div>
-        <p class="problem" id="set-host-problem" hidden></p>
-        <div class="field">
-          <label for="set-port">Port</label>
-          <input type="number" id="set-port" min="1" max="65535" step="1" data-setting="openrgb_port" data-invalid="Port must be a whole number from 1 to 65535." aria-describedby="set-port-problem" />
-        </div>
-        <p class="problem" id="set-port-problem" hidden></p>
+        <section class="box">
+          <h2>OpenRGB integration</h2>
+          <div class="field">
+            <label for="set-openrgb">Use an OpenRGB server</label>
+            <input type="checkbox" class="switch" id="set-openrgb" data-setting="openrgb_enabled" aria-describedby="openrgb-hint" />
+          </div>
+          <p class="hint" id="openrgb-hint">Optional. Drives devices FoxRGB has no driver for, through a running OpenRGB server.</p>
+          <div class="fields" id="openrgb-server">
+            <div class="field">
+              <label for="set-host">Host</label>
+              <input type="text" id="set-host" data-setting="openrgb_host" data-invalid="Enter a host name or address." autocomplete="off" spellcheck="false" aria-describedby="set-host-problem" />
+            </div>
+            <p class="problem" id="set-host-problem" hidden></p>
+            <div class="field">
+              <label for="set-port">Port</label>
+              <input type="number" id="set-port" min="1" max="65535" step="1" data-setting="openrgb_port" data-invalid="Port must be a whole number from 1 to 65535." aria-describedby="set-port-problem" />
+            </div>
+            <p class="problem" id="set-port-problem" hidden></p>
+          </div>
+        </section>
 
-        <h2>Devices</h2>
-        <div class="field">
-          <label for="set-native">Native drivers (experimental)</label>
-          <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" aria-describedby="native-hint" />
-        </div>
-        <p class="hint" id="native-hint">Native drivers have not been tested on hardware and are off by default.</p>
+        <section class="box">
+          <h2>Window</h2>
+          <div class="field">
+            <label for="set-tray">Close to tray</label>
+            <input type="checkbox" class="switch" id="set-tray" data-setting="close_to_tray" />
+          </div>
+          <div class="field">
+            <label for="set-minimised">Start minimised</label>
+            <input type="checkbox" class="switch" id="set-minimised" data-setting="start_minimized" />
+          </div>
+          <div class="field">
+            <label for="set-autostart">Start with Windows</label>
+            <input type="checkbox" class="switch" id="set-autostart" data-setting="autostart" />
+          </div>
+          <div class="field">
+            <label for="view-zoom">Zoom</label>
+            <select id="view-zoom" aria-describedby="zoom-hint">
+              <option value="0.8">80%</option>
+              <option value="0.9">90%</option>
+              <option value="1">100%</option>
+              <option value="1.1">110%</option>
+              <option value="1.25">125%</option>
+              <option value="1.5">150%</option>
+              <option value="1.75">175%</option>
+              <option value="2">200%</option>
+            </select>
+          </div>
+          <p class="hint" id="zoom-hint">Makes everything in the window larger or smaller. Ctrl+plus and Ctrl+minus do the same from anywhere, and Ctrl+0 goes back to 100%.</p>
+        </section>
 
-        <h2>Window</h2>
-        <div class="field">
-          <label for="set-tray">Close to tray</label>
-          <input type="checkbox" class="switch" id="set-tray" data-setting="close_to_tray" />
-        </div>
-        <div class="field">
-          <label for="set-minimised">Start minimised</label>
-          <input type="checkbox" class="switch" id="set-minimised" data-setting="start_minimized" />
-        </div>
-        <div class="field">
-          <label for="set-autostart">Start with Windows</label>
-          <input type="checkbox" class="switch" id="set-autostart" data-setting="autostart" />
-        </div>
-        <div class="field">
-          <label for="set-update">Install updates automatically</label>
-          <input type="checkbox" class="switch" id="set-update" data-setting="auto_update" />
-        </div>
-        <div class="actions">
-          <button type="button" id="update-check">Check for updates</button>
-          <span class="hint" id="update-status" role="status"></span>
-        </div>
-        <div class="field">
-          <label for="view-zoom">Zoom</label>
-          <select id="view-zoom" aria-describedby="zoom-hint">
-            <option value="0.8">80%</option>
-            <option value="0.9">90%</option>
-            <option value="1">100%</option>
-            <option value="1.1">110%</option>
-            <option value="1.25">125%</option>
-            <option value="1.5">150%</option>
-            <option value="1.75">175%</option>
-            <option value="2">200%</option>
-          </select>
-        </div>
-        <p class="hint" id="zoom-hint">Makes everything in the window larger or smaller. Ctrl+plus and Ctrl+minus do the same from anywhere, and Ctrl+0 goes back to 100%.</p>
+        <section class="box">
+          <h2>Updates</h2>
+          <div class="field">
+            <label for="set-update">Install updates automatically</label>
+            <input type="checkbox" class="switch" id="set-update" data-setting="auto_update" />
+          </div>
+          <div class="actions">
+            <button type="button" id="update-check">Check for updates</button>
+            <span class="hint" id="update-status" role="status"></span>
+          </div>
+        </section>
 
-        <h2 id="backends-heading">Backends</h2>
-        <ul class="list backends" id="backend-list" tabindex="-1" aria-labelledby="backends-heading"></ul>
-        <div class="actions">
-          <button type="button" id="rescan">Rescan devices</button>
-        </div>
+        <section class="box">
+          <h2 id="conflicts-heading">Conflicting software</h2>
+          <div class="field">
+            <label for="set-conflicts">Close conflicting software</label>
+            <input type="checkbox" class="switch" id="set-conflicts" data-setting="close_conflicts" aria-describedby="conflicts-hint" />
+          </div>
+          <p class="hint" id="conflicts-hint">Other lighting and fan apps hold the same devices. FoxRGB closes them at start and whenever it looks for hardware.</p>
+          <ul class="list backends" id="conflict-list" aria-labelledby="conflicts-heading"></ul>
+          <p class="hint" id="conflicts-empty" hidden>None running.</p>
+          <p class="hint" id="conflicts-last" hidden></p>
+          <div class="actions">
+            <button type="button" id="conflicts-close">Close now</button>
+            <button type="button" id="conflicts-refresh">Refresh</button>
+          </div>
+        </section>
+
+        <section class="box">
+          <h2 id="backends-heading">Backends</h2>
+          <ul class="list backends" id="backend-list" tabindex="-1" aria-labelledby="backends-heading"></ul>
+          <div class="actions">
+            <button type="button" id="rescan">Rescan devices</button>
+          </div>
+        </section>
       </section>
     </aside>
 

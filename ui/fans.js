@@ -16,7 +16,15 @@
   const NOTICE =
     "FoxRGB cannot drive this PC's fan headers yet, because the hardware helper is not built. " +
     "Temperatures are real where the service can read them.";
-  const OFFLINE = "The service is not running. Start it under Status to see the fans and edit curves.";
+  const OFFLINE = "Start the service to see the sensors and fans and to edit curves.";
+  // Sensor id prefixes, in the order their groups are shown.
+  const SOURCES = [
+    [/^cpu\//, "CPU"],
+    [/^board\//, "Mainboard"],
+    [/^gpu\d*\//, "Graphics card"],
+    [/^disk\d*\//, "Drives"],
+    [/^acpi\//, "Thermal zones"],
+  ];
 
   const ui = {};
   const plot = { w: 0, h: 0, x0: 38, x1: 0, y0: 12, y1: 0 };
@@ -28,7 +36,6 @@
   let draft = JSON.parse(EMPTY);
   let base = EMPTY;
   let chosen = 0;
-  let view = "status";
   let past = [];
   let pending = "";
   let problem = null;
@@ -43,9 +50,9 @@
   const trim = (v) => String(Math.round(v * 10) / 10);
   const percent = (v) => Math.round(v * 100) + "%";
   const reading = (v) => (v == null ? "no reading" : v.toFixed(1) + " °C");
-  const speed = (v) => (v == null ? "no reading" : v.toLocaleString("en-GB") + " rpm");
-  // What a fan is doing now: duty when FoxRGB sets it, then speed.
-  const output = (fan) => (fan.duty == null ? "" : percent(fan.duty) + " · ") + speed(fan.rpm);
+  const speed = (v) => (v == null ? "no speed signal" : v.toLocaleString("en-GB") + " rpm");
+  const pump = (name) => /\bpump\b/i.test(name);
+  const source = (id) => (SOURCES.find(([p]) => p.test(id)) || [null, "Other"])[1];
   const message = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
   const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   const quoted = (name) => '"' + name + '"';
@@ -124,7 +131,7 @@
   }
 
   // True while the user is typing in an editor field or dragging a point.
-  const locked = () => Boolean(drag) || typingIn(ui.curves) || typingIn(ui.rules);
+  const locked = () => Boolean(drag) || typingIn(ui.curveBox) || typingIn(ui.fanBox);
 
   // The draft follows the service until the user changes something.
   function sync() {
@@ -187,7 +194,7 @@
   // Keeps focus in the tab when the control that had it has gone.
   function hold() {
     const active = document.activeElement;
-    if (!root.contains(active) || !active.checkVisibility()) (ui.bar.hidden ? ui.views.querySelector(":checked") : ui.undo).focus();
+    if (!root.contains(active) || !active.checkVisibility()) (ui.bar.hidden ? (ui.start.hidden ? ui.stop : ui.start) : ui.undo).focus();
   }
 
   function revert() {
@@ -367,11 +374,6 @@
     return fans;
   }
 
-  function go(name) {
-    view = name;
-    ui.views.querySelector('[value="' + name + '"]').checked = true;
-  }
-
   async function service(action) {
     const from = action === "start" ? ui.start : ui.stop;
     pending = action;
@@ -392,12 +394,12 @@
   function fault() {
     const bare = draft.curves.findIndex((c) => !c.sensors.length);
     if (bare >= 0) {
-      return { view: "curves", curve: bare, text: "Curve " + quoted(draft.curves[bare].name) + " has no sensor. Choose at least one.", target: () => ui.choices.querySelector("input") || ui.name };
+      return { curve: bare, text: "Curve " + quoted(draft.curves[bare].name) + " has no sensor. Choose at least one.", target: () => ui.choices.querySelector("input") || ui.name };
     }
     const rule = draft.rules.find((r) => r.min_duty > r.max_duty);
     if (!rule) return null;
-    const card = () => [...ui.ruleList.children].find((c) => c.fan === rule.fan);
-    return { view: "rules", text: fanName(rule.fan) + ": the minimum must not be above the maximum.", target: () => card() && card().parts.min };
+    const card = () => [...ui.fanList.children].find((c) => c.fan === rule.fan);
+    return { text: fanName(rule.fan) + ": the minimum must not be above the maximum.", target: () => card() && card().parts.min };
   }
 
   async function apply() {
@@ -406,7 +408,6 @@
     const wrong = fault();
     if (wrong) {
       if (wrong.curve !== undefined) chosen = wrong.curve;
-      go(wrong.view);
       problem = { where: "apply", text: "Not applied. " + wrong.text, rejected: true };
       render();
       const target = wrong.target();
@@ -473,18 +474,16 @@
     let target = ui.apply;
     if (fan !== undefined) {
       problem = { where: "rule", key: fan, text: said, rejected: true };
-      go("rules");
     } else if (name !== undefined) {
       chosen = draft.curves.findLastIndex((c) => c.name === name);
       const where = /hysteresis/.test(rest) ? "hysteresis" : /sensor/.test(rest) ? "sensors" : /curve name/.test(rest) ? "name" : "points";
       problem = { where, key: chosen, text: said, rejected: true };
-      go("curves");
     } else {
       problem = { where: "apply", text: said, rejected: true };
     }
     render();
     if (problem.where === "rule") {
-      const card = [...ui.ruleList.children].find((c) => c.fan === fan);
+      const card = [...ui.fanList.children].find((c) => c.fan === fan);
       if (card) target = /ramp/.test(rest) ? card.parts.ramp : /duty/.test(rest) ? card.parts.min : card.parts.curve;
     } else if (problem.where === "name") target = ui.name;
     else if (problem.where === "hysteresis") target = ui.hyst;
@@ -493,64 +492,29 @@
     target.focus();
   }
 
-  function buildViews() {
-    ui.views = el("div", { className: "fan-views" });
-    ui.views.setAttribute("role", "radiogroup");
-    ui.views.setAttribute("aria-label", "Fan sections");
-    ui.marks = {};
-    for (const [value, label] of [["status", "Status"], ["curves", "Curves"], ["rules", "Rules"]]) {
-      const radio = el("input", { type: "radio", name: "fan-view", value, checked: value === view });
-      radio.onchange = () => {
-        view = value;
-        render();
-      };
-      ui.marks[value] = el("span", { className: "fan-dot", hidden: true, textContent: "unsaved changes" });
-      ui.views.append(el("label", { className: "pick" }, radio, el("span", { textContent: label }), ui.marks[value]));
-    }
-  }
-
-  function buildStatus() {
+  function buildHead() {
     ui.shape = el("span", { className: "mark none" });
     ui.word = el("strong");
     ui.version = el("span", { className: "fan-num" });
-    const state = el("p", { className: "fan-state" }, ui.shape, ui.word, ui.version);
+    const state = el("p", { className: "fan-state" }, el("span", { className: "fan-label", textContent: "Fan service" }), ui.shape, ui.word, ui.version);
     state.setAttribute("role", "status");
+    ui.start = button("Start for this session", "primary fan-small");
+    ui.stop = button("Stop", "fan-small");
     ui.detail = el("p", { className: "hint" });
-    ui.start = button("Start for this session", "primary");
-    ui.stop = button("Stop");
+    ui.head = el("div", { className: "fan-head" }, state, ui.start, ui.stop, ui.detail);
     ui.serviceProblem = slot();
     ui.notice = el("p", { className: "fan-note", textContent: NOTICE });
-    ui.sensors = el("ul", { className: "list fan-rows" });
-    ui.sensors.setAttribute("aria-labelledby", "fan-sensors-head");
-    ui.noSensors = el("p", { className: "hint", textContent: "The service reports no temperature sensors." });
-    ui.fans = el("ul", { className: "list fan-rows" });
-    ui.fans.setAttribute("aria-labelledby", "fan-fans-head");
-    ui.noFans = el("p", { className: "hint", textContent: "No fans to show." });
-    ui.readings = el(
-      "div",
-      { className: "fan-group" },
-      el("h2", { id: "fan-sensors-head", textContent: "Sensors" }),
-      ui.sensors,
-      ui.noSensors,
-      el("h2", { id: "fan-fans-head", textContent: "Fans" }),
-      ui.fans,
-      ui.noFans,
-    );
-    ui.status = el(
-      "div",
-      { className: "fan-view" },
-      el("h2", { textContent: "Service" }),
-      state,
-      ui.detail,
-      el("div", { className: "actions" }, ui.start, ui.stop),
-      ui.serviceProblem,
-      ui.notice,
-      ui.readings,
-    );
+    ui.offline = el("p", { className: "hint", textContent: OFFLINE });
     press(ui.start, () => service("start"));
     press(ui.stop, () => service("stop"));
   }
 
+  function buildSensors() {
+    ui.sources = el("div", { className: "fan-sources" });
+    ui.tiles = new Map();
+    ui.noSensors = el("p", { className: "hint", textContent: "The service reports no temperature sensors." });
+    ui.sensorBox = el("section", { className: "box fan-sensors" }, el("h2", { id: "fan-sensors-head", textContent: "Sensors" }), ui.sources, ui.noSensors);
+  }
   function buildGraph() {
     ui.svg = svg("svg", { role: "group", "aria-label": "Curve graph, duty against temperature. The table below lists the same points." });
     ui.grid = svg("g", { class: "fan-grid", "aria-hidden": "true" });
@@ -567,7 +531,6 @@
   }
 
   function buildCurves() {
-    ui.curvesOff = el("p", { className: "hint", textContent: OFFLINE });
     ui.curveList = el("div", { className: "picks fan-curves" });
     ui.curveList.setAttribute("role", "radiogroup");
     ui.curveList.setAttribute("aria-labelledby", "fan-curves-head");
@@ -609,12 +572,13 @@
     ui.hyst.id = "fan-hysteresis";
     ui.hystProblem = slot(ui.hyst);
 
-    ui.editor = el(
+    ui.pickCol = el("div", { className: "fan-col fan-pick" }, ui.curveList, ui.noCurves, ui.curveActions, ui.ask);
+    const shape = el(
       "div",
-      { className: "fan-group" },
+      { className: "fan-col" },
       el("div", { className: "fields" }, el("label", { htmlFor: "fan-curve-name", textContent: "Name" }), ui.name),
       ui.nameProblem,
-      el("h2", { id: "fan-points-head", textContent: "Points" }),
+      el("h3", { id: "fan-points-head", textContent: "Points" }),
       ui.graph,
       ui.now,
       el("p", {
@@ -624,7 +588,11 @@
       table,
       ui.pointsProblem,
       el("div", { className: "actions" }, ui.addPoint),
-      el("h2", { id: "fan-choices-head", textContent: "Sensors" }),
+    );
+    const inputs = el(
+      "div",
+      { className: "fan-col" },
+      el("h3", { id: "fan-choices-head", textContent: "Sensors" }),
       ui.choices,
       ui.noChoices,
       el("p", {
@@ -636,17 +604,13 @@
       el("p", { className: "hint", textContent: "How far the temperature must fall before the duty drops." }),
       ui.hystProblem,
     );
-    ui.curvesBody = el(
-      "div",
-      { className: "fan-group" },
+    ui.editor = el("div", { className: "fan-editor" }, shape, inputs);
+    ui.curveBox = el(
+      "section",
+      { className: "box fan-curve-box" },
       el("h2", { id: "fan-curves-head", textContent: "Curves" }),
-      ui.curveList,
-      ui.noCurves,
-      ui.curveActions,
-      ui.ask,
-      ui.editor,
+      el("div", { className: "fan-curve-body" }, ui.pickCol, ui.editor),
     );
-    ui.curves = el("div", { className: "fan-view", hidden: true }, ui.curvesOff, ui.curvesBody);
 
     press(ui.add, () => addCurve());
     press(ui.copy, () => addCurve(draft.curves[chosen]));
@@ -676,23 +640,21 @@
     };
   }
 
-  function buildRules() {
-    ui.rulesOff = el("p", { className: "hint", textContent: OFFLINE });
-    ui.ruleList = el("ul", { className: "list" });
-    ui.ruleList.setAttribute("aria-labelledby", "fan-rules-head");
-    ui.noRules = el("p", { className: "hint", textContent: "No fans to control." });
-    ui.rulesBody = el(
-      "div",
-      { className: "fan-group" },
-      el("h2", { id: "fan-rules-head", textContent: "Rules" }),
+  function buildFans() {
+    ui.fanList = el("ul", { className: "fan-cards" });
+    ui.fanList.setAttribute("aria-labelledby", "fan-fans-head");
+    ui.noFans = el("p", { className: "hint", textContent: "No fans to control." });
+    ui.fanBox = el(
+      "section",
+      { className: "box fan-fans" },
+      el("h2", { id: "fan-fans-head", textContent: "Fans" }),
       el("p", {
         className: "hint",
         textContent: "A fan follows one curve. Its duty stays between the minimum and the maximum and changes no faster than the ramp.",
       }),
-      ui.ruleList,
-      ui.noRules,
+      ui.fanList,
+      ui.noFans,
     );
-    ui.rules = el("div", { className: "fan-view", hidden: true }, ui.rulesOff, ui.rulesBody);
   }
 
   function buildBar() {
@@ -707,29 +669,18 @@
     ui.apply.setAttribute("aria-keyshortcuts", "Control+S");
     ui.undo.title = "Ctrl+Z";
     ui.undo.setAttribute("aria-keyshortcuts", "Control+Z");
-    ui.bar = el("div", { className: "fan-apply", hidden: true }, ui.save, el("div", { className: "actions" }, ui.apply, ui.revert, ui.undo));
+    ui.bar = el("div", { className: "fan-apply", hidden: true }, el("div", { className: "actions" }, ui.apply, ui.revert, ui.undo), ui.save);
     press(ui.apply, apply);
     press(ui.revert, revert);
     press(ui.undo, undo);
   }
 
-  function sensorRow() {
+  function sensorTile() {
     const name = el("span", { className: "name" });
     const value = el("span", { className: "fan-num" });
-    const row = el("li", {}, name, value);
-    row.parts = { name, value };
-    return row;
-  }
-
-  function fanRow() {
-    const name = el("span", { className: "name" });
-    const now = el("span", { className: "fan-num" });
-    const fill = el("i");
-    const bar = el("span", { className: "fan-bar" }, fill);
-    const words = el("span", { className: "fan-words hint" });
-    const row = el("li", { className: "fan-item" }, name, now, bar, words);
-    row.parts = { name, now, fill, bar, words };
-    return row;
+    const tile = el("li", { className: "fan-tile" }, name, value);
+    tile.parts = { name, value };
+    return tile;
   }
 
   function curvePick(i) {
@@ -874,7 +825,7 @@
     return row;
   }
 
-  function ruleCard(fan) {
+  function fanCard(fan) {
     const n = ++serial;
     const curve = el("select", { id: "fan-rule-curve-" + n });
     const min = number(0, 100, 1);
@@ -882,7 +833,12 @@
     const ramp = number(1, 100, 1);
     const name = el("span", { className: "name", id: "fan-rule-name-" + n });
     const tag = el("span", { className: "fan-tag" });
-    const now = el("span", { className: "fan-num" });
+    const spin = el("span", { className: "fan-num" });
+    const duty = el("span", { className: "fan-num" });
+    const fill = el("i");
+    const bar = el("span", { className: "fan-bar" }, fill);
+    bar.setAttribute("aria-hidden", "true");
+    const floor = el("p", { className: "hint", hidden: true, textContent: "A pump never runs below 70%, whatever its curve asks." });
     const wrong = el("p", { className: "problem", hidden: true });
     const warn = slot(min, max);
     const said = slot(curve, ramp);
@@ -907,7 +863,9 @@
     const body = el(
       "div",
       { className: "fan-card" },
-      el("div", { className: "fan-card-head" }, name, tag, now),
+      el("div", { className: "fan-card-head" }, name, tag),
+      el("div", { className: "fan-read" }, spin, el("span", { className: "fan-duty" }, "Duty ", duty)),
+      bar,
       wrong,
       el("div", { className: "fields" }, el("label", { htmlFor: curve.id, textContent: "Curve" }), curve),
       el(
@@ -917,6 +875,7 @@
         field("Maximum (%)", max, "max_duty", 0, "Maximum duty"),
         field("Ramp (%/s)", ramp, "ramp", 1, "Ramp"),
       ),
+      floor,
       warn,
       said,
     );
@@ -924,7 +883,7 @@
     body.setAttribute("aria-labelledby", name.id);
     ramp.setAttribute("aria-label", "Ramp, per cent per second");
     const card = el("li", { fan: fan.id }, body);
-    card.parts = { curve, min, max, ramp, name, tag, now, wrong, warn, said };
+    card.parts = { curve, min, max, ramp, name, tag, spin, duty, fill, floor, wrong, warn, said };
     return card;
   }
 
@@ -1007,38 +966,52 @@
     say(ui.serviceProblem, told("service"));
 
     ui.notice.hidden = !state || (running && live.fans.length > 0);
-    ui.readings.hidden = !running;
+    ui.offline.hidden = !state || running || edited();
   }
 
-  function renderReadings() {
-    const sensors = live.sensors;
-    if (ui.sensors.childElementCount !== sensors.length) ui.sensors.replaceChildren(...sensors.map(sensorRow));
-    sensors.forEach((sensor, i) => {
-      const { name, value } = ui.sensors.children[i].parts;
-      setText(name, sensor.name);
+  function renderSensors() {
+    const groups = [];
+    for (const sensor of live.sensors) {
+      const name = source(sensor.id);
+      const group = groups.find((g) => g.name === name);
+      if (group) group.sensors.push(sensor);
+      else groups.push({ name, sensors: [sensor] });
+    }
+    const rank = (name) => (SOURCES.findIndex((s) => s[1] === name) + SOURCES.length + 1) % (SOURCES.length + 1);
+    groups.sort((a, b) => rank(a.name) - rank(b.name));
+    const key = JSON.stringify(groups.map((g) => [g.name, g.sensors.map((s) => s.id)]));
+    if (ui.sources.dataset.key !== key) {
+      ui.sources.dataset.key = key;
+      ui.tiles.clear();
+      // Headings only when there is more than one source.
+      const named = groups.length > 1;
+      ui.sources.replaceChildren(
+        ...groups.map((group) => {
+          const id = "fan-source-" + ++serial;
+          const tiles = el("ul", { className: "fan-tiles" });
+          tiles.setAttribute("aria-labelledby", named ? id : "fan-sensors-head");
+          for (const sensor of group.sensors) {
+            const tile = sensorTile();
+            ui.tiles.set(sensor.id, tile.parts);
+            tiles.append(tile);
+          }
+          return el("div", { className: "fan-source" }, ...(named ? [el("h3", { id, textContent: group.name })] : []), tiles);
+        }),
+      );
+    }
+    for (const sensor of live.sensors) {
+      const { name, value } = ui.tiles.get(sensor.id);
+      // The group heading already says what kind of reading it is.
+      setText(name, sensor.name.replace(/ temperature$/i, ""));
+      name.title = sensor.name;
       setText(value, reading(sensor.value));
       value.classList.toggle("none", sensor.value == null);
-    });
-    ui.noSensors.hidden = sensors.length > 0;
-
-    const fans = live.fans;
-    if (ui.fans.childElementCount !== fans.length) ui.fans.replaceChildren(...fans.map(fanRow));
-    fans.forEach((fan, i) => {
-      const { name, now, fill, bar, words } = ui.fans.children[i].parts;
-      setText(name, fan.name);
-      setText(now, output(fan));
-      bar.hidden = fan.duty == null;
-      if (fan.duty != null) fill.style.width = clamp(fan.duty, 0, 1) * 100 + "%";
-      const wrong = trouble(fan);
-      setText(words, wrong || (fan.curve ? "Follows " + fan.curve : "Not controlled"));
-      words.className = "fan-words " + (wrong ? "problem" : "hint");
-    });
-    ui.noFans.hidden = fans.length > 0;
+    }
+    ui.noSensors.hidden = live.sensors.length > 0;
   }
 
   function renderCurves(open) {
-    ui.curvesOff.hidden = open;
-    ui.curvesBody.hidden = !open;
+    ui.curveBox.hidden = !open;
     if (!open) return;
     const curves = draft.curves;
     if (ui.curveList.childElementCount !== curves.length) ui.curveList.replaceChildren(...curves.map((_, i) => curvePick(i)));
@@ -1103,18 +1076,17 @@
     say(ui.hystProblem, told("hysteresis", chosen));
   }
 
-  function renderRules(open) {
-    ui.rulesOff.hidden = open;
-    ui.rulesBody.hidden = !open;
+  function renderFans(open) {
+    ui.fanBox.hidden = !open;
     if (!open) return;
     const fans = ruleFans();
     const names = draft.curves.map((c) => c.name);
     const key = JSON.stringify([fans.map((f) => f.id), names]);
-    if (ui.ruleList.dataset.key !== key) {
-      if (typingIn(ui.rules)) return;
-      ui.ruleList.dataset.key = key;
-      ui.ruleList.replaceChildren(...fans.map(ruleCard));
-      for (const card of ui.ruleList.children) {
+    if (ui.fanList.dataset.key !== key) {
+      if (typingIn(ui.fanBox)) return;
+      ui.fanList.dataset.key = key;
+      ui.fanList.replaceChildren(...fans.map(fanCard));
+      for (const card of ui.fanList.children) {
         card.parts.curve.append(
           el("option", { value: "", textContent: "Not controlled" }),
           ...names.map((name) => el("option", { value: name, textContent: name })),
@@ -1122,13 +1094,19 @@
       }
     }
     fans.forEach((fan, i) => {
-      const parts = ui.ruleList.children[i].parts;
+      const parts = ui.fanList.children[i].parts;
       const rule = draft.rules.find((r) => r.fan === fan.id);
       const was = saved.rules.find((r) => r.fan === fan.id);
       setText(parts.name, fan.name);
       setText(parts.tag, JSON.stringify(was || null) === JSON.stringify(rule || null) ? "" : "Edited");
-      setText(parts.now, fan.live ? output(fan.live) : "not connected");
-      say(parts.wrong, fan.live ? trouble(fan.live) : "");
+      const now = fan.live;
+      setText(parts.spin, now ? speed(now.rpm) : "not connected");
+      parts.spin.classList.toggle("none", !now || now.rpm == null);
+      setText(parts.duty, now && now.duty != null ? percent(now.duty) : now ? "firmware" : "unknown");
+      parts.duty.classList.toggle("none", !now || now.duty == null);
+      parts.fill.style.width = (now && now.duty != null ? clamp(now.duty, 0, 1) * 100 : 0) + "%";
+      parts.floor.hidden = !pump(fan.name);
+      say(parts.wrong, now ? trouble(now) : "");
       if (document.activeElement !== parts.curve) parts.curve.value = rule ? rule.curve : "";
       // A long curve name is cut short in the list, so it is also the tooltip.
       parts.curve.title = rule ? rule.curve : "";
@@ -1142,7 +1120,7 @@
       parts.max.setAttribute("aria-invalid", above);
       say(parts.said, told("rule", fan.id));
     });
-    ui.noRules.hidden = fans.length > 0;
+    ui.noFans.hidden = fans.length > 0;
   }
 
   function renderBar(running, open) {
@@ -1167,16 +1145,12 @@
     queued = false;
     const running = live.service === "running";
     const open = running || edited();
-    const mine = tidy(draft);
-    ui.status.hidden = view !== "status";
-    ui.curves.hidden = view !== "curves";
-    ui.rules.hidden = view !== "rules";
-    ui.marks.curves.hidden = JSON.stringify(mine.curves) === JSON.stringify(saved.curves);
-    ui.marks.rules.hidden = JSON.stringify(mine.rules) === JSON.stringify(saved.rules);
     renderService(running);
-    renderReadings();
+    ui.page.hidden = !open;
+    ui.sensorBox.hidden = !running;
+    renderSensors();
+    renderFans(open);
     renderCurves(open);
-    renderRules(open);
     renderBar(running, open);
     // A new message is scrolled into view once, clear of the bar that could cover it.
     if (problem !== revealed) {
@@ -1192,12 +1166,13 @@
     requestAnimationFrame(render);
   }
 
-  buildViews();
-  buildStatus();
+  buildHead();
+  buildSensors();
+  buildFans();
   buildCurves();
-  buildRules();
   buildBar();
-  root.replaceChildren(ui.views, ui.status, ui.curves, ui.rules, ui.bar);
+  ui.page = el("div", { className: "fan-page" }, ui.sensorBox, ui.fanBox, ui.curveBox);
+  root.replaceChildren(ui.head, ui.serviceProblem, ui.notice, ui.offline, ui.page, ui.bar);
 
   // Ctrl+S and Ctrl+Z while this tab is shown. main.js sends them here, wherever the focus is.
   window.fanKeys = {

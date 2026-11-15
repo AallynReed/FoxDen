@@ -301,8 +301,8 @@
     };
     const plain = (id, name, kind, note) => ({ id, name, kind, bus: "usb", route: "none", state: "unsupported", note });
     const found = [
-      native("usb:1462:7d99", "MSI B760M Gaming Plus WiFi", "motherboard", "The native driver has not been tested on this board yet."),
-      native("usb:046d:c539", "Logitech G502 Lightspeed", "mouse", "The native driver has not been tested on this mouse yet."),
+      native("usb:1462:7d99", "MSI B760M Gaming Plus WiFi", "motherboard", "Native drivers are off."),
+      native("usb:046d:c539", "Logitech G502 Lightspeed", "mouse", "Native drivers are off."),
       native("usb:046d:c547", "Logitech G515 Lightspeed TKL", "keyboard", "The native driver is unfinished: the keyboard can take its lighting back."),
       served("memory:CMH32GX5M2B6000Z30", "Corsair Vengeance RGB DDR5, 2 modules", "memory", "memory"),
       served("gpu:1002:7550", "ASUS Radeon RX 9070 XT", "gpu", "gpu"),

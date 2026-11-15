@@ -750,6 +750,7 @@ async function copyEffect() {
 
 function renderSettings(snap) {
   for (const input of document.querySelectorAll("[data-setting]")) put(input, snap.settings[input.dataset.setting]);
+  $("openrgb-server").hidden = !snap.settings.openrgb_enabled;
 
   const list = $("backend-list");
   const key = JSON.stringify(snap.backends);
