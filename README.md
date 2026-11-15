@@ -1,18 +1,30 @@
-<p align="center"><img src="src-tauri/icons/icon.png" width="128" alt="FoxRGB icon"></p>
+<div align="center">
+
+<img src="src-tauri/icons/icon.png" width="128" alt="FoxRGB icon">
 
 # FoxRGB
 
-[![Release](https://img.shields.io/github/v/release/AallynReed/FoxRGB)](https://github.com/AallynReed/FoxRGB/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/AallynReed/FoxRGB/total)](https://github.com/AallynReed/FoxRGB/releases)
-[![Stars](https://img.shields.io/github/stars/AallynReed/FoxRGB?style=flat)](https://github.com/AallynReed/FoxRGB/stargazers)
-[![Build](https://img.shields.io/github/actions/workflow/status/AallynReed/FoxRGB/release.yml?label=build)](https://github.com/AallynReed/FoxRGB/actions)
-[![Issues](https://img.shields.io/github/issues/AallynReed/FoxRGB)](https://github.com/AallynReed/FoxRGB/issues)
-[![Rust](https://img.shields.io/badge/-Rust-B7410E?logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![Tauri](https://img.shields.io/badge/-Tauri%202-24C8D8?logo=tauri&logoColor=white)](https://tauri.app)
-[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4)](https://github.com/AallynReed/FoxRGB/releases/latest)
-[![Licence](https://img.shields.io/github/license/AallynReed/FoxRGB)](LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-Foxhearth-5865F2?logo=discord&logoColor=white)](https://discord.gg/VGTaqW3vwn)
-[![foxhearth.com](https://img.shields.io/badge/foxhearth.com-project_page-e8702a)](https://foxhearth.com/projects/foxrgb)
+<!-- Project status -->
+[![GitHub Release](https://img.shields.io/github/v/release/AallynReed/FoxRGB?style=for-the-badge&color=blue&cacheSeconds=21600)](https://github.com/AallynReed/FoxRGB/releases/latest)
+![GitHub Repo stars](https://img.shields.io/github/stars/AallynReed/FoxRGB?style=for-the-badge&color=gold&cacheSeconds=21600)
+[![GitHub Downloads](https://img.shields.io/github/downloads/AallynReed/FoxRGB/total?style=for-the-badge&cacheSeconds=21600)](https://github.com/AallynReed/FoxRGB/releases)
+![GitHub last commit](https://img.shields.io/github/last-commit/AallynReed/FoxRGB?style=for-the-badge&color=green&cacheSeconds=21600)
+![GitHub issues](https://img.shields.io/github/issues/AallynReed/FoxRGB?style=for-the-badge&cacheSeconds=21600)
+[![Build](https://img.shields.io/github/actions/workflow/status/AallynReed/FoxRGB/release.yml?style=for-the-badge&label=build&cacheSeconds=21600)](https://github.com/AallynReed/FoxRGB/actions)
+
+<!-- Platforms -->
+![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)
+
+<!-- Tech stack -->
+![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)
+![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
+
+<!-- Project meta -->
+![License](https://img.shields.io/badge/License-GPL--2.0--or--later-8A2BE2?style=for-the-badge)
+[![Discord](https://img.shields.io/badge/Discord-Foxhearth-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/VGTaqW3vwn)
+[![foxhearth.com](https://img.shields.io/badge/foxhearth.com-project_page-E8702A?style=for-the-badge)](https://foxhearth.com/projects/foxrgb)
+
+</div>
 
 Free lighting and fan control for Windows. One effect runs across all your devices as a single
 animation, with its own drivers and nothing else to install.
