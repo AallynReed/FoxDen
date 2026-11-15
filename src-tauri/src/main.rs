@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod conflicts;
 mod detect;
+mod device_info;
 mod fans;
 mod keys;
 mod log;
@@ -100,6 +101,8 @@ fn main() {
             log::get_logs,
             log::clear_logs,
             log::open_logs,
+            device_info::device_info,
+            device_info::send_device_info,
             fans::get_fans,
             fans::set_fan_config,
             fans::start_service,

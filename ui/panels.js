@@ -596,7 +596,42 @@ function detectedRow(item) {
     go.onclick = () => showSetting(route[1]);
     row.append(go);
   }
+  if (item.bus === "usb" && item.state !== "active") {
+    const info = el("button", { type: "button", textContent: "Send device info" });
+    info.onclick = () => showInfo(item);
+    row.append(info);
+  }
   return row;
+}
+
+async function showInfo(item) {
+  const text = await call("device_info", { id: item.id, name: item.name });
+  if (text === undefined) return;
+  $("info-text").value = text;
+  setText($("info-status"), "");
+  $("info-send").disabled = false;
+  $("info-sheet").showModal();
+}
+
+function wireInfo() {
+  const status = $("info-status");
+  $("info-close").onclick = () => $("info-sheet").close();
+  $("info-copy").onclick = async () => {
+    await navigator.clipboard.writeText($("info-text").value);
+    setText(status, "Copied. Paste it into a device issue on GitHub.");
+  };
+  $("info-send").onclick = async () => {
+    const send = $("info-send");
+    send.disabled = true;
+    setText(status, "Sending…");
+    try {
+      await invoke("send_device_info", { text: $("info-text").value });
+      setText(status, "Sent. Thank you.");
+    } catch (e) {
+      send.disabled = false;
+      setText(status, typeof e === "string" ? e : String(e));
+    }
+  };
 }
 
 function renderDetected(snap) {
@@ -850,6 +885,7 @@ function wirePanels() {
 
   const name = $("name-input");
   name.oninput = () => flag(name, "");
+  wireInfo();
   $("name-cancel").onclick = () => $("name-sheet").close();
   $("name-form").onsubmit = (e) => {
     const to = name.value.trim();

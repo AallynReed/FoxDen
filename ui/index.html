@@ -357,6 +357,18 @@
       </form>
     </dialog>
 
+    <dialog class="sheet" id="info-sheet" aria-labelledby="info-title">
+      <h2 id="info-title">Device info</h2>
+      <p class="hint">This is everything that will be sent: the device's ids and how it describes itself, nothing about you or this PC. It helps add a driver for it.</p>
+      <textarea id="info-text" rows="12" readonly spellcheck="false" aria-labelledby="info-title"></textarea>
+      <p class="hint" id="info-status" role="status"></p>
+      <div class="actions">
+        <button type="button" class="primary" id="info-send">Send</button>
+        <button type="button" id="info-copy">Copy</button>
+        <button type="button" id="info-close">Close</button>
+      </div>
+    </dialog>
+
     <script src="mock.js"></script>
     <script src="fans-mock.js"></script>
     <script src="canvas.js"></script>

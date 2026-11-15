@@ -56,6 +56,55 @@ pub fn enumerate() -> Vec<HidInfo> {
         .collect()
 }
 
+/// One collection of a device, for a device report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Collection {
+    pub interface: i32,
+    pub usage_page: u16,
+    pub usage: u16,
+    pub release: u16,
+    pub name: String,
+    pub manufacturer: String,
+    /// The report descriptor, or why Windows would not give it.
+    pub descriptor: Result<Vec<u8>, String>,
+}
+
+/// Every collection of one device with its report descriptor. Opens each one, writes nothing.
+pub fn describe(vendor: u16, product: u16) -> Vec<Collection> {
+    let Ok(api) = HidApi::new() else {
+        return Vec::new();
+    };
+    let mut out: Vec<Collection> = api
+        .device_list()
+        .filter(|d| (d.vendor_id(), d.product_id()) == (vendor, product))
+        .map(|d| {
+            let descriptor = d
+                .open_device(&api)
+                .and_then(|dev| {
+                    let mut buf = [0u8; 4096];
+                    let n = dev.get_report_descriptor(&mut buf)?;
+                    Ok(buf[..n].to_vec())
+                })
+                .map_err(|e| e.to_string());
+            Collection {
+                interface: d.interface_number(),
+                usage_page: d.usage_page(),
+                usage: d.usage(),
+                release: d.release_number(),
+                name: d.product_string().unwrap_or_default().trim().to_string(),
+                manufacturer: d
+                    .manufacturer_string()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
+                descriptor,
+            }
+        })
+        .collect();
+    out.sort_by_key(|c| (c.interface, c.usage_page, c.usage));
+    out
+}
+
 /// HID collections of the supported devices, read from the system's device list without opening any.
 pub fn list() -> Vec<String> {
     let Ok(api) = HidApi::new() else {

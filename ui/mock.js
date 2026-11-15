@@ -440,6 +440,13 @@
     get_update() {
       return null;
     },
+    device_info({ id, name }) {
+      const [, vid, pid] = id.split(":");
+      const report = { version: "dev", kind: "device-info", os: "windows", vid, pid, product: name, manufacturer: "", release: 256,
+        collections: [{ interface: 1, usage_page: "ff43", usage: "0602", descriptor: "06 43 ff 0a 02 06 a1 01 85 11 75 08 95 13" }] };
+      return JSON.stringify(report, null, 2);
+    },
+    send_device_info() {},
     open_logs() {
       window.open("logs.html", "logs", "width=760,height=480");
     },

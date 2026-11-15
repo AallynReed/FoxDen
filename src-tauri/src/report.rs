@@ -74,6 +74,26 @@ fn send(kind: &str, source: &str, text: &str) {
     });
 }
 
+/// Sends one report the user asked to send, whether or not error reports are on.
+pub async fn post(body: &Value) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let reply = client
+        .post(URL)
+        .json(body)
+        .send()
+        .await
+        .map_err(|_| "Could not reach the report server.".to_string())?;
+    match reply.status().as_u16() {
+        200..=299 => Ok(()),
+        413 => Err("Too large to send. Copy it into an issue instead.".into()),
+        429 => Err("Too many reports just now. Try again in a minute.".into()),
+        code => Err(format!("The report server refused it ({code}).")),
+    }
+}
+
 /// Writes a crash to disk; it is sent at the next start if reports are on.
 pub fn catch_crashes() {
     let default = std::panic::take_hook();

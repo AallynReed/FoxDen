@@ -1033,6 +1033,17 @@ dialog.sheet::backdrop {
   background: rgb(0 0 0 / 0.6);
 }
 
+#info-sheet {
+  width: min(560px, calc(100vw - 32px));
+}
+
+#info-text {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
 #help-sheet {
   width: min(560px, calc(100vw - 32px));
 }
