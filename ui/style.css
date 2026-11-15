@@ -844,6 +844,19 @@ input.switch::after {
   line-height: 16px;
 }
 
+.status button.icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  padding: 0;
+}
+
+button.icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
 .backends {
   gap: 4px;
 }

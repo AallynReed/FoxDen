@@ -274,8 +274,63 @@ pub fn update(
 
 pub fn emit_snapshot(app: &AppHandle, shared: &Shared) {
     let snapshot = lock(shared).snapshot();
+    note_changes(&snapshot);
     let _ = app.emit("snapshot", &snapshot);
     tray::refresh(app, &snapshot);
+}
+
+#[derive(Default)]
+struct Seen {
+    devices: HashMap<String, String>,
+    errors: HashMap<String, Option<String>>,
+    found: HashMap<String, detect::State>,
+}
+
+static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
+
+/// Writes what changed since the last snapshot to the log.
+fn note_changes(snapshot: &Snapshot) {
+    let mut guard = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let seen = guard.get_or_insert_with(Seen::default);
+    let now: HashMap<String, String> = snapshot
+        .devices
+        .iter()
+        .map(|d| (d.id.clone(), format!("{} ({})", d.name, d.backend)))
+        .collect();
+    for (id, name) in &now {
+        if !seen.devices.contains_key(id) {
+            crate::log::info("devices", format!("Connected {name}"));
+        }
+    }
+    for (id, name) in &seen.devices {
+        if !now.contains_key(id) {
+            crate::log::info("devices", format!("Disconnected {name}"));
+        }
+    }
+    seen.devices = now;
+    for b in &snapshot.backends {
+        let old = seen.errors.insert(b.name.clone(), b.error.clone()).flatten();
+        match (&b.error, old) {
+            (Some(e), old) if old.as_ref() != Some(e) => crate::log::error(&b.name, e.clone()),
+            (None, Some(_)) => crate::log::info(&b.name, "Working again"),
+            _ => {}
+        }
+    }
+    for d in &snapshot.detected {
+        if seen.found.insert(d.id.clone(), d.state) != Some(d.state)
+            && d.state == detect::State::Unsupported
+        {
+            crate::log::warn("devices", format!("{}: {}", d.name, d.note));
+        }
+    }
+    crate::report::set_devices(snapshot.detected.iter().map(|d| {
+        let driver = match d.route {
+            detect::Route::Native => "native",
+            detect::Route::Openrgb => "openrgb",
+            detect::Route::None => "none",
+        };
+        (d.id.clone(), driver.to_string())
+    }));
 }
 
 /// Starts the one thread that connects backends and looks for hardware, so neither holds up a command.
@@ -370,6 +425,7 @@ fn close_conflicts(app: &AppHandle, settings: &Settings) {
         return;
     }
     let Some(report) = report else { return };
+    crate::log::info("conflicts", report.text.clone());
     let _ = app.emit("conflicts", &report);
     let hidden = app
         .get_webview_window("main")
@@ -614,7 +670,7 @@ pub fn shutdown(shared: &Shared) {
 
 fn save(config: &Config) {
     if let Err(e) = config::save(&config::dir(), config) {
-        eprintln!("config: {e}");
+        crate::log::error("config", format!("settings not saved: {e}"));
     }
 }
 
@@ -682,9 +738,11 @@ mod tests {
                 "openrgb_enabled",
                 "openrgb_host",
                 "openrgb_port",
+                "send_reports",
                 "start_minimized"
             ]
         );
+        assert_eq!(json["settings"]["send_reports"], false);
         assert_eq!(json["settings"]["native_drivers"], true);
         assert_eq!(json["settings"]["autostart"], true);
         assert_eq!(json["settings"]["auto_detect"], true);

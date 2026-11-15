@@ -190,6 +190,18 @@
         </section>
 
         <section class="box">
+          <h2>Error reports</h2>
+          <div class="field">
+            <label for="set-reports">Send anonymous error reports</label>
+            <input type="checkbox" class="switch" id="set-reports" data-setting="send_reports" aria-describedby="reports-hint" />
+          </div>
+          <p class="hint" id="reports-hint">Sends the error, the FoxRGB version and the hardware ids of your devices. Never names, serial numbers, paths or addresses.</p>
+          <div class="actions">
+            <button type="button" id="logs-open-settings">Open logs</button>
+          </div>
+        </section>
+
+        <section class="box">
           <h2 id="backends-heading">Backends</h2>
           <ul class="list backends" id="backend-list" tabindex="-1" aria-labelledby="backends-heading"></ul>
           <div class="actions">
@@ -236,6 +248,7 @@
         <button type="button" class="state" id="st-problem" hidden></button>
         <span class="grow" id="st-note" role="status"></span>
         <button type="button" class="primary" id="update-open" hidden></button>
+        <button type="button" class="icon" id="logs-open" title="Logs" aria-label="Logs"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 3.5h11M2.5 6.5h11M2.5 9.5h7M2.5 12.5h9" /></svg></button>
         <button type="button" id="help-open">Shortcuts</button>
       </div>
     </main>

@@ -1226,6 +1226,7 @@ dependencies = [
  "foxrgb-openrgb",
  "foxrgb-screen",
  "foxrgb-smbus",
+ "reqwest",
  "serde",
  "serde_json",
  "tauri",

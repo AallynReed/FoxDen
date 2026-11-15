@@ -368,7 +368,7 @@ pub fn system() -> Vec<Found> {
     let wmi = match WMIConnection::new() {
         Ok(wmi) => wmi,
         Err(e) => {
-            eprintln!("wmi: {e}");
+            crate::log::warn("devices", format!("Windows hardware list unavailable: {e}"));
             return Vec::new();
         }
     };

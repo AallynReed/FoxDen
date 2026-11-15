@@ -7,7 +7,9 @@ mod conflicts;
 mod detect;
 mod fans;
 mod keys;
+mod log;
 mod modules;
+mod report;
 mod service_lights;
 mod state;
 mod tray;
@@ -20,6 +22,7 @@ use tauri::{Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 use state::{AppState, Shared, lock};
 
 fn main() {
+    report::catch_crashes();
     let shared: Shared = Arc::new(Mutex::new(AppState::new(config::load(&config::dir()))));
 
     let app = tauri::Builder::default()
@@ -31,6 +34,7 @@ fn main() {
         .manage(shared.clone())
         .setup(|app| {
             let handle = app.handle();
+            log::attach(handle);
             // Made here and not by Tauri, so that the web view's data goes where the rest does.
             for window in &app.config().app.windows {
                 WebviewWindowBuilder::from_config(handle, window)?
@@ -45,6 +49,9 @@ fn main() {
                     state.config.fan_backup.clone(),
                 )
             };
+            report::set_enabled(settings.send_reports);
+            report::send_last_crash();
+            log::info("app", format!("FoxRGB {} started", env!("CARGO_PKG_VERSION")));
             tray::create(handle)?;
             let at_sign_in = std::env::args().any(|arg| arg == autostart::TRAY_ARG);
             if !settings.start_minimized && !at_sign_in {
@@ -90,6 +97,9 @@ fn main() {
             updater::install_update,
             updater::later_update,
             updater::get_update,
+            log::get_logs,
+            log::clear_logs,
+            log::open_logs,
             fans::get_fans,
             fans::set_fan_config,
             fans::start_service,

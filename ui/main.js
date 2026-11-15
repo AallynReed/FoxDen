@@ -338,6 +338,7 @@ async function init() {
   wirePanels();
   $("error-close").onclick = () => ($("error").hidden = true);
   $("help-open").onclick = openHelp;
+  $("logs-open").onclick = $("logs-open-settings").onclick = () => call("open_logs");
   $("st-problem").onclick = () => showSetting("backend-list");
   document.addEventListener("keydown", onShortcut);
   previewInit($("canvas"));

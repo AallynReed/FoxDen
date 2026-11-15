@@ -68,7 +68,7 @@ pub fn start(app: &AppHandle, on: bool, backup: Option<FanConfig>) {
         }
     });
     if let Err(e) = app.plugin(on_quit.build()) {
-        eprintln!("fans: {e}");
+        crate::log::warn("fans", e.to_string());
     }
     thread::spawn(|| {
         // A record that names no running service is from a run that was killed after its service went.

@@ -115,6 +115,6 @@ fn on_menu(app: &AppHandle, id: &str) {
         },
     };
     if let Err(e) = result {
-        eprintln!("tray: {e}");
+        crate::log::warn("tray", e.to_string());
     }
 }

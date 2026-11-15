@@ -29,6 +29,8 @@ pub struct Settings {
     pub fans_module: bool,
     /// Close other lighting and fan software that holds the same devices.
     pub close_conflicts: bool,
+    /// Send anonymous error reports.
+    pub send_reports: bool,
 }
 
 impl Default for Settings {
@@ -47,6 +49,7 @@ impl Default for Settings {
             lighting_module: true,
             fans_module: true,
             close_conflicts: true,
+            send_reports: false,
         }
     }
 }
@@ -139,7 +142,7 @@ pub fn load(dir: &Path) -> Config {
         return Config::default();
     };
     let mut config: Config = serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-        eprintln!("{}: {e}", path.display());
+        crate::log::warn("config", format!("{FILE} could not be read and was set aside: {e}"));
         let _ = fs::rename(&path, dir.join(CORRUPT));
         Config::default()
     });

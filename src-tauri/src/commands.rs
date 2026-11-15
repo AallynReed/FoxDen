@@ -136,6 +136,7 @@ pub fn set_settings(
         ..settings
     };
     let old = lock(&shared).config.settings.clone();
+    crate::report::set_enabled(settings.send_reports);
     if settings.autostart != old.autostart {
         autostart::set(settings.autostart)?;
     }

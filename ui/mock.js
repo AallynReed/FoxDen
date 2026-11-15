@@ -124,6 +124,15 @@
       range("saturation", "Saturation", 0, 3, 0.05),
       range("brightness", "Brightness", 0.2, 3, 0.05),
     ),
+    entry(
+      "Key ripple",
+      { kind: "key_ripple", color: ORANGE, background: NAVY, speed: 1.5, width: 0.05, fade: 1 },
+      main,
+      background,
+      speed,
+      range("width", "Width", 0.01, 0.3, 0.01),
+      range("fade", "Fade", 0.2, 4, 0.1),
+    ),
   ];
 
   const state = {
@@ -152,6 +161,7 @@
       lighting_module: true,
       fans_module: true,
       close_conflicts: true,
+      send_reports: false,
     },
   };
 
@@ -270,6 +280,15 @@
         const c = screen(x, y, t);
         const grey = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
         return c.map((v) => (grey + (v - grey) * e.saturation) * e.brightness);
+      }
+      case "key_ripple": {
+        // Pretend presses: one a second, walking across the keyboard.
+        const n = Math.floor(t);
+        const age = t - n;
+        const px = 0.3 + ((n * 0.37) % 0.4);
+        const off = Math.hypot(x - px, y - 0.75) - age * e.speed * 0.3;
+        const ring = smooth(sat(1 - Math.abs(off) / Math.max(e.width * 0.5, 1e-3)));
+        return mix(e.background, e.color, ring * sat(1 - age / Math.max(e.fade, 0.05)));
       }
       default:
         return [0, 0, 0];
@@ -419,6 +438,9 @@
     later_update() {},
     get_update() {
       return null;
+    },
+    open_logs() {
+      window.open("logs.html", "logs", "width=760,height=480");
     },
     rescan() {},
     // Returns at once, as the app does. The pass then finds the Logitech keyboard unplugged or plugged back in.
