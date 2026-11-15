@@ -254,7 +254,7 @@ impl FanHub for Hub {
 /// One hub per attached controller, on the collection FoxRGB's lighting also uses.
 pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     let mut picked: HashMap<String, (Info, &Model)> = HashMap::new();
-    for raw in api.device_list() {
+    for raw in foxrgb_hid::device_list(api).iter() {
         let info = Info::from_hidapi(raw);
         let Some(m) = MODELS.iter().find(|m| info.vid == ENE && info.pid == m.pid) else {
             continue;

@@ -112,6 +112,14 @@ pub fn service_changed(up: bool) -> bool {
         .is_some_and(|seen| std::mem::replace(seen, up) != up)
 }
 
+/// Whether any hub the service would own is plugged in.
+pub fn hubs_present() -> bool {
+    let owned = foxrgb_xpack::combined();
+    foxrgb_hid::enumerate()
+        .iter()
+        .any(|d| owned.contains(&(d.vendor, d.product)))
+}
+
 /// The ids the app's own probe leaves to the service: all combined hubs once it answered.
 pub fn left_to_service(answered: bool) -> Vec<(u16, u16)> {
     if answered {

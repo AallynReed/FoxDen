@@ -182,7 +182,7 @@ pub fn open_sibling(
     info: &Info,
     pick: impl Fn(&Info) -> bool,
 ) -> Result<HidDevice, String> {
-    api.device_list()
+    crate::device_list(api).iter()
         .map(Info::from_hidapi)
         .filter(|s| s.vid == info.vid && s.pid == info.pid && s.serial == info.serial)
         .find(|s| pick(s))
@@ -192,7 +192,7 @@ pub fn open_sibling(
 
 /// Every collection of the same device that `pick` accepts.
 pub fn siblings(api: &HidApi, info: &Info, pick: impl Fn(&Info) -> bool) -> Vec<Info> {
-    api.device_list()
+    crate::device_list(api).iter()
         .map(Info::from_hidapi)
         .filter(|s| s.vid == info.vid && s.pid == info.pid && s.serial == info.serial)
         .filter(|s| pick(s))

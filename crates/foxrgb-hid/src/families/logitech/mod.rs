@@ -84,8 +84,7 @@ fn path_key(path: &str) -> String {
 /// Opens the collection of the same physical interface whose usage page and usage match.
 fn open_sibling(api: &HidApi, info: &Info, page: u16, usage: u16) -> Result<HidDevice, String> {
     let key = path_key(&info.path);
-    let sibling = api
-        .device_list()
+    let sibling = crate::device_list(api).iter()
         .map(Info::from_hidapi)
         .find(|d| {
             d.vid == info.vid

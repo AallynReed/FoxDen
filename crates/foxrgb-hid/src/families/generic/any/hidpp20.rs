@@ -2019,7 +2019,7 @@ fn very_long(api: &HidApi, info: &Info) -> Option<HidDevice> {
         return None;
     }
     let key = receiver::path_key(&info.path);
-    api.device_list()
+    crate::device_list(api).iter()
         .find(|d| {
             d.vendor_id() == info.vid
                 && d.product_id() == info.pid
@@ -2049,7 +2049,8 @@ fn open(api: &HidApi, info: &Info, claimed: &mut Vec<String>) -> Vec<Box<dyn Bac
         }]
     } else if info.usage_page == 0xFF00 {
         let key = receiver::path_key(&info.path);
-        let rap = api.device_list().find(|d| {
+        let listed = crate::device_list(api);
+        let rap = listed.iter().find(|d| {
             d.vendor_id() == info.vid
                 && d.product_id() == info.pid
                 && d.interface_number() == 2

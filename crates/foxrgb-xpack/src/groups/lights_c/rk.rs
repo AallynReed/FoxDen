@@ -34,8 +34,7 @@ pub struct Collections {
 
 impl Collections {
     pub fn open(api: &HidApi, info: &Info) -> Result<Self, String> {
-        let devs: Vec<HidDevice> = api
-            .device_list()
+        let devs: Vec<HidDevice> = foxrgb_hid::device_list(api).iter()
             .map(Info::from_hidapi)
             .filter(|i| {
                 i.vid == info.vid

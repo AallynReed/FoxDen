@@ -33,7 +33,7 @@ const POSITIONS: [u32; 84] = [
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     // the Valkyrie VK99 shares this vid/pid; its 0xFF13 collection marks it as not a Keychron
-    let valkyrie = api.device_list().any(|x| {
+    let valkyrie = crate::device_list(api).iter().any(|x| {
         x.vendor_id() == info.vid
             && x.product_id() == info.pid
             && x.serial_number().unwrap_or_default() == info.serial

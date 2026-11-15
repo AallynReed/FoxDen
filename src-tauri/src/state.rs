@@ -538,14 +538,25 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
                 .iter()
                 .filter_map(|s| s.strip())
                 .collect();
+            let step = |what: &str, start: std::time::Instant| {
+                crate::log::info("devices", format!("{what}: {} ms", start.elapsed().as_millis()))
+            };
+            let start = std::time::Instant::now();
             let mut backends = foxrgb_hid::led_strips(&strips);
+            step("LED strips", start);
             // Hubs whose fans the service drives get their lighting from it too, admin or not.
+            let start = std::time::Instant::now();
             let hubs = crate::service_lights::hubs(&settings.zone_leds);
+            step("fan hub lighting from the service", start);
             let skip = crate::service_lights::left_to_service(hubs.is_some());
             foxrgb_hid::set_lengths(settings.zone_leds.clone());
             let pick = foxrgb_hid::Pick::Skip(&skip);
+            let start = std::time::Instant::now();
             backends.extend(foxrgb_hid::probe_picked(&foxrgb_xpack::detectors(), pick));
+            step("USB HID devices", start);
+            let start = std::time::Instant::now();
             backends.extend(foxrgb_xpack::probe_other_picked(pick));
+            step("other USB devices", start);
             if let Some(hubs) = hubs {
                 backends.push(Box::new(hubs));
             }

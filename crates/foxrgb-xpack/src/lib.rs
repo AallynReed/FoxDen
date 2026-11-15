@@ -9,7 +9,6 @@ use foxrgb_core::Backend;
 use foxrgb_fan::FanBackend;
 use foxrgb_hid::registry::Detector;
 use foxrgb_net::NetConfig;
-use hidapi::HidApi;
 
 /// Every HID lighting detector this crate adds, for `foxrgb_hid::probe_with`.
 pub fn detectors() -> Vec<&'static Detector> {
@@ -80,7 +79,8 @@ pub fn probe_network(config: &NetConfig) -> Vec<Box<dyn Backend>> {
 
 /// Fan and pump control for every USB controller this crate supports.
 pub fn fan_backends() -> Vec<Box<dyn FanBackend>> {
-    let Ok(api) = HidApi::new() else {
+    let ids = fan_devices();
+    let Some(api) = foxrgb_hid::hid_api(|c| ids.iter().any(|d| (d.0, d.1) == (c.vid, c.pid))) else {
         return Vec::new();
     };
     groups::fan_backends(&api)

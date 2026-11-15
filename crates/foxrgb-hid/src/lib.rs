@@ -8,12 +8,13 @@ mod lengths;
 mod msi;
 pub mod port;
 pub mod registry;
+mod scan;
 
 pub use families::{
     LedProtocol, LedStrip, UsbReports, led_strips, serial_ports, unihub_over_usb, winusb,
 };
 use foxrgb_core::Backend;
-use hidapi::{BusType, HidApi};
+use hidapi::HidApi;
 pub use lengths::{Zone, key as length_key, resizable, set_lengths};
 
 fn supported(vid: u16, pid: u16) -> bool {
@@ -26,6 +27,30 @@ fn supported(vid: u16, pid: u16) -> bool {
             )
     )
 }
+
+static LISTING: std::sync::Mutex<Vec<scan::Dev>> = std::sync::Mutex::new(Vec::new());
+
+/// An hidapi context that never lists devices itself: hidapi asks every device for its strings,
+/// and one that never answers costs 5 s a string. The collections come from `device_list`.
+pub fn hid_api(want: impl Fn(&registry::Info) -> bool) -> Option<HidApi> {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(HidApi::disable_device_discovery);
+    let api = HidApi::new().ok()?;
+    let found: Vec<scan::Dev> = scan::with_serials(std::time::Duration::from_millis(500))
+        .into_iter()
+        .filter(|c| want(c))
+        .map(scan::Dev::new)
+        .collect();
+    *LISTING.lock().unwrap_or_else(|e| e.into_inner()) = found;
+    Some(api)
+}
+
+/// The collections the last `hid_api` call picked, in place of hidapi's own list.
+pub fn device_list(_api: &HidApi) -> Vec<scan::Dev> {
+    LISTING.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub use scan::Dev;
 
 /// One HID collection as the system lists it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -40,24 +65,18 @@ pub struct HidInfo {
     pub usb: bool,
 }
 
-/// Every HID collection on the system, read from its device list without opening any.
+/// Every HID collection on the system, from Windows' records: no device is asked anything.
 pub fn enumerate() -> Vec<HidInfo> {
-    let Ok(api) = HidApi::new() else {
-        return Vec::new();
-    };
-    api.device_list()
-        .map(|d| HidInfo {
-            vendor: d.vendor_id(),
-            product: d.product_id(),
-            name: d.product_string().unwrap_or_default().trim().to_string(),
-            manufacturer: d
-                .manufacturer_string()
-                .unwrap_or_default()
-                .trim()
-                .to_string(),
-            usage_page: d.usage_page(),
-            usage: d.usage(),
-            usb: matches!(d.bus_type(), BusType::Usb),
+    scan::collections()
+        .into_iter()
+        .map(|c| HidInfo {
+            vendor: c.vid,
+            product: c.pid,
+            name: c.product,
+            manufacturer: String::new(),
+            usage_page: c.usage_page,
+            usage: c.usage,
+            usb: c.bus == registry::Bus::Usb,
         })
         .collect()
 }
@@ -77,11 +96,10 @@ pub struct Collection {
 
 /// Every collection of one device with its report descriptor. Opens each one, writes nothing.
 pub fn describe(vendor: u16, product: u16) -> Vec<Collection> {
-    let Ok(api) = HidApi::new() else {
+    let Some(api) = hid_api(|c| (c.vid, c.pid) == (vendor, product)) else {
         return Vec::new();
     };
-    let mut out: Vec<Collection> = api
-        .device_list()
+    let mut out: Vec<Collection> = crate::device_list(&api).iter()
         .filter(|d| (d.vendor_id(), d.product_id()) == (vendor, product))
         .map(|d| {
             let descriptor = d
@@ -113,10 +131,10 @@ pub fn describe(vendor: u16, product: u16) -> Vec<Collection> {
 
 /// HID collections of the supported devices, read from the system's device list without opening any.
 pub fn list() -> Vec<String> {
-    let Ok(api) = HidApi::new() else {
+    let Some(api) = hid_api(|c| supported(c.vid, c.pid)) else {
         return Vec::new();
     };
-    api.device_list()
+    crate::device_list(&api).iter()
         .filter(|d| supported(d.vendor_id(), d.product_id()))
         .map(|d| {
             format!(
@@ -133,12 +151,11 @@ pub fn list() -> Vec<String> {
 
 /// What happens when each supported collection is opened, for diagnosis.
 pub fn diagnose() -> Vec<String> {
-    let Ok(api) = HidApi::new() else {
+    let Some(api) = hid_api(|c| supported(c.vid, c.pid)) else {
         return vec!["hidapi failed".into()];
     };
     let mut out = Vec::new();
-    for info in api
-        .device_list()
+    for info in crate::device_list(&api).iter()
         .filter(|d| supported(d.vendor_id(), d.product_id()))
     {
         let what = format!(
@@ -220,15 +237,22 @@ pub fn probe_with(extra: &[&'static registry::Detector]) -> Vec<Box<dyn Backend>
 pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Box<dyn Backend>> {
     lengths::clear();
     SLOW_OPENS.lock().unwrap_or_else(|e| e.into_inner()).clear();
-    let Ok(api) = HidApi::new() else {
+    let detectors = [families::detectors(), extra.to_vec()].concat();
+    let matchers = [families::matchers(), generic_any::matchers()].concat();
+    let wanted = |c: &registry::Info| {
+        pick.wants(c.vid, c.pid)
+            && (supported(c.vid, c.pid)
+                || detectors.iter().any(|d| d.matches(c))
+                || matchers.iter().any(|m| m.matches(c)))
+    };
+    let Some(api) = hid_api(wanted) else {
         return Vec::new();
     };
     let mut found: Vec<Box<dyn Backend>> = Vec::new();
     let mut board = false;
-    let detectors = [families::detectors(), extra.to_vec()].concat();
     let mut taken: Vec<String> = Vec::new();
     let mut infos = Vec::new();
-    for raw in api.device_list() {
+    for raw in crate::device_list(&api).iter() {
         let info = registry::Info::from_hidapi(raw);
         if !pick.wants(info.vid, info.pid) {
             continue;

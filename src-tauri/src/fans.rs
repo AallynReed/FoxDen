@@ -197,11 +197,13 @@ fn hubs_follow(up: bool) {
     if crate::service_lights::service_changed(up)
         && let Some(jobs) = APP.get().and_then(|app| app.try_state::<Jobs>())
     {
-        let hid = Kinds {
-            hid: true,
+        // Memory comes through the service; USB devices only move when a hub it owns is plugged in.
+        let kinds = Kinds {
+            hid: crate::service_lights::hubs_present(),
+            board: true,
             ..Kinds::default()
         };
-        let _ = jobs.send(Job::Reload(hid));
+        let _ = jobs.send(Job::Reload(kinds));
     }
 }
 

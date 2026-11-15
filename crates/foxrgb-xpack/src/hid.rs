@@ -120,7 +120,7 @@ pub fn open_sibling(
     usage_page: Option<u16>,
     usage: Option<u16>,
 ) -> Result<HidDevice, String> {
-    for raw in api.device_list() {
+    for raw in foxrgb_hid::device_list(api).iter() {
         let i = Info::from_hidapi(raw);
         if i.vid == info.vid
             && i.pid == info.pid

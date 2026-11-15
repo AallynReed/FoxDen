@@ -1,7 +1,7 @@
 //! What every USB HID driver family declares: which collections it drives and how it opens one.
 
 use foxrgb_core::Backend;
-use hidapi::{BusType, DeviceInfo, HidApi, HidDevice};
+use hidapi::{HidApi, HidDevice};
 
 /// How a collection is attached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,23 +27,8 @@ pub struct Info {
 }
 
 impl Info {
-    pub fn from_hidapi(d: &DeviceInfo) -> Info {
-        Info {
-            vid: d.vendor_id(),
-            pid: d.product_id(),
-            interface: d.interface_number(),
-            usage_page: d.usage_page(),
-            usage: d.usage(),
-            path: d.path().to_string_lossy().into_owned(),
-            serial: d.serial_number().unwrap_or_default().to_string(),
-            product: d.product_string().unwrap_or_default().trim().to_string(),
-            bus: match d.bus_type() {
-                BusType::Usb => Bus::Usb,
-                BusType::Bluetooth => Bus::Bluetooth,
-                _ => Bus::Other,
-            },
-            release: d.release_number(),
-        }
+    pub fn from_hidapi(d: &crate::scan::Dev) -> Info {
+        d.info().clone()
     }
 
     /// Opens this collection.

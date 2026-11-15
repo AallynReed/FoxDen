@@ -145,10 +145,10 @@ pub fn query_class(io: &mut dyn Io) -> Result<Option<&'static Table>, String> {
 }
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    let manufacturer = api
-        .device_list()
-        .find(|x| x.path().to_string_lossy() == info.path)
-        .and_then(|x| x.manufacturer_string().map(str::to_string))
+    let manufacturer = info
+        .open(api)
+        .ok()
+        .and_then(|h| h.get_manufacturer_string().ok().flatten())
         .unwrap_or_default();
     if !manufacturer.contains("Light&Salt") || !info.product.contains("Light&Salt") {
         return Err("not a Light&Salt device".into());

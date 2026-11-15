@@ -13,8 +13,7 @@ pub fn hub_id(info: &Info, family: &str) -> String {
 
 /// Every USB collection passing `want`, one per physical device not yet in `seen`; vendor pages win.
 pub fn scan(api: &HidApi, seen: &mut Vec<String>, want: impl Fn(&Info) -> bool) -> Vec<Info> {
-    let mut all: Vec<Info> = api
-        .device_list()
+    let mut all: Vec<Info> = foxrgb_hid::device_list(api).iter()
         .map(Info::from_hidapi)
         .filter(|i| i.bus == Bus::Usb && want(i))
         .collect();

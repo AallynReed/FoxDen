@@ -108,8 +108,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         return Err("claimed by the vendor interface".into());
     }
     let mut io = open_io(api, info)?;
-    let lamparray = api
-        .device_list()
+    let lamparray = crate::device_list(api).iter()
         .find(|x| {
             x.vendor_id() == VID && x.product_id() == PID && x.interface_number() == LAMPARRAY_IFACE
         })

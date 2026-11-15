@@ -11,3 +11,7 @@ license = "GPL-2.0-or-later"
 foxrgb-core = { path = "crates/foxrgb-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Creating a context lists no devices once discovery is switched off, on Windows too.
+[patch.crates-io]
+hidapi = { path = "vendor/hidapi" }

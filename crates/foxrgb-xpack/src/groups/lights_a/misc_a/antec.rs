@@ -158,7 +158,7 @@ impl FanHub for Sensor {
 pub fn fan_backends(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     let mut seen = Vec::new();
     let mut out = Vec::new();
-    for raw in api.device_list() {
+    for raw in foxrgb_hid::device_list(api).iter() {
         let info = Info::from_hidapi(raw);
         if info.vid != VID
             || info.pid != PID

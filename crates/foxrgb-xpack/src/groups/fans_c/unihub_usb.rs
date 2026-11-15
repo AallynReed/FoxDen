@@ -256,7 +256,7 @@ fn hid_bound(api: Option<&HidApi>) -> Vec<(u16, String, Info)> {
         return Vec::new();
     };
     let mut out: Vec<(u16, String, Info)> = Vec::new();
-    for raw in api.device_list() {
+    for raw in foxrgb_hid::device_list(api).iter() {
         let i = Info::from_hidapi(raw);
         if i.vid == ENE
             && matches!(i.pid, 0xA100 | 0xA101)
@@ -276,7 +276,7 @@ fn same_hub(pid: u16, serial: &str, other: (u16, &str)) -> bool {
 
 /// Lighting of WinUSB-bound hubs; SL v1.8 and AL v1.7 get their HID reports by SET_REPORT.
 pub fn lights(pick: Pick) -> Vec<Box<dyn Backend>> {
-    let api = HidApi::new().ok();
+    let api = foxrgb_hid::hid_api(|c| c.vid == ENE);
     let hid = hid_bound(api.as_ref());
     let mut out = Vec::new();
     for m in MODELS.iter().filter(|m| pick.wants(ENE, m.pid)) {

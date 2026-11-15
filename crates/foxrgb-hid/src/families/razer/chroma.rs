@@ -439,16 +439,17 @@ pub fn open_argb(
     info: &Info,
     detector: &Detector,
 ) -> Result<Box<dyn Backend>, String> {
-    let same = |d: &&hidapi::DeviceInfo| d.vendor_id() == info.vid && d.product_id() == info.pid;
-    let path_of = |d: &hidapi::DeviceInfo| d.path().to_string_lossy().into_owned();
-    let firsts: Vec<String> = api
-        .device_list()
+    let same = |d: &&crate::Dev| d.vendor_id() == info.vid && d.product_id() == info.pid;
+    let path_of = |d: &crate::Dev| d.path().to_string_lossy().into_owned();
+    let listed = crate::device_list(api);
+    let firsts: Vec<String> = listed
+        .iter()
         .filter(same)
         .filter(|d| d.interface_number() == 0)
         .map(path_of)
         .collect();
-    let seconds: Vec<&hidapi::DeviceInfo> = api
-        .device_list()
+    let seconds: Vec<&crate::Dev> = listed
+        .iter()
         .filter(same)
         .filter(|d| d.interface_number() == 1)
         .collect();
