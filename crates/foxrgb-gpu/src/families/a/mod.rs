@@ -23,6 +23,14 @@ fn matching<'a>(info: &'a BusInfo, table: &'a [Entry]) -> impl Iterator<Item = &
     })
 }
 
+/// Whether any table here has a card with these PCI ids.
+pub fn known(ids: [u16; 4]) -> bool {
+    [asus_aura::DEVICES, gigabyte_fusion::DEVICES]
+        .iter()
+        .flat_map(|t| t.iter())
+        .any(|&(_, ven, dev, sub_ven, sub_dev, _)| [ven, dev, sub_ven, sub_dev] == ids)
+}
+
 pub fn all() -> Vec<Detect> {
     vec![asus_aura::detect, gigabyte_fusion::detect]
 }

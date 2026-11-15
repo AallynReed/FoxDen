@@ -153,91 +153,110 @@ impl SmBus for Bus {
     fn i2c_write_block_data(&self, addr: u8, command: u8, data: &[u8]) -> Result<()> {
         self.write(addr, Some(command), &data[..data.len().min(BLOCK_MAX)])
     }
+    fn i2c_read(&self, addr: u8, len: usize) -> Result<Vec<u8>> {
+        let (mut b, size) = self.read(addr, None, len)?;
+        b.truncate(size);
+        Ok(b)
+    }
+    fn i2c_write(&self, addr: u8, data: &[u8]) -> Result<()> {
+        self.write(addr, None, data)
+    }
 }
 
 type Handle = *mut i32;
-type QueryInterface = unsafe extern "C" fn(u32) -> *mut c_void;
+pub(crate) type QueryInterface = unsafe extern "C" fn(u32) -> *mut c_void;
 type Initialize = unsafe extern "C" fn() -> i32;
 type EnumPhysicalGpus = unsafe extern "C" fn(*mut Handle, *mut i32) -> i32;
 type GetPciIdentifiers =
     unsafe extern "C" fn(Handle, *mut u32, *mut u32, *mut u32, *mut u32) -> i32;
 type I2cEx = unsafe extern "C" fn(Handle, *mut NvI2cInfoV3, *mut u32) -> i32;
 
-struct Gpu(Handle);
+pub(crate) struct Gpu(pub(crate) Handle);
 
 // NvAPI handles are opaque driver tokens, usable from any thread.
 unsafe impl Send for Gpu {}
 unsafe impl Sync for Gpu {}
 
 /// `T` must be the function pointer type of interface `id`.
-unsafe fn query<T>(query_interface: QueryInterface, id: u32) -> Option<T> {
+pub(crate) unsafe fn query<T>(query_interface: QueryInterface, id: u32) -> Option<T> {
     const { assert!(size_of::<T>() == size_of::<usize>()) };
     let address = NonNull::new(unsafe { query_interface(id) })?;
     Some(unsafe { std::mem::transmute_copy(&address) })
 }
 
-/// One bus per NVIDIA GPU, as i2c_smbus_nvapi_detect registers them. Empty without the driver.
-pub fn buses() -> Vec<SharedBus> {
+/// A physical GPU and the PCI ids it reports.
+pub(crate) type Found = (Arc<Gpu>, Option<[u16; 4]>);
+
+/// nvapi64.dll initialised, and every physical GPU with the PCI ids it reports. None without the driver.
+pub(crate) fn load() -> Option<(QueryInterface, Vec<Found>)> {
     let name: Vec<u16> = "nvapi64.dll\0".encode_utf16().collect();
     let module = unsafe { LoadLibraryExW(name.as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32) };
     if module.is_null() {
-        return Vec::new();
+        return None;
     }
     let entry: &CStr = c"nvapi_QueryInterface";
-    let Some(address) = (unsafe { GetProcAddress(module, entry.as_ptr().cast()) }) else {
-        return Vec::new();
-    };
+    let address = unsafe { GetProcAddress(module, entry.as_ptr().cast()) }?;
     let query_interface: QueryInterface = unsafe { std::mem::transmute(address) };
     unsafe {
-        let Some(initialize) = query::<Initialize>(query_interface, ID_INITIALIZE) else {
-            return Vec::new();
-        };
-        let (Some(enumerate), Some(identify), Some(write), Some(read)) = (
-            query::<EnumPhysicalGpus>(query_interface, ID_ENUM_PHYSICAL_GPUS),
-            query::<GetPciIdentifiers>(query_interface, ID_GET_PCI_IDENTIFIERS),
-            query::<I2cEx>(query_interface, ID_I2C_WRITE_EX),
-            query::<I2cEx>(query_interface, ID_I2C_READ_EX),
-        ) else {
-            return Vec::new();
-        };
+        let initialize = query::<Initialize>(query_interface, ID_INITIALIZE)?;
+        let enumerate = query::<EnumPhysicalGpus>(query_interface, ID_ENUM_PHYSICAL_GPUS)?;
+        let identify = query::<GetPciIdentifiers>(query_interface, ID_GET_PCI_IDENTIFIERS)?;
         initialize();
         let mut handles: [Handle; 64] = [null_mut(); 64];
         let mut count = 0;
         if enumerate(handles.as_mut_ptr(), &mut count) != 0 {
-            return Vec::new();
+            return None;
         }
-        let mut buses = Vec::new();
-        for (index, &handle) in handles.iter().take(count.clamp(0, 64) as usize).enumerate() {
-            let (mut device, mut sub, mut revision, mut ext) = (0, 0, 0, 0);
-            let [vendor, device, sub_vendor, sub_device] =
-                if identify(handle, &mut device, &mut sub, &mut revision, &mut ext) == 0 {
-                    pci_ids(device, sub)
-                } else {
-                    [0xFFFF; 4]
-                };
-            let gpu = Arc::new(Gpu(handle));
-            let call: Call = Box::new(move |is_write, req| {
-                let mut unknown = 0;
+        let gpus = handles
+            .iter()
+            .take(count.clamp(0, 64) as usize)
+            .map(|&handle| {
+                let (mut device, mut sub, mut revision, mut ext) = (0, 0, 0, 0);
+                let ids = (identify(handle, &mut device, &mut sub, &mut revision, &mut ext) == 0)
+                    .then(|| pci_ids(device, sub));
+                (Arc::new(Gpu(handle)), ids)
+            })
+            .collect();
+        Some((query_interface, gpus))
+    }
+}
+
+/// One bus per NVIDIA GPU, as i2c_smbus_nvapi_detect registers them. Empty without the driver.
+pub fn buses() -> Vec<SharedBus> {
+    let Some((query_interface, gpus)) = load() else {
+        return Vec::new();
+    };
+    let write = unsafe { query::<I2cEx>(query_interface, ID_I2C_WRITE_EX) };
+    let read = unsafe { query::<I2cEx>(query_interface, ID_I2C_READ_EX) };
+    let (Some(write), Some(read)) = (write, read) else {
+        return Vec::new();
+    };
+    let mut buses = Vec::new();
+    for (index, (gpu, ids)) in gpus.into_iter().enumerate() {
+        let [vendor, device, sub_vendor, sub_device] = ids.unwrap_or([0xFFFF; 4]);
+        let call: Call = Box::new(move |is_write, req| {
+            let mut unknown = 0;
+            unsafe {
                 if is_write {
                     write(gpu.0, req, &mut unknown)
                 } else {
                     read(gpu.0, req, &mut unknown)
                 }
-            });
-            let bus: Box<dyn SmBus> = Box::new(Bus {
-                info: BusInfo {
-                    name: format!("Nvidia NvAPI I2C on GPU {index}"),
-                    pci_vendor: vendor,
-                    pci_device: device,
-                    pci_subsystem_vendor: sub_vendor,
-                    pci_subsystem_device: sub_device,
-                },
-                call,
-            });
-            buses.push(Arc::new(Mutex::new(bus)));
-        }
-        buses
+            }
+        });
+        let bus: Box<dyn SmBus> = Box::new(Bus {
+            info: BusInfo {
+                name: format!("Nvidia NvAPI I2C on GPU {index}"),
+                pci_vendor: vendor,
+                pci_device: device,
+                pci_subsystem_vendor: sub_vendor,
+                pci_subsystem_device: sub_device,
+            },
+            call,
+        });
+        buses.push(Arc::new(Mutex::new(bus)));
     }
+    buses
 }
 
 #[cfg(test)]
@@ -380,6 +399,17 @@ mod tests {
         assert_eq!(log[1], seen(true, 0x52, Some(0x40), vec![7, 8]));
         assert_eq!(log[2].6.len(), 32);
         assert_eq!(log[3], seen(false, 0x52, Some(0x81), vec![0, 0, 0]));
+    }
+
+    // i2c_smbus_nvapi::i2c_xfer: no register, no block cap, the read keeps the size returned
+    #[test]
+    fn raw_transfer() {
+        let (b, log) = bus(vec![0xAB, 0x11], 0);
+        b.i2c_write(0x71, &[0x10; 64]).unwrap();
+        assert_eq!(b.i2c_read(0x71, 4), Ok(vec![0xAB, 0x11, 0, 0]));
+        let log = log.lock().unwrap();
+        assert_eq!(log[0], seen(true, 0xE2, None, vec![0x10; 64]));
+        assert_eq!(log[1], seen(false, 0xE2, None, vec![0; 4]));
     }
 
     // i2c_smbus_nvapi::i2c_smbus_xfer, I2C_SMBUS_QUICK and failed reads

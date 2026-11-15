@@ -135,6 +135,27 @@ impl<'a> Io<'a> {
         let r = lock(self.bus).i2c_write_block_data(addr, cmd, data);
         self.keep(r);
     }
+
+    /// i2c_read_block into a zeroed buffer of `len` bytes; None when the read failed.
+    pub fn raw_read(&self, addr: u8, len: usize) -> Option<Vec<u8>> {
+        let mut d = lock(self.bus).i2c_read(addr, len).ok()?;
+        d.resize(len, 0);
+        Some(d)
+    }
+
+    /// i2c_write_block; true when it went through.
+    pub fn raw_write(&self, addr: u8, data: &[u8]) -> bool {
+        let r = lock(self.bus).i2c_write(addr, data);
+        let ok = r.is_ok();
+        self.keep(r);
+        ok
+    }
+}
+
+/// The C string at the start of a buffer, as std::string((char*)buf) reads it.
+pub fn c_string(buf: &[u8]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
 /// The protocol half of a device: OpenRGB's DeviceUpdateMode for the direct mode, and

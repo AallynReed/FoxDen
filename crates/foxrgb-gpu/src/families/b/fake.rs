@@ -29,6 +29,8 @@ pub struct Fake {
     bytes: Mutex<HashMap<(u8, u8), VecDeque<u8>>>,
     blocks: HashMap<(u8, u8), Vec<u8>>,
     plain: HashMap<u8, u8>,
+    /// Raw reads per address; the last answer repeats.
+    raw: Mutex<HashMap<u8, VecDeque<Vec<u8>>>>,
     pub quick_ok: bool,
     pub fail_writes: bool,
 }
@@ -63,6 +65,12 @@ impl Fake {
 
     pub fn plain(mut self, addr: u8, value: u8) -> Self {
         self.plain.insert(addr, value);
+        self
+    }
+
+    pub fn raw(mut self, addr: u8, answers: &[&[u8]]) -> Self {
+        let q = answers.iter().map(|a| a.to_vec()).collect();
+        self.raw.get_mut().unwrap().insert(addr, q);
         self
     }
 
@@ -144,6 +152,22 @@ impl SmBus for Fake {
     }
     fn i2c_write_block_data(&self, addr: u8, command: u8, data: &[u8]) -> Result<()> {
         note(format!("wblk {addr:02x} {command:02x} {}", hex(data)));
+        self.written()
+    }
+    fn i2c_read(&self, addr: u8, len: usize) -> Result<Vec<u8>> {
+        note(format!("rraw {addr:02x} {len}"));
+        let mut raw = self.raw.lock().unwrap();
+        let q = raw.get_mut(&addr).ok_or("nack")?;
+        let mut d = if q.len() > 1 {
+            q.pop_front().unwrap()
+        } else {
+            q.front().cloned().ok_or("nack")?
+        };
+        d.truncate(len);
+        Ok(d)
+    }
+    fn i2c_write(&self, addr: u8, data: &[u8]) -> Result<()> {
+        note(format!("wraw {addr:02x} {}", hex(data)));
         self.written()
     }
 }

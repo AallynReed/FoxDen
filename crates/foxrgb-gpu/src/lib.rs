@@ -2,6 +2,7 @@
 
 mod amd;
 mod families;
+mod illumination;
 mod nvidia;
 
 use foxrgb_core::Backend;
@@ -22,5 +23,12 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
             found.extend(detect(&bus));
         }
     }
+    found.extend(illumination::probe());
     found
+}
+
+/// Whether a driver here lists the card with these PCI ids: vendor, device, subsystem vendor and
+/// subsystem device. Touches no hardware.
+pub fn known(ids: [u16; 4]) -> bool {
+    families::known(ids) || illumination::known(ids)
 }

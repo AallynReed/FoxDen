@@ -60,7 +60,7 @@ pub struct Found {
     pub name: String,
     pub kind: &'static str,
     pub bus: Bus,
-    /// Engine id of the device FoxRGB's own driver offers for it.
+    /// Engine id of the device FoxRGB's own driver offers for it, or [`GPU`] for a graphics card.
     pub native: Option<&'static str>,
     /// Brand OpenRGB has drivers for.
     pub brand: Option<&'static str>,
@@ -328,18 +328,27 @@ fn module(m: &PhysicalMemory) -> Option<Found> {
     })
 }
 
-/// Vendor, device and subsystem vendor from a path like `PCI\VEN_1002&DEV_7550&SUBSYS_061A1043&REV_C0\..`.
-fn pci_ids(path: &str) -> Option<(u16, u16, u16)> {
+/// Prefix of every graphics card device foxrgb-gpu offers; their ids are only known once probed.
+const GPU: &str = "gpu:";
+
+/// Vendor, device, subsystem vendor and device from a path like `PCI\VEN_1002&DEV_7550&SUBSYS_061A1043&REV_C0\..`.
+fn pci_ids(path: &str) -> Option<[u16; 4]> {
     let hex = |key: &str, skip: usize| {
         let at = path.find(key)? + key.len() + skip;
         u16::from_str_radix(path.get(at..at + 4)?, 16).ok()
     };
-    Some((hex("VEN_", 0)?, hex("DEV_", 0)?, hex("SUBSYS_", 4)?))
+    Some([
+        hex("VEN_", 0)?,
+        hex("DEV_", 0)?,
+        hex("SUBSYS_", 4)?,
+        hex("SUBSYS_", 0)?,
+    ])
 }
 
 fn card(v: &VideoController) -> Option<Found> {
     let name = v.name.as_deref()?.trim();
-    let (vendor, device, maker) = pci_ids(v.path.as_deref()?)?;
+    let ids = pci_ids(v.path.as_deref()?)?;
+    let [vendor, device, maker, _] = ids;
     // Processor graphics from Intel and AMD have nothing to light.
     if vendor != 0x10DE && !(vendor == 0x1002 && name.contains("RX")) {
         return None;
@@ -358,7 +367,7 @@ fn card(v: &VideoController) -> Option<Found> {
         name: brand.map_or_else(|| name.to_string(), |brand| titled(brand, model)),
         kind: "gpu",
         bus: Bus::Gpu,
-        native: None,
+        native: foxrgb_gpu::known(ids).then_some(GPU),
         brand,
     })
 }
@@ -557,11 +566,17 @@ fn same(found: &Found, device: &Device) -> bool {
     branded && fits
 }
 
+/// Probed graphics cards carry no PCI ids, so any card FoxRGB lights counts for a known one.
+fn drives(native: &str, device: &Device) -> bool {
+    device.id == native
+        || (native == GPU && device.kind == DeviceKind::Gpu && device.id.starts_with(GPU))
+}
+
 fn status(found: &Found, live: &Live) -> (Route, State, String) {
     let settings = live.settings;
     if found
         .native
-        .is_some_and(|id| live.driven.iter().any(|(_, device)| device.id == id))
+        .is_some_and(|id| live.driven.iter().any(|(_, device)| drives(id, device)))
     {
         return (
             Route::Native,
@@ -596,13 +611,9 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         }
         (Bus::Gpu, Some(brand)) => {
             let note = format!(
-                "FoxRGB cannot light graphics cards yet. OpenRGB drives some {brand} cards and may list this one."
+                "FoxRGB has no driver for this card yet. OpenRGB drives some {brand} cards and may list this one."
             );
             return (Route::None, State::Unsupported, note);
-        }
-        (Bus::Gpu, None) => {
-            let note = "FoxRGB cannot light graphics cards yet; its I2C helper is not built.";
-            return (Route::None, State::Unsupported, note.into());
         }
         (_, None) => {
             return (
@@ -1034,7 +1045,10 @@ mod tests {
             name: Some("NVIDIA GeForce RTX 4080".into()),
             path: Some(r"PCI\VEN_10DE&DEV_2704&SUBSYS_167A10DE&REV_A1\4&1A2B3C4D&0&0008".into()),
         };
-        assert_eq!(card(&founders).unwrap().name, "NVIDIA GeForce RTX 4080");
+        let founders = card(&founders).unwrap();
+        assert_eq!(founders.name, "NVIDIA GeForce RTX 4080");
+        // NVIDIA Illumination lists the 4080 Founders Edition, nothing lists this ASUS card
+        assert_eq!((founders.native, gpu.native), (Some(GPU), None));
         let unbranded = VideoController {
             name: Some("NVIDIA GeForce RTX 4080".into()),
             path: Some(r"PCI\VEN_10DE&DEV_2704&SUBSYS_00000000&REV_A1\4&1A2B3C4D&0&0008".into()),
@@ -1183,6 +1197,46 @@ mod tests {
         assert!(line("gpu:1002:7550").note.contains("does not list"));
         assert_eq!(line("network:openrgb").state, State::Active);
         assert!(line("network:openrgb").note.contains("device list"));
+    }
+
+    #[test]
+    fn known_graphics_cards_go_native() {
+        let known = Found {
+            native: Some(GPU),
+            ..part("gpu:10de:2704", "gpu", Bus::Gpu, None)
+        };
+        let found = vec![known, part("gpu:10de:2504", "gpu", Bus::Gpu, None)];
+        let card = Device::grid(
+            "gpu:nvidia-illumination:0",
+            "NVIDIA GeForce RTX 4080 FE",
+            DeviceKind::Gpu,
+            [0.0; 4],
+            2,
+            1,
+        );
+        let line = |settings: &Settings, driven| {
+            let live = Live {
+                settings,
+                driven,
+                openrgb_up: false,
+                openrgb_on: false,
+            };
+            resolve(&found, &live)
+                .into_iter()
+                .map(|d| (d.route, d.state, d.note))
+                .collect::<Vec<_>>()
+        };
+        let on = settings(true, false);
+        let list = line(&on, vec![("hid", &card)]);
+        assert_eq!((list[0].0, list[0].1), (Route::Native, State::Active));
+        assert_eq!((list[1].0, list[1].1), (Route::None, State::Unsupported));
+        assert!(list[1].2.contains("no driver"), "{}", list[1].2);
+        let list = line(&on, Vec::new());
+        assert_eq!((list[0].0, list[0].1), (Route::Native, State::Available));
+        let off = settings(false, false);
+        let list = line(&off, Vec::new());
+        assert_eq!((list[0].0, list[0].1), (Route::Native, State::Available));
+        assert!(list[0].2.contains("Switch on native drivers"));
     }
 
     #[test]

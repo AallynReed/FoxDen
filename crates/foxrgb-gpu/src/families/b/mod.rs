@@ -1,13 +1,10 @@
 //! Ported from OpenRGB Controllers/*GPUController (GPL-2.0-or-later).
-//!
-//! Not ported: ColorfulGPUController, ZotacV2GPUController and ManliGPUController detect with
-//! a raw I2C read, and ZotacTuringGPUController reads back raw after every write; the SmBus
-//! trait has no raw read.
 
 use foxrgb_smbus::i2c::Detect;
 
 #[rustfmt::skip]
 mod cards;
+mod colorful;
 mod colorful_turing;
 mod common;
 mod evga_ampere;
@@ -17,12 +14,26 @@ mod evga_turing;
 #[cfg(test)]
 mod fake;
 mod galax;
+mod gigabyte_blackwell;
+mod gigabyte_fusion2;
+mod manli;
+mod msi;
 mod palit;
 mod pny_epicx;
 mod pny_lovelace;
 mod powercolor;
 mod sapphire;
 mod zotac_blackwell;
+mod zotac_turing;
+mod zotac_v2;
+
+/// Whether any table here has a card with these PCI ids.
+pub fn known(ids: [u16; 4]) -> bool {
+    cards::ALL
+        .iter()
+        .flat_map(|t| t.iter())
+        .any(|c| [c.ven, c.dev, c.subven, c.subdev] == ids)
+}
 
 pub fn all() -> Vec<Detect> {
     vec![
@@ -42,6 +53,19 @@ pub fn all() -> Vec<Detect> {
         powercolor::detect_v1,
         powercolor::detect_v2,
         galax::detect,
+        colorful::detect,
+        manli::detect,
+        zotac_turing::detect,
+        zotac_v2::detect,
+        msi::detect_v1,
+        msi::detect_v2,
+        gigabyte_fusion2::detect,
+        gigabyte_blackwell::detect_single,
+        gigabyte_blackwell::detect_gaming,
+        gigabyte_blackwell::detect_waterforce,
+        gigabyte_blackwell::detect_aorus_waterforce,
+        gigabyte_blackwell::detect_master_5080,
+        gigabyte_blackwell::detect_master_5090d_ice,
     ]
 }
 
@@ -68,8 +92,34 @@ mod tests {
             PNY_EPICX_SMALL.len() + PNY_EPICX_LARGE.len(),
             POWERCOLOR_V1.len() + POWERCOLOR_V2.len(),
             GALAX.len(),
+            COLORFUL.len(),
+            MANLI.len(),
+            ZOTAC_TURING.len(),
+            ZOTAC_V2.len(),
+            FUSION2.len(),
+            [
+                FUSION2_BLACKWELL_SINGLE,
+                FUSION2_BLACKWELL_GAMING,
+                FUSION2_BLACKWELL_WATERFORCE,
+                FUSION2_BLACKWELL_AORUS_WATERFORCE,
+                FUSION2_BLACKWELL_MASTER_5080,
+                FUSION2_BLACKWELL_MASTER_5090D_ICE,
+            ]
+            .iter()
+            .map(|t| t.len())
+            .sum(),
+            MSI_V1.len(),
+            MSI_V2.len(),
         ];
-        assert_eq!(sizes, [68, 60, 26, 8, 5, 2, 33, 3, 12, 7, 11, 10]);
+        assert_eq!(
+            sizes,
+            [
+                68, 60, 26, 8, 5, 2, 33, 3, 12, 7, 11, 10, 40, 1, 4, 17, 103, 32, 83, 47
+            ]
+        );
+        // known() reads cards::ALL, so it must hold every table above
+        let all: usize = ALL.iter().map(|t| t.len()).sum();
+        assert_eq!(all, sizes.iter().sum::<usize>());
     }
 
     // EVGAGPUv1Controller::SetMode and SetColor: a failed write is retried on the next push.
