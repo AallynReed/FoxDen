@@ -1,0 +1,52 @@
+name: Device report
+description: A device works, half works or is not found
+labels: [device]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: Logitech G515 Lightspeed
+    validations:
+      required: true
+  - type: input
+    id: ids
+    attributes:
+      label: USB ID
+      description: Vendor and product ID if you know it, from Device Manager, Details, Hardware Ids.
+      placeholder: 046D:C355
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type
+      options: [Keyboard, Mouse, Headset, RAM, Motherboard, Graphics card, Cooler or fan, LED strip, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works
+        - Found but colours are wrong
+        - Found but no light
+        - Not found
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options: [USB cable, Wireless receiver, Bluetooth, Internal]
+  - type: input
+    id: version
+    attributes:
+      label: FoxRGB version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Which LEDs are off or wrong, other RGB software installed, screenshots.

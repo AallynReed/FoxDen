@@ -1,0 +1,16 @@
+name: Feature request
+description: Something FoxRGB should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: What you want and why.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Lighting, Effects, Fans, Interface, Other]
