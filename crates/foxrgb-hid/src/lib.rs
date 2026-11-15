@@ -165,8 +165,28 @@ pub fn diagnose() -> Vec<String> {
 }
 
 /// Detects supported USB HID lighting devices and returns one backend per device.
+/// Opens that took longer than this are kept for the log.
+const SLOW: std::time::Duration = std::time::Duration::from_millis(250);
+static SLOW_OPENS: std::sync::Mutex<Vec<(String, u128)>> = std::sync::Mutex::new(Vec::new());
+
+fn note_slow(what: &str, start: std::time::Instant) {
+    let took = start.elapsed();
+    if took >= SLOW {
+        SLOW_OPENS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((what.to_string(), took.as_millis()));
+    }
+}
+
+/// What made the last probe slow: each open over a quarter second, with its time in ms.
+pub fn slow_opens() -> Vec<(String, u128)> {
+    std::mem::take(&mut *SLOW_OPENS.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 pub fn probe() -> Vec<Box<dyn Backend>> {
     lengths::clear();
+    SLOW_OPENS.lock().unwrap_or_else(|e| e.into_inner()).clear();
     let Ok(api) = HidApi::new() else {
         return Vec::new();
     };
@@ -212,10 +232,14 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
         let key = info.key();
         if let Some(detector) = detectors.iter().find(|d| d.matches(&info))
             && !taken.contains(&key)
-            && let Ok(backend) = (detector.open)(&api, &info, detector)
         {
-            taken.push(key);
-            found.push(backend);
+            let start = std::time::Instant::now();
+            let opened = (detector.open)(&api, &info, detector);
+            note_slow(detector.name, start);
+            if let Ok(backend) = opened {
+                taken.push(key);
+                found.push(backend);
+            }
         }
         infos.push(info);
     }
@@ -227,9 +251,16 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
         &detectors,
         &[families::matchers(), generic_any::matchers()].concat(),
         |i| supported(i.vid, i.pid),
-        |info, matcher| (matcher.open)(&api, info, &mut claimed),
+        |info, matcher| {
+            let start = std::time::Instant::now();
+            let opened = (matcher.open)(&api, info, &mut claimed);
+            note_slow(&format!("{} {:04x}:{:04x}", matcher.name, info.vid, info.pid), start);
+            opened
+        },
     ));
+    let start = std::time::Instant::now();
     found.extend(families::other());
+    note_slow("serial, WinUSB and SCSI devices", start);
     found
 }
 

@@ -25,7 +25,7 @@ const RELEASE: Duration = Duration::from_secs(2);
 /// How long the last black frame may take on the way out.
 const LAST_FRAME: Duration = Duration::from_millis(500);
 /// Backend groups in the order their devices are listed.
-const GROUPS: [&str; 3] = ["openrgb", "hid", "net"];
+const GROUPS: [&str; 4] = ["openrgb", "hid", "board", "net"];
 
 #[derive(Clone, Debug, Serialize)]
 pub struct BackendStatus {
@@ -91,6 +91,8 @@ pub struct Snapshot {
 pub struct Kinds {
     pub openrgb: bool,
     pub hid: bool,
+    /// Graphics cards, memory, Super I/O and WMI: probed at start and on demand, not on USB changes.
+    pub board: bool,
     pub net: bool,
 }
 
@@ -98,17 +100,19 @@ impl Kinds {
     pub const ALL: Kinds = Kinds {
         openrgb: true,
         hid: true,
+        board: true,
         net: true,
     };
 
     pub fn any(self) -> bool {
-        self.openrgb || self.hid || self.net
+        self.openrgb || self.hid || self.board || self.net
     }
 
     fn has(self, label: &str) -> bool {
         match label {
             "openrgb" => self.openrgb,
             "net" => self.net,
+            "board" => self.board,
             _ => self.hid,
         }
     }
@@ -384,6 +388,7 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         let enabled = Kinds {
             openrgb: enabled("openrgb", &first),
             hid: enabled("hid", &first),
+            board: enabled("board", &first),
             net: enabled("net", &first),
         };
         if enabled.any() {
@@ -431,6 +436,7 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                 let stale = Kinds {
                     openrgb: change.openrgb && !done.openrgb,
                     hid,
+                    board: false,
                     net: false,
                 };
                 if stale.any() {
@@ -481,6 +487,21 @@ fn close_conflicts(app: &AppHandle, settings: &Settings) {
     }
 }
 
+/// Connects one group and logs how long it took.
+fn timed(
+    label: &str,
+    connect: impl FnOnce() -> (Vec<Box<dyn Backend>>, Option<String>),
+) -> (Vec<Box<dyn Backend>>, Option<String>) {
+    let start = std::time::Instant::now();
+    let out = connect();
+    let devices: usize = out.0.iter().map(|b| b.devices().len()).sum();
+    crate::log::info(
+        "devices",
+        format!("{label}: {devices} devices in {} ms", start.elapsed().as_millis()),
+    );
+    out
+}
+
 /// The backends of one group and the reason there are none, if it failed.
 fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<String>) {
     match label {
@@ -489,17 +510,8 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             Err(e) => (Vec::new(), Some(e)),
         },
         "net" => (foxrgb_net::probe(&settings.network), None),
-        _ => {
-            // Strips first, so the serial probes never write to their ports.
-            let strips: Vec<_> = settings
-                .led_strips
-                .iter()
-                .filter_map(|s| s.strip())
-                .collect();
-            let mut backends = foxrgb_hid::led_strips(&strips);
-            foxrgb_hid::set_lengths(settings.zone_leds.clone());
-            backends.extend(foxrgb_hid::probe());
-            backends.extend(foxrgb_gpu::probe());
+        "board" => {
+            let mut backends = foxrgb_gpu::probe();
             // Memory needs PawnIO and administrator rights, or the installed service that has them.
             match foxrgb_smbus::probe() {
                 Ok(more) => {
@@ -512,6 +524,21 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
                         backends.push(Box::new(service));
                     }
                 }
+            }
+            (backends, None)
+        }
+        _ => {
+            // Strips first, so the serial probes never write to their ports.
+            let strips: Vec<_> = settings
+                .led_strips
+                .iter()
+                .filter_map(|s| s.strip())
+                .collect();
+            let mut backends = foxrgb_hid::led_strips(&strips);
+            foxrgb_hid::set_lengths(settings.zone_leds.clone());
+            backends.extend(foxrgb_hid::probe());
+            for (what, ms) in foxrgb_hid::slow_opens() {
+                crate::log::info("devices", format!("{what} took {ms} ms to open"));
             }
             (backends, None)
         }
@@ -541,11 +568,15 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
             state.engine.flush(LAST_FRAME);
             old.push(state.engine.remove("openrgb"));
             old.push(state.engine.remove("hid"));
+            old.push(state.engine.remove("board"));
             old.push(state.engine.remove("net"));
         } else {
             // HID devices and DMX ports have to be let go before they are probed again.
             if kinds.hid {
                 old.push(state.engine.remove("hid"));
+            }
+            if kinds.board {
+                old.push(state.engine.remove("board"));
             }
             if kinds.net {
                 old.push(state.engine.remove("net"));
@@ -557,8 +588,22 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
         old.wait(RELEASE);
     }
     let mut fresh = Vec::new();
-    for label in GROUPS.into_iter().filter(|label| kinds.has(label)) {
-        let outcome = enabled(label, &settings).then(|| connect(label, &settings));
+    let outcomes: Vec<_> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = GROUPS
+            .into_iter()
+            .filter(|label| kinds.has(label))
+            .map(|label| {
+                let settings = &settings;
+                (label, scope.spawn(move || {
+                    enabled(label, settings).then(|| timed(label, || connect(label, settings)))
+                }))
+            })
+            .collect();
+        jobs.into_iter()
+            .map(|(label, job)| (label, job.join().ok().flatten()))
+            .collect()
+    });
+    for (label, outcome) in outcomes {
         if label == "openrgb"
             && let Some((backends, _)) = &outcome
         {
@@ -889,9 +934,13 @@ mod tests {
         );
         assert_eq!(
             backends[2],
+            json!({ "name": "board", "active": false, "devices": 0, "error": null })
+        );
+        assert_eq!(
+            backends[3],
             json!({ "name": "net", "active": false, "devices": 0, "error": null })
         );
-        assert_eq!(backends.len(), 3);
+        assert_eq!(backends.len(), 4);
     }
 
     #[test]

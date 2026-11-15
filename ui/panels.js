@@ -1,4 +1,4 @@
-const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", net: "Network lights", audio: "Audio capture", screen: "Screen capture" };
+const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", board: "Boards, memory and cards", net: "Network lights", audio: "Audio capture", screen: "Screen capture" };
 const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.

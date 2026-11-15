@@ -150,6 +150,7 @@ pub fn set_settings(
         Kinds {
             openrgb: server(&settings) != server(&old),
             hid: hid(&settings) != hid(&old),
+            board: settings.native_drivers != old.native_drivers,
             net: net(&settings) != net(&old),
         }
     };
@@ -221,6 +222,7 @@ pub fn scan_network(shared: State<'_, Shared>) -> Result<Vec<foxrgb_net::Found>,
 const NET: Kinds = Kinds {
     openrgb: false,
     hid: false,
+    board: false,
     net: true,
 };
 
