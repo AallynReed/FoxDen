@@ -62,6 +62,11 @@ impl<T: Clone> Cached<T> {
         }
     }
 
+    /// The cached value, stale or not.
+    pub fn peek(&self) -> Option<&T> {
+        self.value.as_ref()
+    }
+
     /// The cached value, refreshed with `read` when stale. A failed read keeps nothing.
     pub fn get(&mut self, read: impl FnOnce() -> Option<T>) -> Option<T> {
         if self.at.is_none_or(|t| t.elapsed() >= self.max_age) {

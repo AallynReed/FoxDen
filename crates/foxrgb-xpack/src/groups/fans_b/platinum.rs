@@ -101,6 +101,29 @@ fn seq(device: &Option<Arc<Dev>>) -> u8 {
     device.as_ref().map_or_else(next_seq, |d| d.next_seq() << 3)
 }
 
+/// Corsair's balanced liquid curve, as these coolers' firmware runs it: percent at `t` °C.
+pub fn balanced_pct(t: f32) -> u8 {
+    let pts: Vec<(f32, f32)> = BALANCED_CURVE
+        .chunks(2)
+        .map(|p| (f32::from(p[0]), f32::from(p[1]) * 100.0 / 255.0))
+        .collect();
+    let (first, last) = (pts[0], pts[pts.len() - 1]);
+    let pct = if t <= first.0 {
+        first.1
+    } else if t >= last.0 {
+        last.1
+    } else {
+        let w = pts.windows(2).find(|w| t <= w[1].0).unwrap_or(&pts[..2]);
+        w[0].1 + (t - w[0].0) / (w[1].0 - w[0].0) * (w[1].1 - w[0].1)
+    };
+    pct.round() as u8
+}
+
+/// The sequence of the device behind `io`, so a cooler's lighting and fans step one counter.
+fn io_seq(io: &dyn Io) -> u8 {
+    seq(&io.port().map(|p| p.device().clone()))
+}
+
 pub fn crc(data: &[u8]) -> u8 {
     data.iter().fold(0, |c, &b| CRC_TABLE[(c ^ b) as usize])
 }
@@ -297,7 +320,9 @@ impl FanHub for Hub {
         vec!["Liquid Temperature".into()]
     }
     fn rpm(&mut self, channel: usize) -> Option<u32> {
-        if self.controlling() {
+        // Lighting's software setup rewrites command 3, the third fan's, so the curve goes again.
+        let moved = self.device().is_some_and(|d| d.epoch() != self.epoch);
+        if self.controlling() || moved {
             let _ = self.push(false);
         }
         let s = self.read_status()?;
@@ -392,11 +417,11 @@ const BLOCK_CELLS: [(u8, u8); BLOCK_LEDS] = [
 ];
 
 /// `sendColors`: BGR by hardware index, pump head then the fan channel, in 60-byte packets.
-pub fn color_packets(colors: &[Color]) -> Vec<Vec<u8>> {
+pub fn color_packets(colors: &[Color], mut seq: impl FnMut() -> u8) -> Vec<Vec<u8>> {
     let data: Vec<u8> = colors.iter().flat_map(|c| [c.2, c.1, c.0]).collect();
     data.chunks(60)
         .zip(COLORS)
-        .map(|(chunk, cmd)| packet(next_seq(), cmd, chunk))
+        .map(|(chunk, cmd)| packet(seq(), cmd, chunk))
         .collect()
 }
 
@@ -408,13 +433,13 @@ impl Proto for Lights {
             .iter()
             .zip([SOFTWARE_1, SOFTWARE_2, SOFTWARE_3])
         {
-            io.write(&packet(next_seq(), cmd, body), LEN)?;
+            io.write(&packet(io_seq(&*io), cmd, body), LEN)?;
             io.sleep(PACE_MS);
         }
         Ok(())
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for p in color_packets(colors) {
+        for p in color_packets(colors, || io_seq(&*io)) {
             io.write(&p, LEN)?;
             io.sleep(PACE_MS);
         }
@@ -523,7 +548,7 @@ mod tests {
     #[test]
     fn colors_split_in_three() {
         let c = vec![Color(1, 2, 3); BLOCK_LEDS + FAN_LEDS];
-        let p = color_packets(&c);
+        let p = color_packets(&c, next_seq);
         assert_eq!(p.len(), 3);
         assert_eq!(p[0][2] & 0b111, 0b100);
         assert_eq!(&p[0][3..6], &[3, 2, 1]);
@@ -531,6 +556,41 @@ mod tests {
         assert_eq!(pump_mode(0.5), QUIET);
         assert_eq!(pump_mode(0.7), BALANCED);
         assert_eq!(pump_mode(1.0), EXTREME);
+    }
+
+    // Lighting and fans of one cooler step one sequence, and the lighting setup that rewrites
+    // command 3 makes the fans send their packets again.
+    #[test]
+    fn lighting_and_fans_share_the_sequence_and_resend_after_setup() {
+        use crate::hid::wire::Wire;
+        let wire = Wire::default();
+        let port = wire.port();
+        let mut hub = Hub {
+            io: Box::new(port.clone()),
+            id: "fan:p".into(),
+            name: "P".into(),
+            fans: 3,
+            duty: [None; 3],
+            pump: None,
+            status: Cached::new(POLL_MS),
+            sent: None,
+            epoch: 0,
+        };
+        hub.set_duty(1, 0.5).unwrap();
+        let dev = Device::grid("p", "P", DeviceKind::Other, [0.0; 4], 48, 1);
+        let mut lights = Driver::new(Box::new(port.clone()), dev, "p", Lights);
+        lights.push("p", &[Color(1, 2, 3); 48]).unwrap();
+        assert!(port.device().others_active(foxrgb_hid::port::FANS));
+        hub.status = Cached::new(60_000);
+        let _ = hub.status.get(|| None);
+        hub.rpm(1);
+        let sent = wire.take();
+        let cmds: Vec<u8> = sent.iter().map(|p| p[2] & 0b111).collect();
+        assert_eq!(cmds, [3, 0, 1, 2, 3, 4, 5, 6, 3, 0]);
+        let seqs: Vec<u8> = sent.iter().map(|p| p[2] >> 3).collect();
+        assert_eq!(seqs, (1..=10).collect::<Vec<u8>>());
+        drop(lights);
+        assert!(!port.device().others_active(foxrgb_hid::port::FANS));
     }
 
     #[test]

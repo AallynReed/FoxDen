@@ -251,7 +251,9 @@ pub fn open_hubs(
     let ids = foxrgb_xpack::combined();
     foxrgb_hid::port::share(&ids);
     foxrgb_hid::set_lengths(lengths.clone());
-    let found = foxrgb_hid::probe_picked(&foxrgb_xpack::detectors(), foxrgb_hid::Pick::Only(&ids));
+    let pick = foxrgb_hid::Pick::Only(&ids);
+    let mut found = foxrgb_hid::probe_picked(&foxrgb_xpack::detectors(), pick);
+    found.extend(foxrgb_xpack::probe_other_picked(pick));
     (found, foxrgb_hid::resizable())
 }
 

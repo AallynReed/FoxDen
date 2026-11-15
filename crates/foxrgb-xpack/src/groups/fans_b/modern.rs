@@ -444,6 +444,8 @@ struct Hub {
     controlling: bool,
     sent: Option<(Vec<u8>, Instant)>,
     mode_at: Option<Instant>,
+    /// Released while lighting holds software mode: fans follow the balanced liquid curve.
+    following: bool,
 }
 
 impl Hub {
@@ -454,7 +456,10 @@ impl Hub {
             .iter()
             .zip(&self.duty)
             .map(|(c, d)| {
-                let pct = d.unwrap_or_else(|| flavor.default_pct(c.pump));
+                let pct = d.unwrap_or_else(|| match (self.following, self.liquid()) {
+                    (true, Some(t)) if !c.pump => super::platinum::balanced_pct(t),
+                    _ => flavor.default_pct(c.pump),
+                });
                 let floor = if c.pump && flavor == Flavor::Core {
                     CORE_PUMP_MIN
                 } else if c.pump {
@@ -493,6 +498,7 @@ impl Hub {
             self.sent = None;
         }
         self.controlling = true;
+        self.following = false;
         if let Some(p) = self.bus.io.port() {
             p.device().set_active(FANS, true);
         }
@@ -516,7 +522,37 @@ impl Hub {
             self.sent = None;
             return self.bus.set_property(PROP_MODE, HARDWARE);
         }
+        self.following = lit;
+        self.read_temps();
         self.push(true)
+    }
+
+    /// The hottest temperature the hub last read.
+    fn liquid(&self) -> Option<f32> {
+        let temps = self.temps.peek()?;
+        temps.iter().flatten().copied().reduce(f32::max)
+    }
+
+    fn read_temps(&mut self) {
+        let flavor = self.bus.flavor;
+        let bus = &mut self.bus;
+        self.temps
+            .get(|| parse_temps(flavor, &bus.read(EP_TEMPS, T_TEMPS)?));
+    }
+
+    /// Follows the liquid while lighting still holds the device; its release hands the fans back.
+    fn follow(&mut self) {
+        let lit = self
+            .bus
+            .io
+            .port()
+            .is_some_and(|p| p.device().others_active(FANS));
+        if !lit {
+            self.following = false;
+            return;
+        }
+        self.read_temps();
+        let _ = self.push(false);
     }
 }
 
@@ -548,6 +584,8 @@ impl FanHub for Hub {
         if self.controlling {
             let _ = self.take();
             let _ = self.push(false);
+        } else if self.following {
+            self.follow();
         }
         let flavor = self.bus.flavor;
         let bus = &mut self.bus;
@@ -685,6 +723,7 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
             controlling: false,
             sent: None,
             mode_at: None,
+            following: false,
         },
     ))
 }
@@ -785,6 +824,118 @@ mod tests {
         let sensors = map_link_sensors(&kids, &[Some(30.0), None, Some(28.5)]);
         assert_eq!(sensors.len(), 3);
         assert_eq!(sensors[0].1, 0);
+    }
+
+    /// Answers each Core command once with success, and records what was written.
+    #[derive(Clone, Default)]
+    struct Echo {
+        writes: std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+        owed: std::sync::Arc<std::sync::Mutex<Option<u8>>>,
+    }
+
+    impl foxrgb_hid::port::Raw for Echo {
+        fn write(&self, data: &[u8]) -> foxrgb_hid::port::HidResult<usize> {
+            self.writes.lock().unwrap().push(data.to_vec());
+            *self.owed.lock().unwrap() = data.get(2).copied();
+            Ok(data.len())
+        }
+        fn read_timeout(&self, buf: &mut [u8], _: i32) -> foxrgb_hid::port::HidResult<usize> {
+            let Some(cmd) = self.owed.lock().unwrap().take() else {
+                return Ok(0);
+            };
+            buf.fill(0);
+            buf[1] = cmd;
+            Ok(buf.len())
+        }
+        fn send_feature_report(&self, _: &[u8]) -> foxrgb_hid::port::HidResult<()> {
+            Ok(())
+        }
+        fn get_feature_report(&self, _: &mut [u8]) -> foxrgb_hid::port::HidResult<usize> {
+            Ok(0)
+        }
+        fn get_input_report(&self, _: &mut [u8]) -> foxrgb_hid::port::HidResult<usize> {
+            Ok(0)
+        }
+    }
+
+    fn duty_writes(e: &Echo) -> Vec<Vec<u8>> {
+        let start = [WRITE, BACKGROUND];
+        let writes = e.writes.lock().unwrap();
+        writes
+            .iter()
+            .filter_map(|w| {
+                let t = &w[w.windows(2).position(|p| p == start)? + 6..];
+                Some(t[..3 + 4 * usize::from(t[2])].to_vec())
+            })
+            .collect()
+    }
+
+    // Fans released while lighting holds software mode follow the balanced curve, not a fixed
+    // speed, until lighting lets go and hands the hub back.
+    #[test]
+    fn released_fans_follow_the_liquid_while_lighting_holds_the_hub() {
+        use foxrgb_hid::port::{LIGHTS, Port};
+        let echo = Echo::default();
+        let port = Port::alone(Box::new(echo.clone()));
+        let device = port.device().clone();
+        let mut hub = Hub {
+            bus: Bus {
+                io: Box::new(port),
+                flavor: Flavor::Core,
+                size: 97,
+                handle: BACKGROUND,
+            },
+            id: "fan:c".into(),
+            name: "C".into(),
+            chans: vec![
+                Chan {
+                    name: "Pump".into(),
+                    pump: true,
+                    slot: 0,
+                },
+                Chan {
+                    name: "Fan 1".into(),
+                    pump: false,
+                    slot: 1,
+                },
+            ],
+            sensors: vec![("Liquid Temperature".into(), 0)],
+            duty: vec![None; 2],
+            rpm: Cached::new(60_000),
+            temps: Cached::new(60_000),
+            states: Cached::new(60_000),
+            took: false,
+            controlling: false,
+            sent: None,
+            mode_at: None,
+            following: false,
+        };
+        hub.temps.get(|| Some(vec![Some(33.0)]));
+        hub.rpm.get(|| Some(vec![0, 0]));
+        hub.states.get(|| Some(vec![0, 0]));
+        device.set_active(LIGHTS, true);
+        hub.set_duty(1, 0.2).unwrap();
+        hub.release(1).unwrap();
+        let curve = super::super::platinum::balanced_pct(33.0);
+        assert_eq!(curve, 68);
+        let last = duty_writes(&echo).pop().unwrap();
+        assert_eq!(last, duty_table(&[(0, 60), (1, curve)]));
+        assert!(hub.following && !hub.controlling);
+
+        device.set_active(LIGHTS, false);
+        echo.writes.lock().unwrap().clear();
+        hub.rpm(1);
+        assert!(!hub.following);
+        assert!(duty_writes(&echo).is_empty());
+    }
+
+    #[test]
+    fn the_balanced_curve_runs_from_20_to_100_percent() {
+        use super::super::platinum::balanced_pct;
+        assert_eq!(balanced_pct(20.0), 20);
+        assert_eq!(balanced_pct(29.5), 23);
+        assert_eq!(balanced_pct(35.0), 100);
+        assert_eq!(balanced_pct(60.0), 100);
     }
 
     #[test]

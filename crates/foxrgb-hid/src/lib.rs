@@ -9,7 +9,9 @@ mod msi;
 pub mod port;
 pub mod registry;
 
-pub use families::{LedProtocol, LedStrip, led_strips, serial_ports, winusb};
+pub use families::{
+    LedProtocol, LedStrip, UsbReports, led_strips, serial_ports, unihub_over_usb, winusb,
+};
 use foxrgb_core::Backend;
 use hidapi::{BusType, HidApi};
 pub use lengths::{Zone, key as length_key, resizable, set_lengths};

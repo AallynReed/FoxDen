@@ -78,6 +78,7 @@ pub fn start(app: &AppHandle, on: bool, backup: Option<FanConfig>) {
         loop {
             settle();
             if !ON.load(Ordering::Relaxed) {
+                hubs_follow(tick(false, &LINK.client).1);
                 thread::sleep(Duration::from_secs(1));
                 continue;
             }
@@ -150,8 +151,9 @@ fn keep_backup(config: Option<FanConfig>) {
 /// Asks the service how things are and tells the UI when that changed, or always with `force`.
 fn poll(force: bool) -> FanState {
     let mut told = lock(&LINK.told);
-    let state = LINK.client.state();
-    hubs_follow(state.service);
+    let (state, up) = tick(true, &LINK.client);
+    let state = state.unwrap_or_default();
+    hubs_follow(up);
     if force || *told != state {
         *told = state.clone();
         if let Some(app) = APP.get() {
@@ -161,9 +163,39 @@ fn poll(force: bool) -> FanState {
     state
 }
 
+/// What the worker asks the service.
+trait Pipe {
+    fn answers(&self) -> bool;
+    fn state(&self) -> FanState;
+}
+
+impl Pipe for Client {
+    fn answers(&self) -> bool {
+        self.status().is_ok()
+    }
+    fn state(&self) -> FanState {
+        Client::state(self)
+    }
+}
+
+/// One worker tick: the fans while the module is on, and whether a service answers either way,
+/// judged as the hubs' lighting judges it.
+fn tick(on: bool, pipe: &impl Pipe) -> (Option<FanState>, bool) {
+    if !on {
+        return (None, pipe.answers());
+    }
+    let state = pipe.state();
+    let up = match state.service {
+        Service::Running => true,
+        Service::Error => pipe.answers(),
+        Service::Stopped => false,
+    };
+    (Some(state), up)
+}
+
 /// Moves the fan hubs' lighting between app and service when the service comes or goes.
-fn hubs_follow(service: Service) {
-    if crate::service_lights::service_changed(service == Service::Running)
+fn hubs_follow(up: bool) {
+    if crate::service_lights::service_changed(up)
         && let Some(jobs) = APP.get().and_then(|app| app.try_state::<Jobs>())
     {
         let hid = Kinds {
@@ -333,5 +365,53 @@ fn gpu_fan(duty: Option<f32>) {
                 let _ = fan.release();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    struct Fake {
+        answers: bool,
+        service: Service,
+        asked_state: Cell<bool>,
+    }
+
+    impl Pipe for Fake {
+        fn answers(&self) -> bool {
+            self.answers
+        }
+        fn state(&self) -> FanState {
+            self.asked_state.set(true);
+            FanState {
+                service: self.service,
+                ..FanState::default()
+            }
+        }
+    }
+
+    fn fake(answers: bool, service: Service) -> Fake {
+        Fake {
+            answers,
+            service,
+            asked_state: Cell::new(false),
+        }
+    }
+
+    // The hubs' lighting follows the service with the Fans module off, without asking for fans.
+    #[test]
+    fn the_service_is_noticed_with_the_fans_module_off() {
+        let up = fake(true, Service::Running);
+        assert_eq!(tick(false, &up), (None, true));
+        assert!(!up.asked_state.get());
+        assert_eq!(tick(false, &fake(false, Service::Stopped)), (None, false));
+        let (state, seen) = tick(true, &up);
+        assert!(seen && state.is_some() && up.asked_state.get());
+        assert!(!tick(true, &fake(false, Service::Stopped)).1);
+        // A service that answers but fails a config read still owns the hubs, as `hubs` sees it.
+        assert!(tick(true, &fake(true, Service::Error)).1);
+        assert!(!tick(true, &fake(false, Service::Error)).1);
     }
 }

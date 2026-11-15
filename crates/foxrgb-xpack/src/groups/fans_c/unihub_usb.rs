@@ -1,9 +1,13 @@
 //! Lian Li Uni Fan controllers over vendor control transfers (protocol learned from SignalRGB's Lian_Li_Uni_Fans.js, Lian_Li_Uni_Fans_SL_1.2.js and Lian_Li_Uni_Fans_AL_1.1.js).
 
 use super::usb::{self, Shared, Usb, UsbDriver, UsbProto, pause};
-use crate::fan::{Channel, FanHub, backend, percent};
+use crate::fan::{Channel, FanHub, backend, percent, with_device};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use foxrgb_fan::FanBackend;
+use foxrgb_hid::Pick;
+use foxrgb_hid::port;
+use foxrgb_hid::registry::Info;
+use hidapi::HidApi;
 
 pub const ENE: u16 = 0x0CF2;
 pub const CHANNELS: usize = 4;
@@ -95,34 +99,29 @@ pub struct Model {
     pub pid: u16,
     pub name: &'static str,
     map: Map,
-    pub lighting: bool,
 }
 
-/// Controllers this module drives. Lighting only where FoxRGB has none.
+/// Controllers this module drives over WinUSB.
 pub static MODELS: [Model; 4] = [
     Model {
         pid: 0x7750,
         name: "Lian Li Uni Fan Controller",
         map: Map::V1,
-        lighting: true,
     },
     Model {
         pid: 0xA106,
         name: "Lian Li Uni Fan Controller SL 1.2",
         map: Map::V2,
-        lighting: true,
     },
     Model {
         pid: 0xA100,
         name: "Lian Li Uni Fan Controller SL 1.2",
         map: Map::V2,
-        lighting: false,
     },
     Model {
         pid: 0xA101,
         name: "Lian Li Uni Fan Controller AL 1.1",
         map: Map::V2,
-        lighting: false,
     },
 ];
 
@@ -235,22 +234,112 @@ fn layout(id: String, name: &str) -> Device {
     )
 }
 
-/// Lighting backends for the raw-USB controllers FoxRGB doesn't light.
-pub fn lights() -> Vec<Box<dyn Backend>> {
-    let mut out = Vec::new();
-    for m in MODELS.iter().filter(|m| m.lighting) {
-        for s in opened(m) {
-            let Ok(id) = s.lock().map(|u| u.device_id(FAMILY)) else {
-                continue;
-            };
-            let dev = layout(id, m.name);
-            out.push(match m.map {
-                Map::V1 => UsbDriver::boxed(s, dev, "lian li uni fan", V1Lights),
-                Map::V2 => UsbDriver::boxed(s, dev, "lian li uni fan sl 1.2", V2Lights),
-            });
+/// The HID interface of the SL and AL hubs.
+pub const HID_INTERFACE: u8 = 1;
+pub const NEEDS_WINUSB: &str = "this hub's fans need the WinUSB driver";
+
+/// HID output reports sent as SET_REPORT to the hub's HID interface.
+pub struct Reports(pub Shared);
+
+impl foxrgb_hid::UsbReports for Reports {
+    fn output(&mut self, report: &[u8]) -> Result<(), String> {
+        let usb = self.0.lock().map_err(|e| e.to_string())?;
+        usb.set_report(HID_INTERFACE, report)
+    }
+}
+
+/// HID collections of the SL and AL hubs: (pid, serial, info) of interface 1.
+fn hid_bound(api: Option<&HidApi>) -> Vec<(u16, String, Info)> {
+    let Some(api) = api else {
+        return Vec::new();
+    };
+    let mut out: Vec<(u16, String, Info)> = Vec::new();
+    for raw in api.device_list() {
+        let i = Info::from_hidapi(raw);
+        if i.vid == ENE
+            && matches!(i.pid, 0xA100 | 0xA101)
+            && i.interface == i32::from(HID_INTERFACE)
+            && !out.iter().any(|(_, _, o)| o.key() == i.key())
+        {
+            out.push((i.pid, i.serial.clone(), i));
         }
     }
     out
+}
+
+fn same_hub(pid: u16, serial: &str, other: (u16, &str)) -> bool {
+    pid == other.0
+        && (serial.is_empty() || other.1.is_empty() || serial.eq_ignore_ascii_case(other.1))
+}
+
+/// Lighting of every controller bound to WinUSB. SL v1.8 and AL v1.7 get their HID reports over the
+/// control pipe, unless their HID collection is still there for the HID driver.
+pub fn lights(pick: Pick) -> Vec<Box<dyn Backend>> {
+    let api = HidApi::new().ok();
+    let hid = hid_bound(api.as_ref());
+    let mut out = Vec::new();
+    for m in MODELS.iter().filter(|m| pick.wants(ENE, m.pid)) {
+        for s in opened(m) {
+            let Ok((id, lianli, product, serial, device)) = s.lock().map(|u| {
+                let product = u.product().unwrap_or_default();
+                let lianli = u.device_id("lianli");
+                (
+                    u.device_id(FAMILY),
+                    lianli,
+                    product,
+                    u.serial.clone(),
+                    u.device.clone(),
+                )
+            }) else {
+                continue;
+            };
+            let reports = Box::new(Reports(s.clone()));
+            if let Some(b) = foxrgb_hid::unihub_over_usb(m.pid, &product, lianli, m.name, reports) {
+                if !hid.iter().any(|h| same_hub(m.pid, &serial, (h.0, &h.1))) {
+                    out.push(port::guard(b, device));
+                }
+                continue;
+            }
+            let dev = layout(id, m.name);
+            out.push(port::guard(
+                match m.map {
+                    Map::V1 => UsbDriver::boxed(s, dev, "lian li uni fan", V1Lights),
+                    Map::V2 => UsbDriver::boxed(s, dev, "lian li uni fan sl 1.2", V2Lights),
+                },
+                device,
+            ));
+        }
+    }
+    out
+}
+
+/// An SL or AL hub left on its HID driver: its fans listed, refusing every speed.
+struct Unavailable {
+    id: String,
+    name: String,
+}
+
+impl FanHub for Unavailable {
+    fn id(&self) -> String {
+        self.id.clone()
+    }
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+    fn channels(&self) -> Vec<Channel> {
+        (1..=CHANNELS)
+            .map(|i| Channel::fan(format!("Channel {i}")))
+            .collect()
+    }
+    fn rpm(&mut self, _: usize) -> Option<u32> {
+        None
+    }
+    fn set_duty(&mut self, _: usize, _: f32) -> Result<(), String> {
+        Err(NEEDS_WINUSB.into())
+    }
+    fn release(&mut self, _: usize) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 struct Hub {
@@ -352,25 +441,44 @@ impl FanHub for Hub {
     }
 }
 
-/// One fan hub per attached control-transfer controller.
-pub fn fans() -> Vec<Box<dyn FanBackend>> {
+/// One fan hub per attached control-transfer controller, and one that says why for an SL or AL
+/// hub still on its HID driver.
+pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     let mut out = Vec::new();
+    let mut usb: Vec<(u16, String)> = Vec::new();
     for m in &MODELS {
         for s in opened(m) {
-            let Ok(id) = s.lock().map(|u| u.fan_id(FAMILY)) else {
+            let Ok((id, serial, device)) = s
+                .lock()
+                .map(|u| (u.fan_id(FAMILY), u.serial.clone(), u.device.clone()))
+            else {
                 continue;
             };
-            out.push(backend(Hub {
-                usb: s,
-                id,
-                name: m.name,
-                map: m.map,
-                duty: [None; CHANNELS],
-                released: [false; CHANNELS],
-                touched: [false; CHANNELS],
-                manual: false,
-            }));
+            usb.push((m.pid, serial));
+            out.push(with_device(
+                Some(device),
+                Hub {
+                    usb: s,
+                    id,
+                    name: m.name,
+                    map: m.map,
+                    duty: [None; CHANNELS],
+                    released: [false; CHANNELS],
+                    touched: [false; CHANNELS],
+                    manual: false,
+                },
+            ));
         }
+    }
+    for (pid, serial, info) in hid_bound(Some(api)) {
+        if usb.iter().any(|u| same_hub(pid, &serial, (u.0, &u.1))) {
+            continue;
+        }
+        let name = MODELS.iter().find(|m| m.pid == pid).map_or("", |m| m.name);
+        out.push(backend(Unavailable {
+            id: info.device_id(FAMILY).replacen("hid:", "fan:", 1),
+            name: format!("{name} (fans need WinUSB)"),
+        }));
     }
     out
 }
@@ -397,6 +505,23 @@ mod tests {
         assert_eq!(v2_pwm(3)[2], 0x8F);
         assert_eq!(V2Lights::commit_packet()[..4], [0x00, 0x01, 0xFF, 0x00]);
         assert_eq!(V2Lights::commit_packet().len(), 192);
+    }
+
+    // A hub still on its HID driver lists its fans and says why none of them can be set.
+    #[test]
+    fn a_hid_bound_hub_says_its_fans_need_winusb() {
+        let mut hub = Unavailable {
+            id: "fan:u".into(),
+            name: "U (fans need WinUSB)".into(),
+        };
+        assert_eq!(hub.channels().len(), CHANNELS);
+        assert_eq!(hub.set_duty(0, 0.5), Err(NEEDS_WINUSB.into()));
+        assert_eq!(hub.rpm(0), None);
+        assert!(hub.release(0).is_ok());
+        assert!(same_hub(0xA100, "S1", (0xA100, "s1")));
+        assert!(same_hub(0xA100, "", (0xA100, "S1")));
+        assert!(!same_hub(0xA100, "S1", (0xA100, "S2")));
+        assert!(!same_hub(0xA100, "S1", (0xA101, "S1")));
     }
 
     // getChannelColors: "Inline", "RBG".

@@ -48,6 +48,7 @@ pub fn other() -> Vec<Box<dyn Backend>> {
     found
 }
 
+pub use mixed_a::{Reports as UsbReports, over_usb as unihub_over_usb};
 pub use more_d::{LedProtocol, LedStrip, led_strips, other_ids, serial_ports, winusb};
 
 /// Vendor-wide `HID_PID_ANY` lines of the ported families.

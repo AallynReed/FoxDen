@@ -2,6 +2,7 @@
 
 use foxrgb_core::Backend;
 use foxrgb_fan::FanBackend;
+use foxrgb_hid::Pick;
 use foxrgb_hid::registry::Detector;
 use hidapi::HidApi;
 mod fans_a;
@@ -53,11 +54,19 @@ pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
     v
 }
 
-pub fn probe_other() -> Vec<Box<dyn Backend>> {
-    let mut v = Vec::new();
+#[cfg(test)]
+pub fn picked_other_ids() -> Vec<(u16, u16, &'static str)> {
+    fans_c::other_ids()
+}
+
+/// Only fans_c has fan hubs among its raw-USB devices, so only it is picked from.
+pub fn probe_other(pick: Pick) -> Vec<Box<dyn Backend>> {
+    let mut v = fans_c::probe_other(pick);
+    if matches!(pick, Pick::Only(_)) {
+        return v;
+    }
     v.extend(fans_a::probe_other());
     v.extend(fans_b::probe_other());
-    v.extend(fans_c::probe_other());
     v.extend(lights_a::probe_other());
     v.extend(lights_b::probe_other());
     v.extend(lights_c::probe_other());

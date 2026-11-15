@@ -197,6 +197,65 @@ fn open_al(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, 
     ))
 }
 
+/// Sends one output report as a HID write would, for a hub bound to WinUSB.
+pub trait Reports: Send {
+    fn output(&mut self, report: &[u8]) -> Result<(), String>;
+}
+
+struct OverUsb(Box<dyn Reports>);
+
+impl Io for OverUsb {
+    fn write(&mut self, data: &[u8]) -> Result<(), String> {
+        self.0.output(data)
+    }
+    fn send_feature(&mut self, _: &[u8]) -> Result<(), String> {
+        Err("no feature reports over WinUSB".into())
+    }
+    fn get_feature(&mut self, _: &mut [u8]) -> Result<usize, String> {
+        Err("no feature reports over WinUSB".into())
+    }
+    fn read(&mut self, _: &mut [u8], _: i32) -> Result<usize, String> {
+        Ok(0)
+    }
+    fn sleep(&mut self, ms: u64) {
+        std::thread::sleep(Duration::from_millis(ms));
+    }
+}
+
+/// Uni Hub SL v1.8 or AL v1.7 lighting over `out`; `None` for firmware without the HID protocol.
+pub fn over_usb(
+    pid: u16,
+    product: &str,
+    id: String,
+    name: &str,
+    out: Box<dyn Reports>,
+) -> Option<Box<dyn Backend>> {
+    let io = OverUsb(out);
+    match (pid, firmware(product)) {
+        (0xA100, "v1.8") => {
+            let counts = sized(&id, 4, SL_FANS);
+            let dev = hub(id, name, SL_FANS, &counts);
+            Some(Hid::boxed(
+                "lian li uni hub sl",
+                io,
+                UniHubSl { counts },
+                dev,
+            ))
+        }
+        (0xA101, f) if f.starts_with("v1.7") => {
+            let counts = sized(&id, 4, AL_LEDS);
+            let dev = hub(id, name, AL_LEDS, &counts);
+            Some(Hid::boxed(
+                "lian li uni hub al",
+                io,
+                UniHubAl { counts },
+                dev,
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// Uni Hub SL V2 and SL Infinity: six fans of 16 LEDs per channel.
 pub const V2_LEDS: usize = 96;
 
@@ -454,6 +513,62 @@ mod tests {
             ops[8],
             Op::Write(pad(&[0xE0, 0x11, 0x01, 0x02, 0x00, 0x00], 11))
         );
+    }
+
+    #[derive(Clone, Default)]
+    struct Sent(std::sync::Arc<std::sync::Mutex<Vec<Vec<u8>>>>);
+
+    impl Reports for Sent {
+        fn output(&mut self, report: &[u8]) -> Result<(), String> {
+            self.0.lock().unwrap().push(report.to_vec());
+            Ok(())
+        }
+    }
+
+    fn hid_writes(m: &Mock) -> Vec<Vec<u8>> {
+        m.take()
+            .into_iter()
+            .filter_map(|o| match o {
+                Op::Write(b) => Some(b),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // A hub bound to WinUSB gets the very reports a HID write would carry.
+    #[test]
+    fn winusb_lighting_sends_the_hid_reports_byte_for_byte() {
+        let colors: Vec<Color> = (0..320u32)
+            .map(|i| Color(i as u8, (i * 7) as u8, (i * 13) as u8))
+            .collect();
+        for (pid, product, leds) in [
+            (0xA100, "LianLi-UNI FAN-SL-v1.8", SL_FANS),
+            (0xA101, "LianLi-UNI FAN-AL-v1.7", AL_LEDS),
+        ] {
+            let m = Mock::default();
+            let counts = vec![leds; 4];
+            let dev = hub("hid:x".into(), "X", leds, &counts);
+            let mut hid: Box<dyn Backend> = if pid == 0xA100 {
+                Box::new(Hid::new("t", Box::new(m.clone()), UniHubSl { counts }, dev))
+            } else {
+                Box::new(Hid::new("t", Box::new(m.clone()), UniHubAl { counts }, dev))
+            };
+            let id = format!("usb:lianli-0cf2{pid:04x}-winusb");
+            let sent = Sent::default();
+            let mut usb = over_usb(pid, product, id.clone(), "X", Box::new(sent.clone())).unwrap();
+            assert_eq!(usb.devices()[0].leds.len(), leds * 4);
+            let frame = &colors[..leds * 4];
+            hid.push("hid:x", frame).unwrap();
+            usb.push(&id, frame).unwrap();
+            let usb_sent = sent.0.lock().unwrap().clone();
+            assert!(!usb_sent.is_empty());
+            assert_eq!(usb_sent, hid_writes(&m), "{pid:04x}");
+        }
+        let none =
+            |pid, product| over_usb(pid, product, "u".into(), "X", Box::new(Sent::default()));
+        assert!(none(0xA100, "LianLi-UNI FAN-SL-v1.0").is_none());
+        assert!(none(0xA101, "LianLi-UNI FAN-AL-v1.0").is_none());
+        assert!(none(0xA103, "LianLi-UNI FAN-SL-v1.8").is_none());
     }
 
     #[test]

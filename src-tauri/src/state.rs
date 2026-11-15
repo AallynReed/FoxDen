@@ -543,11 +543,9 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             let hubs = crate::service_lights::hubs(&settings.zone_leds);
             let skip = crate::service_lights::left_to_service(hubs.is_some());
             foxrgb_hid::set_lengths(settings.zone_leds.clone());
-            backends.extend(foxrgb_hid::probe_picked(
-                &foxrgb_xpack::detectors(),
-                foxrgb_hid::Pick::Skip(&skip),
-            ));
-            backends.extend(foxrgb_xpack::probe_other());
+            let pick = foxrgb_hid::Pick::Skip(&skip);
+            backends.extend(foxrgb_hid::probe_picked(&foxrgb_xpack::detectors(), pick));
+            backends.extend(foxrgb_xpack::probe_other_picked(pick));
             if let Some(hubs) = hubs {
                 backends.push(Box::new(hubs));
             }

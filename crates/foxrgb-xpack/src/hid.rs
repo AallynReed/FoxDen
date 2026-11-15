@@ -1,7 +1,7 @@
 //! Shared HID plumbing for every lighting driver: the calls a driver makes and a backend shell.
 
 use foxrgb_core::{Backend, Color, Device};
-use foxrgb_hid::port::Port;
+use foxrgb_hid::port::{LIGHTS, Port};
 use foxrgb_hid::registry::{Detector, Info, Open};
 use hidapi::{HidApi, HidDevice};
 use std::time::{Duration, Instant};
@@ -196,6 +196,7 @@ impl<P: Proto> Backend for Driver<P> {
         if !self.started {
             self.proto.start(self.io.as_mut())?;
             self.started = true;
+            self.tell(true);
         }
         let stale = self
             .proto
@@ -213,10 +214,21 @@ impl<P: Proto> Backend for Driver<P> {
     }
 }
 
+impl<P: Proto> Driver<P> {
+    /// Tells a shared device's fan driver that lighting took it or let go.
+    fn tell(&self, on: bool) {
+        if let Some(p) = self.io.port() {
+            p.device().set_active(LIGHTS, on);
+            p.device().bump();
+        }
+    }
+}
+
 impl<P: Proto> Drop for Driver<P> {
     fn drop(&mut self) {
         if self.started {
             self.proto.stop(self.io.as_mut());
+            self.tell(false);
         }
     }
 }
@@ -274,4 +286,43 @@ pub const fn on_p(
 /// Opens the collection a detector matched as a boxed `Io`.
 pub fn open_io(api: &HidApi, info: &Info) -> Result<Box<dyn Io>, String> {
     Ok(Box::new(info.port(api)?))
+}
+
+#[cfg(test)]
+pub mod wire {
+    use foxrgb_hid::port::{HidResult, Port, Raw};
+    use std::sync::{Arc, Mutex};
+
+    /// One handle that records every write; reads find nothing.
+    #[derive(Clone, Default)]
+    pub struct Wire(pub Arc<Mutex<Vec<Vec<u8>>>>);
+
+    impl Wire {
+        pub fn port(&self) -> Port {
+            Port::alone(Box::new(self.clone()))
+        }
+        pub fn take(&self) -> Vec<Vec<u8>> {
+            std::mem::take(&mut *self.0.lock().unwrap())
+        }
+    }
+
+    impl Raw for Wire {
+        fn write(&self, data: &[u8]) -> HidResult<usize> {
+            self.0.lock().unwrap().push(data.to_vec());
+            Ok(data.len())
+        }
+        fn read_timeout(&self, _: &mut [u8], _: i32) -> HidResult<usize> {
+            Ok(0)
+        }
+        fn send_feature_report(&self, data: &[u8]) -> HidResult<()> {
+            self.0.lock().unwrap().push(data.to_vec());
+            Ok(())
+        }
+        fn get_feature_report(&self, _: &mut [u8]) -> HidResult<usize> {
+            Ok(0)
+        }
+        fn get_input_report(&self, _: &mut [u8]) -> HidResult<usize> {
+            Ok(0)
+        }
+    }
 }

@@ -27,6 +27,8 @@ pub struct Usb {
     pub vid: u16,
     pub pid: u16,
     pub serial: String,
+    /// The lock its lighting frames and fan calls take.
+    pub device: Arc<foxrgb_hid::port::Device>,
     key: String,
 }
 
@@ -51,6 +53,15 @@ impl Usb {
             .control_data(VENDOR_IN, REQ_READ, 0, index, &mut b)?;
         b.truncate(n);
         Ok(b)
+    }
+
+    /// A HID output report over the control pipe, for a HID interface WinUSB took over.
+    pub fn set_report(&self, interface: u8, report: &[u8]) -> Result<(), String> {
+        self.handle()?.set_report(interface, report)
+    }
+
+    pub fn product(&self) -> Option<String> {
+        self.handle().ok()?.product()
     }
 
     /// Bulk write on the endpoint the handle was opened with.
@@ -129,6 +140,7 @@ pub fn open(dev: &UsbDevice, bulk_ep: Option<u8>) -> Result<Shared, String> {
         pid: dev.pid,
         serial,
         key: instance.replace('&', "."),
+        device: Arc::default(),
     }));
     reg.insert(full, Arc::downgrade(&s));
     Ok(s)

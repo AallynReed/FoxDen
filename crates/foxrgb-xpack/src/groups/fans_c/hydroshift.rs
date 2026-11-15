@@ -1,7 +1,7 @@
 //! Lian Li HydroShift II OLED Curve LED AIO (protocol learned from SignalRGB's Lian_Li_HydroShift_II_OLED_Curve_LED.js).
 
 use super::usb::{self, Shared, Usb, UsbDriver, UsbProto};
-use crate::fan::{Channel, FanHub, backend};
+use crate::fan::{Channel, FanHub, with_device};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use foxrgb_fan::FanBackend;
 
@@ -184,13 +184,12 @@ pub fn lights() -> Vec<Box<dyn Backend>> {
     open_all()
         .into_iter()
         .filter_map(|s| {
-            let id = s.lock().ok()?.device_id(FAMILY);
-            Some(UsbDriver::boxed(
-                s,
-                ring(id),
-                "lian li hydroshift ii",
-                Lights,
-            ))
+            let (id, device) = s
+                .lock()
+                .map(|u| (u.device_id(FAMILY), u.device.clone()))
+                .ok()?;
+            let lights = UsbDriver::boxed(s, ring(id), "lian li hydroshift ii", Lights);
+            Some(foxrgb_hid::port::guard(lights, device))
         })
         .collect()
 }
@@ -251,12 +250,18 @@ pub fn fans() -> Vec<Box<dyn FanBackend>> {
     open_all()
         .into_iter()
         .filter_map(|s| {
-            let id = s.lock().ok()?.fan_id(FAMILY);
-            Some(backend(Hub {
-                usb: s,
-                id,
-                level: None,
-            }))
+            let (id, device) = s
+                .lock()
+                .map(|u| (u.fan_id(FAMILY), u.device.clone()))
+                .ok()?;
+            Some(with_device(
+                Some(device),
+                Hub {
+                    usb: s,
+                    id,
+                    level: None,
+                },
+            ))
         })
         .collect()
 }

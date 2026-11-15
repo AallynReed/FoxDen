@@ -12,6 +12,8 @@ mod sinowealth;
 mod vulcan;
 mod vulcan_layouts;
 
+pub use lianli::{Reports, over_usb};
+
 pub fn detectors() -> Vec<&'static Detector> {
     roccat::DETECTORS
         .iter()

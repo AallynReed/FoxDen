@@ -158,7 +158,8 @@ pub fn device_for(info: &Info) -> Option<Arc<Device>> {
         return None;
     }
     let key = if info.serial.is_empty() {
-        format!("{:04x}{:04x}{}", info.vid, info.pid, info.path)
+        let at = usb_parent(&info.path).unwrap_or_else(|| info.path.clone());
+        format!("{:04x}{:04x}{at}", info.vid, info.pid)
     } else {
         info.key()
     };
@@ -173,6 +174,59 @@ pub fn device_for(info: &Info) -> Option<Arc<Device>> {
     let d = Arc::new(Device::default());
     devices.push((key, Arc::downgrade(&d)));
     Some(d)
+}
+
+/// The device instance id in a HID or WinUSB path: `\\?\hid#a#b#{guid}` is `HID\A\B`.
+pub fn instance_id(path: &str) -> Option<String> {
+    let rest = path
+        .strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix(r"\\.\"))?;
+    let (id, _) = rest.rsplit_once('#')?;
+    Some(id.replace('#', "\\").to_ascii_uppercase())
+}
+
+/// A whole USB device, not one of its interfaces.
+pub fn is_usb_device(id: &str) -> bool {
+    id.starts_with("USB\\VID_") && !id.contains("&MI_")
+}
+
+#[cfg(test)]
+pub(crate) static PARENTS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+/// The USB device a collection or interface sits on, so a serial-less device keeps one key.
+pub fn usb_parent(path: &str) -> Option<String> {
+    #[cfg(test)]
+    if let Some((_, p)) = locked(&PARENTS).iter().find(|(c, _)| c == path) {
+        return Some(p.clone());
+    }
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        CM_Get_Device_IDW, CM_Get_Parent, CM_LOCATE_DEVNODE_NORMAL, CM_Locate_DevNodeW, CR_SUCCESS,
+    };
+    let wide: Vec<u16> = instance_id(path)?.encode_utf16().chain(Some(0)).collect();
+    let mut node = 0u32;
+    // SAFETY: every buffer handed to CfgMgr outlives its call.
+    unsafe {
+        if CM_Locate_DevNodeW(&mut node, wide.as_ptr(), CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS {
+            return None;
+        }
+        for _ in 0..8 {
+            let mut buf = [0u16; 256];
+            if CM_Get_Device_IDW(node, buf.as_mut_ptr(), buf.len() as u32, 0) != CR_SUCCESS {
+                return None;
+            }
+            let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            let id = String::from_utf16_lossy(&buf[..end]).to_ascii_uppercase();
+            if is_usb_device(&id) {
+                return Some(id);
+            }
+            let mut parent = 0u32;
+            if CM_Get_Parent(&mut parent, node, 0) != CR_SUCCESS {
+                return None;
+            }
+            node = parent;
+        }
+    }
+    None
 }
 
 /// One opened collection. Every call takes its device's lock.
@@ -400,6 +454,54 @@ pub(crate) mod tests {
         assert!(!Pick::Skip(&ids).wants(1, 2) && Pick::Skip(&ids).wants(1, 3));
         assert!(Pick::Only(&ids).wants(1, 2) && !Pick::Only(&ids).wants(1, 3));
         assert!(Pick::Skip(&[]).wants(1, 2));
+    }
+
+    // Serial-less collections of one USB device: two handles, one lock and one sequence.
+    #[test]
+    fn serial_less_collections_share_their_usb_device() {
+        share(&[(0xF0F0, 3)]);
+        let bare = |path: &str| Info {
+            serial: String::new(),
+            ..info(3, path)
+        };
+        locked(&PARENTS).extend([
+            ("lights".into(), r"USB\VID_F0F0&PID_0003\5&1&0&2".into()),
+            ("fans".into(), r"USB\VID_F0F0&PID_0003\5&1&0&2".into()),
+            ("other".into(), r"USB\VID_F0F0&PID_0003\5&1&0&3".into()),
+        ]);
+        let open = || {
+            Ok(Box::new(Fake {
+                writes: Arc::default(),
+                device: Arc::default(),
+            }) as Box<dyn Raw>)
+        };
+        let lights = Port::open(&bare("lights"), open).unwrap();
+        let fans = Port::open(&bare("fans"), open).unwrap();
+        let other = Port::open(&bare("other"), open).unwrap();
+        assert!(!lights.same(&fans));
+        assert!(Arc::ptr_eq(lights.device(), fans.device()));
+        assert!(!Arc::ptr_eq(lights.device(), other.device()));
+        let seq = [
+            lights.device().next_seq(),
+            fans.device().next_seq(),
+            lights.device().next_seq(),
+        ];
+        assert_eq!(seq, [1, 2, 3]);
+        assert_eq!(other.device().next_seq(), 1);
+    }
+
+    #[test]
+    fn paths_name_their_device_instance() {
+        let hid = r"\\?\hid#vid_1b1c&pid_0c2e&mi_00&col01#7&2c5a&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        let id = instance_id(hid).unwrap();
+        assert_eq!(id, r"HID\VID_1B1C&PID_0C2E&MI_00&COL01\7&2C5A&0&0000");
+        assert!(!is_usb_device(&id));
+        let usb = instance_id(
+            r"\\?\usb#vid_0cf2&pid_a100#6&1&0&2#{a5dcbf10-6530-11d2-901f-00c04fb951ed}",
+        );
+        assert!(is_usb_device(&usb.unwrap()));
+        assert!(!is_usb_device(r"USB\VID_0CF2&PID_A100&MI_01\7&1&0&1"));
+        assert_eq!(instance_id("no prefix"), None);
     }
 
     #[test]

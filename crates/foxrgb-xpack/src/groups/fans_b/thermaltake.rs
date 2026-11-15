@@ -308,6 +308,41 @@ mod tests {
         assert_eq!(report_len(0x2144), 65);
     }
 
+    // The lighting's init can reset the fans, so a held speed goes out again after it.
+    #[test]
+    fn fans_resend_their_speed_after_the_lighting_init() {
+        use crate::hid::wire::Wire;
+        let wire = Wire::default();
+        let port = wire.port();
+        let mut hub = Hub {
+            io: Box::new(port.clone()),
+            id: "fan:t".into(),
+            name: "T".into(),
+            len: SHORT,
+            ready: false,
+            rpm: (0..CHANNELS).map(|_| Cached::new(60_000)).collect(),
+            duty: [None; CHANNELS],
+            sent: [None; CHANNELS],
+            epoch: 0,
+        };
+        hub.set_duty(0, 0.4).unwrap();
+        let dev = Device::grid("t", "T", DeviceKind::Other, [0.0; 4], 20, 5);
+        let lights = Lights {
+            len: SHORT,
+            mode: MODE_PER_LED,
+            per: PLUS_LEDS,
+        };
+        let mut lit = Driver::new(Box::new(port.clone()), dev, "t", lights);
+        lit.push("t", &[Color(1, 2, 3); 100]).unwrap();
+        hub.rpm[0].get(|| None);
+        hub.rpm(0);
+        let sent: Vec<Vec<u8>> = wire.take().iter().map(|p| p[..3].to_vec()).collect();
+        let fan = vec![0x00, SET, FAN];
+        let init = INIT.to_vec();
+        assert_eq!(sent[..3], [init.clone(), fan.clone(), init]);
+        assert_eq!(sent.last(), Some(&fan));
+    }
+
     #[test]
     fn led_packet_is_grb() {
         let p = led_packet(1, MODE_DIRECT, &[Color(1, 2, 3), Color(4, 5, 6)]);

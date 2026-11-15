@@ -12,8 +12,9 @@ use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
 use windows_sys::Win32::Devices::Usb::{
     GUID_DEVINTERFACE_USB_DEVICE, PIPE_TRANSFER_TIMEOUT, USB_INTERFACE_DESCRIPTOR,
     WINUSB_INTERFACE_HANDLE, WINUSB_PIPE_INFORMATION, WINUSB_SETUP_PACKET, WinUsb_ControlTransfer,
-    WinUsb_Free, WinUsb_Initialize, WinUsb_QueryInterfaceSettings, WinUsb_QueryPipe,
-    WinUsb_ReadPipe, WinUsb_ResetPipe, WinUsb_SetPipePolicy, WinUsb_WritePipe,
+    WinUsb_Free, WinUsb_GetAssociatedInterface, WinUsb_GetDescriptor, WinUsb_Initialize,
+    WinUsb_QueryInterfaceSettings, WinUsb_QueryPipe, WinUsb_ReadPipe, WinUsb_ResetPipe,
+    WinUsb_SetPipePolicy, WinUsb_WritePipe,
 };
 use windows_sys::Win32::Foundation::{
     CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
@@ -328,6 +329,116 @@ impl WinUsb {
     }
 }
 
+/// Class SET_REPORT of an output report: request type, request, value and index.
+pub fn set_report_setup(interface: u8, report_id: u8) -> (u8, u8, u16, u16) {
+    (
+        0x21,
+        0x09,
+        0x0200 | u16::from(report_id),
+        u16::from(interface),
+    )
+}
+
+impl WinUsb {
+    fn interface_number(&self) -> Option<u8> {
+        // SAFETY: plain data written by WinUSB.
+        unsafe {
+            let mut desc: USB_INTERFACE_DESCRIPTOR = std::mem::zeroed();
+            (WinUsb_QueryInterfaceSettings(self.usb, 0, &mut desc) != 0)
+                .then_some(desc.bInterfaceNumber)
+        }
+    }
+
+    /// A HID output report sent over the control pipe to `interface`, report id first.
+    pub fn set_report(&mut self, interface: u8, report: &[u8]) -> Result<(), String> {
+        let own = self.interface_number().unwrap_or(interface);
+        let mut other = null_mut();
+        let handle = if own == interface {
+            self.usb
+        } else {
+            let index = interface
+                .checked_sub(own + 1)
+                .ok_or("interface not reachable")?;
+            // SAFETY: `other` is freed below.
+            if unsafe { WinUsb_GetAssociatedInterface(self.usb, index, &mut other) } == 0 {
+                return Err("interface not reachable".into());
+            }
+            other
+        };
+        let (kind, request, value, index) = set_report_setup(interface, report[0]);
+        let setup = WINUSB_SETUP_PACKET {
+            RequestType: kind,
+            Request: request,
+            Value: value,
+            Index: index,
+            Length: report.len() as u16,
+        };
+        let mut data = report.to_vec();
+        let mut done = 0;
+        // SAFETY: `data` outlives the synchronous call and is `Length` bytes long.
+        let ok = unsafe {
+            WinUsb_ControlTransfer(
+                handle,
+                setup,
+                data.as_mut_ptr(),
+                data.len() as u32,
+                &mut done,
+                null(),
+            )
+        };
+        if !other.is_null() {
+            // SAFETY: an associated handle from above, freed once.
+            unsafe { WinUsb_Free(other) };
+        }
+        if ok == 0 {
+            return Err("SET_REPORT failed".into());
+        }
+        Ok(())
+    }
+
+    /// The product string descriptor, in US English.
+    pub fn product(&mut self) -> Option<String> {
+        let mut device = [0u8; 18];
+        let mut n = 0;
+        // SAFETY: both buffers outlive their synchronous calls.
+        unsafe {
+            if WinUsb_GetDescriptor(self.usb, 1, 0, 0, device.as_mut_ptr(), 18, &mut n) == 0
+                || n < 18
+                || device[15] == 0
+            {
+                return None;
+            }
+            let mut text = [0u8; 255];
+            let len = text.len() as u32;
+            if WinUsb_GetDescriptor(
+                self.usb,
+                3,
+                device[15],
+                0x0409,
+                text.as_mut_ptr(),
+                len,
+                &mut n,
+            ) == 0
+            {
+                return None;
+            }
+            Some(string_descriptor(&text[..n as usize]))
+        }
+    }
+}
+
+/// A USB string descriptor's UTF-16LE text.
+pub fn string_descriptor(d: &[u8]) -> String {
+    let end = d.first().map_or(0, |&l| usize::from(l).min(d.len()));
+    let units: Vec<u16> = d
+        .get(2..end)
+        .unwrap_or_default()
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
 /// The instance part of a device path: the USB serial number when the device has a unique one.
 pub fn instance(path: &str) -> &str {
     path.split('#').nth(2).unwrap_or_default()
@@ -422,5 +533,14 @@ mod tests {
         );
         assert!(parse_guid("A5DCBF10-6530-11D2-901F-00C04FB951ED").is_none());
         assert!(parse_guid("{A5DCBF10-6530-11D2-901F}").is_none());
+    }
+
+    // HID 1.11 7.2.2: SET_REPORT, report type 2 (output) in the high byte of wValue.
+    #[test]
+    fn set_report_and_strings() {
+        assert_eq!(set_report_setup(1, 0xE0), (0x21, 0x09, 0x02E0, 1));
+        let d = [12, 3, b'v', 0, b'1', 0, b'.', 0, b'8', 0, b'x', 0, 0, 0];
+        assert_eq!(string_descriptor(&d), "v1.8x");
+        assert_eq!(string_descriptor(&[]), "");
     }
 }
