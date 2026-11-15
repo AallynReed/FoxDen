@@ -365,6 +365,7 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
         },
         _ => {
             let mut backends = foxrgb_hid::probe();
+            backends.extend(foxrgb_gpu::probe());
             // Memory needs PawnIO and administrator rights, or the installed service that has them.
             match foxrgb_smbus::probe() {
                 Ok(more) => backends.extend(more),

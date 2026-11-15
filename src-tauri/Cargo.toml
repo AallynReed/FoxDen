@@ -13,6 +13,7 @@ foxrgb-openrgb = { path = "../crates/foxrgb-openrgb" }
 foxrgb-hid = { path = "../crates/foxrgb-hid" }
 foxrgb-smbus = { path = "../crates/foxrgb-smbus" }
 foxrgb-adlx = { path = "../crates/foxrgb-adlx" }
+foxrgb-gpu = { path = "../crates/foxrgb-gpu" }
 foxrgb-audio = { path = "../crates/foxrgb-audio" }
 foxrgb-screen = { path = "../crates/foxrgb-screen" }
 foxrgb-fan = { path = "../crates/foxrgb-fan" }

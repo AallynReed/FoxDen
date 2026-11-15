@@ -16,6 +16,7 @@ const BLOCK_DATA: u64 = 5;
 pub struct Bus {
     module: Module,
     lock: SharedLock,
+    info: crate::i2c::BusInfo,
 }
 
 impl Bus {
@@ -23,9 +24,24 @@ impl Bus {
     pub fn open() -> Result<Bus, String> {
         let module = Module::open(SMBUS_I801).map_err(|e| format!("no Intel SMBus here ({e})"))?;
         let _ = module.execute("ioctl_set_sleep_mode", &[SLEEP_ALWAYS], 0);
+        // The i801 module reports the controller's PCI ids, which PCI detectors match on.
+        let info = match module.execute("ioctl_identity", &[0], 3) {
+            Ok(out) if out.len() == 3 => crate::i2c::BusInfo {
+                name: "Intel SMBus".into(),
+                pci_vendor: out[2] as u16,
+                pci_device: (out[2] >> 16) as u16,
+                pci_subsystem_vendor: (out[2] >> 32) as u16,
+                pci_subsystem_device: (out[2] >> 48) as u16,
+            },
+            _ => crate::i2c::BusInfo {
+                name: "Intel SMBus".into(),
+                ..Default::default()
+            },
+        };
         Ok(Bus {
             module,
             lock: SharedLock::new(BUS_MUTEX),
+            info,
         })
     }
 
@@ -85,5 +101,62 @@ impl Bus {
         data[0] = n as u8;
         data[1..1 + n].copy_from_slice(&bytes[..n]);
         self.xfer(addr, false, command, BLOCK_DATA, &mut data)
+    }
+}
+
+const BYTE: u64 = 1;
+const I2C_BLOCK_DATA: u64 = 8;
+
+impl crate::i2c::SmBus for Bus {
+    fn info(&self) -> &crate::i2c::BusInfo {
+        &self.info
+    }
+    fn write_quick(&self, addr: u8) -> Result<(), String> {
+        Bus::write_quick(self, addr)
+    }
+    fn read_byte(&self, addr: u8) -> Result<u8, String> {
+        let mut data = [0u8; 40];
+        self.xfer(addr, true, 0, BYTE, &mut data)?;
+        Ok(data[0])
+    }
+    fn write_byte(&self, addr: u8, value: u8) -> Result<(), String> {
+        self.xfer(addr, false, value, BYTE, &mut [0; 40])
+    }
+    fn read_byte_data(&self, addr: u8, command: u8) -> Result<u8, String> {
+        Bus::read_byte(self, addr, command)
+    }
+    fn write_byte_data(&self, addr: u8, command: u8, value: u8) -> Result<(), String> {
+        Bus::write_byte(self, addr, command, value)
+    }
+    fn read_word_data(&self, addr: u8, command: u8) -> Result<u16, String> {
+        let mut data = [0u8; 40];
+        self.xfer(addr, true, command, WORD_DATA, &mut data)?;
+        Ok(u16::from_le_bytes([data[0], data[1]]))
+    }
+    fn write_word_data(&self, addr: u8, command: u8, value: u16) -> Result<(), String> {
+        self.write_word(addr, command, value)
+    }
+    fn read_block_data(&self, addr: u8, command: u8) -> Result<Vec<u8>, String> {
+        let mut data = [0u8; 40];
+        self.xfer(addr, true, command, BLOCK_DATA, &mut data)?;
+        let n = (data[0] as usize).min(32);
+        Ok(data[1..1 + n].to_vec())
+    }
+    fn write_block_data(&self, addr: u8, command: u8, data: &[u8]) -> Result<(), String> {
+        self.write_block(addr, command, data)
+    }
+    fn i2c_read_block_data(&self, addr: u8, command: u8, len: u8) -> Result<Vec<u8>, String> {
+        let mut data = [0u8; 40];
+        let n = (len as usize).min(32);
+        data[0] = n as u8;
+        self.xfer(addr, true, command, I2C_BLOCK_DATA, &mut data)?;
+        Ok(data[1..1 + n].to_vec())
+    }
+    fn i2c_write_block_data(&self, addr: u8, command: u8, bytes: &[u8]) -> Result<(), String> {
+        let mut data = [0u8; 40];
+        let n = bytes.len().min(32);
+        data[0] = n as u8;
+        data[1..1 + n].copy_from_slice(&bytes[..n]);
+        self.xfer(addr, false, command, I2C_BLOCK_DATA, &mut data)
     }
 }
