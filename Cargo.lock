@@ -1196,6 +1196,7 @@ dependencies = [
 name = "foxrgb"
 version = "0.1.0"
 dependencies = [
+ "foxrgb-adlx",
  "foxrgb-audio",
  "foxrgb-client",
  "foxrgb-core",
@@ -1211,6 +1212,14 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "wmi",
+]
+
+[[package]]
+name = "foxrgb-adlx"
+version = "0.1.0"
+dependencies = [
+ "foxrgb-fan",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

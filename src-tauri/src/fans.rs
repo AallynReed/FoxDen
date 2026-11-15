@@ -48,6 +48,7 @@ pub fn start(app: &AppHandle) {
     // The only way to hear about the app quitting from here.
     let on_quit = Builder::<Wry>::new("fans").on_event(|_, event| {
         if let RunEvent::Exit = event {
+            gpu_fan(None);
             stop_child();
         }
     });
@@ -60,7 +61,14 @@ pub fn start(app: &AppHandle) {
             let _ = fs::remove_file(record());
         }
         loop {
-            poll(false);
+            let state = poll(false);
+            gpu_fan(
+                state
+                    .fans
+                    .iter()
+                    .find(|f| f.id == "gpu0/fan")
+                    .and_then(|f| f.duty),
+            );
             thread::sleep(Duration::from_secs(1));
         }
     });
@@ -211,5 +219,26 @@ fn finish(child: &mut Child) {
             return;
         }
         thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Applies the service's duty for the graphics card fan, or gives the card back to its driver.
+fn gpu_fan(duty: Option<f32>) {
+    static CARD: Mutex<Option<Box<dyn foxrgb_fan::Fan>>> = Mutex::new(None);
+    let mut card = lock(&CARD);
+    match duty {
+        Some(duty) => {
+            if card.is_none() {
+                *card = foxrgb_adlx::fan().ok();
+            }
+            if let Some(fan) = card.as_mut() {
+                let _ = fan.set_duty(duty);
+            }
+        }
+        None => {
+            if let Some(fan) = card.as_mut() {
+                let _ = fan.release();
+            }
+        }
     }
 }

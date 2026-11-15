@@ -692,8 +692,50 @@ impl Drop for Running {
 /// Every sensor and fan this machine offers: read-only sources, then the board and CPU through PawnIO.
 pub fn hardware() -> Vec<Box<dyn FanBackend>> {
     let mut backends = foxrgb_hwmon::backends();
+    let amd_card = backends
+        .iter_mut()
+        .any(|b| b.sensors().iter().any(|s| s.id().starts_with("gpu")));
     backends.extend(foxrgb_superio::backends());
+    if amd_card {
+        backends.push(Box::new(RelayBackend));
+    }
     backends
+}
+
+/// The graphics card fan. AMD's ADLX crashes inside a service, so the service only works out
+/// the duty and the app, in the user's session, applies it.
+struct RelayBackend;
+
+struct RelayFan;
+
+impl foxrgb_fan::Fan for RelayFan {
+    fn id(&self) -> &str {
+        "gpu0/fan"
+    }
+    fn name(&self) -> &str {
+        "Graphics card fan"
+    }
+    fn rpm(&mut self) -> Option<u32> {
+        None
+    }
+    fn set_duty(&mut self, _duty: f32) -> Result<(), String> {
+        Ok(())
+    }
+    fn release(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl FanBackend for RelayBackend {
+    fn name(&self) -> &str {
+        "relay"
+    }
+    fn sensors(&mut self) -> Vec<Box<dyn foxrgb_fan::Sensor>> {
+        Vec::new()
+    }
+    fn fans(&mut self) -> Vec<Box<dyn foxrgb_fan::Fan>> {
+        vec![Box::new(RelayFan)]
+    }
 }
 
 #[cfg(test)]
