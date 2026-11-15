@@ -1,6 +1,8 @@
 //! Native USB HID lighting drivers. Experimental: none of this has run against hardware yet.
 
 mod families;
+#[path = "families/generic/any/mod.rs"]
+mod generic_any;
 mod hidpp;
 mod msi;
 pub mod registry;
@@ -119,6 +121,7 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
     let mut board = false;
     let detectors = families::detectors();
     let mut taken: Vec<String> = Vec::new();
+    let mut infos = Vec::new();
     for raw in api.device_list() {
         let info = registry::Info::from_hidapi(raw);
         match (info.vid, info.pid) {
@@ -149,11 +152,11 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
             _ => {}
         }
         // Virtual devices, such as G HUB's keyboard, can share a real device's ids.
-        if !matches!(raw.bus_type(), BusType::Usb | BusType::Bluetooth) {
+        if !matches!(info.bus, registry::Bus::Usb | registry::Bus::Bluetooth) {
             continue;
         }
         // One backend per physical device: the first matching detector wins.
-        let key = format!("{:04x}{:04x}{}", info.vid, info.pid, info.serial);
+        let key = info.key();
         if let Some(detector) = detectors.iter().find(|d| d.matches(&info))
             && !taken.contains(&key)
             && let Ok(backend) = (detector.open)(&api, &info, detector)
@@ -161,7 +164,18 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
             taken.push(key);
             found.push(backend);
         }
+        infos.push(info);
     }
+    // Any-product matchers only see what the fixed detectors and hidpp.rs left.
+    let mut claimed = Vec::new();
+    found.extend(registry::sweep(
+        &infos,
+        &mut taken,
+        &detectors,
+        &generic_any::matchers(),
+        |i| supported(i.vid, i.pid),
+        |info, matcher| (matcher.open)(&api, info, &mut claimed),
+    ));
     found
 }
 
