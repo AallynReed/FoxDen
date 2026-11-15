@@ -562,7 +562,10 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
         Generation::G185 => {
             let fw = read_fw(&hid);
             let pid = if info.pid == PID_COMMON {
-                common_pid(&info.serial).ok_or("serial does not carry the board id")?
+                // SignalRGB drives an unlisted common-PID board with the common row
+                common_pid(&info.serial)
+                    .filter(|p| config_185(*p).is_some())
+                    .unwrap_or(PID_COMMON)
             } else {
                 info.pid
             };
@@ -676,6 +679,26 @@ const ZONES_SET21: &[u8] = &[
     J_PIPE_2,
     ON_BOARD_LED_0,
 ];
+// SignalRGB MSI_185Byte_Controller.js Library rows that OpenRGB has no set for.
+const ZONES_SET22: &[u8] = &[
+    J_RGB_1,
+    J_RGB_2,
+    J_RAINBOW_1,
+    J_RAINBOW_2,
+    J_CORSAIR,
+    ON_BOARD_LED_0,
+];
+const ZONES_SET23: &[u8] = &[J_RGB_1, J_RAINBOW_1, ON_BOARD_LED_0];
+const ZONES_SET24: &[u8] = &[J_RAINBOW_1, ON_BOARD_LED_0];
+const ZONES_SET25: &[u8] = &[J_RGB_1, J_RAINBOW_1, J_RAINBOW_2, J_CORSAIR, ON_BOARD_LED_0];
+const ZONES_SET26: &[u8] = &[
+    J_RGB_1,
+    J_RAINBOW_1,
+    J_RAINBOW_2,
+    J_RAINBOW_3,
+    ON_BOARD_LED_0,
+];
+const ZONES_SET27: &[u8] = &[ON_BOARD_LED_0];
 const CONFIGS_185: &[Config185] = &[
     Config185 {
         pid: 0x7B93,
@@ -1637,6 +1660,186 @@ const CONFIGS_185: &[Config185] = &[
         mode: Direct::PerLed,
         min_fw: 0,
     },
+    Config185 {
+        pid: 0x7C70,
+        onboard: 26,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 2,
+        zones: ZONES_SET22,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7C85,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 2,
+        zones: ZONES_SET0,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7C88,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET23,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7C89,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET23,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7C99,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET2,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D05,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 0,
+        zones: ZONES_SET24,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D10,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET23,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D11,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET23,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D12,
+        onboard: 10,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET2,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D16,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 2,
+        zones: ZONES_SET0,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D21,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET23,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D22,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET23,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D26,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET25,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D45,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET2,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D68,
+        onboard: 0,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET10,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D85,
+        onboard: 12,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET26,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x7D94,
+        onboard: 6,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 1,
+        zones: ZONES_SET2,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
+    Config185 {
+        pid: 0x0ABE,
+        onboard: 10,
+        pipe1: 0,
+        pipe2: 0,
+        jrgbs: 0,
+        zones: ZONES_SET27,
+        mode: Direct::PerLed,
+        min_fw: 0,
+    },
 ];
 const S162_ZONES_SET0: &[u8] = &[J_RGB_1, J_RGB_2, J_RAINBOW_1, J_CORSAIR, ON_BOARD_LED_0];
 const S162_ZONES_SET1: &[u8] = &[J_RGB_1, J_RGB_2, J_RAINBOW_1, ON_BOARD_LED_0];
@@ -1671,6 +1874,7 @@ static DETECTORS: &[Detector] = &[
     board("MSI Mystic Light MS_7C59", 0x1462, 0x7C59, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C60", 0x1462, 0x7C60, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C67", 0x1462, 0x7C67, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7C70", 0x1462, 0x7C70, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C71", 0x1462, 0x7C71, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C73", 0x1462, 0x7C73, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C75", 0x1462, 0x7C75, 0x0001, 0x00),
@@ -1682,28 +1886,40 @@ static DETECTORS: &[Detector] = &[
     board("MSI Mystic Light MS_7C82", 0x1462, 0x7C82, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C83", 0x1462, 0x7C83, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C84", 0x1462, 0x7C84, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7C85", 0x1462, 0x7C85, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C86", 0x1462, 0x7C86, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C87", 0x1462, 0x7C87, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7C88", 0x1462, 0x7C88, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7C89", 0x1462, 0x7C89, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C90", 0x1462, 0x7C90, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C91", 0x1462, 0x7C91, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C92", 0x1462, 0x7C92, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C94", 0x1462, 0x7C94, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C95", 0x1462, 0x7C95, 0x0001, 0x00),
     board("MSI Mystic Light MS_7C98", 0x1462, 0x7C98, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7C99", 0x1462, 0x7C99, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D03", 0x1462, 0x7D03, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D04", 0x1462, 0x7D04, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D05", 0x1462, 0x7D05, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D06", 0x1462, 0x7D06, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D07", 0x1462, 0x7D07, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D08", 0x1462, 0x7D08, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D09", 0x1462, 0x7D09, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D10", 0x1462, 0x7D10, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D11", 0x1462, 0x7D11, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D12", 0x1462, 0x7D12, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D13", 0x1462, 0x7D13, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D14", 0x1462, 0x7D14, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D15", 0x1462, 0x7D15, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D16", 0x1462, 0x7D16, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D17", 0x1462, 0x7D17, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D18", 0x1462, 0x7D18, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D19", 0x1462, 0x7D19, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D20", 0x1462, 0x7D20, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D21", 0x1462, 0x7D21, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D22", 0x1462, 0x7D22, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D25", 0x1462, 0x7D25, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D26", 0x1462, 0x7D26, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D27", 0x1462, 0x7D27, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D28", 0x1462, 0x7D28, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D29", 0x1462, 0x7D29, 0x0001, 0x00),
@@ -1718,6 +1934,7 @@ static DETECTORS: &[Detector] = &[
     board("MSI Mystic Light MS_7D41", 0x1462, 0x7D41, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D42", 0x1462, 0x7D42, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D43", 0x1462, 0x7D43, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D45", 0x1462, 0x7D45, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D46", 0x1462, 0x7D46, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D50", 0x1462, 0x7D50, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D51", 0x1462, 0x7D51, 0x0001, 0x00),
@@ -1726,6 +1943,7 @@ static DETECTORS: &[Detector] = &[
     board("MSI Mystic Light MS_7D54", 0x1462, 0x7D54, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D59", 0x1462, 0x7D59, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D67", 0x1462, 0x7D67, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D68", 0x1462, 0x7D68, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D69", 0x1462, 0x7D69, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D70", 0x1462, 0x7D70, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D73", 0x1462, 0x7D73, 0x0001, 0x00),
@@ -1734,12 +1952,14 @@ static DETECTORS: &[Detector] = &[
     board("MSI Mystic Light MS_7D76", 0x1462, 0x7D76, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D77", 0x1462, 0x7D77, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D78", 0x1462, 0x7D78, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D85", 0x1462, 0x7D85, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D86", 0x1462, 0x7D86, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D88", 0x1462, 0x7D88, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D89", 0x1462, 0x7D89, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D90", 0x1462, 0x7D90, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D91", 0x1462, 0x7D91, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D93", 0x1462, 0x7D93, 0x0001, 0x00),
+    board("MSI Mystic Light MS_7D94", 0x1462, 0x7D94, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D96", 0x1462, 0x7D96, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D97", 0x1462, 0x7D97, 0x0001, 0x00),
     board("MSI Mystic Light MS_7D98", 0x1462, 0x7D98, 0x0001, 0x00),
@@ -1763,6 +1983,14 @@ static DETECTORS: &[Detector] = &[
     board("MSI Mystic Light MS_B926", 0x1462, 0xB926, 0x0001, 0x00),
     board("MSI Mystic Light Common", 0x0DB0, 0x0076, 0x0001, 0x00),
     board("MSI Mystic Light X870", 0x0DB0, 0x0076, 0xFF00, 0x01),
+    board("MSI Mystic Light Common", 0x1462, 0x0076, 0x0001, 0x00),
+    board(
+        "MSI Mystic Light X670E Godlike M.2",
+        0x0DB0,
+        0x0ABE,
+        0x0001,
+        0x00,
+    ),
 ];
 
 #[cfg(test)]
@@ -1776,10 +2004,10 @@ mod tests {
         }
     }
 
-    // MSIMotherboardControllerDetect.cpp: lines outside ENABLE_UNTESTED_MYSTIC_LIGHT, 7D99 left to msi.rs.
+    // MSIMotherboardControllerDetect.cpp lines outside ENABLE_UNTESTED_MYSTIC_LIGHT plus SignalRGB's extra boards; 7D99 left to msi.rs.
     #[test]
     fn detectors_match_openrgb_list() {
-        assert_eq!(DETECTORS.len(), 110);
+        assert_eq!(DETECTORS.len(), 129);
         assert!(DETECTORS.iter().all(|d| d.pid != 0x7D99));
         assert!(DETECTORS.iter().all(|d| d.interface.is_none()));
         let x870 = DETECTORS
@@ -2075,5 +2303,22 @@ mod tests {
         let c = config_185(0x7D03).unwrap();
         let n: usize = c.leds().iter().map(|z| z.1).sum();
         assert_eq!(layout(&c.leds()).0.len(), n);
+    }
+
+    // MSI_185Byte_Controller.js sendGen1ARGB: onboard first, then RGB headers, then each ARGB header.
+    #[test]
+    fn signalrgb_rows_pack_like_the_plugin() {
+        let c = config_185(0x7D05).unwrap();
+        assert_eq!(c.leds(), vec![(J_RAINBOW_1, 40), (ON_BOARD_LED_0, 6)]);
+        let colors: Vec<Color> = (0..46).map(|i| Color(i as u8 + 1, 0, 0)).collect();
+        let ops = c.per_led_frames(&c.leds(), true, &colors);
+        let main = feature(&ops[0]);
+        assert_eq!(&main[..5], &[0x53, 0x25, 0x06, 0x00, 0x00]);
+        assert_eq!(main[5], 41);
+        assert_eq!(main[5 + 6 * 3], 1);
+        let godlike = config_185(0x7C70).unwrap();
+        assert_eq!(godlike.leds().iter().map(|z| z.1).sum::<usize>(), 148);
+        assert!(DETECTORS.iter().any(|d| (d.vid, d.pid) == (0x1462, 0x0076)));
+        assert!(config_185(0x0ABE).unwrap().per_led_active());
     }
 }

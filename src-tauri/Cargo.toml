@@ -21,6 +21,7 @@ foxrgb-screen = { path = "../crates/foxrgb-screen" }
 foxrgb-fan = { path = "../crates/foxrgb-fan" }
 foxrgb-client = { path = "../crates/foxrgb-client" }
 foxrgb-net = { path = "../crates/foxrgb-net" }
+foxrgb-xpack = { path = "../crates/foxrgb-xpack" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }

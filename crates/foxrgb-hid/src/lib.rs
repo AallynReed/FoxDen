@@ -8,7 +8,7 @@ mod lengths;
 mod msi;
 pub mod registry;
 
-pub use families::{LedProtocol, LedStrip, led_strips, serial_ports};
+pub use families::{LedProtocol, LedStrip, led_strips, serial_ports, winusb};
 use foxrgb_core::Backend;
 use hidapi::{BusType, HidApi};
 pub use lengths::{Zone, key as length_key, resizable, set_lengths};
@@ -185,6 +185,11 @@ pub fn slow_opens() -> Vec<(String, u128)> {
 }
 
 pub fn probe() -> Vec<Box<dyn Backend>> {
+    probe_with(&[])
+}
+
+/// Like `probe`, with `extra` detectors from other crates tried after the ported families'.
+pub fn probe_with(extra: &[&'static registry::Detector]) -> Vec<Box<dyn Backend>> {
     lengths::clear();
     SLOW_OPENS.lock().unwrap_or_else(|e| e.into_inner()).clear();
     let Ok(api) = HidApi::new() else {
@@ -192,7 +197,7 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
     };
     let mut found: Vec<Box<dyn Backend>> = Vec::new();
     let mut board = false;
-    let detectors = families::detectors();
+    let detectors = [families::detectors(), extra.to_vec()].concat();
     let mut taken: Vec<String> = Vec::new();
     let mut infos = Vec::new();
     for raw in api.device_list() {
@@ -262,6 +267,31 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
     found.extend(families::other());
     note_slow("serial, WinUSB and SCSI devices", start);
     found
+}
+
+/// Every fixed detector of the ported families.
+pub fn detectors() -> Vec<&'static registry::Detector> {
+    families::detectors()
+}
+
+/// Vendor-wide and generic matchers of the ported families.
+pub fn matchers() -> Vec<&'static registry::Matcher> {
+    [families::matchers(), generic_any::matchers()].concat()
+}
+
+/// Devices driven outside the HID detectors: serial, WinUSB, the MSI board and Logitech HID++.
+pub fn other_devices() -> Vec<(u16, u16, &'static str)> {
+    let mut v = families::other_ids();
+    v.push((msi::VID, msi::PID, "MSI Mystic Light"));
+    for pid in [
+        hidpp::G502_RECEIVER,
+        hidpp::G515_RECEIVER,
+        hidpp::G502_WIRED,
+        hidpp::G515_WIRED,
+    ] {
+        v.push((hidpp::VID, pid, "Logitech Lightspeed"));
+    }
+    v
 }
 
 /// Names of every device the ported families support, for the detected-hardware list.

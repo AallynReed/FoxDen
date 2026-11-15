@@ -11,6 +11,7 @@ foxrgb-core.workspace = true
 foxrgb-smbus = { path = "../foxrgb-smbus" }
 foxrgb-superio = { path = "../foxrgb-superio" }
 foxrgb-wmi = { path = "../foxrgb-wmi" }
+foxrgb-xpack = { path = "../foxrgb-xpack" }
 serde.workspace = true
 serde_json.workspace = true
 windows-service = "0.8"

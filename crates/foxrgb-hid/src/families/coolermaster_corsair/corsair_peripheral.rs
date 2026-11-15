@@ -40,6 +40,15 @@ pub static DETECTORS: &[Detector] = &[
         None,
         open
     ),
+    det!(
+        "Corsair K70 RAPIDFIRE Red",
+        VID,
+        0x1B3A,
+        I1,
+        PAGE,
+        None,
+        open
+    ),
     det!("Corsair K70 RGB MK.2", VID, 0x1B49, I1, PAGE, None, open),
     det!("Corsair K70 RGB MK.2 SE", VID, 0x1B6B, I1, PAGE, None, open),
     det!(
@@ -80,6 +89,7 @@ pub static DETECTORS: &[Detector] = &[
         open
     ),
     det!("Corsair Strafe", VID, 0x1B20, I1, PAGE, None, open),
+    det!("Corsair Strafe", VID, 0x1B15, I1, PAGE, None, open),
     det!("Corsair Strafe Red", VID, 0x1B44, I1, PAGE, None, open),
     det!("Corsair Strafe MK.2", VID, 0x1B48, I1, PAGE, None, open),
     det!("Corsair Glaive RGB", VID, 0x1B34, I1, PAGE, None, open),
@@ -111,6 +121,7 @@ pub static DETECTORS: &[Detector] = &[
         open
     ),
     det!("Corsair Sabre RGB", VID, 0x1B2F, I1, PAGE, None, open),
+    det!("Corsair Sabre RGB", VID, 0x1B14, I1, PAGE, None, open),
     det!(
         "Corsair Sabre RGB Optical",
         VID,

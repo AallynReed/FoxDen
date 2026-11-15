@@ -23,3 +23,13 @@ pub fn probe() -> Result<Vec<Box<dyn Backend>>, String> {
     }
     Ok(found)
 }
+
+/// The SMBus families found on graphics cards, for the GPU crate to run on each card's bus.
+pub fn gpu_families() -> Vec<i2c::Detect> {
+    families::gpu()
+}
+
+/// PCI ids (vendor, device, subsystem vendor, subsystem device) of every card those families list.
+pub fn gpu_cards() -> Vec<[u16; 4]> {
+    families::gpu_cards()
+}

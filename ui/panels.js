@@ -860,6 +860,9 @@ const NET_KINDS = {
     fields: [["name", "Name", "text"], IP, ["port", "Port", 1, 65535], ["num_leds", "LEDs", 1, 8192], ["keepalive_time", "Keepalive (ms)", 0, 60000]],
   },
   espurna: { name: "Espurna", blank: { ip: "", port: 80, apikey: "" }, fields: [IP, ["port", "Port", 1, 65535], ["apikey", "API key", "text"]] },
+  wled: { name: "WLED / LeetDesk / SRGBmods WLC", blank: { ip: "" }, fields: [IP] },
+  twinkly: { name: "Twinkly", blank: { ip: "" }, fields: [IP] },
+  cololight: { name: "Cololight", blank: { ip: "" }, fields: [IP] },
   dmx: {
     name: "DMX (serial)",
     blank: { name: "", port: "COM3", keepalive_time: 0, red_channel: 1, green_channel: 2, blue_channel: 3, brightness_channel: 0 },

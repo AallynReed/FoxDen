@@ -60,7 +60,8 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
     })
 }
 
-pub(super) static DETECTORS: [Detector; 8] = [
+pub(super) static DETECTORS: [Detector; 9] = [
+    on_i("HyperX Quadcast S", VID, 0x171D, 0, open),
     on_i("HyperX Quadcast S", VID, 0x171F, 0, open),
     on_i("HyperX Quadcast S", VID_HP, 0x0F8B, 0, open),
     on_i("HyperX Quadcast S", VID_HP, 0x068C, 0, open),

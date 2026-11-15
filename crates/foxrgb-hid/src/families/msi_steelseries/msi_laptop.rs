@@ -10,6 +10,8 @@ const A18_KLC: u16 = 0x1122;
 const A18_ALC: u16 = 0x1161;
 const GE68HX_KEYBOARD: u16 = 0x113a;
 const GE68HX_LIGHTBAR: u16 = 0x114b;
+const GE66_11UH_LIGHTBAR: u16 = 0x1132;
+const RAIDER_GE66_LIGHTBAR: u16 = 0x113c;
 const NA: u8 = 0xFF;
 
 const fn det(name: &'static str, pid: u16) -> Detector {
@@ -24,11 +26,13 @@ const fn det(name: &'static str, pid: u16) -> Detector {
     }
 }
 
-static DETECTORS: [Detector; 4] = [
+static DETECTORS: [Detector; 6] = [
     det("MSI Laptop Keyboard", A18_KLC),
     det("MSI Laptop Lightbar", A18_ALC),
     det("MSI GE68HX Keyboard", GE68HX_KEYBOARD),
     det("MSI GE68HX Lightbar", GE68HX_LIGHTBAR),
+    det("MSI GE66 11UH Lightbar", GE66_11UH_LIGHTBAR),
+    det("MSI Raider GE66 Lightbar", RAIDER_GE66_LIGHTBAR),
 ];
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -40,6 +44,7 @@ enum Kind {
     Klc,
     Alc,
     KlcLightbar,
+    StreamLightbar,
 }
 
 /// SetLEDs for the keyboard (KLC) and the A18 lightbar (ALC): one 525-byte feature report.
@@ -87,17 +92,57 @@ fn lightbar_packets(ids: &[u8], colors: &[Color]) -> Vec<Op> {
     ops
 }
 
+/// GE66 11UH lightbar (Steelseries_Laptop_Lightbar.js setStreamFrame): one 0x0C report of [id, r, g, b].
+fn stream_packet(ids: &[u8], colors: &[Color]) -> Vec<u8> {
+    let mut buf = vec![0u8; 525];
+    buf[1] = 0x0C;
+    buf[3] = ids.len() as u8;
+    for (i, (&id, c)) in ids.iter().zip(colors).enumerate() {
+        buf[5 + i * 4..9 + i * 4].copy_from_slice(&[id, c.0, c.1, c.2]);
+    }
+    buf
+}
+
+/// setSoftwareLightingMode (0x51 reset, 0x10 ping) and the one 0x0D apply that leaves the onboard effect.
+fn stream_start() -> Vec<Op> {
+    let w = |head: &[u8]| {
+        let mut b = vec![0u8; 65];
+        b[..head.len()].copy_from_slice(head);
+        Op::Write(b)
+    };
+    vec![
+        w(&[0x00, 0x51, 0x00, 0xFF, 0xFF, 0x99]),
+        w(&[0x00, 0x10]),
+        w(&[0x00, 0x0D, 0x00, 0x02]),
+    ]
+}
+
 struct Laptop {
     kind: Kind,
     ids: Vec<u8>,
+    started: bool,
 }
 
 impl Proto for Laptop {
     fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
         match self.kind {
             Kind::KlcLightbar => lightbar_packets(&self.ids, colors),
+            Kind::StreamLightbar => {
+                let mut ops = if self.started {
+                    Vec::new()
+                } else {
+                    stream_start()
+                };
+                self.started = true;
+                ops.push(Op::Feature(stream_packet(&self.ids, colors)));
+                ops
+            }
             kind => vec![Op::Feature(zone_packet(kind, &self.ids, colors))],
         }
+    }
+
+    fn reset(&mut self) {
+        self.started = false;
     }
 }
 
@@ -129,11 +174,32 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
             DeviceKind::Strip,
             rows(&[1, 52]),
         ),
+        RAIDER_GE66_LIGHTBAR => (
+            Kind::KlcLightbar,
+            (0..35).collect(),
+            DeviceKind::Strip,
+            rows(&[35]),
+        ),
+        GE66_11UH_LIGHTBAR => (
+            Kind::StreamLightbar,
+            (0..35).collect(),
+            DeviceKind::Strip,
+            rows(&[35]),
+        ),
         _ => return Err("unknown MSI laptop device".into()),
     };
     let hid = info.open(api)?;
     let dev = device(info.device_id("msi-laptop"), det.name, dev_kind, layout);
-    Ok(Driver::boxed(hid, "msi laptop", dev, Laptop { kind, ids }))
+    Ok(Driver::boxed(
+        hid,
+        "msi laptop",
+        dev,
+        Laptop {
+            kind,
+            ids,
+            started: false,
+        },
+    ))
 }
 
 const KLC_IDS: [u8; 102] = [
@@ -226,14 +292,33 @@ mod tests {
         assert_eq!(grid, [23, 7]);
     }
 
-    // MSILaptopControllerDetect.cpp REGISTER_HID_DETECTOR_I lines.
+    // MSILaptopControllerDetect.cpp REGISTER_HID_DETECTOR_I lines plus SignalRGB's two GE66 lightbars.
     #[test]
     fn detectors() {
-        assert_eq!(DETECTORS.len(), 4);
+        assert_eq!(DETECTORS.len(), 6);
         assert!(
             DETECTORS
                 .iter()
                 .all(|d| d.vid == 0x1038 && d.interface == Some(0) && d.usage_page.is_none())
         );
+    }
+
+    // Steelseries_Laptop_Lightbar.js: GE66 11UH stream start once, then one 0x0C frame per push.
+    #[test]
+    fn ge66_stream_frames() {
+        let mut l = Laptop {
+            kind: Kind::StreamLightbar,
+            ids: (0..35).collect(),
+            started: false,
+        };
+        let colors: Vec<Color> = (0..35).map(|i| Color(i, 1, 2)).collect();
+        let ops = l.frame(&colors);
+        assert_eq!(ops.len(), 4);
+        let Op::Write(r) = &ops[0] else { panic!() };
+        assert_eq!(r[..6], [0, 0x51, 0, 0xFF, 0xFF, 0x99]);
+        let Op::Feature(f) = &ops[3] else { panic!() };
+        assert_eq!(f[..5], [0, 0x0C, 0, 35, 0]);
+        assert_eq!(f[5 + 34 * 4..9 + 34 * 4], [34, 34, 1, 2]);
+        assert_eq!(l.frame(&colors).len(), 1);
     }
 }

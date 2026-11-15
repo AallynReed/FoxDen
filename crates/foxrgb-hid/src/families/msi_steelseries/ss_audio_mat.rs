@@ -11,6 +11,7 @@ enum Kind {
     Arctis5,
     ArctisNova3,
     QckMat,
+    QckPrism12,
 }
 
 const fn det(name: &'static str, pid: u16, interface: i32) -> Detector {
@@ -25,7 +26,7 @@ const fn det(name: &'static str, pid: u16, interface: i32) -> Detector {
     }
 }
 
-static DETECTORS: [Detector; 13] = [
+static DETECTORS: [Detector; 15] = [
     det("SteelSeries Siberia 350", 0x1229, 3),
     Detector {
         usage_page: Some(0xFFC0),
@@ -55,6 +56,8 @@ static DETECTORS: [Detector; 13] = [
     det("SteelSeries QCK Prism Cloth 3XL", 0x1516, 0),
     det("SteelSeries QCK Prism Cloth 4XL", 0x1518, 0),
     det("SteelSeries QCK Prism Cloth 5XL", 0x151A, 0),
+    det("SteelSeries QCK Prism Cloth XL", 0x3769, 0),
+    det("SteelSeries QCK Prism", 0x1507, 0),
 ];
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -66,9 +69,10 @@ fn kind(pid: u16) -> Option<Kind> {
         0x1229 => Kind::Siberia,
         0x12EC => Kind::ArctisNova3,
         0x1250 | 0x12AA => Kind::Arctis5,
-        0x150A | 0x150D | 0x151E | 0x1520 | 0x1514 | 0x151C | 0x1516 | 0x1518 | 0x151A => {
+        0x150A | 0x150D | 0x151E | 0x1520 | 0x1514 | 0x151C | 0x1516 | 0x1518 | 0x151A | 0x3769 => {
             Kind::QckMat
         }
+        0x1507 => Kind::QckPrism12,
         _ => return None,
     })
 }
@@ -153,6 +157,45 @@ fn qck(bottom: Color, top: Color) -> Vec<Op> {
     vec![Op::Feature(b), Op::Write(padded(65, &[0x00, 0x0D]))]
 }
 
+/// 12-LED QcK Prism ring (Steelseries_Qck_Prism_Mousepad.js sendColors): 12-byte entries, then the commit.
+fn qck_prism12(colors: &[Color]) -> Vec<Op> {
+    let mut b = vec![0u8; 525];
+    b[0x01] = 0x0E;
+    b[0x03] = PRISM12_RING.len() as u8;
+    for i in 0..PRISM12_RING.len() {
+        let c = colors.get(i).copied().unwrap_or(Color::BLACK);
+        let at = 5 + i * 12;
+        b[at..at + 3].copy_from_slice(&[c.0, c.1, c.2]);
+        b[at + 9] = 0x01;
+        b[at + 11] = i as u8;
+    }
+    vec![Op::Feature(b), Op::Write(padded(65, &[0x00, 0x0D]))]
+}
+
+/// LED positions on the plugin's 5x5 canvas, starting at the left edge and running anticlockwise.
+const PRISM12_RING: [(u8, u8); 12] = [
+    (0, 2),
+    (0, 3),
+    (1, 4),
+    (2, 4),
+    (3, 4),
+    (4, 3),
+    (4, 2),
+    (4, 1),
+    (3, 1),
+    (2, 1),
+    (1, 1),
+    (0, 1),
+];
+
+fn prism12_layout() -> (Vec<[f32; 2]>, [u32; 2]) {
+    let leds = PRISM12_RING
+        .iter()
+        .map(|&(x, y)| [(x as f32 + 0.5) / 5.0, (y as f32 + 0.5) / 5.0])
+        .collect();
+    (leds, [5, 5])
+}
+
 struct Accessory {
     kind: Kind,
 }
@@ -165,6 +208,7 @@ impl Proto for Accessory {
             Kind::Arctis5 => [arctis5(0, c(0)), arctis5(1, c(1))].concat(),
             Kind::ArctisNova3 => [nova3(0, c(0)), nova3(1, c(1))].concat(),
             Kind::QckMat => qck(c(0), c(1)),
+            Kind::QckPrism12 => qck_prism12(colors),
         }
     }
 }
@@ -172,12 +216,16 @@ impl Proto for Accessory {
 fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, String> {
     let kind = kind(info.pid).ok_or("unknown SteelSeries device")?;
     let hid = info.open(api)?;
-    let count = if kind == Kind::Siberia { 1 } else { 2 };
+    let layout = match kind {
+        Kind::Siberia => line(1),
+        Kind::QckPrism12 => prism12_layout(),
+        _ => line(2),
+    };
     let dev = device(
         info.device_id("steelseries"),
         det.name,
         DeviceKind::Other,
-        line(count),
+        layout,
     );
     Ok(Driver::boxed(hid, "steelseries", dev, Accessory { kind }))
 }
@@ -278,5 +326,23 @@ mod tests {
         );
         assert!(b[0x1D..].iter().all(|&x| x == 0));
         assert_eq!(ops[1], Op::Write(padded(65, &[0, 0x0D])));
+    }
+
+    // Steelseries_Qck_Prism_Mousepad.js sendColors.
+    #[test]
+    fn qck_prism12_bytes() {
+        let colors: Vec<Color> = (0..12).map(|i| Color(i + 1, 2, 3)).collect();
+        let ops = qck_prism12(&colors);
+        let Op::Feature(b) = &ops[0] else { panic!() };
+        assert_eq!(b.len(), 525);
+        assert_eq!(b[..5], [0, 0x0E, 0, 12, 0]);
+        assert_eq!(b[5..17], [1, 2, 3, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
+        assert_eq!(
+            b[5 + 11 * 12..5 + 12 * 12],
+            [12, 2, 3, 0, 0, 0, 0, 0, 0, 1, 0, 11]
+        );
+        assert!(b[5 + 12 * 12..].iter().all(|&x| x == 0));
+        assert_eq!(ops[1], Op::Write(padded(65, &[0, 0x0D])));
+        assert_eq!(prism12_layout().0.len(), 12);
     }
 }

@@ -174,6 +174,31 @@ pub(super) const DEVICES: &[Entry] = &[
     ("ASUS ROG STRIX Radeon RX 5700 XT Gaming OC", 0x1002, 0x731F, 0x1043, 0x04E2, 0x2A),
     ("ASUS ROG STRIX Radeon RX 5700 XT Gaming OC", 0x1002, 0x731F, 0x1043, 0x05C1, 0x2A),
     ("ASUS ROG STRIX Radeon RX 5700 XT Gaming OC", 0x1002, 0x731F, 0x1043, 0x05C3, 0x2A),
+    // From SignalRGB's ASUS_Legacy_GPU.js.
+    ("ASUS GTX 1050Ti Strix Gaming OC", 0x10DE, 0x1C82, 0x1043, 0x864B, 0x29),
+    ("ASUS GTX 1060 Strix Gaming", 0x10DE, 0x1C03, 0x1043, 0x854A, 0x29),
+    ("ASUS GTX 1080 Strix Gaming OC", 0x10DE, 0x1B80, 0x1043, 0x8593, 0x29),
+    ("ASUS ROG Strix GTX 1650 Super Gaming OC", 0x10DE, 0x2187, 0x1043, 0x8751, 0x2A),
+    ("ASUS ROG Strix GTX 1660 Super Gaming Advanced", 0x10DE, 0x21C4, 0x1043, 0x8753, 0x2A),
+    ("ASUS ROG Strix GTX 1660TI OC", 0x10DE, 0x2182, 0x1043, 0x86A6, 0x2A),
+    ("ASUS ROG Strix GTX 1660Ti Strix Gaming", 0x10DE, 0x2182, 0x1043, 0x86A7, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Gaming", 0x10DE, 0x1F08, 0x1043, 0x86D1, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Gaming 6gb", 0x10DE, 0x1F08, 0x1043, 0x868F, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Super EVO Gaming OC", 0x10DE, 0x1F47, 0x1043, 0x8730, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Super Gaming", 0x10DE, 0x1F06, 0x1043, 0x872F, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Super Gaming OC", 0x10DE, 0x1F06, 0x1043, 0x879F, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Super EVO Gaming", 0x10DE, 0x1F06, 0x1043, 0x87A0, 0x2A),
+    ("ASUS ROG Strix RTX 2060 OC", 0x10DE, 0x1F08, 0x1043, 0x86F5, 0x2A),
+    ("ASUS ROG Strix RTX 2070 Gaming", 0x10DE, 0x1F02, 0x1043, 0x867E, 0x2A),
+    ("ASUS ROG Strix RTX 2070 Gaming", 0x10DE, 0x1F02, 0x1043, 0x8796, 0x2A),
+    ("ASUS ROG Strix RTX 2070 Super 8GB", 0x10DE, 0x1EC7, 0x1043, 0x8701, 0x2A),
+    ("ASUS ROG Strix RTX 2080 Gaming Advanced", 0x10DE, 0x1E87, 0x1043, 0x8660, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Evo V2", 0x10DE, 0x1E89, 0x1043, 0x8776, 0x2A),
+    ("ASUS ROG Strix RTX 2080Ti Call of Duty BO4", 0x10DE, 0x1E07, 0x1043, 0x8689, 0x2A),
+    ("ASUS ROG Strix RTX 2060 Evo", 0x10DE, 0x1F08, 0x1043, 0x880C, 0x2A),
+    ("ASUS ROG Strix RTX 2080 Super Gaming 8G", 0x10DE, 0x1E81, 0x1043, 0x8713, 0x2A),
+    ("ASUS ROG Strix RTX 2080Ti", 0x10DE, 0x1E07, 0x1043, 0x8759, 0x2A),
+    ("ASUS ROG Strix RTX 2080Ti Gaming OC White Edition", 0x10DE, 0x1E07, 0x1043, 0x875A, 0x2A),
 ];
 
 #[cfg(test)]
@@ -202,10 +227,10 @@ mod tests {
         s
     }
 
-    // AsusAuraGPUControllerDetect.cpp has 74 REGISTER_I2C_PCI_DETECTOR lines
+    // AsusAuraGPUControllerDetect.cpp has 74 REGISTER_I2C_PCI_DETECTOR lines; SignalRGB adds 24
     #[test]
     fn table() {
-        assert_eq!(DEVICES.len(), 74);
+        assert_eq!(DEVICES.len(), 74 + 24);
         assert!(DEVICES.contains(&(
             "ASUS ROG STRIX Radeon RX 5700 XT Gaming OC",
             0x1002,

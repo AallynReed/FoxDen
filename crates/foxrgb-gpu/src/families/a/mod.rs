@@ -31,6 +31,18 @@ pub fn known(ids: [u16; 4]) -> bool {
         .any(|&(_, ven, dev, sub_ven, sub_dev, _)| [ven, dev, sub_ven, sub_dev] == ids)
 }
 
+/// Every card listed, with the driver file it belongs to.
+#[cfg(test)]
+pub fn cards() -> Vec<(&'static str, [u16; 4])> {
+    [
+        ("asus_aura", asus_aura::DEVICES),
+        ("gigabyte_fusion", gigabyte_fusion::DEVICES),
+    ]
+    .iter()
+    .flat_map(|&(name, t)| t.iter().map(move |e| (name, [e.1, e.2, e.3, e.4])))
+    .collect()
+}
+
 pub fn all() -> Vec<Detect> {
     vec![asus_aura::detect, gigabyte_fusion::detect]
 }

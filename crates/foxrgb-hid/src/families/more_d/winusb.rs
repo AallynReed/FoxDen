@@ -10,9 +10,10 @@ use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
     SetupDiOpenDevRegKey,
 };
 use windows_sys::Win32::Devices::Usb::{
-    GUID_DEVINTERFACE_USB_DEVICE, PIPE_TRANSFER_TIMEOUT, WINUSB_INTERFACE_HANDLE,
-    WINUSB_SETUP_PACKET, WinUsb_ControlTransfer, WinUsb_Free, WinUsb_Initialize, WinUsb_ReadPipe,
-    WinUsb_ResetPipe, WinUsb_SetPipePolicy, WinUsb_WritePipe,
+    GUID_DEVINTERFACE_USB_DEVICE, PIPE_TRANSFER_TIMEOUT, USB_INTERFACE_DESCRIPTOR,
+    WINUSB_INTERFACE_HANDLE, WINUSB_PIPE_INFORMATION, WINUSB_SETUP_PACKET, WinUsb_ControlTransfer,
+    WinUsb_Free, WinUsb_Initialize, WinUsb_QueryInterfaceSettings, WinUsb_QueryPipe,
+    WinUsb_ReadPipe, WinUsb_ResetPipe, WinUsb_SetPipePolicy, WinUsb_WritePipe,
 };
 use windows_sys::Win32::Foundation::{
     CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
@@ -44,7 +45,10 @@ impl WinUsb {
     /// The first present device with these ids, as `libusb_open_device_with_vid_pid` picks it.
     pub fn open(vid: u16, pid: u16, out_ep: u8, in_ep: u8) -> Result<WinUsb, String> {
         let want = format!("vid_{vid:04x}&pid_{pid:04x}#");
-        let path = find(&GUID_DEVINTERFACE_USB_DEVICE, &want).ok_or("not present")?;
+        let path = find_all(&GUID_DEVINTERFACE_USB_DEVICE, &want)
+            .into_iter()
+            .next()
+            .ok_or("not present")?;
         WinUsb::at(&path, out_ep, in_ep)
     }
 
@@ -57,12 +61,37 @@ impl WinUsb {
         in_ep: u8,
     ) -> Result<WinUsb, String> {
         let mi = format!("vid_{vid:04x}&pid_{pid:04x}&mi_{interface:02x}");
-        let guid = interface_guid(&mi).ok_or("not bound to WinUSB")?;
-        let path = find(&guid, &format!("{mi}#")).ok_or("not present")?;
+        let guid = interface_guids(&format!("{mi}\\"))
+            .into_iter()
+            .next()
+            .ok_or("not bound to WinUSB")?;
+        let path = find_all(&guid, &format!("{mi}#"))
+            .into_iter()
+            .next()
+            .ok_or("not present")?;
         WinUsb::at(&path, out_ep, in_ep)
     }
 
-    fn at(path: &str, out_ep: u8, in_ep: u8) -> Result<WinUsb, String> {
+    /// Every WinUSB path of a device with these ids: the whole device and each bound interface.
+    pub fn paths(vid: u16, pid: u16) -> Vec<String> {
+        let ids = format!("vid_{vid:04x}&pid_{pid:04x}");
+        let mut out = find_all(&GUID_DEVINTERFACE_USB_DEVICE, &format!("{ids}#"));
+        let mut guids = interface_guids(&format!("{ids}&mi_"));
+        let key = |g: &GUID| (g.data1, g.data2, g.data3, g.data4);
+        guids.sort_by_key(key);
+        guids.dedup_by_key(|g| key(g));
+        for g in guids {
+            for p in find_all(&g, &format!("{ids}&mi_")) {
+                if !out.contains(&p) {
+                    out.push(p);
+                }
+            }
+        }
+        out
+    }
+
+    /// Opens one path from `paths`.
+    pub fn at(path: &str, out_ep: u8, in_ep: u8) -> Result<WinUsb, String> {
         let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
         // SAFETY: `wide` is NUL-terminated; the handles are closed on every failure path.
         unsafe {
@@ -117,9 +146,9 @@ pub fn parse_guid(text: &str) -> Option<GUID> {
     u128::from_str_radix(&hex, 16).ok().map(GUID::from_u128)
 }
 
-/// The interface GUID the WinUSB INF gave the device whose instance id starts `USB\<mi>\`.
-fn interface_guid(mi: &str) -> Option<GUID> {
-    let want = format!("usb\\{mi}\\");
+/// Interface GUIDs the WinUSB INF gave devices whose instance id starts `USB\<prefix>`.
+fn interface_guids(prefix: &str) -> Vec<GUID> {
+    let want = format!("usb\\{prefix}");
     let usb: Vec<u16> = "USB".encode_utf16().chain(Some(0)).collect();
     // SAFETY: every buffer handed to SetupAPI and the registry outlives its call.
     unsafe {
@@ -130,13 +159,13 @@ fn interface_guid(mi: &str) -> Option<GUID> {
             DIGCF_ALLCLASSES | DIGCF_PRESENT,
         );
         if set == INVALID_HANDLE_VALUE as isize {
-            return None;
+            return Vec::new();
         }
-        let mut found = None;
+        let mut found = Vec::new();
         let mut data: SP_DEVINFO_DATA = std::mem::zeroed();
         data.cbSize = size_of::<SP_DEVINFO_DATA>() as u32;
         let mut index = 0;
-        while found.is_none() && SetupDiEnumDeviceInfo(set, index, &mut data) != 0 {
+        while SetupDiEnumDeviceInfo(set, index, &mut data) != 0 {
             index += 1;
             let mut id = [0u16; 256];
             if SetupDiGetDeviceInstanceIdW(set, &data, id.as_mut_ptr(), 256, null_mut()) == 0
@@ -160,8 +189,8 @@ fn interface_guid(mi: &str) -> Option<GUID> {
                     buf.as_mut_ptr().cast(),
                     &mut size,
                 );
-                if read == 0 && found.is_none() {
-                    found = parse_guid(&text(&buf));
+                if read == 0 {
+                    found.extend(parse_guid(&text(&buf)));
                 }
             }
             RegCloseKey(key);
@@ -176,7 +205,7 @@ fn text(buf: &[u16]) -> String {
     String::from_utf16_lossy(&buf[..end])
 }
 
-fn find(guid: &GUID, want: &str) -> Option<String> {
+fn find_all(guid: &GUID, want: &str) -> Vec<String> {
     // SAFETY: every buffer handed to SetupAPI outlives its call.
     unsafe {
         let set = SetupDiGetClassDevsW(
@@ -186,15 +215,13 @@ fn find(guid: &GUID, want: &str) -> Option<String> {
             DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
         );
         if set == INVALID_HANDLE_VALUE as isize {
-            return None;
+            return Vec::new();
         }
-        let mut found = None;
+        let mut found = Vec::new();
         let mut data: SP_DEVICE_INTERFACE_DATA = std::mem::zeroed();
         data.cbSize = size_of::<SP_DEVICE_INTERFACE_DATA>() as u32;
         let mut index = 0;
-        while found.is_none()
-            && SetupDiEnumDeviceInterfaces(set, null(), guid, index, &mut data) != 0
-        {
+        while SetupDiEnumDeviceInterfaces(set, null(), guid, index, &mut data) != 0 {
             index += 1;
             let mut buf = [0u64; 128];
             let detail = buf.as_mut_ptr().cast::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>();
@@ -216,12 +243,94 @@ fn find(guid: &GUID, want: &str) -> Option<String> {
             let end = chars.iter().position(|&c| c == 0).unwrap_or(max);
             let path = String::from_utf16_lossy(&chars[..end]);
             if path.to_ascii_lowercase().contains(want) {
-                found = Some(path);
+                found.push(path);
             }
         }
         SetupDiDestroyDeviceInfoList(set);
         found
     }
+}
+
+impl WinUsb {
+    /// Whether the bound interface has this endpoint.
+    pub fn has_pipe(&self, ep: u8) -> bool {
+        // SAFETY: both structs are plain data written by WinUSB.
+        unsafe {
+            let mut desc: USB_INTERFACE_DESCRIPTOR = std::mem::zeroed();
+            if WinUsb_QueryInterfaceSettings(self.usb, 0, &mut desc) == 0 {
+                return false;
+            }
+            (0..desc.bNumEndpoints).any(|i| {
+                let mut pipe: WINUSB_PIPE_INFORMATION = std::mem::zeroed();
+                WinUsb_QueryPipe(self.usb, 0, i, &mut pipe) != 0 && pipe.PipeId == ep
+            })
+        }
+    }
+
+    /// Bulk or interrupt read on the IN endpoint; empty when nothing came within `timeout_ms`.
+    pub fn read_pipe(&mut self, len: usize, timeout_ms: u32) -> Result<Vec<u8>, String> {
+        // SAFETY: the policy value outlives the call.
+        unsafe {
+            WinUsb_SetPipePolicy(
+                self.usb,
+                self.in_ep,
+                PIPE_TRANSFER_TIMEOUT,
+                4,
+                (&raw const timeout_ms).cast(),
+            );
+        }
+        let mut buf = vec![0u8; len];
+        match Io::read(self, &mut buf, timeout_ms as i32) {
+            Ok(n) => {
+                buf.truncate(n);
+                Ok(buf)
+            }
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    pub fn write_pipe(&mut self, data: &[u8]) -> Result<(), String> {
+        Io::write(self, data).map(|_| ())
+    }
+
+    /// A control transfer with a data stage, OUT or IN by bit 7 of `kind`; returns the bytes moved.
+    pub fn control_data(
+        &mut self,
+        kind: u8,
+        request: u8,
+        value: u16,
+        index: u16,
+        data: &mut [u8],
+    ) -> Result<usize, String> {
+        let setup = WINUSB_SETUP_PACKET {
+            RequestType: kind,
+            Request: request,
+            Value: value,
+            Index: index,
+            Length: data.len() as u16,
+        };
+        let mut done = 0;
+        // SAFETY: `data` outlives the synchronous call and is `Length` bytes long.
+        let ok = unsafe {
+            WinUsb_ControlTransfer(
+                self.usb,
+                setup,
+                data.as_mut_ptr(),
+                data.len() as u32,
+                &mut done,
+                null(),
+            )
+        };
+        if ok == 0 {
+            return Err("control transfer failed".into());
+        }
+        Ok(done as usize)
+    }
+}
+
+/// The instance part of a device path: the USB serial number when the device has a unique one.
+pub fn instance(path: &str) -> &str {
+    path.split('#').nth(2).unwrap_or_default()
 }
 
 impl Drop for WinUsb {

@@ -111,10 +111,11 @@ mod tests {
         detectors().into_iter().filter(|d| d.name == name).collect()
     }
 
-    // REGISTER_HID_DETECTOR* lines in RazerControllerDetect.cpp, minus three commented out and the non-Windows Nommo pair.
+    // REGISTER_HID_DETECTOR* lines in RazerControllerDetect.cpp, minus three commented out and the non-Windows Nommo pair,
+    // plus 19 ids from SignalRGB's Razer plugins.
     #[test]
     fn one_detector_per_registered_line() {
-        assert_eq!(detectors().len(), 203);
+        assert_eq!(detectors().len(), 222);
         assert!(detectors().iter().all(|d| d.vid == 0x1532));
     }
 
@@ -207,7 +208,7 @@ mod tests {
 
     #[test]
     fn table_rows_are_sane() {
-        assert_eq!(devices::MODELS.len(), 201);
+        assert_eq!(devices::MODELS.len(), 220);
         for m in &devices::MODELS {
             assert!(m.led_count() > 0, "{}", m.name);
             assert!(

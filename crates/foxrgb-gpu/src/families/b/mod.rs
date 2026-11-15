@@ -16,11 +16,15 @@ mod fake;
 mod galax;
 mod gigabyte_blackwell;
 mod gigabyte_fusion2;
+mod gigabyte_xtreme;
+mod lenovo_legion;
 mod manli;
 mod msi;
+mod msi_trio;
 mod palit;
 mod pny_epicx;
 mod pny_lovelace;
+mod pny_revel;
 mod powercolor;
 mod sapphire;
 mod zotac_blackwell;
@@ -66,7 +70,63 @@ pub fn all() -> Vec<Detect> {
         gigabyte_blackwell::detect_aorus_waterforce,
         gigabyte_blackwell::detect_master_5080,
         gigabyte_blackwell::detect_master_5090d_ice,
+        gigabyte_xtreme::detect,
+        lenovo_legion::detect,
+        msi_trio::detect,
+        pny_revel::detect,
     ]
+}
+
+/// Every card listed, with the driver file it belongs to.
+#[cfg(test)]
+pub fn cards() -> Vec<(&'static str, [u16; 4])> {
+    use cards::*;
+    let families: [(&str, &[&[common::Card]]); 23] = [
+        ("palit", &[PALIT_V1, PALIT_V2]),
+        ("evga_ampere", &[EVGA_AMPERE]),
+        ("evga_turing", &[EVGA_TURING]),
+        ("evga_gp102", &[EVGA_GP102]),
+        ("evga_pascal", &[EVGA_PASCAL]),
+        ("sapphire", &[SAPPHIRE_V1, SAPPHIRE_V3]),
+        ("zotac_blackwell", &[ZOTAC_BLACKWELL]),
+        ("pny_lovelace", &[PNY_LOVELACE]),
+        ("pny_epicx", &[PNY_EPICX_SMALL, PNY_EPICX_LARGE]),
+        ("powercolor", &[POWERCOLOR_V1, POWERCOLOR_V2]),
+        ("galax", &[GALAX]),
+        ("colorful_turing", &[COLORFUL_TURING]),
+        ("colorful", &[COLORFUL]),
+        ("manli", &[MANLI]),
+        ("zotac_turing", &[ZOTAC_TURING]),
+        ("zotac_v2", &[ZOTAC_V2]),
+        ("msi", &[MSI_V1, MSI_V2]),
+        ("gigabyte_fusion2", &[FUSION2]),
+        (
+            "gigabyte_blackwell",
+            &[
+                FUSION2_BLACKWELL_SINGLE,
+                FUSION2_BLACKWELL_GAMING,
+                FUSION2_BLACKWELL_MASTER_5080,
+                FUSION2_BLACKWELL_AORUS_WATERFORCE,
+                FUSION2_BLACKWELL_WATERFORCE,
+                FUSION2_BLACKWELL_MASTER_5090D_ICE,
+            ],
+        ),
+        ("gigabyte_xtreme", &[gigabyte_xtreme::GIGABYTE_XTREME]),
+        ("lenovo_legion", &[lenovo_legion::LENOVO_LEGION]),
+        ("msi_trio", &[msi_trio::MSI_BLACKWELL_TRIO]),
+        ("pny_revel", &[pny_revel::PNY_REVEL]),
+    ];
+    let listed: usize = families.iter().flat_map(|f| f.1).map(|t| t.len()).sum();
+    assert_eq!(listed, ALL.iter().map(|t| t.len()).sum::<usize>());
+    families
+        .iter()
+        .flat_map(|&(name, tables)| {
+            tables
+                .iter()
+                .flat_map(|t| t.iter())
+                .map(move |c| (name, [c.ven, c.dev, c.subven, c.subdev]))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -110,11 +170,39 @@ mod tests {
             .sum(),
             MSI_V1.len(),
             MSI_V2.len(),
+            super::gigabyte_xtreme::GIGABYTE_XTREME.len(),
+            super::lenovo_legion::LENOVO_LEGION.len(),
+            super::msi_trio::MSI_BLACKWELL_TRIO.len(),
+            super::pny_revel::PNY_REVEL.len(),
         ];
+        // OpenRGB's counts, then what SignalRGB adds; MSI_V2 hands seven GAMING TRIO cards to msi_trio.
         assert_eq!(
             sizes,
             [
-                68, 60, 26, 8, 5, 2, 33, 3, 12, 7, 11, 10, 40, 1, 4, 17, 103, 32, 83, 47
+                68 + 15,
+                60 + 9,
+                26 + 12,
+                8,
+                5,
+                2,
+                33,
+                3,
+                12 + 6,
+                7 + 1,
+                11,
+                10,
+                40 + 23,
+                1,
+                4,
+                17,
+                103,
+                32,
+                83 + 16,
+                47 - 7 + 13,
+                8,
+                2,
+                10,
+                1
             ]
         );
         // known() reads cards::ALL, so it must hold every table above

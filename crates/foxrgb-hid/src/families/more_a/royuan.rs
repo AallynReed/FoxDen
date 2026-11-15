@@ -317,7 +317,7 @@ fn open_legacy(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backen
     Ok(boxed(io, FAMILY, single(info, d), proto))
 }
 
-pub static DETECTORS: [Detector; 5] = [
+pub static DETECTORS: [Detector; 6] = [
     det(
         "Akko 3068B Plus / PC75B Plus",
         VID,
@@ -328,6 +328,8 @@ pub static DETECTORS: [Detector; 5] = [
         open_akko,
     ),
     det("Skyloong GK68HE Pro", VID, 0x5029, 2, ANY, ANY, open_gk68he),
+    // SignalRGB enters Direct exactly as the GK68HE does (SET_LEDPARAM 0x15, then 0x0E colours).
+    det("Royuan Keyboard", VID, 0x4002, 0, ANY, ANY, open_gk68he),
     det(
         "Epomaker TH80 Pro (USB Cable)",
         VID,

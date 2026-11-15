@@ -509,7 +509,11 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             Ok(backend) => (vec![Box::new(backend)], None),
             Err(e) => (Vec::new(), Some(e)),
         },
-        "net" => (foxrgb_net::probe(&settings.network), None),
+        "net" => {
+            let mut backends = foxrgb_net::probe(&settings.network);
+            backends.extend(foxrgb_xpack::probe_network(&settings.network));
+            (backends, None)
+        }
         "board" => {
             let mut backends = foxrgb_gpu::probe();
             // Memory needs PawnIO and administrator rights, or the installed service that has them.
@@ -536,7 +540,8 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
                 .collect();
             let mut backends = foxrgb_hid::led_strips(&strips);
             foxrgb_hid::set_lengths(settings.zone_leds.clone());
-            backends.extend(foxrgb_hid::probe());
+            backends.extend(foxrgb_hid::probe_with(&foxrgb_xpack::detectors()));
+            backends.extend(foxrgb_xpack::probe_other());
             for (what, ms) in foxrgb_hid::slow_opens() {
                 crate::log::info("devices", format!("{what} took {ms} ms to open"));
             }

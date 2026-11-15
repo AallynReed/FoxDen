@@ -31,7 +31,7 @@ pub use nanoleaf::pair as pair_nanoleaf;
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NetConfig {
-    /// Also drive LIFX, Govee, Yeelight, Wiz and Kasa lights found by a broadcast.
+    /// Also drive LIFX, Govee, Yeelight, Wiz, Kasa, WLED, Twinkly and Cololight lights found by a search.
     pub discover: bool,
     pub hue: Vec<HueBridge>,
     pub wiz: Vec<WizLight>,
@@ -46,6 +46,10 @@ pub struct NetConfig {
     pub dmx: Vec<DmxDevice>,
     pub ddp: Vec<DdpDevice>,
     pub espurna: Vec<EspurnaDevice>,
+    /// WLED, LeetDesk and SRGBmods Wifi LC controllers, driven by foxrgb-xpack.
+    pub wled: Vec<IpOnly>,
+    pub twinkly: Vec<IpOnly>,
+    pub cololight: Vec<IpOnly>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
