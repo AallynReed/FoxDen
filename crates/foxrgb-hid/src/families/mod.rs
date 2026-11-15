@@ -1,7 +1,9 @@
 //! Device families ported from OpenRGB, each in its own folder.
 
 use crate::registry::Detector;
+use foxrgb_core::Backend;
 
+mod asus;
 mod coolermaster_corsair;
 mod generic;
 mod gigabyte_asrock;
@@ -28,8 +30,14 @@ pub fn detectors() -> Vec<&'static Detector> {
         small::detectors(),
         more_a::detectors(),
         more_b::detectors(),
+        asus::detectors(),
         generic::detectors(),
         streamdeck::detectors(),
     ]
     .concat()
+}
+
+/// Ported devices that are not found through a HID collection.
+pub fn others() -> Vec<Box<dyn Backend>> {
+    asus::others()
 }

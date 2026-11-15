@@ -924,6 +924,7 @@ fn unified_matcher_lines() {
         serial: String::new(),
         product: String::new(),
         bus,
+        release: 0,
     };
     let hits = |i: &Info| MATCHERS.iter().filter(|m| m.matches(i)).count();
     assert_eq!(hits(&info(0xFF00, 2, 1, Bus::Usb)), 2);

@@ -225,6 +225,7 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
         |i| supported(i.vid, i.pid),
         |info, matcher| (matcher.open)(&api, info, &mut claimed),
     ));
+    found.extend(families::others());
     found
 }
 

@@ -25,7 +25,7 @@ mod ionico;
 mod jginyue;
 mod keychron;
 mod keyrox;
-mod klm;
+pub(crate) mod klm;
 mod laview;
 mod lego_toypad;
 mod lexip;

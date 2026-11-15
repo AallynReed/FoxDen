@@ -23,6 +23,7 @@ pub struct Info {
     pub serial: String,
     pub product: String,
     pub bus: Bus,
+    pub release: u16,
 }
 
 impl Info {
@@ -41,6 +42,7 @@ impl Info {
                 BusType::Bluetooth => Bus::Bluetooth,
                 _ => Bus::Other,
             },
+            release: d.release_number(),
         }
     }
 
@@ -175,6 +177,7 @@ mod tests {
             serial: String::new(),
             product: String::new(),
             bus,
+            release: 0,
         }
     }
 
