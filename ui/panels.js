@@ -1,4 +1,4 @@
-const BACKENDS = { virtual: "Simulated", openrgb: "OpenRGB", hid: "Native HID", audio: "Audio capture", screen: "Screen capture" };
+const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", audio: "Audio capture", screen: "Screen capture" };
 const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
@@ -44,7 +44,6 @@ document.addEventListener("focusout", () => scheduleRender());
 
 const toHex = (c) => ("#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")).toUpperCase();
 const plural = (n, word) => n.toLocaleString("en-GB") + " " + word + (n === 1 ? "" : "s");
-const simulated = (device) => device.backend === "virtual";
 const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const words = (s) => sentence(s).replace(/_/g, " ");
 
@@ -529,9 +528,7 @@ function deviceRow(device) {
     problem,
     el("div", { className: "actions" }, reset),
   );
-  // The preview devices are not hardware, and every row of one says so.
-  const tag = el("span", { className: "tag", textContent: "Simulated", hidden: !simulated(device) });
-  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, tag, status, on), details);
+  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, status, on), details);
   row.parts = { name, status, on, level, meta, place, details };
   return row;
 }

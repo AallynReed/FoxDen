@@ -141,7 +141,6 @@ pub fn set_settings(
     }
     let server = |s: &Settings| (s.openrgb_enabled, s.openrgb_host.clone(), s.openrgb_port);
     let kinds = Kinds {
-        virt: settings.show_virtual != old.show_virtual,
         openrgb: server(&settings) != server(&old),
         hid: settings.native_drivers != old.native_drivers,
     };

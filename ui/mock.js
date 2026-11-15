@@ -20,14 +20,14 @@
     return { id, name, kind, backend, rect, grid: [cols, rows], leds };
   }
 
-  // The virtual backend's devices, then what an OpenRGB server and the native drivers would add.
+  // What the native drivers and an OpenRGB server would show.
   const hardware = [
-    grid("virtual:board", "Motherboard ARGB header", "motherboard", "virtual", [0.06, 0.12, 0.52, 0.05], 24, 1),
-    grid("virtual:gpu", "Graphics card", "gpu", "virtual", [0.06, 0.3, 0.4, 0.05], 12, 1),
-    grid("virtual:ram0", "RAM 1", "memory", "virtual", [0.68, 0.1, 0.03, 0.36], 1, 10),
-    grid("virtual:ram1", "RAM 2", "memory", "virtual", [0.76, 0.1, 0.03, 0.36], 1, 10),
-    grid("virtual:keyboard", "TKL keyboard", "keyboard", "virtual", [0.06, 0.58, 0.54, 0.32], 17, 6),
-    grid("virtual:mouse", "Mouse", "mouse", "virtual", [0.7, 0.62, 0.06, 0.22], 1, 2),
+    grid("hid:board", "Motherboard ARGB header", "motherboard", "hid", [0.06, 0.12, 0.52, 0.05], 24, 1),
+    grid("hid:gpu", "Graphics card", "gpu", "hid", [0.06, 0.3, 0.4, 0.05], 12, 1),
+    grid("hid:ram0", "RAM 1", "memory", "hid", [0.68, 0.1, 0.03, 0.36], 1, 10),
+    grid("hid:ram1", "RAM 2", "memory", "hid", [0.76, 0.1, 0.03, 0.36], 1, 10),
+    grid("hid:keyboard", "TKL keyboard", "keyboard", "hid", [0.06, 0.58, 0.54, 0.32], 17, 6),
+    grid("hid:mouse", "Mouse", "mouse", "hid", [0.7, 0.62, 0.06, 0.22], 1, 2),
     grid("openrgb:0", "Corsair Vengeance RGB DDR5", "memory", "openrgb", [0.84, 0.1, 0.03, 0.36], 1, 10),
     grid("openrgb:1", "Corsair Vengeance RGB DDR5", "memory", "openrgb", [0.91, 0.1, 0.03, 0.36], 1, 10),
     grid("openrgb:2", "ASUS Radeon RX 9070 XT", "gpu", "openrgb", [0.5, 0.3, 0.14, 0.05], 5, 1),
@@ -143,8 +143,7 @@
       openrgb_enabled: false,
       openrgb_host: "127.0.0.1",
       openrgb_port: 6742,
-      native_drivers: false,
-      show_virtual: true,
+      native_drivers: true,
       close_to_tray: true,
       start_minimized: false,
       autostart: false,
@@ -281,7 +280,7 @@
   }
 
   function devices() {
-    const on = { virtual: state.settings.show_virtual, openrgb: openrgb(), hid: state.settings.native_drivers };
+    const on = { openrgb: openrgb(), hid: state.settings.native_drivers };
     return hardware
       .filter((d) => on[d.backend] && (state.keyboard || d.id !== "hid:046d:c547"))
       .map((d) => ({ ...d, enabled: true, brightness: 1, ...state.tweaks[d.id] }));
@@ -325,7 +324,6 @@
     const count = (backend) => list.filter((d) => d.backend === backend).length;
     const refused = `cannot connect to ${s.openrgb_host}:${s.openrgb_port}: connection refused`;
     const backends = [
-      { name: "virtual", active: s.show_virtual, devices: count("virtual"), error: null },
       { name: "openrgb", active: openrgb(), devices: count("openrgb"), error: s.openrgb_enabled && !openrgb() ? refused : null },
       { name: "hid", active: s.native_drivers, devices: count("hid"), error: null },
     ];

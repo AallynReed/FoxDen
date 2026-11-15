@@ -17,7 +17,6 @@ pub struct Settings {
     pub openrgb_host: String,
     pub openrgb_port: u16,
     pub native_drivers: bool,
-    pub show_virtual: bool,
     pub close_to_tray: bool,
     pub start_minimized: bool,
     pub autostart: bool,
@@ -35,7 +34,6 @@ impl Default for Settings {
             openrgb_host: "127.0.0.1".into(),
             openrgb_port: 6742,
             native_drivers: true,
-            show_virtual: false,
             close_to_tray: true,
             start_minimized: false,
             autostart: true,
@@ -199,7 +197,7 @@ mod tests {
                 openrgb_enabled: true,
                 ..Default::default()
             },
-            devices: BTreeMap::from([("virtual:gpu".to_string(), device)]),
+            devices: BTreeMap::from([("hid:gpu".to_string(), device)]),
             profiles: BTreeMap::from([("Night".to_string(), profile)]),
             active_profile: Some("Night".into()),
             ..Default::default()
@@ -261,7 +259,7 @@ mod tests {
         let settings = load(&dir).settings;
         assert!(settings.auto_detect);
         assert_eq!(
-            (settings.fps, settings.openrgb_port, settings.show_virtual),
+            (settings.fps, settings.openrgb_port, settings.native_drivers),
             (48, 6743, false)
         );
         assert!(settings.openrgb_enabled && settings.start_minimized && !settings.close_to_tray);

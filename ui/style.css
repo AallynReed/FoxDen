@@ -708,11 +708,6 @@ input.switch::after {
   font-weight: 600;
 }
 
-.device .tag {
-  padding: 0 4px;
-  border: 1px solid var(--stroke);
-}
-
 .device-head .name:hover {
   text-decoration: underline;
 }

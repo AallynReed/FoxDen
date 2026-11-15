@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use foxrgb_audio::AudioCapture;
-use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, VirtualBackend};
+use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs};
 use foxrgb_openrgb::OpenRgbBackend;
 use foxrgb_screen::ScreenCapture;
 use serde::Serialize;
@@ -23,7 +23,7 @@ const RELEASE: Duration = Duration::from_secs(2);
 /// How long the last black frame may take on the way out.
 const LAST_FRAME: Duration = Duration::from_millis(500);
 /// Backend groups in the order their devices are listed.
-const GROUPS: [&str; 3] = ["virtual", "openrgb", "hid"];
+const GROUPS: [&str; 2] = ["openrgb", "hid"];
 
 #[derive(Clone, Debug, Serialize)]
 pub struct BackendStatus {
@@ -63,25 +63,22 @@ pub struct Snapshot {
 /// A choice of backend groups to reconnect.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Kinds {
-    pub virt: bool,
     pub openrgb: bool,
     pub hid: bool,
 }
 
 impl Kinds {
     pub const ALL: Kinds = Kinds {
-        virt: true,
         openrgb: true,
         hid: true,
     };
 
     pub fn any(self) -> bool {
-        self.virt || self.openrgb || self.hid
+        self.openrgb || self.hid
     }
 
     fn has(self, label: &str) -> bool {
         match label {
-            "virtual" => self.virt,
             "openrgb" => self.openrgb,
             _ => self.hid,
         }
@@ -132,16 +129,11 @@ impl AppState {
         for label in GROUPS {
             engine.add(label, Vec::new());
         }
-        let mut loaded = HashMap::new();
-        if config.settings.show_virtual {
-            engine.add("virtual", vec![Box::new(VirtualBackend)]);
-            loaded.insert("virtual", None);
-        }
         AppState {
             engine,
             config,
             changed: None,
-            loaded,
+            loaded: HashMap::new(),
             inputs: Vec::new(),
             retry_inputs: false,
             found: Vec::new(),
@@ -293,7 +285,6 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
             let state = lock(&shared);
             let settings = &state.config.settings;
             Kinds {
-                virt: false,
                 openrgb: settings.openrgb_enabled,
                 hid: settings.native_drivers,
             }
@@ -338,7 +329,6 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                 // Only what the user has switched on and whose hardware changed is connected again.
                 let hid = (change.native || died) && !done.hid;
                 let stale = Kinds {
-                    virt: false,
                     openrgb: change.openrgb && !done.openrgb,
                     hid,
                 };
@@ -361,7 +351,6 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
 
 fn enabled(label: &str, settings: &Settings) -> bool {
     match label {
-        "virtual" => settings.show_virtual,
         "openrgb" => settings.openrgb_enabled,
         _ => settings.native_drivers,
     }
@@ -370,7 +359,6 @@ fn enabled(label: &str, settings: &Settings) -> bool {
 /// The backends of one group and the reason there are none, if it failed.
 fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<String>) {
     match label {
-        "virtual" => (vec![Box::new(VirtualBackend)], None),
         "openrgb" => match OpenRgbBackend::connect(&settings.openrgb_host, settings.openrgb_port) {
             Ok(backend) => (vec![Box::new(backend)], None),
             Err(e) => (Vec::new(), Some(e)),
@@ -576,7 +564,7 @@ fn save(config: &Config) {
 mod tests {
     use super::*;
     use crate::detect::Bus;
-    use foxrgb_core::{Color, Device};
+    use foxrgb_core::{Color, Device, VirtualBackend};
     use serde_json::{Value, json};
     use std::net::TcpListener;
 
@@ -591,16 +579,17 @@ mod tests {
         keys
     }
 
-    /// The defaults, with the simulated devices on.
-    fn simulated() -> Config {
-        let mut config = Config::default();
-        config.settings.show_virtual = true;
-        config
+    /// The defaults, with test devices in the native group.
+    fn with_devices() -> AppState {
+        let mut state = AppState::new(Config::default());
+        state.engine.add("hid", vec![Box::new(VirtualBackend)]);
+        state.loaded.insert("hid", None);
+        state
     }
 
     #[test]
     fn snapshot_has_the_shape_the_ui_expects() {
-        let mut state = AppState::new(simulated());
+        let mut state = with_devices();
         state
             .engine
             .set_device("virtual:gpu", false, 0.5, Some([0.25, 0.5, 0.25, 0.125]));
@@ -632,7 +621,6 @@ mod tests {
                 "openrgb_enabled",
                 "openrgb_host",
                 "openrgb_port",
-                "show_virtual",
                 "start_minimized"
             ]
         );
@@ -661,7 +649,7 @@ mod tests {
                 "rect"
             ]
         );
-        assert_eq!(gpu["backend"], "virtual");
+        assert_eq!(gpu["backend"], "hid");
         assert_eq!(gpu["kind"], "gpu");
         assert_eq!(gpu["enabled"], false);
         assert_eq!(gpu["brightness"], 0.5);
@@ -671,21 +659,18 @@ mod tests {
         let backends = json["backends"].as_array().unwrap();
         assert_eq!(
             backends[0],
-            json!({ "name": "virtual", "active": true, "devices": 6, "error": null })
-        );
-        assert_eq!(
-            backends[1],
             json!({ "name": "openrgb", "active": false, "devices": 0, "error": null })
         );
         assert_eq!(
-            backends[2],
-            json!({ "name": "hid", "active": false, "devices": 0, "error": null })
+            backends[1],
+            json!({ "name": "hid", "active": true, "devices": 6, "error": null })
         );
+        assert_eq!(backends.len(), 2);
     }
 
     #[test]
     fn snapshot_lists_what_detection_found() {
-        let mut state = AppState::new(simulated());
+        let mut state = AppState::new(Config::default());
         state.found = vec![Found {
             id: "usb:1b1c:0001".into(),
             name: "Corsair device".into(),
@@ -705,7 +690,6 @@ mod tests {
         assert_eq!(detected[0]["id"], "usb:1b1c:0001");
         assert_eq!(detected[0]["route"], "openrgb");
         assert_eq!(detected[0]["state"], "available");
-        // the virtual preview devices never count as driving real hardware
         assert_eq!(detected[1]["id"], "network:openrgb");
         assert_eq!(detected[1]["state"], "available");
     }
@@ -734,18 +718,18 @@ mod tests {
             }
         }
 
-        let mut state = AppState::new(simulated());
+        let mut state = AppState::new(Config::default());
         state.engine.add("hid", vec![Box::new(Unplugged)]);
         assert!(!state.failing("hid"));
         state.engine.render(0.0, &Inputs::default());
         state.engine.flush(Duration::from_secs(5));
         assert!(state.failing("hid"));
-        assert!(!state.failing("virtual"));
+        assert!(!state.failing("openrgb"));
     }
 
     #[test]
     fn reload_swaps_one_group_and_leaves_the_rest() {
-        let shared: Shared = Arc::new(Mutex::new(AppState::new(simulated())));
+        let shared: Shared = Arc::new(Mutex::new(with_devices()));
         let mut watch = Watch::default();
         let status = |name: &str| {
             lock(&shared)
@@ -774,40 +758,18 @@ mod tests {
         );
         assert!(status("openrgb").error.is_some());
         assert!(!lock(&shared).connected("openrgb"));
-        assert_eq!(
-            (status("virtual").active, status("virtual").devices),
-            (true, 6)
-        );
+        assert_eq!((status("hid").active, status("hid").devices), (true, 6));
 
-        lock(&shared).config.settings.show_virtual = false;
+        lock(&shared).config.settings.openrgb_enabled = false;
         reload(
             &shared,
             &mut watch,
             Kinds {
-                virt: true,
+                openrgb: true,
                 ..Kinds::default()
             },
         );
-        assert_eq!(
-            (status("virtual").active, status("virtual").devices),
-            (false, 0)
-        );
-        assert!(status("openrgb").error.is_some());
-
-        let mut state = lock(&shared);
-        state.config.settings.show_virtual = true;
-        state.config.settings.openrgb_enabled = false;
-        drop(state);
-        reload(
-            &shared,
-            &mut watch,
-            Kinds {
-                virt: true,
-                openrgb: true,
-                hid: false,
-            },
-        );
-        assert_eq!(status("virtual").devices, 6);
+        assert_eq!(status("hid").devices, 6);
         assert_eq!(
             (status("openrgb").active, status("openrgb").error),
             (false, None)
@@ -822,7 +784,7 @@ mod tests {
 
     #[test]
     fn loading_a_profile_replaces_effect_and_brightness() {
-        let mut state = AppState::new(simulated());
+        let mut state = AppState::new(Config::default());
         let profile = config::Profile {
             effect: Effect::Cycle { speed: 2.0 },
             brightness: 0.25,
@@ -838,7 +800,7 @@ mod tests {
 
     #[test]
     fn an_edited_profile_is_no_longer_active() {
-        let mut state = AppState::new(simulated());
+        let mut state = AppState::new(Config::default());
         let profile = Profile {
             effect: Effect::Cycle { speed: 2.0 },
             brightness: 0.25,
