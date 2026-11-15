@@ -86,7 +86,7 @@ fn run(sim: bool, parent: Option<u32>) -> Result<(), String> {
     let dir = host::data_dir(host::Mode::Console);
     let running = host::start(
         dir.clone(),
-        foxrgb_hwmon::backends,
+        host::hardware,
         sim,
         host::Mode::Console,
         pipe::PIPE_NAME,

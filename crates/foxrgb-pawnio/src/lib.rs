@@ -1,0 +1,168 @@
+//! The PawnIO kernel driver, spoken to directly. Needs administrator rights.
+//! Interface from PawnIOLib (LGPL-2.1, namazso). Modules from PawnIO.Modules (LGPL-2.1).
+
+use std::ptr::null_mut;
+
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+};
+use windows_sys::Win32::System::IO::DeviceIoControl;
+use windows_sys::Win32::System::Services::{
+    CloseServiceHandle, OpenSCManagerW, OpenServiceW, SC_MANAGER_CONNECT, SERVICE_START,
+    StartServiceW,
+};
+use windows_sys::Win32::System::Threading::{
+    CreateMutexW, INFINITE, ReleaseMutex, WaitForSingleObject,
+};
+
+pub const SMBUS_I801: &[u8] = include_bytes!("../modules/SmbusI801.bin");
+pub const LPC_IO: &[u8] = include_bytes!("../modules/LpcIO.bin");
+pub const INTEL_MSR: &[u8] = include_bytes!("../modules/IntelMSR.bin");
+
+const DEVICE_TYPE: u32 = 41394;
+const fn ctl_code(function: u32) -> u32 {
+    (DEVICE_TYPE << 16) | (function << 2)
+}
+const IOCTL_LOAD_BINARY: u32 = ctl_code(0x821);
+const IOCTL_EXECUTE_FN: u32 = ctl_code(0x841);
+const FN_NAME_LENGTH: usize = 32;
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain([0]).collect()
+}
+
+/// Starts the PawnIO driver if it is installed but not running.
+fn start_driver() {
+    unsafe {
+        let manager = OpenSCManagerW(null_mut(), null_mut(), SC_MANAGER_CONNECT);
+        if manager.is_null() {
+            return;
+        }
+        let service = OpenServiceW(manager, wide("PawnIO").as_ptr(), SERVICE_START);
+        if !service.is_null() {
+            StartServiceW(service, 0, null_mut());
+            CloseServiceHandle(service);
+        }
+        CloseServiceHandle(manager);
+    }
+}
+
+fn open_device() -> Result<HANDLE, String> {
+    let path = wide(r"\\?\GLOBALROOT\Device\PawnIO");
+    let handle = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            0,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(handle)
+}
+
+/// One loaded PawnIO module.
+pub struct Module {
+    handle: HANDLE,
+}
+
+unsafe impl Send for Module {}
+// DeviceIoControl on one handle is safe from several threads.
+unsafe impl Sync for Module {}
+
+impl Module {
+    pub fn open(blob: &[u8]) -> Result<Module, String> {
+        let handle = match open_device() {
+            Ok(handle) => handle,
+            Err(_) => {
+                start_driver();
+                open_device().map_err(|e| format!("PawnIO is not available: {e}"))?
+            }
+        };
+        let module = Module { handle };
+        module
+            .ioctl(IOCTL_LOAD_BINARY, blob, &mut [])
+            .map_err(|e| format!("module not loaded ({e})"))?;
+        Ok(module)
+    }
+
+    fn ioctl(&self, code: u32, input: &[u8], output: &mut [u8]) -> Result<usize, String> {
+        let mut written = 0u32;
+        let ok = unsafe {
+            DeviceIoControl(
+                self.handle,
+                code,
+                input.as_ptr().cast(),
+                input.len() as u32,
+                output.as_mut_ptr().cast(),
+                output.len() as u32,
+                &mut written,
+                null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(written as usize)
+    }
+
+    /// Calls a module function with 64-bit arguments, returning up to `outputs` 64-bit results.
+    pub fn execute(&self, name: &str, input: &[u64], outputs: usize) -> Result<Vec<u64>, String> {
+        let mut request = vec![0u8; FN_NAME_LENGTH];
+        request[..name.len()].copy_from_slice(name.as_bytes());
+        for value in input {
+            request.extend_from_slice(&value.to_le_bytes());
+        }
+        let mut out = vec![0u8; outputs * 8];
+        let n = self.ioctl(IOCTL_EXECUTE_FN, &request, &mut out)?;
+        Ok(out[..n]
+            .chunks_exact(8)
+            .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+            .collect())
+    }
+}
+
+impl Drop for Module {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.handle) };
+    }
+}
+
+/// A named mutex shared with other hardware tools, such as `Global\Access_ISABUS.HTP.Method`.
+pub struct SharedLock(HANDLE);
+
+unsafe impl Send for SharedLock {}
+unsafe impl Sync for SharedLock {}
+
+impl SharedLock {
+    pub fn new(name: &str) -> SharedLock {
+        SharedLock(unsafe { CreateMutexW(null_mut(), 0, wide(name).as_ptr()) })
+    }
+
+    pub fn run<T>(&self, f: impl FnOnce() -> T) -> T {
+        if !self.0.is_null() {
+            unsafe { WaitForSingleObject(self.0, INFINITE) };
+        }
+        let result = f();
+        if !self.0.is_null() {
+            unsafe { ReleaseMutex(self.0) };
+        }
+        result
+    }
+}
+
+impl Drop for SharedLock {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+}

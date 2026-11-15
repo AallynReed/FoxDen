@@ -1,0 +1,9 @@
+[package]
+name = "foxrgb-superio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+foxrgb-fan = { path = "../foxrgb-fan" }
+foxrgb-pawnio = { path = "../foxrgb-pawnio" }

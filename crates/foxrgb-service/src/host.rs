@@ -689,6 +689,13 @@ impl Drop for Running {
     }
 }
 
+/// Every sensor and fan this machine offers: read-only sources, then the board and CPU through PawnIO.
+pub fn hardware() -> Vec<Box<dyn FanBackend>> {
+    let mut backends = foxrgb_hwmon::backends();
+    backends.extend(foxrgb_superio::backends());
+    backends
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::atomic::AtomicU32;

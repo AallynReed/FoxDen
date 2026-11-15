@@ -1272,6 +1272,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "foxrgb-pawnio"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "foxrgb-screen"
 version = "0.1.0"
 dependencies = [
@@ -1287,6 +1294,7 @@ dependencies = [
  "foxrgb-fan",
  "foxrgb-hwmon",
  "foxrgb-smbus",
+ "foxrgb-superio",
  "serde",
  "serde_json",
  "windows-service",
@@ -1298,7 +1306,15 @@ name = "foxrgb-smbus"
 version = "0.1.0"
 dependencies = [
  "foxrgb-core",
- "windows-sys 0.61.2",
+ "foxrgb-pawnio",
+]
+
+[[package]]
+name = "foxrgb-superio"
+version = "0.1.0"
+dependencies = [
+ "foxrgb-fan",
+ "foxrgb-pawnio",
 ]
 
 [[package]]

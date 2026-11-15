@@ -9,6 +9,7 @@ foxrgb-fan = { path = "../foxrgb-fan" }
 foxrgb-hwmon = { path = "../foxrgb-hwmon" }
 foxrgb-core.workspace = true
 foxrgb-smbus = { path = "../foxrgb-smbus" }
+foxrgb-superio = { path = "../foxrgb-superio" }
 serde.workspace = true
 serde_json.workspace = true
 windows-service = "0.8"

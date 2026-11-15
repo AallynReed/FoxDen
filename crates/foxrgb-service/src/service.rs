@@ -233,7 +233,7 @@ fn run() -> Result<(), String> {
     };
     let started = host::start(
         dir.clone(),
-        foxrgb_hwmon::backends,
+        host::hardware,
         false,
         host::Mode::Service,
         pipe::PIPE_NAME,
