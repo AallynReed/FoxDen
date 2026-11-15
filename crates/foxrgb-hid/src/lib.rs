@@ -222,7 +222,7 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
         &infos,
         &mut taken,
         &detectors,
-        &generic_any::matchers(),
+        &[families::matchers(), generic_any::matchers()].concat(),
         |i| supported(i.vid, i.pid),
         |info, matcher| (matcher.open)(&api, info, &mut claimed),
     ));
