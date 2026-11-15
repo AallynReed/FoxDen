@@ -87,7 +87,9 @@ enum Request<'a> {
     SetHubLights {
         frames: &'a [HubFrame],
     },
-    ReleaseHubLights,
+    ReleaseHubLights {
+        generation: u64,
+    },
 }
 
 /// One device's colours in a `set_hub_lights` batch, as `rrggbb` hex.
@@ -113,12 +115,22 @@ pub struct HubZone {
 pub struct HubLights {
     pub devices: Vec<foxrgb_core::Device>,
     pub zones: Vec<HubZone>,
+    /// Names this opening, so a late release cannot close a newer one.
+    #[serde(default)]
+    pub generation: u64,
 }
 
-#[derive(Deserialize)]
-struct HubFailures {
+/// What became of a frame: devices that failed, and whether the hubs were open at all.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct HubSent {
+    #[serde(default = "open")]
+    pub open: bool,
     #[serde(default)]
-    failed: BTreeMap<String, String>,
+    pub failed: BTreeMap<String, String>,
+}
+
+fn open() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -190,26 +202,29 @@ impl Client {
             .map(drop)
     }
 
-    /// The fan hubs the service lights itself, opened with these zone lengths. An older service
-    /// refuses the request, and the app then lights the hubs as before.
+    /// The fan hubs the service lights; an older service refuses.
     pub fn hub_lights(&self, lengths: &BTreeMap<String, usize>) -> Result<HubLights, String> {
         self.ask(&Request::HubLights { lengths })
     }
 
-    /// Sends one frame for every hub in as few requests as fit a line. Returns the devices that
-    /// failed, with why.
-    pub fn set_hub_lights(&self, frames: &[HubFrame]) -> Result<BTreeMap<String, String>, String> {
-        let mut failed = BTreeMap::new();
+    /// One frame for every hub, in as few requests as fit a line.
+    pub fn set_hub_lights(&self, frames: &[HubFrame]) -> Result<HubSent, String> {
+        let mut sent = HubSent {
+            open: true,
+            failed: BTreeMap::new(),
+        };
         for batch in batches(frames, MAX_REQUEST) {
-            let reply: HubFailures = self.ask(&Request::SetHubLights { frames: batch })?;
-            failed.extend(reply.failed);
+            let reply: HubSent = self.ask(&Request::SetHubLights { frames: batch })?;
+            sent.open &= reply.open;
+            sent.failed.extend(reply.failed);
         }
-        Ok(failed)
+        Ok(sent)
     }
 
-    /// Hands the hubs' lighting back to their firmware.
-    pub fn release_hub_lights(&self) -> Result<(), String> {
-        self.ask::<IgnoredAny>(&Request::ReleaseHubLights).map(drop)
+    /// Hands the hubs of this opening back to their firmware.
+    pub fn release_hub_lights(&self, generation: u64) -> Result<(), String> {
+        self.ask::<IgnoredAny>(&Request::ReleaseHubLights { generation })
+            .map(drop)
     }
 
     /// Has the service close what its own list names within `scope`.

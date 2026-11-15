@@ -186,7 +186,11 @@ enum Request {
     SetHubLights {
         frames: Vec<HubFrame>,
     },
-    ReleaseHubLights,
+    /// A release for an earlier opening than the current one is ignored.
+    ReleaseHubLights {
+        #[serde(default)]
+        generation: Option<u64>,
+    },
     #[cfg(test)]
     Panic,
 }
@@ -215,6 +219,7 @@ struct Hub {
 struct Hubs {
     open: Option<(Vec<Hub>, Vec<foxrgb_hid::Zone>)>,
     lengths: BTreeMap<String, usize>,
+    generation: u64,
 }
 
 impl Hubs {
@@ -375,10 +380,14 @@ impl Host {
             }
             Ok(Request::HubLights { lengths }) => self.hub_lights(lengths),
             Ok(Request::SetHubLights { frames }) => {
-                json!({"ok": true, "failed": self.set_hub_lights(frames)})
+                let open = locked(&self.hubs).open.is_some();
+                json!({"ok": true, "open": open, "failed": self.set_hub_lights(frames)})
             }
-            Ok(Request::ReleaseHubLights) => {
-                locked(&self.hubs).open = None;
+            Ok(Request::ReleaseHubLights { generation }) => {
+                let mut hubs = locked(&self.hubs);
+                if generation.is_none_or(|g| g == hubs.generation) {
+                    hubs.open = None;
+                }
                 json!({"ok": true})
             }
             #[cfg(test)]
@@ -403,8 +412,10 @@ impl Host {
                 })
                 .collect();
             hubs.open = Some((found, zones));
+            hubs.generation += 1;
         }
         hubs.lengths = lengths;
+        let generation = hubs.generation;
         let (found, zones) = hubs.open.as_ref().expect("opened above");
         let devices: Vec<_> = found.iter().flat_map(|h| h.backend.devices()).collect();
         let zones: Vec<_> = zones
@@ -415,7 +426,7 @@ impl Host {
                     "leds": z.leds, "min": z.min, "max": z.max})
             })
             .collect();
-        json!({"ok": true, "devices": devices, "zones": zones})
+        json!({"ok": true, "devices": devices, "zones": zones, "generation": generation})
     }
 
     /// Pushes one frame to every hub, the hubs side by side so a slow one holds up only itself.
@@ -1535,13 +1546,23 @@ pub(crate) mod tests {
             ]
         );
 
-        assert_eq!(
-            reply(&host, r#"{"cmd":"release_hub_lights"}"#),
-            json!({"ok": true})
-        );
+        assert_eq!(r["open"], true);
+
+        // A proxy dropped late must not close the hubs a newer one opened.
+        let release = |g: u64| json!({"cmd": "release_hub_lights", "generation": g}).to_string();
+        assert_eq!(reply(&host, &release(2)), json!({"ok": true}));
+        assert!(locked(&host.hubs).open.is_some());
+        assert_eq!(reply(&host, &release(3)), json!({"ok": true}));
         assert!(locked(&host.hubs).open.is_none());
-        ask(json!({"hid:a#1": 20}));
-        assert_eq!(locked(&OPENED).len(), 4);
+        let r = set(json!([{"device": "hid:a", "colors": "ff0000"}]));
+        assert_eq!(r["open"], false);
+        let r = ask(json!({"hid:a#1": 20}));
+        assert_eq!(
+            (r["generation"].as_u64(), locked(&OPENED).len()),
+            (Some(4), 4)
+        );
+        assert_eq!(reply(&host, r#"{"cmd":"release_hub_lights"}"#)["ok"], true);
+        assert!(locked(&host.hubs).open.is_none());
     }
 
     /// One HID handle that notes, for each write, whether its device's lock was held.

@@ -161,12 +161,9 @@ fn poll(force: bool) -> FanState {
     state
 }
 
-/// Reconnects the native devices when the service comes or goes, so the hubs it lights move
-/// between it and the app. The first state seen is the one the devices were opened with.
+/// Moves the fan hubs' lighting between app and service when the service comes or goes.
 fn hubs_follow(service: Service) {
-    static SEEN: Mutex<Option<bool>> = Mutex::new(None);
-    let up = service == Service::Running;
-    if lock(&SEEN).replace(up).is_some_and(|was| was != up)
+    if crate::service_lights::service_changed(service == Service::Running)
         && let Some(jobs) = APP.get().and_then(|app| app.try_state::<Jobs>())
     {
         let hid = Kinds {

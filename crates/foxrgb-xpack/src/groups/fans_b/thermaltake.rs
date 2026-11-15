@@ -2,7 +2,7 @@
 //! SignalRGB's ThermalTake_Riing_Plus.js, ThermalTake_Ring_Controller.js,
 //! ThermalTake_LEDBOX_Standard.js and ThermalTake_LEDBOX_0x213Cf.js).
 
-use super::util::{Cached, ask, ask_strict, device_key, due, fan_id, u16le};
+use super::util::{Cached, ask, device_key, due, fan_id, u16le};
 use crate::fan::{Channel, FanHub, backend_on};
 use crate::hid::{Driver, Io, Proto, open_io};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
@@ -163,7 +163,7 @@ impl FanHub for Hub {
         let (io, len) = (self.io.as_mut(), self.len);
         let port = channel as u8 + 1;
         let rpm = self.rpm[channel].get(|| {
-            let r = ask_strict(io, &get_fan(channel), len, len, 60, |r| {
+            let r = ask(io, &get_fan(channel), len, len, 60, |r| {
                 r.len() > 6 && r[0] == GET && r[1] == FAN && r[2] == port
             })
             .ok()?;

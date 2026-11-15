@@ -582,8 +582,8 @@ fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
         while let Some(line) = peer.read() {
             let request: Value = serde_json::from_str(&line).unwrap();
             let reply = match request["cmd"].as_str() {
-                Some("hub_lights") => json!({"ok": true, "devices": [], "zones": [{
-                    "device": "hid:hub", "index": 1, "name": "Fan 1",
+                Some("hub_lights") => json!({"ok": true, "devices": [], "generation": 7,
+                    "zones": [{"device": "hid:hub", "index": 1, "name": "Fan 1",
                     "leds": request["lengths"]["hid:hub#1"], "min": 0, "max": 34}]}),
                 Some("set_hub_lights") => {
                     json!({"ok": true, "failed": {"hid:gone": "unknown device"}})
@@ -597,16 +597,17 @@ fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
     let client = Client::new(&pipe, QUICK);
     let lengths = BTreeMap::from([("hid:hub#1".to_string(), 12)]);
     let hubs = client.hub_lights(&lengths).unwrap();
-    assert_eq!(hubs.zones[0].leds, 12);
+    assert_eq!((hubs.zones[0].leds, hubs.generation), (12, 7));
     let frame = |device: &str| HubFrame {
         device: device.into(),
         colors: "ff0000".into(),
     };
-    let failed = client
+    let sent = client
         .set_hub_lights(&[frame("hid:hub"), frame("hid:gone")])
         .unwrap();
-    assert_eq!(failed["hid:gone"], "unknown device");
-    client.release_hub_lights().unwrap();
+    assert!(sent.open);
+    assert_eq!(sent.failed["hid:gone"], "unknown device");
+    client.release_hub_lights(hubs.generation).unwrap();
     let asked = asked.lock().unwrap();
     assert_eq!(
         asked[0],
@@ -618,7 +619,10 @@ fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
             {"device": "hid:hub", "colors": "ff0000"},
             {"device": "hid:gone", "colors": "ff0000"}]})
     );
-    assert_eq!(asked[2], json!({"cmd": "release_hub_lights"}));
+    assert_eq!(
+        asked[2],
+        json!({"cmd": "release_hub_lights", "generation": 7})
+    );
 }
 
 #[test]

@@ -1,5 +1,4 @@
-//! Lighting through the installed background service: memory for an app without administrator
-//! rights, and the fan hubs whose fans the service drives.
+//! Lighting through the background service: memory without admin rights, and the fan hubs.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
@@ -52,6 +51,8 @@ impl Backend for ServiceLights {
 /// Fan hubs whose lighting the service drives with their fans, one batch per frame.
 pub struct ServiceHubs {
     client: Client,
+    lengths: BTreeMap<String, usize>,
+    generation: u64,
     devices: Vec<Device>,
     frame: Vec<HubFrame>,
     sent: HashMap<String, (String, Instant)>,
@@ -62,14 +63,21 @@ pub struct ServiceHubs {
 const RESEND: Duration = Duration::from_secs(1);
 
 static HUB_ZONES: Mutex<Vec<foxrgb_hid::Zone>> = Mutex::new(Vec::new());
+/// Whether a service answered when the hubs were last opened; `None` before that.
+static SERVICE_UP: Mutex<Option<bool>> = Mutex::new(None);
 
-/// The hubs' lighting through the service, or `None` when no service that offers it answers;
-/// the app then lights them itself.
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The hubs' lighting through the service, or `None` when the app has to light them itself.
 pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
-    HUB_ZONES.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    lock(&HUB_ZONES).clear();
     let client = Client::new(PIPE, Duration::from_secs(20));
-    let found = client.hub_lights(lengths).ok()?;
-    *HUB_ZONES.lock().unwrap_or_else(|e| e.into_inner()) = found
+    let found = client.hub_lights(lengths);
+    *lock(&SERVICE_UP) = Some(found.is_ok() || client.status().is_ok());
+    let found = found.ok()?;
+    *lock(&HUB_ZONES) = found
         .zones
         .into_iter()
         .map(|z| foxrgb_hid::Zone {
@@ -83,6 +91,8 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
         .collect();
     Some(ServiceHubs {
         client,
+        lengths: lengths.clone(),
+        generation: found.generation,
         devices: found.devices,
         frame: Vec::new(),
         sent: HashMap::new(),
@@ -92,7 +102,14 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
 
 /// The resizable zones of the hubs the last `hubs` call found.
 pub fn hub_zones() -> Vec<foxrgb_hid::Zone> {
-    std::mem::take(&mut *HUB_ZONES.lock().unwrap_or_else(|e| e.into_inner()))
+    std::mem::take(&mut *lock(&HUB_ZONES))
+}
+
+/// True when the service came or went since the hubs were opened, so they must be opened again.
+pub fn service_changed(up: bool) -> bool {
+    lock(&SERVICE_UP)
+        .as_mut()
+        .is_some_and(|seen| std::mem::replace(seen, up) != up)
 }
 
 /// The ids the app's own probe leaves to the service: all combined hubs once it answered.
@@ -134,7 +151,13 @@ impl Backend for ServiceHubs {
             return Ok(());
         }
         let frame = std::mem::take(&mut self.frame);
-        let failed = self.client.set_hub_lights(&frame)?;
+        let mut sent = self.client.set_hub_lights(&frame)?;
+        // A service that restarted, or a stale release, left nothing open.
+        if !sent.open {
+            self.generation = self.client.hub_lights(&self.lengths)?.generation;
+            sent = self.client.set_hub_lights(&frame)?;
+        }
+        let failed = sent.failed;
         for f in frame {
             if !failed.contains_key(&f.device) {
                 self.failed.remove(&f.device);
@@ -155,7 +178,7 @@ impl Backend for ServiceHubs {
 
 impl Drop for ServiceHubs {
     fn drop(&mut self) {
-        let _ = self.client.release_hub_lights();
+        let _ = self.client.release_hub_lights(self.generation);
     }
 }
 
@@ -170,5 +193,14 @@ mod tests {
         assert!(skip.iter().all(|&(v, p)| !Pick::Skip(&skip).wants(v, p)));
         let kept = super::left_to_service(false);
         assert!(skip.iter().all(|&(v, p)| Pick::Skip(&kept).wants(v, p)));
+    }
+
+    #[test]
+    fn a_service_that_comes_or_goes_reopens_the_hubs_once() {
+        assert!(!super::service_changed(true));
+        *super::lock(&super::SERVICE_UP) = Some(false);
+        assert!(super::service_changed(true));
+        assert!(!super::service_changed(true));
+        assert!(super::service_changed(false));
     }
 }
