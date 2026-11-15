@@ -1,7 +1,9 @@
 //! Native USB HID lighting drivers. Experimental: none of this has run against hardware yet.
 
+mod families;
 mod hidpp;
 mod msi;
+pub mod registry;
 
 use foxrgb_core::Backend;
 use hidapi::{BusType, HidApi};
@@ -115,15 +117,19 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
     };
     let mut found: Vec<Box<dyn Backend>> = Vec::new();
     let mut board = false;
-    for info in api.device_list() {
-        match (info.vendor_id(), info.product_id()) {
+    let detectors = families::detectors();
+    let mut taken: Vec<String> = Vec::new();
+    for raw in api.device_list() {
+        let info = registry::Info::from_hidapi(raw);
+        match (info.vid, info.pid) {
             (msi::VID, msi::PID) if !board => {
-                if let Ok(hid) = info.open_device(&api)
+                if let Ok(hid) = raw.open_device(&api)
                     && let Ok(device) = msi::Board::open(hid)
                 {
                     found.push(Box::new(device));
                     board = true;
                 }
+                continue;
             }
             (
                 hidpp::VID,
@@ -131,15 +137,34 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
                 | hidpp::G515_RECEIVER
                 | hidpp::G502_WIRED
                 | hidpp::G515_WIRED),
-            ) if hidpp::is_long_channel(info.usage_page(), info.usage()) => {
-                if let Ok(hid) = info.open_device(&api)
+            ) => {
+                if hidpp::is_long_channel(info.usage_page, info.usage)
+                    && let Ok(hid) = raw.open_device(&api)
                     && let Ok(device) = hidpp::Lightspeed::open(hid, pid)
                 {
                     found.push(Box::new(device));
                 }
+                continue;
             }
             _ => {}
         }
+        // One backend per physical device: the first matching detector wins.
+        let key = format!("{:04x}{:04x}{}", info.vid, info.pid, info.serial);
+        if let Some(detector) = detectors.iter().find(|d| d.matches(&info))
+            && !taken.contains(&key)
+            && let Ok(backend) = (detector.open)(&api, &info, detector)
+        {
+            taken.push(key);
+            found.push(backend);
+        }
     }
     found
+}
+
+/// Names of every device the ported families support, for the detected-hardware list.
+pub fn family_devices() -> Vec<(u16, u16, &'static str)> {
+    families::detectors()
+        .iter()
+        .map(|d| (d.vid, d.pid, d.name))
+        .collect()
 }
