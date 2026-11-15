@@ -8,14 +8,14 @@
   const OFFLINE = "the background service is not running";
   // Id, name and degrees above ambient at full load with stopped fans.
   const SENSORS = [
-    ["sim/cpu", "Simulated CPU", 70],
-    ["sim/gpu", "Simulated GPU", 60],
+    ["cpu/package", "CPU", 70],
+    ["gpu0/temp", "Graphics card", 60],
   ];
   // Id, name and rpm at full duty.
   const FANS = [
-    ["sim/cpu_fan", "Simulated CPU fan", 1800],
-    ["sim/case_fan", "Simulated case fan", 1200],
-    ["sim/gpu_fan", "Simulated GPU fan", 3000],
+    ["board/fan1", "CPU fan", 1800],
+    ["board/fan2", "Case fan", 1200],
+    ["gpu0/fan", "Graphics card fan", 3000],
   ];
 
   const copy = (v) => JSON.parse(JSON.stringify(v));
@@ -23,7 +23,7 @@
   // Load swings between idle and busy so the curves have something to follow.
   const loadAt = (t) => 0.5 - 0.45 * Math.cos((t / 90) * 2 * Math.PI);
 
-  const svc = { running: false, sim: false, time: 0, config: { curves: [], rules: [] }, anchors: [], sensors: [], fans: [] };
+  const svc = { running: false, time: 0, config: { curves: [], rules: [] }, anchors: [], sensors: [], fans: [] };
   const model = { temps: [42, 38], duties: [null, null, null], rpms: [0, 0, 0] };
 
   function dutyAt(points, temp) {
@@ -92,25 +92,21 @@
 
   function tick(dt) {
     svc.time += dt;
+    step(dt);
     const sensors = [
+      ...SENSORS.map((sensor, i) => ({ id: sensor[0], name: sensor[1], value: model.temps[i] })),
       { id: "board/system", name: "Mainboard", value: 36 + 2 * Math.sin(svc.time / 50) },
       { id: "disk/0", name: "System drive", value: null },
     ];
-    if (svc.sim) {
-      step(dt);
-      sensors.unshift(...SENSORS.map((sensor, i) => ({ id: sensor[0], name: sensor[1], value: model.temps[i] })));
-    } else {
-      model.duties.fill(null);
-    }
     svc.sensors = sensors;
-    svc.fans = svc.sim ? control(dt, sensors) : [];
+    svc.fans = control(dt, sensors);
   }
 
   function state() {
     if (!svc.running) {
-      return { service: "stopped", detail: null, version: null, sim: false, sensors: [], fans: [], config: { curves: [], rules: [] } };
+      return { service: "stopped", detail: null, version: null, sensors: [], fans: [], config: { curves: [], rules: [] } };
     }
-    return copy({ service: "running", detail: null, version: "0.1.0", sim: svc.sim, sensors: svc.sensors, fans: svc.fans, config: svc.config });
+    return copy({ service: "running", detail: null, version: "0.1.0", sensors: svc.sensors, fans: svc.fans, config: svc.config });
   }
 
   function tell() {
@@ -159,11 +155,6 @@
       if (error) throw error;
       svc.config = config;
       svc.anchors = [];
-      tell();
-    },
-    set_fan_sim({ on }) {
-      if (!svc.running) throw OFFLINE;
-      svc.sim = Boolean(on);
       tell();
     },
     // Takes a moment, as starting a process does.

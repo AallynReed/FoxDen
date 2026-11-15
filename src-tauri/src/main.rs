@@ -75,7 +75,6 @@ fn main() {
             commands::detect,
             fans::get_fans,
             fans::set_fan_config,
-            fans::set_fan_sim,
             fans::start_service,
             fans::stop_service,
         ])

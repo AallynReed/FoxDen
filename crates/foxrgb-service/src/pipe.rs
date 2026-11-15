@@ -155,9 +155,7 @@ fn serve_client(host: &Host, pipe: &File) {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicBool, Ordering};
 
-    use foxrgb_fan::{Fan, FanBackend, Sensor};
     use serde_json::{Value, json};
     use windows_sys::Win32::Security::Authorization::{
         ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SE_KERNEL_OBJECT,
@@ -192,10 +190,10 @@ mod tests {
         try_ask(pipe, request).expect("a reply")
     }
 
-    /// A host with simulated fans and no hardware, the name of its pipe and its data directory.
-    fn sim_host(name: &str, mode: Mode) -> (Running, String, PathBuf) {
+    /// A host with no hardware, the name of its pipe and its data directory.
+    fn bare_host(name: &str, mode: Mode) -> (Running, String, PathBuf) {
         let (pipe, dir) = (pipe_name(name), scratch(name));
-        let running = start(dir.clone(), Vec::new, true, mode, &pipe).unwrap();
+        let running = start(dir.clone(), Vec::new, mode, &pipe).unwrap();
         (running, pipe, dir)
     }
 
@@ -237,7 +235,7 @@ mod tests {
 
     #[test]
     fn serves_the_protocol_over_the_pipe() {
-        let (running, name, dir) = sim_host("pipe", Mode::Console);
+        let (running, name, dir) = bare_host("pipe", Mode::Console);
         assert!(create(&name, true).is_err());
 
         let silent = open(&name);
@@ -245,11 +243,7 @@ mod tests {
         let status = ask(&pipe, r#"{"cmd":"status"}"#);
         assert_eq!(status["ok"], true);
         assert_eq!(status["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(status["sim"], true);
-        wait_for("simulated fans in the status", || {
-            let fans = &ask(&pipe, r#"{"cmd":"status"}"#)["status"]["fans"];
-            fans.as_array().is_some_and(|fans| !fans.is_empty())
-        });
+        assert_eq!(status["status"]["fans"], json!([]));
 
         let set = json!({"cmd": "set_config", "config": sample()}).to_string();
         assert_eq!(ask(&pipe, &set), json!({"ok": true}));
@@ -259,14 +253,6 @@ mod tests {
         );
         assert_eq!(load_config(&dir), Ok(sample()));
         assert_eq!(ask(&pipe, "nonsense")["ok"], false);
-
-        assert_eq!(
-            ask(&pipe, r#"{"cmd":"set_sim","on":false}"#),
-            json!({"ok": true})
-        );
-        let status = ask(&pipe, r#"{"cmd":"status"}"#);
-        assert_eq!(status["sim"], false);
-        assert_eq!(status["status"]["fans"], json!([]));
 
         let long = "x".repeat(MAX_LINE + 10);
         assert_eq!(ask(&open(&name), &long)["ok"], false);
@@ -279,7 +265,7 @@ mod tests {
 
     #[test]
     fn shutdown_over_the_pipe_ends_a_console_host() {
-        let (running, name, _dir) = sim_host("shutdown-console", Mode::Console);
+        let (running, name, _dir) = bare_host("shutdown-console", Mode::Console);
         let pipe = open(&name);
         assert_eq!(running.ended(), None);
         assert_eq!(ask(&pipe, r#"{"cmd":"shutdown"}"#), json!({"ok": true}));
@@ -288,7 +274,7 @@ mod tests {
 
     #[test]
     fn shutdown_over_the_pipe_is_refused_by_a_service() {
-        let (running, name, _dir) = sim_host("shutdown-service", Mode::Service);
+        let (running, name, _dir) = bare_host("shutdown-service", Mode::Service);
         let pipe = open(&name);
         assert_eq!(ask(&pipe, r#"{"cmd":"shutdown"}"#)["ok"], false);
         assert_eq!(ask(&pipe, r#"{"cmd":"status"}"#)["ok"], true);
@@ -297,7 +283,7 @@ mod tests {
 
     #[test]
     fn clients_beyond_the_limit_are_turned_away() {
-        let (_running, name, _dir) = sim_host("limit", Mode::Console);
+        let (_running, name, _dir) = bare_host("limit", Mode::Console);
         let status = r#"{"cmd":"status"}"#;
         let mut idle: Vec<File> = (0..MAX_CLIENTS).map(|_| open(&name)).collect();
         assert_eq!(try_ask(&open(&name), status), None);
@@ -308,38 +294,11 @@ mod tests {
         wait_for("a free place", || try_ask(&open(&name), status).is_some());
     }
 
-    /// Hardware that panics when it is taken up while armed, which a request thread does.
-    struct Trap(Arc<AtomicBool>);
-
-    impl FanBackend for Trap {
-        fn name(&self) -> &str {
-            "trap"
-        }
-        fn sensors(&mut self) -> Vec<Box<dyn Sensor>> {
-            Vec::new()
-        }
-        fn fans(&mut self) -> Vec<Box<dyn Fan>> {
-            assert!(
-                !self.0.load(Ordering::Relaxed),
-                "the trap panics on purpose"
-            );
-            Vec::new()
-        }
-    }
-
     #[test]
     fn a_client_thread_that_panics_gives_its_place_back() {
-        let armed = Arc::new(AtomicBool::new(false));
-        let hardware = {
-            let armed = armed.clone();
-            move || vec![Box::new(Trap(armed.clone())) as Box<dyn FanBackend>]
-        };
-        let (name, dir) = (pipe_name("panic-client"), scratch("panic-client"));
-        let _running = start(dir, hardware, false, Mode::Console, &name).unwrap();
-        armed.store(true, Ordering::Relaxed);
-        let on = r#"{"cmd":"set_sim","on":true}"#;
+        let (_running, name, _dir) = bare_host("panic-client", Mode::Console);
         for _ in 0..=MAX_CLIENTS {
-            assert_eq!(try_ask(&open(&name), on), None);
+            assert_eq!(try_ask(&open(&name), r#"{"cmd":"panic"}"#), None);
         }
         assert_eq!(ask(&open(&name), r#"{"cmd":"status"}"#)["ok"], true);
     }

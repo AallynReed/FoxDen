@@ -15,12 +15,12 @@
   const MARKS = { running: "mark on", stopped: "mark", error: "mark warn" };
   const NOTICE =
     "FoxRGB cannot drive this PC's fan headers yet, because the hardware helper is not built. " +
-    "Temperatures are real where the service can read them. Simulated fans let you try curves until then.";
+    "Temperatures are real where the service can read them.";
   const OFFLINE = "The service is not running. Start it under Status to see the fans and edit curves.";
 
   const ui = {};
   const plot = { w: 0, h: 0, x0: 38, x1: 0, y0: 12, y1: 0 };
-  let live = { service: "", detail: null, version: null, sim: false, sensors: [], fans: [] };
+  let live = { service: "", detail: null, version: null, sensors: [], fans: [] };
   // The service's config, as text and parsed.
   let reported = EMPTY;
   let saved = JSON.parse(EMPTY);
@@ -388,19 +388,6 @@
     if (from.hidden) (from === ui.start ? ui.stop : ui.start).focus();
   }
 
-  async function simulate() {
-    pending = "sim";
-    problem = null;
-    try {
-      await invoke("set_fan_sim", { on: ui.sim.checked });
-      await refresh();
-    } catch (e) {
-      problem = { where: "sim", text: sentence(message(e)) };
-    }
-    pending = "";
-    render();
-  }
-
   // What the service would refuse in the draft, with the control that puts it right.
   function fault() {
     const bare = draft.curves.findIndex((c) => !c.sensors.length);
@@ -533,15 +520,12 @@
     ui.stop = button("Stop");
     ui.serviceProblem = slot();
     ui.notice = el("p", { className: "fan-note", textContent: NOTICE });
-    ui.sim = el("input", { type: "checkbox", className: "switch", id: "fan-sim" });
-    ui.simRow = el("div", { className: "field" }, el("label", { htmlFor: "fan-sim", textContent: "Simulated fans" }), ui.sim);
-    ui.simProblem = slot(ui.sim);
     ui.sensors = el("ul", { className: "list fan-rows" });
     ui.sensors.setAttribute("aria-labelledby", "fan-sensors-head");
     ui.noSensors = el("p", { className: "hint", textContent: "The service reports no temperature sensors." });
     ui.fans = el("ul", { className: "list fan-rows" });
     ui.fans.setAttribute("aria-labelledby", "fan-fans-head");
-    ui.noFans = el("p", { className: "hint", textContent: "No fans to show. Switch on simulated fans to try curves." });
+    ui.noFans = el("p", { className: "hint", textContent: "No fans to show." });
     ui.readings = el(
       "div",
       { className: "fan-group" },
@@ -561,13 +545,10 @@
       el("div", { className: "actions" }, ui.start, ui.stop),
       ui.serviceProblem,
       ui.notice,
-      ui.simRow,
-      ui.simProblem,
       ui.readings,
     );
     press(ui.start, () => service("start"));
     press(ui.stop, () => service("stop"));
-    ui.sim.onchange = simulate;
   }
 
   function buildGraph() {
@@ -699,7 +680,7 @@
     ui.rulesOff = el("p", { className: "hint", textContent: OFFLINE });
     ui.ruleList = el("ul", { className: "list" });
     ui.ruleList.setAttribute("aria-labelledby", "fan-rules-head");
-    ui.noRules = el("p", { className: "hint", textContent: "No fans to control. Switch on simulated fans under Status to try curves." });
+    ui.noRules = el("p", { className: "hint", textContent: "No fans to control." });
     ui.rulesBody = el(
       "div",
       { className: "fan-group" },
@@ -1025,11 +1006,7 @@
     able(ui.stop, !pending);
     say(ui.serviceProblem, told("service"));
 
-    ui.notice.hidden = !state || (running && !live.sim && live.fans.length > 0);
-    ui.simRow.hidden = !state;
-    ui.sim.disabled = !running;
-    if (pending !== "sim") ui.sim.checked = live.sim;
-    say(ui.simProblem, told("sim"));
+    ui.notice.hidden = !state || (running && live.fans.length > 0);
     ui.readings.hidden = !running;
   }
 

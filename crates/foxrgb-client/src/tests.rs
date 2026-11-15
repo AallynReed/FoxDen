@@ -17,7 +17,7 @@ use super::*;
 
 const QUICK: Duration = Duration::from_millis(300);
 
-const STATUS: &str = r#"{"ok":true,"version":"0.1.0","sim":true,"status":{
+const STATUS: &str = r#"{"ok":true,"version":"0.1.0","status":{
     "sensors":[{"id":"sim:cpu","name":"CPU","value":41.5},{"id":"sim:gone","name":"Gone","value":null}],
     "fans":[{"id":"sim:fan1","name":"Fan 1","rpm":900,"duty":0.4,"curve":"cpu","failsafe":false,"error":null},
             {"id":"sim:fan2","name":"Fan 2","rpm":null,"duty":null,"curve":null,"failsafe":true,"error":"stuck"}]}}"#;
@@ -129,7 +129,7 @@ fn fake(name: &str) -> (Client, Arc<Mutex<Vec<Value>>>) {
                 Some("set_config") if request["config"]["curves"][0]["points"] == json!([]) => {
                     json!({"ok": false, "error": "curve 'cpu' has no points"}).to_string()
                 }
-                Some("set_config" | "set_sim" | "shutdown") => json!({"ok": true}).to_string(),
+                Some("set_config" | "shutdown") => json!({"ok": true}).to_string(),
                 _ => json!({"ok": false, "error": "bad request"}).to_string(),
             };
             log.lock().unwrap().push(request);
@@ -163,7 +163,6 @@ fn report() -> Report {
     };
     Report {
         version: "0.1.0".into(),
-        sim: true,
         status: Status {
             sensors: vec![
                 sensor("sim:cpu", "CPU", Some(41.5)),
@@ -180,8 +179,6 @@ fn calls_send_the_protocol_requests_and_read_the_replies() {
     assert_eq!(client.status(), Ok(report()));
     assert_eq!(client.get_config(), Ok(sample()));
     assert_eq!(client.set_config(&sample()), Ok(()));
-    assert_eq!(client.set_sim(true), Ok(()));
-    assert_eq!(client.set_sim(false), Ok(()));
     assert_eq!(client.shutdown(), Ok(()));
     let config = json!({
         "curves": [{"name": "cpu", "sensors": ["sim:cpu"], "points": [[30.0, 0.25], [80.0, 1.0]], "hysteresis": 2.0}],
@@ -193,8 +190,6 @@ fn calls_send_the_protocol_requests_and_read_the_replies() {
             json!({"cmd": "status"}),
             json!({"cmd": "get_config"}),
             json!({"cmd": "set_config", "config": config}),
-            json!({"cmd": "set_sim", "on": true}),
-            json!({"cmd": "set_sim", "on": false}),
             json!({"cmd": "shutdown"}),
         ]
     );
@@ -221,7 +216,6 @@ fn state_is_built_from_status_and_config() {
         service: Service::Running,
         detail: None,
         version: Some("0.1.0".into()),
-        sim: true,
         sensors: report.status.sensors,
         fans: report.status.fans,
         config: sample(),
@@ -238,9 +232,7 @@ fn state_is_built_from_status_and_config() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        [
-            "config", "detail", "fans", "sensors", "service", "sim", "version"
-        ]
+        ["config", "detail", "fans", "sensors", "service", "version"]
     );
     assert_eq!(json["service"], "running");
     assert_eq!(
@@ -259,13 +251,12 @@ fn state_is_built_from_status_and_config() {
 }
 
 #[test]
-fn a_status_without_sim_still_reads() {
+fn a_status_with_sim_from_an_older_service_still_reads() {
     let client = parrot(
         "old",
-        r#"{"ok":true,"version":"0.0.9","status":{"sensors":[],"fans":[]}}"#,
+        r#"{"ok":true,"version":"0.0.9","sim":true,"status":{"sensors":[],"fans":[]}}"#,
     );
-    let report = client.status().unwrap();
-    assert_eq!((report.version.as_str(), report.sim), ("0.0.9", false));
+    assert_eq!(client.status().unwrap().version, "0.0.9");
 }
 
 #[test]
@@ -273,7 +264,7 @@ fn nothing_listening_is_stopped_not_an_error() {
     let pipe = format!(r"\\.\pipe\foxrgb-client-test-{}-absent", std::process::id());
     let client = Client::new(&pipe, QUICK);
     assert_eq!(client.status(), Err(NOT_RUNNING.into()));
-    assert_eq!(client.set_sim(true), Err(NOT_RUNNING.into()));
+    assert_eq!(client.get_config(), Err(NOT_RUNNING.into()));
     let state = client.state();
     assert_eq!(state, FanState::default());
     let json = serde_json::to_value(&state).unwrap();
@@ -369,7 +360,7 @@ fn a_shutdown_gets_through_while_another_answer_is_owed() {
     });
     let client = Client::new(&pipe, QUICK);
     assert_eq!(client.status(), Err(SILENT.into()));
-    assert_eq!(client.set_sim(true), Err(SILENT.into()));
+    assert_eq!(client.get_config(), Err(SILENT.into()));
     assert_eq!(client.shutdown(), Ok(()));
     assert!(stopped.load(Ordering::Relaxed));
 }
@@ -511,49 +502,34 @@ fn drives_the_real_service() {
         state.service == Service::Running
     });
     assert_eq!(state.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
-    assert_eq!(
-        (state.sim, state.fans.len(), &state.config),
-        (false, 0, &FanConfig::default())
-    );
+    assert_eq!(state.config, FanConfig::default());
     assert_eq!(server_pid(PIPE), Some(service.0.id()));
 
-    client.set_sim(true).unwrap();
-    let state = wait_for("simulated fans", &|state| {
-        state.sim && !state.fans.is_empty() && !state.sensors.is_empty()
-    });
-    // Only a simulated fan may ever get a rule here.
-    assert!(state.fans.iter().all(|fan| fan.id.starts_with("sim/")));
+    // A curve with no rules, so no real fan is driven.
     let config = FanConfig {
         curves: vec![Curve {
             name: "all".into(),
-            sensors: vec!["sim/cpu".into()],
+            sensors: vec!["none".into()],
             points: vec![(30.0, 0.3), (80.0, 1.0)],
             hysteresis: 2.0,
         }],
-        rules: vec![FanRule {
-            fan: state.fans[0].id.clone(),
-            curve: "all".into(),
-            min_duty: 0.3,
-            max_duty: 1.0,
-            ramp: 1.0,
-        }],
+        rules: Vec::new(),
     };
     client.set_config(&config).unwrap();
     assert_eq!(client.get_config(), Ok(config.clone()));
-    wait_for("the fan to follow its curve", &|state| {
-        state.fans[0].duty.is_some() && state.fans[0].curve.as_deref() == Some("all")
-    });
 
     let mut broken = config.clone();
-    broken.rules[0].curve = "missing".into();
+    broken.rules.push(FanRule {
+        fan: "none".into(),
+        curve: "missing".into(),
+        min_duty: 0.3,
+        max_duty: 1.0,
+        ramp: 1.0,
+    });
     let refused = client.set_config(&broken).unwrap_err();
     assert!(refused.contains("unknown curve"), "{refused}");
     assert_eq!(client.get_config(), Ok(config));
-
-    client.set_sim(false).unwrap();
-    wait_for("the simulated fans to go", &|state| {
-        !state.sim && state.fans.is_empty()
-    });
+    client.set_config(&FanConfig::default()).unwrap();
 
     client.shutdown().unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);

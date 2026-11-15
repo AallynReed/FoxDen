@@ -234,7 +234,6 @@ fn run() -> Result<(), String> {
     let started = host::start(
         dir.clone(),
         host::hardware,
-        false,
         host::Mode::Service,
         pipe::PIPE_NAME,
     );

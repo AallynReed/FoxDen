@@ -71,7 +71,7 @@ impl Model {
     }
 }
 
-/// Simulated sensors and fans for tests and demos.
+/// Simulated sensors and fans for the controller's tests.
 ///
 /// Clones share one model, so keep a clone to change the load while a controller owns the other.
 #[derive(Clone, Default)]

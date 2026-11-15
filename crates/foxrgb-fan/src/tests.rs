@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::*;
+use crate::sim::SimBackend;
 
 struct Bench {
     temps: Vec<Option<f32>>,

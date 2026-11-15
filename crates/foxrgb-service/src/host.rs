@@ -10,7 +10,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use foxrgb_core::{Backend, Color};
-use foxrgb_fan::{Controller, FanBackend, FanConfig, Probe, SimBackend, Status};
+use foxrgb_fan::{Controller, FanBackend, FanConfig, Probe, Status};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -51,7 +51,7 @@ const LISTING: Duration = if cfg!(test) {
 } else {
     Duration::from_secs(10)
 };
-/// How long a stop or a switch waits for a pass of the control loop to end.
+/// How long a stop waits for a pass of the control loop to end.
 const PATIENCE: Duration = if cfg!(test) {
     Duration::from_millis(500)
 } else {
@@ -60,9 +60,6 @@ const PATIENCE: Duration = if cfg!(test) {
 const STUCK: &str = "the control loop is stuck";
 /// The app's folder under `%APPDATA%`, named after its identifier.
 const APP_FOLDER: &str = "com.foxrgb.desktop";
-
-/// Lists the hardware backends: at start, and again whenever the simulated one is switched.
-type Hardware = Arc<dyn Fn() -> Vec<Box<dyn FanBackend>> + Send + Sync>;
 
 #[derive(Clone, Copy)]
 pub enum Mode {
@@ -162,13 +159,6 @@ pub fn save_config(dir: &Path, config: &FanConfig) -> Result<(), String> {
     save(dir, "fans.json", config)
 }
 
-/// What the service remembers besides the fan config, in service.json.
-#[derive(Default, Serialize, Deserialize)]
-#[serde(default)]
-struct Settings {
-    sim: bool,
-}
-
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 enum Request {
@@ -177,9 +167,6 @@ enum Request {
     SetConfig {
         config: FanConfig,
     },
-    SetSim {
-        on: bool,
-    },
     Shutdown,
     /// Lighting on the SMBus, which only a service running as SYSTEM can reach.
     Lights,
@@ -187,17 +174,17 @@ enum Request {
         device: String,
         colors: Vec<Color>,
     },
+    #[cfg(test)]
+    Panic,
 }
 
 struct State {
     controller: Controller,
     status: Status,
-    sim: bool,
 }
 
 pub struct Host {
     pub dir: PathBuf,
-    hardware: Hardware,
     mode: Mode,
     /// The sensors. The control loop keeps them locked for a whole pass and reads them with
     /// `state` unlocked, so a read that hangs holds neither the fans nor the replies.
@@ -216,20 +203,12 @@ pub struct Host {
 }
 
 impl Host {
-    /// `sim` starts with simulated fans even if the last run switched them off.
     pub fn new(
         dir: PathBuf,
-        hardware: impl Fn() -> Vec<Box<dyn FanBackend>> + Send + Sync + 'static,
-        sim: bool,
+        hardware: impl FnOnce() -> Vec<Box<dyn FanBackend>> + Send + 'static,
         mode: Mode,
     ) -> Host {
-        let settings = load(&dir, "service.json").unwrap_or_else(|e| {
-            log(&dir, &format!("ignoring service.json: {e}"));
-            Settings::default()
-        });
-        let sim = sim || settings.sim;
-        let hardware: Hardware = Arc::new(hardware);
-        let mut controller = Controller::new(list(&dir, &hardware, sim), FanConfig::default());
+        let mut controller = Controller::new(list(&dir, hardware), FanConfig::default());
         if let Err(e) = load_config(&dir).and_then(|config| controller.set_config(config)) {
             log(
                 &dir,
@@ -240,11 +219,9 @@ impl Host {
         let state = State {
             controller,
             status: Status::default(),
-            sim,
         };
         Host {
             dir,
-            hardware,
             mode,
             probe: Mutex::new(probe),
             state: Mutex::new(state),
@@ -282,7 +259,6 @@ impl Host {
                 let state = self.lock();
                 json!({
                     "ok": true,
-                    "sim": state.sim,
                     "status": state.status,
                     "version": env!("CARGO_PKG_VERSION"),
                 })
@@ -291,7 +267,6 @@ impl Host {
                 json!({"ok": true, "config": self.lock().controller.config()})
             }
             Ok(Request::SetConfig { config }) => done(self.set_config(config)),
-            Ok(Request::SetSim { on }) => done(self.set_sim(on)),
             Ok(Request::Shutdown) => match self.mode {
                 Mode::Console => {
                     shutdown = true;
@@ -318,6 +293,8 @@ impl Host {
                     None => Err(format!("unknown device {device}")),
                 })
             }
+            #[cfg(test)]
+            Ok(Request::Panic) => panic!("the request panics on purpose"),
             Err(e) => fail(format!("bad request: {e}")),
         };
         (reply.to_string(), shutdown)
@@ -340,59 +317,6 @@ impl Host {
             log(&self.dir, "config changed and saved");
         }
         Ok(())
-    }
-
-    fn set_sim(&self, on: bool) -> Result<(), String> {
-        // Orders the file writes, as in set_config.
-        let _turn = locked(&self.unsaved);
-        // Written with the state unlocked: a stuck console or disk must not stall the fans.
-        if let Some(driven) = self.switch(on)? {
-            let now = if on { "on" } else { "off" };
-            let released = format!("fans released first ({driven} had a duty set)");
-            log(
-                &self.dir,
-                &format!("simulated fans switched {now}, {released}"),
-            );
-        }
-        save(&self.dir, "service.json", &Settings { sim: on })
-            .map_err(|e| format!("choice applied but not saved: {e}"))
-    }
-
-    /// Lists the hardware again, with or without the simulated backend. Gives the number of
-    /// fans that had a duty set, or `None` when nothing had to change.
-    fn switch(&self, on: bool) -> Result<Option<usize>, String> {
-        // The control loop waits for this lock, so no pass runs while the hardware is listed.
-        let Some(mut probe) = within(&self.probe, PATIENCE) else {
-            return Err(format!("{STUCK} reading a sensor; try again later"));
-        };
-        let driven = {
-            let mut state = self.lock();
-            // A switch drives the fans again, which must not happen after the final release.
-            if self.stopping() {
-                return Err("the service is stopping".into());
-            }
-            if state.sim == on {
-                return Ok(None);
-            }
-            // The old backends are released and gone before new ones are opened.
-            let emptied = state.controller.set_backends(Vec::new());
-            emptied.map_err(|e| format!("not switched, a fan could not be released: {e}"))?;
-            let fans = &mut state.status.fans;
-            let driven = fans.iter().filter(|fan| fan.duty.is_some()).count();
-            fans.iter_mut().for_each(|fan| fan.duty = None);
-            driven
-        };
-        *probe = Probe::default();
-        // Listed with the state unlocked, so status requests are answered meanwhile.
-        let backends = list(&self.dir, &self.hardware, on);
-        {
-            let mut state = self.lock();
-            state.controller.set_backends(backends)?;
-            *probe = state.controller.take_probe();
-            state.sim = on;
-        }
-        self.pass(&mut probe, 0.0);
-        Ok(Some(driven))
     }
 
     fn tick(&self, dt: f32) {
@@ -559,15 +483,17 @@ fn within<T>(mutex: &Mutex<T>, patience: Duration) -> Option<MutexGuard<'_, T>> 
 }
 
 /// Lists the hardware on a thread of its own, so that a driver which hangs or panics costs
-/// its sensors and not the service. The simulated backend is added here.
-fn list(dir: &Path, hardware: &Hardware, sim: bool) -> Vec<Box<dyn FanBackend>> {
-    let hardware = hardware.clone();
-    let listing = thread::spawn(move || hardware());
+/// its sensors and not the service.
+fn list(
+    dir: &Path,
+    hardware: impl FnOnce() -> Vec<Box<dyn FanBackend>> + Send + 'static,
+) -> Vec<Box<dyn FanBackend>> {
+    let listing = thread::spawn(hardware);
     let deadline = Instant::now() + LISTING;
     while !listing.is_finished() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(5));
     }
-    let mut backends = if !listing.is_finished() {
+    if !listing.is_finished() {
         let late = format!("listing the hardware took longer than {LISTING:?}");
         log(dir, &format!("{late}, going on without it"));
         Vec::new()
@@ -580,11 +506,7 @@ fn list(dir: &Path, hardware: &Hardware, sim: bool) -> Vec<Box<dyn FanBackend>> 
             );
             Vec::new()
         })
-    };
-    if sim {
-        backends.push(Box::new(SimBackend::swinging()));
     }
-    backends
 }
 
 fn panic_text(panic: &(dyn Any + Send)) -> &str {
@@ -619,20 +541,18 @@ pub struct Running {
 /// Starts the control loop and the pipe server.
 pub fn start(
     dir: PathBuf,
-    hardware: impl Fn() -> Vec<Box<dyn FanBackend>> + Send + Sync + 'static,
-    sim: bool,
+    hardware: impl FnOnce() -> Vec<Box<dyn FanBackend>> + Send + 'static,
     mode: Mode,
     pipe_name: &str,
 ) -> Result<Running, String> {
     // Taking the pipe name first keeps a second instance away from the fans.
     let first = pipe::create(pipe_name, true)
         .map_err(|e| format!("{e} (is foxrgb-service already running?)"))?;
-    let host = Arc::new(Host::new(dir, hardware, sim, mode));
+    let host = Arc::new(Host::new(dir, hardware, mode));
     let version = env!("CARGO_PKG_VERSION");
-    let sim = if host.lock().sim { "on" } else { "off" };
     log(
         &host.dir,
-        &format!("started, version {version}, listening on {pipe_name}, simulated fans {sim}"),
+        &format!("started, version {version}, listening on {pipe_name}"),
     );
 
     let h = host.clone();
@@ -844,13 +764,7 @@ pub(crate) mod tests {
                 ]
             }
         };
-        let running = start(
-            probe_dir(name),
-            hardware,
-            false,
-            Mode::Console,
-            &pipe_name(name),
-        );
+        let running = start(probe_dir(name), hardware, Mode::Console, &pipe_name(name));
         let running = running.unwrap();
         wait_for("the first duty", || driven(&running.host));
         running
@@ -878,7 +792,7 @@ pub(crate) mod tests {
 
     fn start_probe(name: &str, probe: &Probe) -> Running {
         let (dir, pipe) = (probe_dir(name), pipe_name(name));
-        start(dir, hardware(probe), false, Mode::Console, &pipe).unwrap()
+        start(dir, hardware(probe), Mode::Console, &pipe).unwrap()
     }
 
     fn driven(host: &Host) -> bool {
@@ -972,14 +886,9 @@ pub(crate) mod tests {
         assert_eq!(fan["duty"], Value::Null);
         assert!(fan["error"].as_str().unwrap().starts_with(STUCK), "{fan}");
         assert_eq!(status["status"]["sensors"][0]["value"], Value::Null);
-        // The hardware cannot be listed again meanwhile, and the request says so.
-        let asked = Instant::now();
-        let refused = reply(&running.host, r#"{"cmd":"set_sim","on":true}"#);
-        assert_eq!(refused["ok"], false);
-        assert!(refused["error"].as_str().unwrap().starts_with(STUCK));
-        assert_eq!(reply(&running.host, r#"{"cmd":"status"}"#)["sim"], false);
 
         // Nor does a stop wait for the read.
+        let asked = Instant::now();
         let dir = running.host.dir.clone();
         running.stop();
         assert!(asked.elapsed() < PATIENCE * 4, "{:?}", asked.elapsed());
@@ -1063,12 +972,10 @@ pub(crate) mod tests {
             vec![Box::new(Probe::default()) as Box<dyn FanBackend>]
         };
         let asked = Instant::now();
-        let host = Host::new(dir.clone(), slow, true, Mode::Console);
+        let host = Host::new(dir.clone(), slow, Mode::Console);
         assert!(asked.elapsed() < LISTING * 2, "{:?}", asked.elapsed());
         host.tick(1.0);
-        // The simulated fans are there all the same.
-        let ids = fan_ids(&host);
-        assert_eq!(ids.len(), 3, "{ids:?}");
+        assert!(fan_ids(&host).is_empty());
         assert!(log_of(&dir).contains("took longer"));
     }
 
@@ -1076,9 +983,9 @@ pub(crate) mod tests {
     fn hardware_that_panics_while_it_is_listed_is_left_out() {
         let dir = scratch("panic-list");
         let broken = || -> Vec<Box<dyn FanBackend>> { panic!("this hardware cannot be listed") };
-        let host = Host::new(dir.clone(), broken, true, Mode::Console);
+        let host = Host::new(dir.clone(), broken, Mode::Console);
         host.tick(1.0);
-        assert_eq!(fan_ids(&host).len(), 3);
+        assert!(fan_ids(&host).is_empty());
         assert!(log_of(&dir).contains("this hardware cannot be listed"));
     }
 
@@ -1108,9 +1015,9 @@ pub(crate) mod tests {
         }
     }
 
-    /// A console host with simulated fans and no hardware.
+    /// A console host with no hardware.
     fn host(name: &str) -> Host {
-        Host::new(scratch(name), Vec::new, true, Mode::Console)
+        Host::new(scratch(name), Vec::new, Mode::Console)
     }
 
     fn reply(host: &Host, line: &str) -> Value {
@@ -1125,128 +1032,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn status_reports_version_and_sim() {
+    fn status_reports_the_version() {
         let r = reply(&host("status"), r#"{"cmd":"status"}"#);
         assert_eq!(r["ok"], true);
         assert_eq!(r["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(r["sim"], true);
         assert!(r["status"]["fans"].is_array());
         assert!(r["status"]["sensors"].is_array());
-
-        let plain = Host::new(scratch("status-plain"), Vec::new, false, Mode::Console);
-        assert_eq!(reply(&plain, r#"{"cmd":"status"}"#)["sim"], false);
-    }
-
-    #[test]
-    fn set_sim_adds_and_removes_the_simulated_backend() {
-        let host = Host::new(scratch("sim"), Vec::new, false, Mode::Console);
-        host.tick(1.0);
-        assert!(fan_ids(&host).is_empty());
-
-        let on = r#"{"cmd":"set_sim","on":true}"#;
-        assert_eq!(reply(&host, on), json!({"ok": true}));
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], true);
-        assert!(fan_ids(&host).contains(&"sim/cpu_fan".to_string()));
-        assert_eq!(reply(&host, on), json!({"ok": true}));
-
-        let off = r#"{"cmd":"set_sim","on":false}"#;
-        assert_eq!(reply(&host, off), json!({"ok": true}));
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], false);
-        assert!(fan_ids(&host).is_empty());
-    }
-
-    #[test]
-    fn the_sim_choice_is_remembered() {
-        let dir = scratch("remember");
-        let host = Host::new(dir.clone(), Vec::new, false, Mode::Console);
-        reply(&host, r#"{"cmd":"set_sim","on":true}"#);
-        drop(host);
-        assert!(!dir.join("service.json.tmp").exists());
-        let host = Host::new(dir.clone(), Vec::new, false, Mode::Service);
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], true);
-
-        reply(&host, r#"{"cmd":"set_sim","on":false}"#);
-        drop(host);
-        let host = Host::new(dir.clone(), Vec::new, false, Mode::Console);
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], false);
-        // `run --sim` wins over the remembered choice without changing it.
-        drop(host);
-        let host = Host::new(dir.clone(), Vec::new, true, Mode::Console);
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], true);
-        assert!(!load::<Settings>(&dir, "service.json").unwrap().sim);
-    }
-
-    #[test]
-    fn a_broken_settings_file_means_no_sim_and_a_log_line() {
-        let dir = scratch("settings");
-        fs::write(dir.join("service.json"), "{ nope").unwrap();
-        let host = Host::new(dir.clone(), Vec::new, false, Mode::Console);
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], false);
-        assert!(log_of(&dir).contains("service.json"));
-    }
-
-    #[test]
-    fn switching_the_sim_releases_driven_fans_first() {
-        let probe = Probe::default();
-        // Whether the fan had been released each time the hardware was listed.
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let hardware = {
-            let (probe, seen) = (probe.clone(), seen.clone());
-            move || {
-                let released = probe.released.load(Ordering::Relaxed);
-                seen.lock().unwrap().push(released);
-                vec![Box::new(probe.clone()) as Box<dyn FanBackend>]
-            }
-        };
-        let host = Host::new(probe_dir("swap"), hardware, false, Mode::Console);
-        host.tick(1.0);
-        assert!(driven(&host));
-
-        let on = r#"{"cmd":"set_sim","on":true}"#;
-        assert_eq!(reply(&host, on), json!({"ok": true}));
-        assert_eq!(*seen.lock().unwrap(), [false, true]);
-        // The hardware's fan is driven as before.
-        let ids = fan_ids(&host);
-        assert_eq!(ids.len(), 4, "{ids:?}");
-        assert_eq!(ids[0], "probe");
-        assert!(driven(&host));
-        assert!(log_of(&host.dir).contains("fans released first (1 had a duty set)"));
-    }
-
-    #[test]
-    fn the_sim_is_not_switched_while_a_fan_refuses_release() {
-        let probe = Probe {
-            stuck: true,
-            ..Probe::default()
-        };
-        let host = Host::new(probe_dir("stuck"), hardware(&probe), false, Mode::Console);
-        host.tick(1.0);
-        let r = reply(&host, r#"{"cmd":"set_sim","on":true}"#);
-        assert_eq!(r["ok"], false);
-        let error = r["error"].as_str().unwrap();
-        assert!(error.ends_with("probe: stuck"), "{error}");
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], false);
-        assert_eq!(fan_ids(&host), ["probe"]);
-        assert!(!host.dir.join("service.json").exists());
-    }
-
-    #[test]
-    fn a_stopping_host_switches_nothing() {
-        let probe = Probe::default();
-        let host = Host::new(probe_dir("late"), hardware(&probe), false, Mode::Console);
-        host.tick(1.0);
-        assert!(driven(&host));
-        host.stop.store(true, Ordering::Relaxed);
-        host.release_all();
-        assert!(!driven(&host));
-
-        // A client that is still connected may ask after the fans were handed back.
-        let r = reply(&host, r#"{"cmd":"set_sim","on":true}"#);
-        assert_eq!(r["ok"], false);
-        assert!(r["error"].is_string());
-        assert!(!driven(&host));
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], false);
-        assert!(!host.dir.join("service.json").exists());
+        assert_eq!(r.get("sim"), None);
     }
 
     #[test]
@@ -1256,7 +1048,7 @@ pub(crate) mod tests {
         assert_eq!(line, r#"{"ok":true}"#);
         assert!(shutdown);
 
-        let service = Host::new(scratch("shutdown-service"), Vec::new, false, Mode::Service);
+        let service = Host::new(scratch("shutdown-service"), Vec::new, Mode::Service);
         let (line, shutdown) = service.handle(r#"{"cmd":"shutdown"}"#);
         let r: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(r["ok"], false);
@@ -1318,9 +1110,10 @@ pub(crate) mod tests {
         log(&dir, "a line that must not land elsewhere");
         symlink_file(&elsewhere, dir.join("fans.json")).unwrap();
         assert!(load_config(&dir).is_err());
-        symlink_file(&elsewhere, dir.join("service.json.tmp")).unwrap();
-        save(&dir, "service.json", &Settings { sim: true }).unwrap();
-        assert!(load::<Settings>(&dir, "service.json").unwrap().sim);
+        fs::remove_file(dir.join("fans.json")).unwrap();
+        symlink_file(&elsewhere, dir.join("fans.json.tmp")).unwrap();
+        save_config(&dir, &sample()).unwrap();
+        assert_eq!(load_config(&dir), Ok(sample()));
         assert_eq!(fs::read_to_string(&elsewhere).unwrap(), "untouched");
     }
 
@@ -1353,19 +1146,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_sim_choice_that_was_not_saved_is_saved_by_the_next_request() {
-        let host = Host::new(scratch("sim-retry"), Vec::new, false, Mode::Console);
-        let blocker = host.dir.join("service.json");
-        fs::create_dir(&blocker).unwrap();
-        let on = r#"{"cmd":"set_sim","on":true}"#;
-        assert_eq!(reply(&host, on)["ok"], false);
-        assert_eq!(reply(&host, r#"{"cmd":"status"}"#)["sim"], true);
-        fs::remove_dir(&blocker).unwrap();
-        assert_eq!(reply(&host, on), json!({"ok": true}));
-        assert!(load::<Settings>(&host.dir, "service.json").unwrap().sim);
-    }
-
-    #[test]
     fn bad_requests_get_an_error() {
         let host = host("bad");
         let lines = [
@@ -1376,8 +1156,7 @@ pub(crate) mod tests {
             r#"{"cmd":"reboot"}"#,
             r#"{"cmd":"set_config"}"#,
             r#"{"cmd":"set_config","config":{"curves":5}}"#,
-            r#"{"cmd":"set_sim"}"#,
-            r#"{"cmd":"set_sim","on":"yes"}"#,
+            r#"{"cmd":"set_sim","on":true}"#,
         ];
         for line in lines {
             let (text, shutdown) = host.handle(line);
@@ -1391,7 +1170,6 @@ pub(crate) mod tests {
             json!(FanConfig::default())
         );
         assert!(!host.dir.join("fans.json").exists());
-        assert!(!host.dir.join("service.json").exists());
     }
 
     #[test]
@@ -1409,7 +1187,7 @@ pub(crate) mod tests {
     fn saved_config_is_loaded_at_start() {
         let dir = scratch("load");
         save_config(&dir, &sample()).unwrap();
-        let host = Host::new(dir, Vec::new, false, Mode::Console);
+        let host = Host::new(dir, Vec::new, Mode::Console);
         assert_eq!(*host.lock().controller.config(), sample());
     }
 
@@ -1417,7 +1195,7 @@ pub(crate) mod tests {
     fn invalid_file_means_empty_config_and_a_log_line() {
         let dir = scratch("invalid");
         fs::write(dir.join("fans.json"), "{ nope").unwrap();
-        let host = Host::new(dir.clone(), Vec::new, false, Mode::Console);
+        let host = Host::new(dir.clone(), Vec::new, Mode::Console);
         assert_eq!(*host.lock().controller.config(), FanConfig::default());
         assert!(log_of(&dir).contains("fans.json"));
     }

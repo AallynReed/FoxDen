@@ -1,5 +1,6 @@
 //! Fan control engine: sensors, fans, curves and the controller that ties them together.
 
+#[cfg(test)]
 mod sim;
 #[cfg(test)]
 mod tests;
@@ -8,8 +9,6 @@ use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
-
-pub use sim::SimBackend;
 
 /// Degrees Celsius a working sensor can report. Anything else counts as unreadable.
 const PLAUSIBLE: RangeInclusive<f32> = -20.0..=150.0;

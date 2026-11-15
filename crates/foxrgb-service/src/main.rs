@@ -16,10 +16,9 @@ use windows_sys::Win32::System::Threading::{
 
 const USAGE: &str = "usage: foxrgb-service <command>
 
-  run [--sim] [--parent <pid>]
+  run [--parent <pid>]
                run in this console until Ctrl+C or a shutdown request
-               (--sim starts with simulated fans switched on;
-                --parent also ends the run when the process with that id ends)
+               (--parent also ends the run when the process with that id ends)
   install      register the Windows service, started at boot
   uninstall    stop and remove the service
   start        start the installed service
@@ -64,20 +63,16 @@ impl Drop for Parent {
     }
 }
 
-/// What follows `run`: whether to simulate, and the process to end with. `None` if it makes no sense.
-fn run_options(mut args: &[&str]) -> Option<(bool, Option<u32>)> {
-    let (mut sim, mut parent) = (false, None);
-    loop {
-        match args {
-            [] => return Some((sim, parent)),
-            ["--sim", rest @ ..] => (sim, args) = (true, rest),
-            ["--parent", pid, rest @ ..] => (parent, args) = (Some(pid.parse().ok()?), rest),
-            _ => return None,
-        }
+/// What follows `run`: the process to end with. `None` if it makes no sense.
+fn run_options(args: &[&str]) -> Option<Option<u32>> {
+    match args {
+        [] => Some(None),
+        ["--parent", pid] => Some(Some(pid.parse().ok()?)),
+        _ => None,
     }
 }
 
-fn run(sim: bool, parent: Option<u32>) -> Result<(), String> {
+fn run(parent: Option<u32>) -> Result<(), String> {
     // Opened before anything is driven: a parent that has already gone leaves nothing running.
     let parent = parent.map(Parent::open).transpose()?;
     if unsafe { SetConsoleCtrlHandler(Some(on_console_event), 1) } == 0 {
@@ -87,7 +82,6 @@ fn run(sim: bool, parent: Option<u32>) -> Result<(), String> {
     let running = host::start(
         dir.clone(),
         host::hardware,
-        sim,
         host::Mode::Console,
         pipe::PIPE_NAME,
     )?;
@@ -114,7 +108,7 @@ fn main() -> ExitCode {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = match args.as_slice() {
         ["run", options @ ..] => match run_options(options) {
-            Some((sim, parent)) => run(sim, parent),
+            Some(parent) => run(parent),
             None => {
                 eprintln!("{USAGE}");
                 return ExitCode::from(2);
@@ -149,27 +143,16 @@ mod tests {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     #[test]
-    fn run_takes_its_options_in_any_order() {
-        assert_eq!(run_options(&[]), Some((false, None)));
-        assert_eq!(run_options(&["--sim"]), Some((true, None)));
-        assert_eq!(
-            run_options(&["--parent", "4321"]),
-            Some((false, Some(4321)))
-        );
-        assert_eq!(
-            run_options(&["--parent", "8", "--sim"]),
-            Some((true, Some(8)))
-        );
-        assert_eq!(
-            run_options(&["--sim", "--parent", "8"]),
-            Some((true, Some(8)))
-        );
+    fn run_takes_an_optional_parent() {
+        assert_eq!(run_options(&[]), Some(None));
+        assert_eq!(run_options(&["--parent", "4321"]), Some(Some(4321)));
         for bad in [
             &["--parent"][..],
             &["--parent", "app"],
             &["--parent", "-4"],
             &["--fast"],
-            &["--sim", "now"],
+            &["--sim"],
+            &["--parent", "8", "--parent", "9"],
         ] {
             assert_eq!(run_options(bad), None, "{bad:?}");
         }

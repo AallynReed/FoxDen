@@ -104,11 +104,6 @@ pub fn set_fan_config(config: FanConfig) -> Result<(), String> {
 }
 
 #[tauri::command(async)]
-pub fn set_fan_sim(on: bool) -> Result<(), String> {
-    then_tell(LINK.client.set_sim(on))
-}
-
-#[tauri::command(async)]
 pub fn start_service() -> Result<(), String> {
     then_tell(start_child())
 }

@@ -36,9 +36,6 @@ unsafe extern "system" {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Report {
     pub version: String,
-    /// Missing from a service older than the simulated fans switch.
-    #[serde(default)]
-    pub sim: bool,
     pub status: Status,
 }
 
@@ -60,7 +57,6 @@ pub struct FanState {
     /// What went wrong, when `service` is `Error`.
     pub detail: Option<String>,
     pub version: Option<String>,
-    pub sim: bool,
     pub sensors: Vec<SensorStatus>,
     pub fans: Vec<FanStatus>,
     pub config: FanConfig,
@@ -73,9 +69,6 @@ enum Request<'a> {
     GetConfig,
     SetConfig {
         config: &'a FanConfig,
-    },
-    SetSim {
-        on: bool,
     },
     Shutdown,
     Lights,
@@ -164,11 +157,6 @@ impl Client {
             .map(drop)
     }
 
-    /// Adds or removes the simulated sensors and fans.
-    pub fn set_sim(&self, on: bool) -> Result<(), String> {
-        self.ask::<IgnoredAny>(&Request::SetSim { on }).map(drop)
-    }
-
     /// Asks a service run from a console to release the fans and exit. An installed one refuses.
     /// Sent on a connection of its own: an answer the service still owes must not keep the
     /// request to stop from reaching it.
@@ -193,7 +181,6 @@ impl Client {
                 service: Service::Running,
                 detail: None,
                 version: Some(report.version),
-                sim: report.sim,
                 sensors: report.status.sensors,
                 fans: report.status.fans,
                 config,
