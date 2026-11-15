@@ -148,6 +148,14 @@ pub fn port_targets(outer: u8, generation: u8, answer: &[u8; 64]) -> Vec<Target>
         .collect()
 }
 
+/// Each Gen1 port at the user's length; Gen2 subports report theirs.
+fn sized(id: &str, targets: &mut [Target]) {
+    for (i, t) in targets.iter_mut().enumerate().filter(|(_, t)| t.sub == 0) {
+        let name = format!("Port {}", t.outer.trailing_zeros() + 1);
+        t.leds = crate::lengths::length(id, i, &name, t.leds, GEN1_MIN_LEDS, MAX_LEDS);
+    }
+}
+
 fn drain(hid: &HidDevice) -> Result<(), String> {
     while !read(hid, 1)?.is_empty() {}
     Ok(())
@@ -275,14 +283,16 @@ fn topology(hid: &HidDevice, ports: u32) -> Vec<Target> {
 fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, String> {
     let hid = info.open(api)?;
     let ports = if info.pid == MINI { 1 } else { 3 };
-    let targets = topology(&hid, ports);
+    let mut targets = topology(&hid, ports);
     if targets.is_empty() {
         return Err("no ports answered".into());
     }
+    let id = info.device_id("coolermaster");
+    sized(&id, &mut targets);
     let counts: Vec<usize> = targets.iter().map(|t| t.leds).collect();
     let widest = counts.iter().copied().max().unwrap_or(1) as u32;
     let dev = device(
-        info.device_id("coolermaster"),
+        id,
         det.name,
         DeviceKind::Strip,
         rows(&counts),
@@ -395,5 +405,30 @@ mod tests {
         );
         a[5] = 24;
         assert_eq!(port_targets(2, GEN1, &a)[0].leds, 24);
+    }
+
+    #[test]
+    fn a_set_length_sizes_a_gen1_port() {
+        let gen2 = Target {
+            outer: 1,
+            sub: 1,
+            leds: 12,
+        };
+        let gen1 = Target {
+            outer: 4,
+            sub: 0,
+            leds: 24,
+        };
+        crate::lengths::set_one("hid:cm-gen2-test", 0, 3);
+        crate::lengths::set_one("hid:cm-gen2-test", 1, 2);
+        let mut t = [gen2, gen1];
+        sized("hid:cm-gen2-test", &mut t);
+        assert_eq!((t[0].leds, t[1].leds), (12, 6));
+        let names: Vec<String> = crate::lengths::resizable()
+            .into_iter()
+            .filter(|z| z.device == "hid:cm-gen2-test")
+            .map(|z| z.name)
+            .collect();
+        assert_eq!(names, ["Port 3"]);
     }
 }

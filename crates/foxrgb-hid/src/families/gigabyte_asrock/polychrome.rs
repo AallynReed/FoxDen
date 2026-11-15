@@ -66,7 +66,11 @@ pub fn sized(id: &str, zones: &mut [Zone], counts: [u8; 8]) -> Option<[u8; 8]> {
     for (i, z) in zones.iter_mut().enumerate() {
         if addressable(z.zone_type) {
             let name = ZONE_NAMES[z.zone_type as usize];
-            z.leds = crate::lengths::length(id, i, name, z.leds, 0, z.leds_max);
+            let n = crate::lengths::length(id, i, name, z.leds, 0, z.leds_max);
+            // 30 in the table would mark the header unavailable
+            if n != ZONE_UNAVAILABLE as usize {
+                z.leds = n;
+            }
             table[z.zone_type as usize] = z.leds as u8;
         }
     }
@@ -386,6 +390,10 @@ mod tests {
         assert_eq!(resize, Some(table));
         let mut fresh = zones(counts, 0, 0b1000_1101);
         assert_eq!(sized("hid:polychrome-test-2", &mut fresh, counts), None);
+        crate::lengths::set_one("hid:polychrome-test-3", 1, 30);
+        let mut kept = zones(counts, 0, 0b1000_1101);
+        assert_eq!(sized("hid:polychrome-test-3", &mut kept, counts), None);
+        assert_eq!(kept[1].leds, 31);
         let mut b = Board { zones: z, resize };
         let ops = b.first(&[Color::BLACK; 132]);
         assert_eq!(ops[0], Op::Write(write_header(LEDCOUNT_CFG, &table)));
