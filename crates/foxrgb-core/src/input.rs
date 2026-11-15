@@ -30,11 +30,20 @@ impl ScreenFrame {
     }
 }
 
+/// A recent key press at canvas position `x`, `y`, `age` seconds ago.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Press {
+    pub x: f32,
+    pub y: f32,
+    pub age: f32,
+}
+
 /// Everything an effect may react to besides position and time.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Inputs {
     pub audio: AudioFrame,
     pub screen: ScreenFrame,
+    pub presses: Vec<Press>,
 }
 
 #[cfg(test)]

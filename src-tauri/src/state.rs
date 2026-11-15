@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use foxrgb_audio::AudioCapture;
-use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs};
+use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, presses_on};
 use foxrgb_openrgb::OpenRgbBackend;
 use foxrgb_screen::ScreenCapture;
 use serde::Serialize;
@@ -15,6 +15,7 @@ use tauri_plugin_notification::NotificationExt;
 use crate::config::{self, Config, Profile, Settings};
 use crate::detect::{self, Detected, Found, Live, Watch};
 use crate::tray;
+use crate::keys::KeyCapture;
 
 const SAVE_DELAY: Duration = Duration::from_millis(500);
 /// Seconds after which effect time starts again from zero.
@@ -505,8 +506,9 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
         let mut inputs = Inputs::default();
         let mut audio = Input::<AudioCapture>::off();
         let mut screen = Input::<ScreenCapture>::off();
+        let mut keys = Input::<KeyCapture>::off();
         loop {
-            let (fps, want_audio, want_screen, retry) = {
+            let (fps, want_audio, want_screen, want_keys, retry) = {
                 let mut state = lock(&shared);
                 let effect = &state.engine.effect;
                 let on = state.config.settings.lighting_module;
@@ -515,11 +517,14 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                     state.config.settings.fps,
                     wanted.0,
                     wanted.1,
+                    on && effect.uses_keys(),
                     std::mem::take(&mut state.retry_inputs),
                 )
             };
             let audio_changed = audio.sync(want_audio, retry, AudioCapture::start);
             let screen_changed = screen.sync(want_screen, retry, ScreenCapture::start);
+            let keys_changed = keys.sync(want_keys, retry, KeyCapture::start);
+            let pressed = keys.capture.as_ref().map(|c| c.frame()).unwrap_or_default();
             inputs.audio = audio
                 .capture
                 .as_ref()
@@ -531,18 +536,33 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                 .map(|c| c.frame())
                 .unwrap_or_default();
 
-            let changed = audio_changed || screen_changed;
+            let changed = audio_changed || screen_changed || keys_changed;
             // The engine only queues the frame here; each backend sends it on its own thread.
             let (frames, failed) = {
                 let mut state = lock(&shared);
                 if changed {
-                    state.inputs = [audio.status("audio"), screen.status("screen")]
+                    state.inputs = [
+                        audio.status("audio"),
+                        screen.status("screen"),
+                        keys.status("keys"),
+                    ]
                         .into_iter()
                         .flatten()
                         .collect();
                 }
                 // f32 seconds turn coarse after days of uptime, so the clock wraps.
                 let t = (start.elapsed().as_secs_f64() % CLOCK_WRAP) as f32;
+                inputs.presses = if pressed.is_empty() {
+                    Vec::new()
+                } else {
+                    let boards: Vec<_> = state
+                        .engine
+                        .views()
+                        .filter(|(_, d, on, _)| *on && d.kind == DeviceKind::Keyboard)
+                        .map(|(_, d, _, _)| (d.rect, d.grid[0] >= 21))
+                        .collect();
+                    presses_on(&pressed, &boards)
+                };
                 let frames = state.engine.render(t, &inputs);
                 (frames, state.engine.take_failed())
             };

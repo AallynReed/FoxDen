@@ -6,6 +6,7 @@ mod config;
 mod conflicts;
 mod detect;
 mod fans;
+mod keys;
 mod modules;
 mod service_lights;
 mod state;

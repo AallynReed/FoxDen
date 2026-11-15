@@ -88,6 +88,13 @@ pub enum Effect {
         saturation: f32,
         brightness: f32,
     },
+    KeyRipple {
+        color: Color,
+        background: Color,
+        speed: f32,
+        width: f32,
+        fade: f32,
+    },
 }
 
 /// How the UI edits one parameter.
@@ -390,6 +397,23 @@ impl Effect {
                     range("brightness", "Brightness", 0.2, 3.0, 0.05),
                 ],
             },
+            EffectInfo {
+                label: "Key ripple",
+                default: Effect::KeyRipple {
+                    color: ORANGE,
+                    background: NAVY,
+                    speed: 1.5,
+                    width: 0.05,
+                    fade: 1.0,
+                },
+                params: vec![
+                    main(),
+                    background(),
+                    speed(),
+                    range("width", "Width", 0.01, 0.3, 0.01),
+                    range("fade", "Fade", 0.2, 4.0, 0.1),
+                ],
+            },
         ]
     }
 
@@ -404,6 +428,11 @@ impl Effect {
     /// True when the effect reads `Inputs::screen`.
     pub fn uses_screen(&self) -> bool {
         matches!(self, Effect::ScreenAmbience { .. })
+    }
+
+    /// True when the effect reads `Inputs::presses`.
+    pub fn uses_keys(&self) -> bool {
+        matches!(self, Effect::KeyRipple { .. })
     }
 
     /// `x`, `y` in 0..=1 on the canvas (`y` = 1 is the bottom), `t` in seconds.
@@ -540,6 +569,25 @@ impl Effect {
                     |c: u8| ((grey + (c as f32 - grey) * saturation) * brightness).round() as u8;
                 Color(f(r), f(g), f(b))
             }
+            Effect::KeyRipple {
+                color,
+                background,
+                speed,
+                width,
+                fade,
+            } => {
+                let mut k = 0.0f32;
+                for p in &inputs.presses {
+                    let life = 1.0 - p.age / fade.max(0.05);
+                    if life.is_nan() || life <= 0.0 {
+                        continue;
+                    }
+                    let off = (x - p.x).hypot(y - p.y) - p.age * speed * 0.3;
+                    let ring = smooth((1.0 - off.abs() / (width * 0.5).max(1e-3)).clamp(0.0, 1.0));
+                    k = k.max(ring * life.min(1.0));
+                }
+                background.lerp(color, k)
+            }
         }
     }
 }
@@ -547,7 +595,7 @@ impl Effect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AudioFrame, ScreenFrame};
+    use crate::{AudioFrame, Press, ScreenFrame};
 
     fn at(e: &Effect, x: f32, y: f32, t: f32) -> Color {
         e.sample(x, y, t, &Inputs::default())
@@ -573,6 +621,10 @@ mod tests {
                 height: 2,
                 pixels,
             },
+            presses: vec![
+                Press { x: 0.3, y: 0.7, age: 0.4 },
+                Press { x: 0.8, y: 0.9, age: 0.1 },
+            ],
         }
     }
 
@@ -650,7 +702,7 @@ mod tests {
     #[test]
     fn catalog_labels_and_kinds_are_unique() {
         let catalog = Effect::catalog();
-        assert_eq!(catalog.len(), 16);
+        assert_eq!(catalog.len(), 17);
         for (i, a) in catalog.iter().enumerate() {
             for b in &catalog[i + 1..] {
                 assert_ne!(a.label, b.label);
@@ -699,6 +751,7 @@ mod tests {
             "audio_spectrum",
             "audio_pulse",
             "screen_ambience",
+            "key_ripple",
         ];
         assert_eq!(kinds, expected);
     }
@@ -744,7 +797,11 @@ mod tests {
             ..Inputs::default()
         };
         let screen = Inputs {
-            screen: busy.screen,
+            screen: busy.screen.clone(),
+            ..Inputs::default()
+        };
+        let keys = Inputs {
+            presses: busy.presses,
             ..Inputs::default()
         };
         for info in Effect::catalog() {
@@ -757,6 +814,7 @@ mod tests {
             };
             assert_eq!(e.uses_audio(), reacts(&audio), "{}", info.label);
             assert_eq!(e.uses_screen(), reacts(&screen), "{}", info.label);
+            assert_eq!(e.uses_keys(), reacts(&keys), "{}", info.label);
         }
     }
 
@@ -1106,5 +1164,27 @@ mod tests {
         assert!(grey.0 == grey.1 && grey.1 == grey.2, "{grey:?}");
         assert_eq!(sample(1.0, 2.0), Color(240, 200, 160));
         assert_eq!(sample(1.0, 3.0), Color(255, 255, 240));
+    }
+
+    #[test]
+    fn key_ripple_rings_spread_from_the_key_and_fade() {
+        let e = Effect::KeyRipple {
+            color: WHITE,
+            background: Color::BLACK,
+            speed: 1.0,
+            width: 0.05,
+            fade: 1.0,
+        };
+        let press = |age| Inputs {
+            presses: vec![Press { x: 0.5, y: 0.5, age }],
+            ..Inputs::default()
+        };
+        assert!(light(e.sample(0.5, 0.5, 0.0, &press(0.0))) > 700.0);
+        assert_eq!(e.sample(0.9, 0.5, 0.0, &press(0.0)), Color::BLACK);
+        let ring = e.sample(0.65, 0.5, 0.0, &press(0.5));
+        assert!(light(ring) > 0.0 && light(ring) < 700.0);
+        assert_eq!(e.sample(0.5, 0.5, 0.0, &press(0.5)), Color::BLACK);
+        assert_eq!(e.sample(0.8, 0.5, 0.0, &press(1.0)), Color::BLACK);
+        assert_eq!(e.sample(0.5, 0.5, 0.0, &Inputs::default()), Color::BLACK);
     }
 }
