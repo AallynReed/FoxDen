@@ -6,7 +6,7 @@ use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use hidapi::HidApi;
 
 const FAMILY: &str = "jginyue";
-/// OpenRGB leaves header sizes to the user; FoxRGB drives both headers at their 100-LED maximum.
+/// OpenRGB leaves header sizes to the user; FoxRGB starts both headers at their 100-LED maximum.
 const HEADER_LEDS: usize = 100;
 const RG_DEFAULT: u8 = 0x01;
 
@@ -28,48 +28,64 @@ pub fn per_led(area: u8, colors: &[Color]) -> [u8; 302] {
     b
 }
 
-struct Jginyue;
+/// Both headers at the user's length.
+fn sized(id: &str) -> [usize; 2] {
+    std::array::from_fn(|i| {
+        let name = format!("Header {}", i + 1);
+        crate::lengths::length(id, i, &name, HEADER_LEDS, 0, HEADER_LEDS)
+    })
+}
+
+struct Jginyue {
+    counts: [usize; 2],
+}
 
 impl Proto for Jginyue {
     fn start(&mut self, io: &mut dyn Io) -> Result<(), String> {
         // Area_resize for both headers, then the first DirectLEDControl switches each to direct
-        for area in [1, 2] {
-            io.write(&stripe_set(area, HEADER_LEDS as u8, false))?;
+        for (area, &n) in [1, 2].iter().zip(&self.counts) {
+            io.write(&stripe_set(*area, n as u8, false))?;
         }
-        for area in [1, 2] {
-            io.write(&stripe_set(area, HEADER_LEDS as u8, true))?;
+        for (area, &n) in [1, 2].iter().zip(&self.counts) {
+            io.write(&stripe_set(*area, n as u8, true))?;
         }
         Ok(())
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for (z, zone) in colors.chunks(HEADER_LEDS).enumerate() {
-            io.feature(&per_led(z as u8 + 1, zone))?;
+        let mut at = 0;
+        for (z, &n) in self.counts.iter().enumerate() {
+            if n > 0 {
+                io.feature(&per_led(z as u8 + 1, &colors[at..at + n]))?;
+            }
+            at += n;
         }
         Ok(())
     }
 }
 
-fn device(info: &Info, d: &Detector) -> Device {
+fn device(id: &str, d: &Detector, counts: [usize; 2]) -> Device {
     let kind = DeviceKind::Motherboard;
-    let mut dev = Device::grid(
-        &info.device_id(FAMILY),
-        d.name,
-        kind,
-        rect(kind),
-        HEADER_LEDS as u32,
-        2,
-    );
-    dev.leds = (0..2)
-        .flat_map(|r| {
-            (0..HEADER_LEDS)
-                .map(move |i| [(i as f32 + 0.5) / HEADER_LEDS as f32, 0.25 + 0.5 * r as f32])
+    let mut dev = Device::grid(id, d.name, kind, rect(kind), HEADER_LEDS as u32, 2);
+    dev.leds = counts
+        .iter()
+        .enumerate()
+        .flat_map(|(r, &n)| {
+            (0..n).map(move |i| [(i as f32 + 0.5) / n as f32, 0.25 + 0.5 * r as f32])
         })
         .collect();
     dev
 }
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    boxed(api, info, FAMILY, device(info, d), Jginyue)
+    let id = info.device_id(FAMILY);
+    let counts = sized(&id);
+    boxed(
+        api,
+        info,
+        FAMILY,
+        device(&id, d, counts),
+        Jginyue { counts },
+    )
 }
 
 pub static DETECTORS: &[Detector] = &[det(
@@ -93,7 +109,10 @@ mod tests {
         let mut a = vec![Color::BLACK; 200];
         a[0] = Color(1, 2, 3);
         a[199] = Color(4, 5, 6);
-        let [first, _, _] = pushes(Jginyue, 200, vec![], &a, &[]);
+        let proto = Jginyue {
+            counts: [HEADER_LEDS; 2],
+        };
+        let [first, _, _] = pushes(proto, 200, vec![], &a, &[]);
         assert_eq!(first[0], w(pad(&[5, 1, 100, 1, 0, 0], 16)));
         assert_eq!(first[1], w(pad(&[5, 2, 100, 1, 0, 0], 16)));
         assert_eq!(first[2], w(pad(&[5, 1, 100, 1, 0, 1], 16)));
@@ -102,5 +121,17 @@ mod tests {
         let mut z2 = pad(&[4, 2], 302);
         z2[299..302].copy_from_slice(&[4, 5, 6]);
         assert_eq!(first[5], Op::F(z2));
+    }
+
+    #[test]
+    fn a_set_length_resizes_the_area() {
+        crate::lengths::set_one("hid:jginyue-test", 0, 3);
+        let counts = sized("hid:jginyue-test");
+        assert_eq!(counts, [3, 100]);
+        let mut a = vec![Color::BLACK; 103];
+        a[3] = Color(4, 5, 6);
+        let [first, _, _] = pushes(Jginyue { counts }, 103, vec![], &a, &[]);
+        assert_eq!(first[0], w(pad(&[5, 1, 3, 1, 0, 0], 16)));
+        assert_eq!(first[5], Op::F(pad(&[4, 2, 4, 5, 6], 302)));
     }
 }

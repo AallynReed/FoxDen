@@ -72,6 +72,18 @@ fn apply(channel: usize) -> Vec<u8> {
     b
 }
 
+/// The counts the accessories gave, or the user's.
+fn sized(id: &str, found: Vec<usize>) -> Vec<usize> {
+    found
+        .into_iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let name = format!("Channel {}", i + 1);
+            crate::lengths::length(id, i, &name, n, 0, MAX_LEDS)
+        })
+        .collect()
+}
+
 struct Hue2 {
     leds: Vec<usize>,
 }
@@ -120,18 +132,14 @@ fn open(
     channels: usize,
 ) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "nzxt hue 2", |hid| {
-        let leds = handshake(hid, channels)?;
-        if leds.iter().sum::<usize>() == 0 {
+        let found = handshake(hid, channels)?;
+        if found.iter().sum::<usize>() == 0 {
             return Err("no accessories".into());
         }
+        let id = info.device_id("nzxt-hue2");
+        let leds = sized(&id, found);
         let (pos, grid) = rows(&leds);
-        let dev = device(
-            info.device_id("nzxt-hue2"),
-            d.name,
-            DeviceKind::Strip,
-            grid,
-            pos,
-        );
+        let dev = device(id, d.name, DeviceKind::Strip, grid, pos);
         Ok((dev, Hue2 { leds }))
     })
 }
@@ -205,6 +213,13 @@ mod tests {
         reply[0x0F + 18] = 0x1E;
         reply[0x0F + 19] = 0x1E;
         assert_eq!(channel_leds(&reply, 4)[3], 40);
+    }
+
+    #[test]
+    fn a_set_length_overrides_the_found_one() {
+        crate::lengths::set_one("hid:nzxt-hue2-test", 1, 99);
+        crate::lengths::set_one("hid:nzxt-hue2-test", 2, 4);
+        assert_eq!(sized("hid:nzxt-hue2-test", vec![36, 24, 0]), [36, 40, 4]);
     }
 
     // NZXTHue2Controller::SetChannelLEDs: SendDirect group 0/1, then SendApply

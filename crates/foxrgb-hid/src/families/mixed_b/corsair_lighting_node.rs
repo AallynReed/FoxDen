@@ -12,6 +12,7 @@ const VID: u16 = 0x1B1C;
 const CHANNELS: usize = 2;
 /// OpenRGB starts each channel at 0 LEDs (max 204); this is the count assumed here.
 const LEDS: usize = 60;
+const MAX_LEDS: usize = 204;
 const READ: Op = Op::Read(17, 15);
 
 fn packet(head: &[u8]) -> Vec<u8> {
@@ -51,7 +52,17 @@ fn commit() -> Vec<u8> {
     packet(&[0x33, 0xFF])
 }
 
-struct Node;
+/// Both channels at the user's length.
+fn sized(id: &str) -> [usize; CHANNELS] {
+    std::array::from_fn(|i| {
+        let name = format!("Channel {}", i + 1);
+        crate::lengths::length(id, i, &name, LEDS, 0, MAX_LEDS)
+    })
+}
+
+struct Node {
+    counts: [usize; CHANNELS],
+}
 
 impl Protocol for Node {
     fn setup(&mut self, _: &[Color]) -> Vec<Op> {
@@ -59,9 +70,13 @@ impl Protocol for Node {
     }
 
     fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
-        (0..CHANNELS)
-            .flat_map(|ch| channel(ch as u8, &span(colors, ch * LEDS, LEDS)))
-            .collect()
+        let mut from = 0;
+        let mut ops = Vec::new();
+        for (ch, &n) in self.counts.iter().enumerate() {
+            ops.extend(channel(ch as u8, &span(colors, from, n)));
+            from += n;
+        }
+        ops
     }
 
     fn keepalive(&self) -> Option<Duration> {
@@ -75,15 +90,11 @@ impl Protocol for Node {
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "corsair lighting node", |_| {
-        let (leds, grid) = rows(&[LEDS; CHANNELS]);
-        let dev = device(
-            info.device_id("corsair-lighting-node"),
-            d.name,
-            DeviceKind::Strip,
-            grid,
-            leds,
-        );
-        Ok((dev, Node))
+        let id = info.device_id("corsair-lighting-node");
+        let counts = sized(&id);
+        let (leds, grid) = rows(&counts);
+        let dev = device(id, d.name, DeviceKind::Strip, grid, leds);
+        Ok((dev, Node { counts }))
     })
 }
 
@@ -106,7 +117,7 @@ mod tests {
     #[test]
     fn setup_requests_firmware() {
         assert_eq!(
-            Node.setup(&[]),
+            Node { counts: [LEDS; 2] }.setup(&[]),
             vec![Op::Write(buf(65, &[0x00, 0x02])), Op::Read(17, 15)]
         );
     }
@@ -158,12 +169,27 @@ mod tests {
     // KeepaliveThread: SendCommit after 5 s without one
     #[test]
     fn keepalive_commits() {
-        let mut n = Node;
+        let mut n = Node { counts: [LEDS; 2] };
         assert_eq!(n.keepalive(), Some(Duration::from_secs(5)));
         assert_eq!(
             n.refresh(&[]),
             vec![Op::Write(buf(65, &[0x00, 0x33, 0xFF])), Op::Read(17, 15)]
         );
         assert_eq!(n.frame(&vec![Color::BLACK; 120]).len(), 2 * 16);
+    }
+
+    #[test]
+    fn a_set_length_sizes_a_channel() {
+        crate::lengths::set_one("hid:lighting-node-test", 0, 10);
+        crate::lengths::set_one("hid:lighting-node-test", 1, 300);
+        let counts = sized("hid:lighting-node-test");
+        assert_eq!(counts, [10, 204]);
+        let mut colors = vec![Color::BLACK; 214];
+        colors[10] = Color(7, 0, 0);
+        let ops = Node { counts }.frame(&colors);
+        // channel 0: state, 3 parts, commit; channel 1: state, 5 blocks of 3, commit
+        assert_eq!(ops.len(), 2 * (5 + 17));
+        assert_eq!(bytes(&ops[2])[..7], [0x00, 0x32, 0x00, 0, 10, 0, 0]);
+        assert_eq!(bytes(&ops[12])[..7], [0x00, 0x32, 0x01, 0, 50, 0, 7]);
     }
 }

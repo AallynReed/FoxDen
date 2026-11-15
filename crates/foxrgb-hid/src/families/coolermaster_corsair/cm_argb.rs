@@ -11,7 +11,7 @@ const RGB_PORT: usize = 4;
 const ARGB_DIRECT: u8 = 0xFE;
 const RGB_STATIC: u8 = 0x05;
 const RGB_OFF: u8 = 0x06;
-/// OpenRGB leaves header sizes to the user, up to 48; FoxRGB drives all 48 on each.
+/// OpenRGB leaves header sizes to the user, up to 48; FoxRGB starts each at 48.
 const LEDS: usize = 48;
 const FIRMWARE: [&str; 2] = ["A202011171238", "A202105291658"];
 
@@ -115,37 +115,40 @@ pub fn port_direct(port: usize, colors: &[Color]) -> Vec<Report> {
 }
 
 /// DeviceUpdateLEDs: each ARGB header, then the RGB header in static mode.
-pub fn frame(colors: &[Color]) -> Vec<Report> {
+pub fn frame(colors: &[Color], counts: &[usize; RGB_PORT]) -> Vec<Report> {
     let mut out = Vec::new();
-    for port in 0..RGB_PORT {
-        out.extend(port_direct(port, &colors[port * LEDS..(port + 1) * LEDS]));
+    let mut at = 0;
+    for (port, &n) in counts.iter().enumerate() {
+        out.extend(port_direct(port, &colors[at..at + n]));
+        at += n;
     }
-    out.extend(port_mode(
-        RGB_PORT,
-        RGB_STATIC,
-        0,
-        255,
-        false,
-        colors[RGB_PORT * LEDS],
-    ));
+    out.extend(port_mode(RGB_PORT, RGB_STATIC, 0, 255, false, colors[at]));
     out
+}
+
+/// Each ARGB header at the user's length.
+fn sized(id: &str) -> [usize; RGB_PORT] {
+    std::array::from_fn(|i| {
+        crate::lengths::length(id, i, &format!("Header {}", i + 1), LEDS, 0, LEDS)
+    })
 }
 
 struct Argb {
     hid: HidDevice,
+    counts: [usize; RGB_PORT],
 }
 
 impl Driver for Argb {
     fn frame(&mut self, colors: &[Color], first: bool) -> Result<(), String> {
         if first {
-            for port in 0..RGB_PORT {
-                write(&self.hid, &led_count(port, LEDS as u8))?;
+            for (port, &n) in self.counts.iter().enumerate() {
+                write(&self.hid, &led_count(port, n as u8))?;
             }
             for r in direct_mode() {
                 write(&self.hid, &r)?;
             }
         }
-        for r in frame(colors) {
+        for r in frame(colors, &self.counts) {
             write(&self.hid, &r)?;
         }
         Ok(())
@@ -157,14 +160,22 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
         return Err("unsupported firmware".into());
     }
     let hid = info.open(api)?;
+    let id = info.device_id("coolermaster");
+    let counts = sized(&id);
+    let [a, b, c, d] = counts;
     let dev = device(
-        info.device_id("coolermaster"),
+        id,
         det.name,
         DeviceKind::Strip,
-        rows(&[LEDS, LEDS, LEDS, LEDS, 1]),
+        rows(&[a, b, c, d, 1]),
         [LEDS as u32, 5],
     );
-    Ok(Lights::boxed("cooler master argb", dev, None, Argb { hid }))
+    Ok(Lights::boxed(
+        "cooler master argb",
+        dev,
+        None,
+        Argb { hid, counts },
+    ))
 }
 
 #[cfg(test)]
@@ -238,9 +249,23 @@ mod tests {
     fn frame_covers_every_header() {
         let mut colors = vec![Color::BLACK; 4 * LEDS + 1];
         colors[4 * LEDS] = Color(9, 8, 7);
-        let f = frame(&colors);
+        let f = frame(&colors, &[LEDS; 4]);
         assert_eq!(f.len(), 4 * 3 + 2);
         assert_eq!(f[3][3], 1);
         assert_eq!(&f[13][3..10], &[0x05, 0x10, 0x00, 0xFF, 9, 8, 7]);
+    }
+
+    #[test]
+    fn a_set_length_shortens_a_header() {
+        crate::lengths::set_one("hid:cm-argb-test", 1, 10);
+        crate::lengths::set_one("hid:cm-argb-test", 3, 0);
+        let counts = sized("hid:cm-argb-test");
+        assert_eq!(counts, [48, 10, 48, 0]);
+        let mut colors = vec![Color::BLACK; 107];
+        colors[106] = Color(9, 8, 7);
+        let f = frame(&colors, &counts);
+        assert_eq!(f.len(), 3 + 1 + 3 + 2);
+        assert_eq!(f[3][4], 10);
+        assert_eq!(&f[8][3..10], &[0x05, 0x10, 0x00, 0xFF, 9, 8, 7]);
     }
 }

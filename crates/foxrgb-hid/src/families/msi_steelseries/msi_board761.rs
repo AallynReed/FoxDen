@@ -47,12 +47,23 @@ fn setup(pipe1: usize) -> [u8; SETUP_SIZE] {
 }
 
 /// SetZoneLEDCount for JAF and JARGB1..3: the count goes in each row's last byte.
-fn sized_setup(pipe1: usize, count: u8) -> [u8; SETUP_SIZE] {
+fn sized_setup(pipe1: usize, counts: &[usize; 4]) -> [u8; SETUP_SIZE] {
     let mut s = setup(pipe1);
-    for (index, _, _) in &PACKETS[..4] {
-        s[index * 16 + 16] = count;
+    for ((index, _, _), &n) in PACKETS[..4].iter().zip(counts) {
+        s[index * 16 + 16] = n as u8;
     }
     s
+}
+
+/// JAF and JARGB1..3 at the user's lengths.
+fn sized(id: &str) -> [usize; 4] {
+    std::array::from_fn(|i| {
+        let name = match i {
+            0 => "JAF".to_string(),
+            _ => format!("JARGB {i}"),
+        };
+        crate::lengths::length(id, i, &name, HEADER_LEDS, 0, HEADER_LEDS)
+    })
 }
 
 /// FeaturePacket_PerLED_761 after SetLedColor for one header.
@@ -67,6 +78,7 @@ fn frame(hdr0: u8, hdr1: u8, count: u8, colors: &[Color]) -> Vec<u8> {
 
 struct Gen761 {
     pipe1: usize,
+    counts: [usize; 4],
     started: bool,
 }
 
@@ -75,22 +87,22 @@ impl Proto for Gen761 {
         let mut ops = Vec::new();
         if !self.started {
             ops.push(Op::Feature(setup(self.pipe1).to_vec()));
-            ops.push(Op::Feature(
-                sized_setup(self.pipe1, HEADER_LEDS as u8).to_vec(),
-            ));
+            ops.push(Op::Feature(sized_setup(self.pipe1, &self.counts).to_vec()));
             self.started = true;
         }
+        let mut start = 0;
         for (k, &(_, hdr0, hdr1)) in PACKETS.iter().enumerate() {
-            let (start, count) = if k < 4 {
-                (k * HEADER_LEDS, HEADER_LEDS)
+            let count = if k < 4 {
+                self.counts[k]
             } else if self.pipe1 > 0 {
-                (4 * HEADER_LEDS, self.pipe1)
+                self.pipe1
             } else {
                 continue;
             };
             let end = (start + count).min(colors.len());
             let slice = colors.get(start..end).unwrap_or(&[]);
             ops.push(Op::Feature(frame(hdr0, hdr1, count as u8, slice)));
+            start += count;
         }
         ops
     }
@@ -152,8 +164,8 @@ fn pipe1_for(board: &str) -> Option<usize> {
     BOARDS_761.iter().find(|b| b.0 == board).map(|b| b.1)
 }
 
-fn layout(pipe1: usize) -> (Vec<[f32; 2]>, [u32; 2]) {
-    let mut zones = vec![HEADER_LEDS; 4];
+fn layout(pipe1: usize, counts: &[usize; 4]) -> (Vec<[f32; 2]>, [u32; 2]) {
+    let mut zones = counts.to_vec();
     if pipe1 > 0 {
         zones.push(pipe1);
     }
@@ -172,11 +184,13 @@ pub fn open(hid: HidDevice, info: &Info, det: &Detector) -> Result<Box<dyn Backe
     probe[0] = 0x51;
     hid.send_feature_report(&probe).map_err(|e| e.to_string())?;
     get_feature(&hid, 0x51, 500)?;
+    let id = info.device_id("msi-mystic");
+    let counts = sized(&id);
     let dev = device(
-        info.device_id("msi-mystic"),
+        id,
         det.name,
         DeviceKind::Motherboard,
-        layout(pipe1),
+        layout(pipe1, &counts),
     );
     Ok(Driver::boxed(
         hid,
@@ -184,6 +198,7 @@ pub fn open(hid: HidDevice, info: &Info, det: &Detector) -> Result<Box<dyn Backe
         dev,
         Gen761 {
             pipe1,
+            counts,
             started: false,
         },
     ))
@@ -305,7 +320,7 @@ mod tests {
     // SetZoneLEDCount: ARRAY_ROW(zone, 16) for JARGB1..3 and JAF.
     #[test]
     fn sized_setup_counts() {
-        let s = sized_setup(0, 40);
+        let s = sized_setup(0, &[40; 4]);
         assert_eq!((s[16], s[32], s[48], s[64]), (40, 40, 40, 40));
         let mut rest = s;
         for at in [16, 32, 48, 64] {
@@ -319,13 +334,14 @@ mod tests {
     fn first_push_order() {
         let mut g = Gen761 {
             pipe1: 0,
+            counts: [HEADER_LEDS; 4],
             started: false,
         };
         let colors: Vec<Color> = (0..160).map(|i| Color(i as u8, 0, 1)).collect();
         let ops = g.frame(&colors);
         assert_eq!(ops.len(), 6);
         assert_eq!(bytes(&ops[0]), &setup(0)[..]);
-        assert_eq!(bytes(&ops[1]), &sized_setup(0, 40)[..]);
+        assert_eq!(bytes(&ops[1]), &sized_setup(0, &[40; 4])[..]);
         let jaf = bytes(&ops[2]);
         assert_eq!(jaf.len(), 727);
         assert_eq!(jaf[..10], [0x51, 0x09, 0x08, 0x00, 0, 0, 40, 0, 0, 1]);
@@ -348,6 +364,7 @@ mod tests {
     fn pipe1_frame() {
         let mut g = Gen761 {
             pipe1: 10,
+            counts: [HEADER_LEDS; 4],
             started: true,
         };
         let mut colors = vec![Color::BLACK; 170];
@@ -358,7 +375,28 @@ mod tests {
             bytes(&ops[4])[..10],
             [0x51, 0x09, 0x06, 0x00, 0, 0, 10, 7, 8, 9]
         );
-        assert_eq!(layout(10).0.len(), 170);
+        assert_eq!(layout(10, &[HEADER_LEDS; 4]).0.len(), 170);
+    }
+
+    #[test]
+    fn a_set_length_sizes_a_header() {
+        crate::lengths::set_one("hid:msi-761-test", 1, 8);
+        let counts = sized("hid:msi-761-test");
+        assert_eq!(counts, [40, 8, 40, 40]);
+        assert_eq!(sized_setup(0, &counts)[16], 8);
+        let mut g = Gen761 {
+            pipe1: 0,
+            counts,
+            started: true,
+        };
+        let mut colors = vec![Color::BLACK; 128];
+        colors[48] = Color(7, 8, 9);
+        let ops = g.frame(&colors);
+        assert_eq!(bytes(&ops[1])[..7], [0x51, 0x09, 0x04, 0x00, 0, 0, 8]);
+        assert_eq!(
+            bytes(&ops[2])[..10],
+            [0x51, 0x09, 0x04, 0x01, 0, 0, 40, 7, 8, 9]
+        );
     }
 
     #[test]

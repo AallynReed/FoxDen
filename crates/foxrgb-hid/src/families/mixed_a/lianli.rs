@@ -24,6 +24,27 @@ fn buf(len: usize, head: &[u8]) -> Vec<u8> {
     b
 }
 
+/// Each channel at the user's length.
+fn sized(id: &str, channels: usize, max: usize) -> Vec<usize> {
+    (0..channels)
+        .map(|i| crate::lengths::length(id, i, &format!("Channel {}", i + 1), max, 0, max))
+        .collect()
+}
+
+/// One row per channel, each at its own length.
+fn hub(id: String, name: &str, max: usize, counts: &[usize]) -> Device {
+    let mut d = rows(id, name, DeviceKind::Other, FANS, max, counts.len());
+    let n = counts.len() as f32;
+    d.leds = counts
+        .iter()
+        .enumerate()
+        .flat_map(|(r, &c)| {
+            (0..c).map(move |i| [(i as f32 + 0.5) / c as f32, (r as f32 + 0.5) / n])
+        })
+        .collect();
+    d
+}
+
 /// Uni Hub SL: one LED per fan, four fans on each of four channels.
 pub const SL_FANS: usize = 4;
 
@@ -54,7 +75,9 @@ pub fn sl_mode(ch: u8) -> Vec<u8> {
     buf(11, &[REPORT, 0x10 + ch, 0x01, 0x02, 0x00, 0x00])
 }
 
-struct UniHubSl;
+struct UniHubSl {
+    counts: Vec<usize>,
+}
 
 impl Driver for UniHubSl {
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
@@ -63,13 +86,15 @@ impl Driver for UniHubSl {
             io.sleep(5);
             Ok(())
         };
-        for ch in 0..4 {
-            send(io, sl_activate(ch, SL_FANS as u8))?;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            send(io, sl_activate(ch as u8, n as u8))?;
         }
         send(io, sl_merge())?;
-        for (ch, fans) in colors.chunks(SL_FANS).enumerate() {
-            send(io, sl_color(ch as u8, fans))?;
+        let mut at = 0;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            send(io, sl_color(ch as u8, &colors[at..at + n]))?;
             send(io, sl_mode(ch as u8))?;
+            at += n;
         }
         Ok(())
     }
@@ -79,18 +104,13 @@ fn open_sl(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, 
     if firmware(&info.product) != "v1.8" {
         return Err(format!("{} firmware is not v1.8", d.name));
     }
-    let dev = rows(
-        info.device_id("lianli"),
-        d.name,
-        DeviceKind::Other,
-        FANS,
-        SL_FANS,
-        4,
-    );
+    let id = info.device_id("lianli");
+    let counts = sized(&id, 4, SL_FANS);
+    let dev = hub(id, d.name, SL_FANS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub sl",
         info.open(api)?,
-        UniHubSl,
+        UniHubSl { counts },
         dev,
     ))
 }
@@ -142,15 +162,19 @@ pub fn al_channel(ch: u8, colors: &[Color], brightness: f32) -> Vec<Vec<u8>> {
     out
 }
 
-struct UniHubAl;
+struct UniHubAl {
+    counts: Vec<usize>,
+}
 
 impl Driver for UniHubAl {
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for (ch, c) in colors.chunks(AL_LEDS).enumerate() {
-            for p in al_channel(ch as u8, c, 1.0) {
+        let mut at = 0;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            for p in al_channel(ch as u8, &colors[at..at + n], 1.0) {
                 io.write(&p)?;
                 io.sleep(5);
             }
+            at += n;
         }
         Ok(())
     }
@@ -162,18 +186,13 @@ fn open_al(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, 
         Some("v1.0") => return Err("Uni Hub AL v1.0 is driven over libusb".into()),
         _ => return Err(format!("{} firmware is not v1.7", d.name)),
     }
-    let dev = rows(
-        info.device_id("lianli"),
-        d.name,
-        DeviceKind::Other,
-        FANS,
-        AL_LEDS,
-        4,
-    );
+    let id = info.device_id("lianli");
+    let counts = sized(&id, 4, AL_LEDS);
+    let dev = hub(id, d.name, AL_LEDS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub al",
         info.open(api)?,
-        UniHubAl,
+        UniHubAl { counts },
         dev,
     ))
 }
@@ -217,50 +236,49 @@ pub fn v2_channel(ch: u8, colors: &[Color], brightness: f32, infinity: bool) -> 
 
 struct UniHubV2 {
     infinity: bool,
+    counts: Vec<usize>,
 }
 
 impl Driver for UniHubV2 {
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for (ch, c) in colors.chunks(V2_LEDS).enumerate() {
-            for p in v2_channel(ch as u8, c, 1.0, self.infinity) {
+        let mut at = 0;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            for p in v2_channel(ch as u8, &colors[at..at + n], 1.0, self.infinity) {
                 io.write(&p)?;
                 io.sleep(5);
             }
+            at += n;
         }
         Ok(())
     }
 }
 
 fn open_v2(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    let dev = rows(
-        info.device_id("lianli"),
-        d.name,
-        DeviceKind::Other,
-        FANS,
-        V2_LEDS,
-        4,
-    );
+    let id = info.device_id("lianli");
+    let counts = sized(&id, 4, V2_LEDS);
+    let dev = hub(id, d.name, V2_LEDS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub sl v2",
         info.open(api)?,
-        UniHubV2 { infinity: false },
+        UniHubV2 {
+            infinity: false,
+            counts,
+        },
         dev,
     ))
 }
 
 fn open_infinity(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    let dev = rows(
-        info.device_id("lianli"),
-        d.name,
-        DeviceKind::Other,
-        FANS,
-        V2_LEDS,
-        8,
-    );
+    let id = info.device_id("lianli");
+    let counts = sized(&id, 8, V2_LEDS);
+    let dev = hub(id, d.name, V2_LEDS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub sl infinity",
         info.open(api)?,
-        UniHubV2 { infinity: true },
+        UniHubV2 {
+            infinity: true,
+            counts,
+        },
         dev,
     ))
 }
@@ -411,7 +429,10 @@ mod tests {
     fn sl_frame() {
         let m = Mock::default();
         let dev = rows("s".into(), "S", DeviceKind::Other, FANS, 4, 4);
-        let mut b = Hid::new("t", Box::new(m.clone()), UniHubSl, dev);
+        let sl = UniHubSl {
+            counts: vec![SL_FANS; 4],
+        };
+        let mut b = Hid::new("t", Box::new(m.clone()), sl, dev);
         let mut colors = vec![Color::BLACK; 16];
         colors[4] = C1;
         b.push("s", &colors).unwrap();
@@ -433,6 +454,28 @@ mod tests {
             ops[8],
             Op::Write(pad(&[0xE0, 0x11, 0x01, 0x02, 0x00, 0x00], 11))
         );
+    }
+
+    #[test]
+    fn a_set_length_sizes_a_channel() {
+        crate::lengths::set_one("hid:lianli-test", 0, 2);
+        crate::lengths::set_one("hid:lianli-test", 3, 0);
+        let counts = sized("hid:lianli-test", 4, SL_FANS);
+        assert_eq!(counts, [2, 4, 4, 0]);
+        let dev = hub("s".into(), "S", SL_FANS, &counts);
+        assert_eq!(dev.leds.len(), 10);
+        let m = Mock::default();
+        let mut b = Hid::new("t", Box::new(m.clone()), UniHubSl { counts }, dev);
+        b.push("s", &[C1; 10]).unwrap();
+        let ops: Vec<Op> = m
+            .take()
+            .into_iter()
+            .filter(|o| *o != Op::Sleep(5))
+            .collect();
+        assert_eq!(ops[0], Op::Write(pad(&[0xE0, 0x10, 0x32, 0x02], 11)));
+        assert_eq!(ops[3], Op::Write(pad(&[0xE0, 0x10, 0x32, 0x30], 11)));
+        let Op::Write(col) = &ops[5] else { panic!() };
+        assert_eq!(col[2 + 32 * 3..5 + 32 * 3], [0, 0, 0]);
     }
 
     // LianLiUniHubALController::SetChannelLEDs: fan and edge halves, R B G, white limiter.

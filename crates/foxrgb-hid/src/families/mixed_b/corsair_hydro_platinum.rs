@@ -162,22 +162,25 @@ impl Protocol for Platinum {
     }
 }
 
+/// The fan header at the user's length; models without RGB fans have none.
+fn fan_leds(id: &str, pid: u16) -> usize {
+    if NO_RGB_FAN.contains(&pid) {
+        return 0;
+    }
+    crate::lengths::length(id, 1, "Fans", FAN_LEDS, 0, FAN_LEDS)
+}
+
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "corsair hydro platinum", |_| {
-        let fan = !NO_RGB_FAN.contains(&info.pid);
-        let leds_n = BLOCK_LEDS + if fan { FAN_LEDS } else { 0 };
+        let id = info.device_id("corsair-hydro-platinum");
+        let fan = fan_leds(&id, info.pid);
+        let leds_n = BLOCK_LEDS + fan;
         let mut leds: Vec<[f32; 2]> = matrix(&MAP, 5, BLOCK_LEDS, |_| [0.5, 0.5])
             .into_iter()
             .map(|[x, y]| [x, y * 0.8])
             .collect();
-        leds.extend((0..leds_n - BLOCK_LEDS).map(|i| [(i as f32 + 0.5) / FAN_LEDS as f32, 0.9]));
-        let dev = device(
-            info.device_id("corsair-hydro-platinum"),
-            d.name,
-            DeviceKind::Other,
-            [5, 6],
-            leds,
-        );
+        leds.extend((0..fan).map(|i| [(i as f32 + 0.5) / fan as f32, 0.9]));
+        let dev = device(id, d.name, DeviceKind::Other, [5, 6], leds);
         Ok((
             dev,
             Platinum {
@@ -296,6 +299,18 @@ mod tests {
         assert_eq!(heads, [0x58 | 0x02, 0x60 | 0x03, 0x68 | 0x04, 0x70 | 0x01]);
         assert_eq!(bytes(&ops[6])[3..8], [0x00, 0x00, 0xFF, 0x00, 0x4A]);
         assert_eq!(bytes(&ops[9])[23..26], [0x09, 0x20, 0x07]);
+    }
+
+    #[test]
+    fn a_set_length_shortens_the_fans() {
+        crate::lengths::set_one("hid:hydro-platinum-test", 1, 4);
+        assert_eq!(fan_leds("hid:hydro-platinum-test", 0x0C18), 4);
+        assert_eq!(fan_leds("hid:hydro-platinum-test", 0x0C35), 0);
+        let mut p = Platinum {
+            leds: 20,
+            sequence: 0,
+        };
+        assert_eq!(p.frame(&[Color(1, 2, 3); 20]).len(), 2);
     }
 
     // GetSequenceNumber wraps from 31 back to 1; Elite models send only the block packet

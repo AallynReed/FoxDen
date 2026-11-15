@@ -97,11 +97,22 @@ impl Kind {
     }
 }
 
-struct Riing(Kind);
+/// Every header at the user's length, up to the controller's maximum.
+fn sized(id: &str, kind: Kind) -> [usize; CHANNELS] {
+    std::array::from_fn(|i| {
+        let name = format!("Header {}", i + 1);
+        crate::lengths::length(id, i, &name, kind.leds(), 0, kind.leds())
+    })
+}
+
+struct Riing {
+    kind: Kind,
+    counts: [usize; CHANNELS],
+}
 
 impl Protocol for Riing {
     fn setup(&mut self, _: &[Color]) -> Vec<Op> {
-        match self.0 {
+        match self.kind {
             Kind::Riing => vec![Op::Write(init(65)), Op::Read(65, 100)],
             Kind::Quad => vec![Op::Write(init(QUAD_SIZE)), Op::Read(QUAD_SIZE, 250)],
             Kind::Trio => vec![Op::Write(init(65)), Op::Read(65, 250)],
@@ -109,11 +120,12 @@ impl Protocol for Riing {
     }
 
     fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
-        let n = self.0.leds();
         let mut ops = Vec::new();
-        for ch in 0..CHANNELS {
-            let zone = span(colors, ch * n, n);
-            match self.0 {
+        let mut from = 0;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            let zone = span(colors, from, n);
+            from += n;
+            match self.kind {
                 Kind::Riing => {
                     ops.push(Op::Write(riing_rgb(ch as u8 + 1, MODE_PER_LED, 0, &zone)));
                     ops.push(Op::Read(65, 100));
@@ -126,21 +138,17 @@ impl Protocol for Riing {
     }
 
     fn keepalive(&self) -> Option<Duration> {
-        matches!(self.0, Kind::Quad).then_some(Duration::from_secs(3))
+        matches!(self.kind, Kind::Quad).then_some(Duration::from_secs(3))
     }
 }
 
 fn open(api: &HidApi, info: &Info, d: &Detector, kind: Kind) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "thermaltake riing", |_| {
-        let (leds, grid) = rows(&[kind.leds(); CHANNELS]);
-        let dev = device(
-            info.device_id("thermaltake-riing"),
-            d.name,
-            DeviceKind::Other,
-            grid,
-            leds,
-        );
-        Ok((dev, Riing(kind)))
+        let id = info.device_id("thermaltake-riing");
+        let counts = sized(&id, kind);
+        let (leds, grid) = rows(&counts);
+        let dev = device(id, d.name, DeviceKind::Other, grid, leds);
+        Ok((dev, Riing { kind, counts }))
     })
 }
 
@@ -227,10 +235,33 @@ mod tests {
             .collect()
     }
 
+    fn full(kind: Kind) -> Riing {
+        Riing {
+            kind,
+            counts: [kind.leds(); CHANNELS],
+        }
+    }
+
+    #[test]
+    fn a_set_length_shortens_a_header() {
+        crate::lengths::set_one("hid:riing-test", 4, 7);
+        let counts = sized("hid:riing-test", Kind::Quad);
+        assert_eq!(counts, [60, 60, 60, 60, 7]);
+        let colors = ramp(247);
+        let ops = Riing {
+            kind: Kind::Quad,
+            counts,
+        }
+        .frame(&colors);
+        let p = bytes(&ops[4]);
+        assert_eq!(p[5..8], [colors[240].1, colors[240].0, colors[240].2]);
+        assert!(p[5 + 7 * 3..].iter().all(|&b| b == 0));
+    }
+
     // ThermaltakeRiingController::SendInit
     #[test]
     fn riing_setup_is_init_then_read() {
-        let ops = Riing(Kind::Riing).setup(&[]);
+        let ops = full(Kind::Riing).setup(&[]);
         assert_eq!(
             ops,
             vec![Op::Write(buf(65, &[0x00, 0xFE, 0x33])), Op::Read(65, 100)]
@@ -241,7 +272,7 @@ mod tests {
     #[test]
     fn riing_frame_sends_grb_per_port() {
         let colors = ramp(CHANNELS * RIING_LEDS);
-        let ops = Riing(Kind::Riing).frame(&colors);
+        let ops = full(Kind::Riing).frame(&colors);
         assert_eq!(ops.len(), 10);
         for ch in 0..CHANNELS {
             assert_eq!(ops[ch * 2 + 1], Op::Read(65, 100));
@@ -263,7 +294,7 @@ mod tests {
     // ThermaltakeRiingQuadController::SendInit
     #[test]
     fn quad_setup() {
-        let ops = Riing(Kind::Quad).setup(&[]);
+        let ops = full(Kind::Quad).setup(&[]);
         assert_eq!(
             ops,
             vec![Op::Write(buf(193, &[0x00, 0xFE, 0x33])), Op::Read(193, 250)]
@@ -274,7 +305,7 @@ mod tests {
     #[test]
     fn quad_frame_and_keepalive() {
         let colors = ramp(CHANNELS * QUAD_LEDS);
-        let mut q = Riing(Kind::Quad);
+        let mut q = full(Kind::Quad);
         let ops = q.frame(&colors);
         assert_eq!(ops.len(), 5);
         let p = bytes(&ops[4]);
@@ -321,6 +352,6 @@ mod tests {
             buf(65, &[0x00, 0x32, 0x52, 0x01, 0x24, 0x03, 0x02])
         );
         assert!(trio_channel(0, &[]).is_empty());
-        assert_eq!(Riing(Kind::Trio).frame(&ramp(270)).len(), 15);
+        assert_eq!(full(Kind::Trio).frame(&ramp(270)).len(), 15);
     }
 }
