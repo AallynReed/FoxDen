@@ -145,6 +145,16 @@ impl Proto for Aura {
     }
 }
 
+/// The controller constructors: base queries, then SetGen1 on mainboards.
+pub fn setup(io: &mut dyn Io, mainboard: bool) -> Result<Vec<Channel>, String> {
+    let (version, config) = base(io)?;
+    if !mainboard {
+        return Ok(addressable_channels(&config));
+    }
+    io.write(&report(&[0xEC, 0x52, 0x53, 0x00, 0x01]))?;
+    Ok(mainboard_channels(&version, &config))
+}
+
 fn build(
     api: &HidApi,
     info: &Info,
@@ -153,14 +163,7 @@ fn build(
     mainboard: bool,
 ) -> Result<Box<dyn Backend>, String> {
     let mut io = opened(api, info)?;
-    let (version, config) = base(io.as_mut())?;
-    let channels = if mainboard {
-        // SetGen1
-        io.write(&report(&[0xEC, 0x52, 0x53, 0x00, 0x01]))?;
-        mainboard_channels(&version, &config)
-    } else {
-        addressable_channels(&config)
-    };
+    let channels = setup(io.as_mut(), mainboard)?;
     if channels.is_empty() {
         return Err("no Aura channels".into());
     }
@@ -313,17 +316,21 @@ mod tests {
             b"AULA3-6K75-0207",
             &[(0x1B, 5), (0x1D, 1), (0x02, 2)],
         ));
-        let (version, config) = base(&mut rec).unwrap();
+        let ch = setup(&mut rec, true).unwrap();
         assert_eq!(
             rec.take(),
             vec![
                 w(pad(&[0xEC, 0x82], 65)),
                 Op::Read,
                 w(pad(&[0xEC, 0xB0], 65)),
-                Op::Read
+                Op::Read,
+                w(pad(&[0xEC, 0x52, 0x53, 0, 1], 65)),
             ]
         );
-        let ch = mainboard_channels(&version, &config);
+        let mut rec = Rec::with(replies(b"AULA3-6K75-0207", &[(0x1B, 5), (0x02, 2)]));
+        assert_eq!(setup(&mut rec, false).unwrap().len(), 2);
+        assert_eq!(rec.take().len(), 4);
+        let (_, config) = base(&mut Rec::with(replies(b"", &[(0x1B, 5), (0x02, 2)]))).unwrap();
         assert_eq!(ch.len(), 3);
         assert_eq!((ch[0].effect, ch[0].direct, ch[0].leds), (0, 4, 5));
         assert_eq!((ch[1].effect, ch[1].direct), (1, 0));

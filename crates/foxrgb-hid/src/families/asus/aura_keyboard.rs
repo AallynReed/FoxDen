@@ -115,20 +115,25 @@ impl Proto for Keyboard {
     }
 }
 
+/// SetupZones' queries: GetNumpadLocation on the Claymore, GetLayout on the rest.
+pub fn layout(io: &mut dyn Io, pid: u16, release: u16) -> Result<&'static Layout, String> {
+    let (numpad, raw) = if pid == CLAYMORE {
+        let r = ask(io, &[0x00, 0x40, 0x60])?;
+        (
+            r[5].wrapping_mul(2).wrapping_add(r[4]),
+            claymore_layout(release),
+        )
+    } else {
+        let r = ask(io, &[0x00, 0x12, 0x12])?;
+        (0, (r[4] as u32 * 100 + r[5] as u32) as u8)
+    };
+    pick(table(pid, numpad), raw).ok_or_else(|| "no keyboard layout".into())
+}
+
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     let mut io = opened(api, info)?;
     let claymore = info.pid == CLAYMORE;
-    let (numpad, raw) = if claymore {
-        let r = ask(io.as_mut(), &[0x00, 0x40, 0x60])?;
-        (
-            r[5].wrapping_mul(2).wrapping_add(r[4]),
-            claymore_layout(info.release),
-        )
-    } else {
-        let r = ask(io.as_mut(), &[0x00, 0x12, 0x12])?;
-        (0, (r[4] as u32 * 100 + r[5] as u32) as u8)
-    };
-    let layout = pick(table(info.pid, numpad), raw).ok_or("no keyboard layout")?;
+    let layout = layout(io.as_mut(), info.pid, info.release)?;
     let dev = mapped(
         info,
         FAMILY,
@@ -329,6 +334,26 @@ mod tests {
         assert!(pick(kb::TUF_K3_GEN2, 204).is_none());
         assert_eq!(claymore_layout(0x2100), 204);
         assert_eq!((3u32 * 100 + 4) as u8, 48);
+    }
+
+    // GetLayout and GetNumpadLocation, each after ClearResponses
+    #[test]
+    fn layout_queries() {
+        let mut rec = Rec::with(vec![vec![], pad(&[0, 0x12, 0x12, 0, 2, 4], 65)]);
+        let l = layout(&mut rec, 0x18AA, 0).unwrap();
+        assert_eq!((l.id, l.keys.len()), (LAYOUT_UK, 105));
+        assert_eq!(
+            rec.take(),
+            vec![Op::Read, w(pad(&[0, 0x12, 0x12], 65)), Op::Read]
+        );
+        let mut rec = Rec::with(vec![vec![], pad(&[0, 0x40, 0x60, 0, 0, 1], 65)]);
+        let l = layout(&mut rec, CLAYMORE, 0x3000).unwrap();
+        assert_eq!(
+            rec.take(),
+            vec![Op::Read, w(pad(&[0, 0x40, 0x60], 65)), Op::Read]
+        );
+        assert_eq!(l.id, LAYOUT_UK);
+        assert!(kb::CLAYMORE_RIGHT.iter().any(|x| std::ptr::eq(x, l)));
     }
 
     // AuraKeyboardController::UpdateLeds with ClearResponses and AwaitResponse

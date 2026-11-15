@@ -245,6 +245,24 @@ mod tests {
         assert_eq!(buffer, 179);
     }
 
+    // GetKeyboardLayout: drain, ask, byte 12 of the answer
+    #[test]
+    fn layout_query() {
+        let mut reply = pad(&[0x5D], 64);
+        reply[12] = LAYOUT_ISO;
+        let mut rec = Rec::with(vec![vec![], reply]);
+        assert_eq!(keyboard_layout(&mut rec).unwrap(), LAYOUT_ISO);
+        assert_eq!(
+            rec.take(),
+            vec![
+                Op::Read,
+                Op::F(pad(&[0x5D, 0x05, 0x20, 0x31, 0, 0x10], 64)),
+                Op::GetF(0x5D),
+            ]
+        );
+        assert_eq!(keyboard_layout(&mut Rec::default()).unwrap(), 0x01);
+    }
+
     // DeviceUpdateMode(Direct), then SetLedsDirect over the value-indexed buffer
     #[test]
     fn direct_frame() {

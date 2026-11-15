@@ -145,10 +145,14 @@ impl Proto for StrixClaw {
     }
 }
 
+/// SetProfile(1), from the RGBController constructor.
+pub fn set_profile(io: &mut dyn Io) -> Result<(), String> {
+    io.feature(&cerberus_report(&[0x07, 0x03, PROFILE]))
+}
+
 fn cerberus(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     let mut io = opened(api, info)?;
-    // SetProfile(1) from the RGBController constructor
-    io.feature(&cerberus_report(&[0x07, 0x03, PROFILE]))?;
+    set_profile(io.as_mut())?;
     let dev = mapped(
         info,
         FAMILY,
@@ -208,6 +212,9 @@ mod tests {
     // RGBController_AsusCerberusKeyboard: DeviceUpdateMode(Custom), then DeviceUpdateLEDs
     #[test]
     fn cerberus_start_and_frame() {
+        let mut rec = Rec::default();
+        set_profile(&mut rec).unwrap();
+        assert_eq!(rec.take(), vec![Op::F(vec![7, 3, 1, 0, 0, 0, 0, 0])]);
         let mut a = vec![Color::BLACK; 105];
         a[0] = Color(1, 2, 3);
         let [first, _, next] = pushes(Cerberus, 105, vec![], &a, &[]);
