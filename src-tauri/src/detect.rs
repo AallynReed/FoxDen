@@ -217,6 +217,9 @@ fn usb_ids(hid: &[HidInfo]) -> Vec<(u16, u16)> {
     ids
 }
 
+/// Devices whose lighting no software can reach: they expose only standard keyboard and mouse interfaces.
+const ONBOARD_ONLY: &[&str] = &["usb:0951:172d"];
+
 /// Devices of FoxRGB's ported families, matched on vendor and product id.
 const PORTED: &str = "hid:";
 
@@ -642,6 +645,10 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
             "FoxRGB has its own driver for this, still experimental. Switch on native drivers in Settings."
         };
         return (Route::Native, State::Available, note.into());
+    }
+    if ONBOARD_ONLY.contains(&found.id.as_str()) {
+        let note = "Its lighting is set on the device itself, with Fn key combinations. It has no way for software to control it.";
+        return (Route::None, State::Unsupported, note.into());
     }
     let note = match (found.bus, found.brand) {
         // Switching OpenRGB on did not help, so it is no longer offered as the way in.
@@ -1119,6 +1126,20 @@ mod tests {
             native: None,
             brand,
         }
+    }
+
+    #[test]
+    fn onboard_only_devices_do_not_point_at_openrgb() {
+        let live = Live {
+            settings: &Settings::default(),
+            driven: vec![],
+            openrgb_on: false,
+            openrgb_up: false,
+        };
+        let found = part("usb:0951:172d", "keyboard", Bus::Usb, Some("HyperX"));
+        let (route, state, note) = status(&found, &live);
+        assert_eq!((route, state), (Route::None, State::Unsupported));
+        assert!(note.contains("on the device itself"));
     }
 
     #[test]
