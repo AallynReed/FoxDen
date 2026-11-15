@@ -7,6 +7,7 @@ mod hidpp;
 mod msi;
 pub mod registry;
 
+pub use families::{LedProtocol, LedStrip, led_strips};
 use foxrgb_core::Backend;
 use hidapi::{BusType, HidApi};
 
@@ -225,6 +226,7 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
         |i| supported(i.vid, i.pid),
         |info, matcher| (matcher.open)(&api, info, &mut claimed),
     ));
+    found.extend(families::other());
     found
 }
 

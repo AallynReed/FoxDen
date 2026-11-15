@@ -10,6 +10,7 @@ mod mixed_a;
 mod mixed_b;
 mod more_a;
 mod more_b;
+mod more_d;
 mod msi_steelseries;
 mod razer;
 mod small;
@@ -28,8 +29,16 @@ pub fn detectors() -> Vec<&'static Detector> {
         small::detectors(),
         more_a::detectors(),
         more_b::detectors(),
+        more_d::detectors(),
         generic::detectors(),
         streamdeck::detectors(),
     ]
     .concat()
 }
+
+/// Ported devices that are not HID collections: serial, WinUSB and SCSI.
+pub fn other() -> Vec<Box<dyn foxrgb_core::Backend>> {
+    more_d::probe()
+}
+
+pub use more_d::{LedProtocol, LedStrip, led_strips};
