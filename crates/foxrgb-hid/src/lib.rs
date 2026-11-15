@@ -148,6 +148,10 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
             }
             _ => {}
         }
+        // Virtual devices, such as G HUB's keyboard, can share a real device's ids.
+        if !matches!(raw.bus_type(), BusType::Usb | BusType::Bluetooth) {
+            continue;
+        }
         // One backend per physical device: the first matching detector wins.
         let key = format!("{:04x}{:04x}{}", info.vid, info.pid, info.serial);
         if let Some(detector) = detectors.iter().find(|d| d.matches(&info))
