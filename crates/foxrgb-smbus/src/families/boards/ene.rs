@@ -9,6 +9,8 @@ use crate::i2c::{SharedBus, lock};
 const RAM_ADDRESSES: [u8; 16] = [
     0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x4F, 0x66, 0x67, 0x39, 0x3A, 0x3B, 0x3C, 0x3D,
 ];
+/// Where SignalRGB's ENE_RAM.js also remaps sticks; probed after the list above, never remapped to.
+const RAM_LEFT_BY_OTHERS: [u8; 2] = [0x3E, 0x3F];
 const MOBO_ADDRESSES: [u8; 3] = [0x40, 0x4E, 0x4F];
 
 const REG_DEVICE_NAME: u16 = 0x1000;
@@ -192,7 +194,7 @@ fn dram(ctx: &Ctx) -> Vec<Box<dyn Backend>> {
             reg_write(ctx, 0x77, REG_I2C_ADDRESS, addr << 1);
         }
     }
-    for addr in RAM_ADDRESSES {
+    for addr in RAM_ADDRESSES.into_iter().chain(RAM_LEFT_BY_OTHERS) {
         if test(ctx, addr) {
             let chip = chip(ctx, addr);
             if chip.led_count > 0 {
@@ -289,7 +291,7 @@ mod tests {
         want.extend(ene_w(0x77, 0x80F8, 1));
         want.extend(ene_w(0x77, 0x80F9, 0xE2));
         want.push("rb 77".into());
-        for addr in RAM_ADDRESSES {
+        for addr in RAM_ADDRESSES.into_iter().chain(RAM_LEFT_BY_OTHERS) {
             if addr == 0x70 || addr == 0x71 {
                 want.extend(ene_test(addr));
                 want.extend(ene_ctor(addr));
@@ -305,6 +307,21 @@ mod tests {
         assert_eq!(devices[0].id, "smbus:ene-dram-70");
         assert_eq!(devices[0].leds.len(), 8);
         assert_eq!(devices[1].leds.len(), 5);
+    }
+
+    // A stick another program left at 0x3E is found without being remapped.
+    #[test]
+    fn dram_finds_sticks_left_at_signalrgb_addresses() {
+        let mut st = State::default();
+        st.ene
+            .insert(0x3E, Ene::new("DIMM_LED-0103", &[(2, 4), (3, 4)]));
+        let h = fake::bus(fake::info(0x1022, 0x790B, 0, 0), st);
+        let found = dram(&h.ctx);
+        let devices: Vec<_> = found.iter().flat_map(|b| b.devices()).collect();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "smbus:ene-dram-3e");
+        assert_eq!(devices[0].leds.len(), 4);
+        assert!(!h.take().iter().any(|op| op.contains("f980")));
     }
 
     // DetectENESMBusDRAMControllers: the remap skips addresses already in use.
@@ -465,10 +482,10 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // REGISTER_I2C_PCI_DETECTOR lines in ENESMBusControllerDetect.cpp.
+    // REGISTER_I2C_PCI_DETECTOR lines in ENESMBusControllerDetect.cpp, then 41 SignalRGB rows.
     #[test]
     fn gpu_table_matches_openrgb() {
-        assert_eq!(ENE_GPUS.len(), 174);
+        assert_eq!(ENE_GPUS.len(), 174 + 41);
         assert!(ENE_GPUS.iter().all(|g| g.5 == 0x67 && g.3 == ASUS_SUB_VEN));
         assert_eq!(
             ENE_GPUS[0],

@@ -21,12 +21,23 @@ pub fn all() -> Vec<Detect> {
     vec![
         ene::detect_dram,
         ene::detect_board,
-        ene::detect_gpu,
         asrock::detect,
         fusion2::detect,
         fusion::detect,
         evga::detect,
     ]
+}
+
+/// Families that live on a graphics card's own I2C bus.
+pub fn gpu() -> Vec<Detect> {
+    vec![ene::detect_gpu]
+}
+
+pub fn gpu_cards() -> Vec<[u16; 4]> {
+    ene_gpus::ENE_GPUS
+        .iter()
+        .map(|g| [g.1, g.2, g.3, g.4])
+        .collect()
 }
 
 const AMD_VEN: u16 = 0x1022;

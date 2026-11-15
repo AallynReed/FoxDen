@@ -18,8 +18,11 @@ const PRO_L_WHITE: u16 = 0x0047;
 const PRO_S: u16 = 0x003C;
 const SK622W: u16 = 0x014B;
 const SK622B: u16 = 0x0149;
+const SK620: u16 = 0x0159;
+const SK621: u16 = 0x0087;
 const SK630: u16 = 0x0089;
 const SK650: u16 = 0x008D;
+const SK650_V2: u16 = 0x0123;
 const SK652: u16 = 0x015D;
 const SK653: u16 = 0x01AB;
 const MK730: u16 = 0x008F;
@@ -75,8 +78,19 @@ pub static DETECTORS: &[Detector] = &[
         USAGE,
         open_v2
     ),
+    det!("Cooler Master SK620", VID, SK620, I1, PAGE, USAGE, open_v2),
+    det!("Cooler Master SK621", VID, SK621, I1, PAGE, USAGE, open_v2),
     det!("Cooler Master SK630", VID, SK630, I1, PAGE, USAGE, open_v2),
     det!("Cooler Master SK650", VID, SK650, I1, PAGE, USAGE, open_v2),
+    det!(
+        "Cooler Master SK650",
+        VID,
+        SK650_V2,
+        I1,
+        PAGE,
+        USAGE,
+        open_v2
+    ),
     det!("Cooler Master SK652", VID, SK652, I1, PAGE, USAGE, open_v2),
     det!("Cooler Master SK653", VID, SK653, I1, PAGE, USAGE, open_v2),
     det!("Cooler Master MK730", VID, MK730, I1, PAGE, USAGE, open_v2),
@@ -258,13 +272,14 @@ const CK550_V2_L: Overlay = overlay(
 const CK552_L: Overlay = overlay(Size::Full, CK552_KEYMAP, &[]);
 
 /// cm_kb_device_list; the Pro L White and the SK653 reuse other keyboards' layouts, as in OpenRGB.
+/// SignalRGB drives the SK620/SK621 like the SK622, and SK650 0x0123 with its layout and the SK652 start-up.
 fn overlay_for(pid: u16) -> Option<&'static Overlay> {
     Some(match pid {
         PRO_S | PRO_L_WHITE => &MK_PRO_S,
         PRO_L => &MK_PRO_L,
-        SK622W | SK622B => &SK622,
+        SK622W | SK622B | SK620 | SK621 => &SK622,
         SK630 => &SK630_L,
-        SK650 => &SK650_L,
+        SK650 | SK650_V2 => &SK650_L,
         SK652 | SK653 => &SK652_L,
         MK730 => &MK730_L,
         MK750 => &MK750_L,
@@ -359,13 +374,13 @@ fn magic_startup() -> [Report; 6] {
 /// CMKeyboardV2Controller::Initialize, which every SetLeds repeats.
 pub fn v2_initialize(pid: u16) -> Vec<Report> {
     match pid {
-        SK622B | SK622W => {
+        SK622B | SK622W | SK620 | SK621 => {
             let mut v = magic_startup().to_vec();
             v.push(magic(0x09));
             v
         }
         SK630 | SK650 => vec![active_profile(0x0C)],
-        SK652 | SK653 => {
+        SK652 | SK653 | SK650_V2 => {
             let mut v = magic_startup().to_vec();
             v.push(magic(0x0C));
             v

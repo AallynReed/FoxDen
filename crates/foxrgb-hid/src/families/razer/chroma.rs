@@ -33,6 +33,9 @@ const MAMBA_2012_WIRELESS: u16 = 0x0025;
 const NAGA_EPIC_CHROMA: u16 = 0x003E;
 const LEVIATHAN_V2: u16 = 0x0532;
 const LEVIATHAN_V2X: u16 = 0x054A;
+const LEVIATHAN_V2_PRO: u16 = 0x0548;
+const NOMMO_V2: u16 = 0x055C;
+const NOMMO_V2_PRO: u16 = 0x055A;
 const CHARGING_PAD_CHROMA: u16 = 0x0F26;
 const CHROMA_MUG: u16 = 0x0F07;
 const FIREFLY_HYPERFLUX: u16 = 0x0068;
@@ -58,7 +61,7 @@ impl Params {
         let m: &Model = model(pid);
         Params {
             pid,
-            report_id: if matches!(pid, LEVIATHAN_V2 | LEVIATHAN_V2X) {
+            report_id: if matches!(pid, LEVIATHAN_V2 | LEVIATHAN_V2X | NOMMO_V2 | NOMMO_V2_PRO) {
                 0x07
             } else {
                 0x00
@@ -345,7 +348,10 @@ pub fn plan(p: &Params, first: bool, colors: &[Color]) -> Vec<Step> {
         return steps;
     }
     if first {
-        if matches!(p.pid, CHARGING_PAD_CHROMA | CHROMA_MUG | FIREFLY_HYPERFLUX) {
+        if matches!(
+            p.pid,
+            CHARGING_PAD_CHROMA | CHROMA_MUG | FIREFLY_HYPERFLUX | LEVIATHAN_V2_PRO
+        ) {
             steps.push(send(device_mode(p, DEVICE_MODE_SOFTWARE, 0x00)));
         }
         steps.extend(set_brightness(p, p.max_brightness()));
@@ -915,5 +921,41 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    // SignalRGB Razer_Nommo_Speakers.js: Nommo V2 pair uses report id 7 and one 12-LED row.
+    #[test]
+    fn nommo_v2_uses_report_seven() {
+        for pid in [NOMMO_V2, NOMMO_V2_PRO] {
+            let p = Params::new(pid);
+            assert_eq!(p.report_id, 0x07);
+            let s = sends(&plan(&p, false, &[Color(1, 2, 3); 12]));
+            assert_eq!(s[0][..9], [0x07, 0, 0x1F, 0, 0, 0, 12 * 3 + 5, 0x0F, 0x03]);
+            assert_eq!(s[0][9..14], [0, 0, 0, 0, 11]);
+        }
+    }
+
+    // SignalRGB Razer_Soundbar.js: Leviathan V2 Pro goes to software mode, then two rows of 15.
+    #[test]
+    fn leviathan_v2_pro_software_mode_then_two_rows() {
+        let p = Params::new(LEVIATHAN_V2_PRO);
+        assert_eq!(p.report_id, 0x00);
+        let s = sends(&plan(&p, true, &[Color::BLACK; 30]));
+        assert_eq!(s[0][..], device_mode(&p, 0x03, 0x00)[..]);
+        assert_eq!(s[2][6], 15 * 3 + 5);
+        assert_eq!(s[2][9..14], [0, 0, 0, 0, 14]);
+        assert_eq!(s[3][11], 1);
+    }
+
+    // SignalRGB Razer_Modern_Mouse.js / Razer_Modern_Keyboard.js: rows sized from the plugin's LED tables.
+    #[test]
+    fn signalrgb_devices_led_counts() {
+        let n = |pid| device_for("x".into(), "X".into(), pid).leds.len();
+        assert_eq!(n(0x00C7), 18);
+        assert_eq!(n(0x0096), 2);
+        assert_eq!(n(0x02CC), 154);
+        assert_eq!(n(0x023E), 126);
+        assert_eq!(n(0x02B0), 75);
+        assert_eq!(n(0x055A), 12);
     }
 }

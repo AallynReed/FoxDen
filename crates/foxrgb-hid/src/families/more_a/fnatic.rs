@@ -10,6 +10,7 @@ use hidapi::HidApi;
 const FAMILY: &str = "fnatic";
 const VID: u16 = 0x2F0E;
 const MINI_PID: u16 = 0x0102;
+const MINI_SPEED_PID: u16 = 0x0103;
 const STREAK65_PID: u16 = 0x0105;
 
 const FULL_MAP: [&[u32]; 6] = [
@@ -137,7 +138,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         );
         (dev, Kind::Streak65)
     } else {
-        let (map, total): (&[&[u32]], usize) = if info.pid == MINI_PID {
+        let (map, total): (&[&[u32]], usize) = if matches!(info.pid, MINI_PID | MINI_SPEED_PID) {
             (&MINI_MAP, 106)
         } else {
             (&FULL_MAP, 124)
@@ -149,9 +150,18 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
     Ok(boxed(opened(api, info)?, FAMILY, dev, Streak { kind }))
 }
 
-pub static DETECTORS: [Detector; 3] = [
+pub static DETECTORS: [Detector; 4] = [
     det("Fnatic Streak", VID, 0x0101, 1, ANY, ANY, open),
     det("Fnatic miniStreak", VID, MINI_PID, 1, ANY, ANY, open),
+    det(
+        "Fnatic miniStreak Speed",
+        VID,
+        MINI_SPEED_PID,
+        1,
+        ANY,
+        ANY,
+        open,
+    ),
     det("Fnatic Streak65", VID, STREAK65_PID, 1, ANY, ANY, open),
 ];
 

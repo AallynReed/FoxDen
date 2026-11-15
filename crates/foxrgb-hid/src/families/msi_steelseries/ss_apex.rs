@@ -17,6 +17,8 @@ const APEX_PRO_TKL_GEN3: u16 = 0x1642;
 const APEX_PRO_TKL_GEN3_WL_1: u16 = 0x1644;
 const APEX_PRO_TKL_GEN3_WL_2: u16 = 0x1646;
 const APEX_7_TKL: u16 = 0x1618;
+const APEX_PRO_MINI_GEN3: u16 = 0x1648;
+const APEX_PRO_MINI_WL: u16 = 0x1624;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Debug)]
 enum Gen {
@@ -54,10 +56,11 @@ const fn det_ipu(name: &'static str, pid: u16, interface: i32) -> Detector {
     }
 }
 
-static DETECTORS: [Detector; 19] = [
+static DETECTORS: [Detector; 22] = [
     det("SteelSeries Apex 3", 0x161A, 3),
     det_ipu("SteelSeries Apex 3 TKL", 0x1622, 1),
     det("SteelSeries Apex 5", 0x161C, 1),
+    det("SteelSeries Apex 5", 0x1650, 1),
     det("SteelSeries Apex 7", 0x1612, 1),
     det("SteelSeries Apex 7 TKL", APEX_7_TKL, 1),
     det("SteelSeries Apex 9 TKL", APEX_9_TKL, 1),
@@ -90,6 +93,8 @@ static DETECTORS: [Detector; 19] = [
     det("SteelSeries Apex (OG)/Apex Fnatic", 0x1202, 0),
     det("SteelSeries Apex 350", 0x1206, 0),
     det("SteelSeries Apex Pro 3", 0x1640, 1),
+    det("SteelSeries Apex Pro Mini Gen 3", APEX_PRO_MINI_GEN3, 1),
+    det_ipu("SteelSeries Apex Pro Mini Wireless", APEX_PRO_MINI_WL, 3),
 ];
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -114,7 +119,9 @@ fn base_gen(pid: u16) -> Gen {
         | APEX_PRO_TKL_2023_WL_2
         | APEX_PRO_TKL_GEN3
         | APEX_PRO_TKL_GEN3_WL_1
-        | APEX_PRO_TKL_GEN3_WL_2 => Gen::Gen3,
+        | APEX_PRO_TKL_GEN3_WL_2
+        | APEX_PRO_MINI_GEN3
+        | APEX_PRO_MINI_WL => Gen::Gen3,
         _ => Gen::Gen1,
     }
 }
@@ -134,6 +141,7 @@ fn wireless(pid: u16) -> bool {
             | APEX_PRO_TKL_GEN3_WL_2
             | APEX_PRO_TKL_2023_WL_1
             | APEX_PRO_TKL_2023_WL_2
+            | APEX_PRO_MINI_WL
     )
 }
 
@@ -349,7 +357,7 @@ fn padded(len: usize, head: &[u8]) -> Vec<u8> {
 fn apex_layout(pid: u16) -> (Vec<[f32; 2]>, [u32; 2]) {
     let mut map = ANSI;
     let patch: &[(usize, usize, u8)] = match pid {
-        APEX_9_MINI => MINI,
+        APEX_9_MINI | APEX_PRO_MINI_GEN3 | APEX_PRO_MINI_WL => MINI,
         APEX_7_TKL
         | APEX_9_TKL
         | APEX_PRO_TKL
@@ -510,15 +518,15 @@ mod tests {
         }
     }
 
-    // SteelSeriesControllerDetect.cpp keyboard lines.
+    // SteelSeriesControllerDetect.cpp keyboard lines plus SignalRGB's Apex 5, Pro Mini Gen 3 and Pro Mini Wireless.
     #[test]
     fn detectors() {
-        assert_eq!(DETECTORS.len(), 19);
+        assert_eq!(DETECTORS.len(), 22);
         let wl = DETECTORS
             .iter()
             .filter(|d| d.usage_page == Some(0xFFC0))
             .count();
-        assert_eq!(wl, 5);
+        assert_eq!(wl, 6);
     }
 
     // SetLEDsDirect on a GEN1 Apex 7: 643-byte feature report, packet id 0x3A, 112 keys.

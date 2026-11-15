@@ -425,11 +425,12 @@ mod tests {
 
     #[test]
     fn detector_counts_match_openrgb() {
-        // REGISTER_* lines per Detect.cpp, Mousemat counting only its _WIN32 line.
+        // REGISTER_* lines per Detect.cpp, Mousemat counting only its _WIN32 line, plus SignalRGB's
+        // six NZXT boards and the Quadcast S 0x171D.
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
         assert_eq!(
             counts,
-            [51, 1, 21, 1, 2, 1, 13, 7, 7, 1, 14, 8, 1, 3, 33, 16, 25, 12]
+            [51, 1, 27, 1, 2, 1, 13, 7, 7, 1, 14, 9, 1, 3, 33, 16, 25, 12]
         );
         assert_eq!(detectors().len(), counts.iter().sum::<usize>());
     }

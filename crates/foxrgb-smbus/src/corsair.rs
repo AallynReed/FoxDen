@@ -13,6 +13,14 @@ const REG_COLOR_BLOCK_2: u8 = 0x32;
 const REG_BINARY_START: u8 = 0x21;
 const REG_GET_BINARY_DATA: u8 = 0x40;
 const REG_GET_DEVICE_INFO: u8 = 0x61;
+const REG_VENDOR: u8 = 0x43;
+const REG_MODEL: u8 = 0x44;
+/// Vendor and model bytes of a Vengeance RGB Pro on version 3 firmware (SignalRGB's Corsair_Vengeance_Pro_Ram.js).
+const LEGACY_VENDOR: u8 = 0x1C;
+const LEGACY_MODEL: u8 = 0x03;
+const LEGACY_LEDS: usize = 10;
+const REG_LEGACY_START: u8 = 0x10;
+const REG_LEGACY_CRC: u8 = 0x28;
 
 /// Name, product ids, LED count and whether the LEDs run in reverse, from CorsairDRAMDevices.cpp.
 const MODELS: &[(&str, &[u16], usize, bool)] = &[
@@ -92,9 +100,30 @@ pub fn direct_packet(colors: &[Color], reverse: bool) -> Vec<u8> {
     p
 }
 
-fn present(bus: &Bus, addr: u8) -> bool {
-    matches!(bus.read_byte(addr, 0x43), Ok(0x1A..=0x1C))
-        && matches!(bus.read_byte(addr, 0x44), Ok(0x01 | 0x03 | 0x04))
+/// Version 3 firmware: a start pair, then each LED as two command/value pairs carrying
+/// blue's nibbles in the commands, then the CRC of those pairs.
+pub fn legacy_writes(colors: &[Color]) -> Vec<(u8, u8)> {
+    let mut pairs = vec![(REG_LEGACY_START, 0x64), (REG_LEGACY_CRC, 0x49)];
+    let mut leds = Vec::new();
+    for i in 0..LEGACY_LEDS {
+        let c = colors.get(i).copied().unwrap_or(Color::BLACK);
+        leds.push((0xB0 | (c.2 & 0x0F), c.0));
+        leds.push((0xB0 | (c.2 >> 4), c.1));
+    }
+    let flat: Vec<u8> = leds.iter().flat_map(|&(r, v)| [r, v]).collect();
+    pairs.extend(leds);
+    pairs.push((REG_LEGACY_CRC, crc8(&flat)));
+    pairs
+}
+
+/// Vendor and model bytes, when they belong to a Corsair DRAM module.
+fn present(bus: &Bus, addr: u8) -> Option<(u8, u8)> {
+    let vendor = bus.read_byte(addr, REG_VENDOR).ok()?;
+    if !matches!(vendor, 0x1A..=0x1C) {
+        return None;
+    }
+    let model = bus.read_byte(addr, REG_MODEL).ok()?;
+    matches!(model, 0x01 | 0x03 | 0x04).then_some((vendor, model))
 }
 
 /// Product id and protocol version from the device info buffer.
@@ -112,6 +141,7 @@ struct Stick {
     addr: u8,
     leds: usize,
     reverse: bool,
+    legacy: bool,
 }
 
 pub struct Dram {
@@ -126,24 +156,30 @@ pub fn probe(bus: Arc<Mutex<Bus>>) -> Vec<Box<dyn Backend>> {
     let mut found: Vec<Box<dyn Backend>> = Vec::new();
     let addresses: Vec<u8> = (0x58..=0x5F).chain(0x18..=0x1F).collect();
     for addr in addresses {
-        let info = {
+        let (ids, info) = {
             let b = bus.lock().unwrap_or_else(|e| e.into_inner());
-            if !present(&b, addr) {
+            let Some(ids) = present(&b, addr) else {
+                drop(b);
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
-            }
-            device_info(&b, addr)
+            };
+            (ids, device_info(&b, addr))
         };
         let Ok((pid, protocol)) = info else { continue };
-        // Direct mode needs protocol 4 or later.
-        if protocol < 4 {
+        // Direct mode needs protocol 4 or later; a version 3 Vengeance Pro takes the legacy writes.
+        let legacy = protocol < 4;
+        if legacy && !(ids == (LEGACY_VENDOR, LEGACY_MODEL) && (0x58..=0x5F).contains(&addr)) {
             continue;
         }
-        let (name, leds, reverse) = MODELS
-            .iter()
-            .find(|(_, pids, ..)| pids.contains(&pid))
-            .map(|(name, _, leds, reverse)| (*name, *leds, *reverse))
-            .unwrap_or(("Corsair DRAM", 10, false));
+        let (name, leds, reverse) = if legacy {
+            ("Corsair Vengeance RGB Pro DDR4", LEGACY_LEDS, false)
+        } else {
+            MODELS
+                .iter()
+                .find(|(_, pids, ..)| pids.contains(&pid))
+                .map(|(name, _, leds, reverse)| (*name, *leds, *reverse))
+                .unwrap_or(("Corsair DRAM", 10, false))
+        };
         let n = found.len() as f32;
         let rect = [0.62 + n * 0.035, 0.08, 0.025, 0.3];
         let device = Device::grid(
@@ -160,6 +196,7 @@ pub fn probe(bus: Arc<Mutex<Bus>>) -> Vec<Box<dyn Backend>> {
                 addr,
                 leds,
                 reverse,
+                legacy,
             },
             device,
             sent: None,
@@ -185,8 +222,15 @@ impl Backend for Dram {
             return Ok(());
         }
         let colors = &colors[..colors.len().min(self.stick.leds)];
-        let packet = direct_packet(colors, self.stick.reverse);
         let bus = self.bus.lock().unwrap_or_else(|e| e.into_inner());
+        if self.stick.legacy {
+            for (reg, value) in legacy_writes(colors) {
+                bus.write_byte(self.stick.addr, reg, value)?;
+            }
+            self.sent = Some(colors.to_vec());
+            return Ok(());
+        }
+        let packet = direct_packet(colors, self.stick.reverse);
         bus.write_block(
             self.stick.addr,
             REG_COLOR_BLOCK_1,
@@ -216,6 +260,17 @@ mod tests {
         assert_eq!(p[0], 10);
         assert_eq!(p[1..4], [1, 2, 3]);
         assert_eq!(p[31], crc8(&p[..31]));
+    }
+
+    #[test]
+    fn legacy_writes_carry_blue_in_the_commands() {
+        let w = legacy_writes(&[Color(0x11, 0x22, 0x3C)]);
+        assert_eq!(w.len(), 2 + 20 + 1);
+        assert_eq!(w[..2], [(0x10, 0x64), (0x28, 0x49)]);
+        assert_eq!(w[2..4], [(0xBC, 0x11), (0xB3, 0x22)]);
+        assert_eq!(w[4..6], [(0xB0, 0), (0xB0, 0)]);
+        let flat: Vec<u8> = w[2..22].iter().flat_map(|&(r, v)| [r, v]).collect();
+        assert_eq!(w[22], (0x28, crc8(&flat)));
     }
 
     #[test]

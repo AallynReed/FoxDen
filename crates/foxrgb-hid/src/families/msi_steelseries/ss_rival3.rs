@@ -41,7 +41,7 @@ const fn det(name: &'static str, pid: u16, interface: i32, vendor_page: bool) ->
     }
 }
 
-static DETECTORS: [Detector; 19] = [
+static DETECTORS: [Detector; 21] = [
     det("SteelSeries Aerox 3 Wireless", 0x1838, 3, true),
     det("SteelSeries Aerox 3 Wireless Wired", 0x183A, 3, true),
     det(
@@ -87,6 +87,13 @@ static DETECTORS: [Detector; 19] = [
     det("SteelSeries Aerox 5 Wired", 0x1850, 3, true),
     det("SteelSeries Aerox 9 Wireless", 0x1858, 3, true),
     det("SteelSeries Aerox 9 Wireless Wired", 0x185A, 3, true),
+    det("SteelSeries Aerox 9 WOW Edition Wireless", 0x1876, 3, true),
+    det(
+        "SteelSeries Aerox 5 Diablo IV Edition Wireless",
+        0x233A,
+        3,
+        true,
+    ),
     det("SteelSeries Rival 3 (Old Firmware)", 0x1824, 3, false),
     det("SteelSeries Rival 3", 0x184C, 3, false),
     det("SteelSeries Rival 3 Wireless", 0x1830, 3, true),
@@ -107,9 +114,9 @@ fn kind(pid: u16) -> Option<Kind> {
         0x1838 | 0x1878 => Kind::Wireless(Aerox3),
         0x183A | 0x187A => Kind::Wireless(Aerox3Wired),
         0x1890 => Kind::Wireless(Aerox3Gen2),
-        0x1852 | 0x185C | 0x1860 => Kind::Wireless(Aerox5),
+        0x1852 | 0x185C | 0x1860 | 0x233A => Kind::Wireless(Aerox5),
         0x1854 | 0x185E | 0x1862 => Kind::Wireless(Aerox5Wired),
-        0x1858 => Kind::Wireless(Aerox9),
+        0x1858 | 0x1876 => Kind::Wireless(Aerox9),
         0x185A => Kind::Wireless(Aerox9Wired),
         0x1830 => Kind::Wireless(Rival3),
         _ => return None,

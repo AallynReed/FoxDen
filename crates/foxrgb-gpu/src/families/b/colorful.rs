@@ -9,6 +9,8 @@ use super::common::{Driver, Gpu, Io, detect_each, device_id, info, row};
 const PACKET_V2: usize = 122;
 const VULCAN_OCV: u16 = 0x1200;
 const NEPTUNE_OCV: u16 = 0x1301;
+/// SignalRGB's Colorful_Ampere_GPU.js: these Vulcan cards take the short packet with model 01 04.
+const VULCAN_SHORT: [u16; 2] = [0x120B, 0x1201];
 
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_each(bus, COLORFUL, |bus, card| {
@@ -18,7 +20,13 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
         if reply[..3] != [0xAA, 0xEF, 0x81] {
             return None;
         }
-        let v2 = matches!(info(bus).pci_subsystem_device, VULCAN_OCV | NEPTUNE_OCV);
+        let sub = info(bus).pci_subsystem_device;
+        let v2 = matches!(sub, VULCAN_OCV | NEPTUNE_OCV);
+        let model = if VULCAN_SHORT.contains(&sub) {
+            [0x01, 0x04]
+        } else {
+            [0x12, 0x03]
+        };
         let dev = row(device_id("colorful", bus, card.addr), card.name, 1);
         Some(Gpu::boxed(
             bus,
@@ -26,6 +34,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
             Colorful {
                 addr: card.addr,
                 v2,
+                model,
             },
         ))
     })
@@ -34,6 +43,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
 struct Colorful {
     addr: u8,
     v2: bool,
+    model: [u8; 2],
 }
 
 /// The packet with its sum in the last two bytes, low byte first.
@@ -59,7 +69,8 @@ impl Driver for Colorful {
             }
             pkt
         } else {
-            vec![0xAA, 0xEF, 0x12, 0x03, 0x01, 0xFF, r, g, b, 0, 0]
+            let [m0, m1] = self.model;
+            vec![0xAA, 0xEF, m0, m1, 0x01, 0xFF, r, g, b, 0, 0]
         };
         io.raw_write(self.addr, &summed(pkt));
     }
@@ -116,5 +127,17 @@ mod tests {
         // 0x24C from the header plus 38 * 6
         expect.push_str(" 30 03");
         assert_eq!(log, vec![expect]);
+    }
+    // Colorful_Ampere_GPU.js: the short packet with the Vulcan model bytes.
+    #[test]
+    fn direct_vulcan_short() {
+        let bus = Fake::new("NV", ids(COLORFUL, "Colorful 3080 iGame Vulcan"))
+            .raw(0x61, &[HELLO])
+            .shared();
+        let mut b = run(&[super::detect], &bus).remove(0);
+        assert_eq!(
+            push(&mut b, &[Color(0, 0, 0)]),
+            s(&["wraw 61 aa ef 01 04 01 ff 00 00 00 9e 02"])
+        );
     }
 }

@@ -119,8 +119,20 @@ fn open(
     d: &Detector,
     channels: usize,
 ) -> Result<Box<dyn Backend>, String> {
+    open_board(api, info, d, channels, 0)
+}
+
+/// `argb` plain ARGB headers follow the accessory channels; they report no accessories, so get 40 LEDs.
+fn open_board(
+    api: &HidApi,
+    info: &Info,
+    d: &Detector,
+    channels: usize,
+    argb: usize,
+) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "nzxt hue 2", |hid| {
-        let leds = handshake(hid, channels)?;
+        let mut leds = handshake(hid, channels)?;
+        leds.extend(std::iter::repeat_n(MAX_LEDS, argb));
         if leds.iter().sum::<usize>() == 0 {
             return Err("no accessories".into());
         }
@@ -152,7 +164,20 @@ fn open6(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, St
     open(api, info, d, 6)
 }
 
-pub(super) static DETECTORS: [Detector; 21] = [
+/// NZXT_Motherboard.js ChannelLibrary: NZXT accessory headers, then ARGB headers.
+fn open_n2a1(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
+    open_board(api, info, d, 2, 1)
+}
+
+fn open_n4a2(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
+    open_board(api, info, d, 4, 2)
+}
+
+fn open_n1a2(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
+    open_board(api, info, d, 1, 2)
+}
+
+pub(super) static DETECTORS: [Detector; 27] = [
     any("NZXT RGB & Fan Controller", VID, 0x2009, open2),
     any("NZXT RGB & Fan Controller", VID, 0x2010, open2),
     any("NZXT RGB & Fan Controller", VID, 0x200E, open2),
@@ -166,6 +191,12 @@ pub(super) static DETECTORS: [Detector; 21] = [
     any("NZXT Hue 2 Ambient", VID, 0x2002, open2),
     any("NZXT Hue 2 Motherboard", VID, 0x2005, open2),
     any("NZXT Hue 2 Motherboard", VID, 0x200B, open2),
+    any("NZXT N7 Z490 Motherboard", VID, 0x200A, open_n2a1),
+    any("NZXT N7 Z590 Motherboard", VID, 0x200C, open_n2a1),
+    any("NZXT N7 Z690 Motherboard", VID, 0x2016, open_n2a1),
+    any("NZXT N5 Z690 Motherboard", VID, 0x2017, open_n2a1),
+    any("NZXT N7 Z790 Motherboard", VID, 0x201D, open_n4a2),
+    any("NZXT N7 B850 Motherboard", VID, 0x2026, open_n1a2),
     any("NZXT Kraken X3 Series", VID, 0x2007, open3),
     any("NZXT Kraken X3 Series RGB", VID, 0x2014, open3),
     any("NZXT Kraken 2024 ELITE Series RGB", VID, 0x3012, open2),
