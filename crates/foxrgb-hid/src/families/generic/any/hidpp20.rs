@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
-use hidapi::HidApi;
+use hidapi::{HidApi, HidDevice};
 
 use super::{Link, on_usb_or_bluetooth, receiver, rect};
 use crate::registry::{Bus, Info, Matcher};
@@ -55,6 +55,20 @@ const FN_SET_INDIVIDUAL: u8 = 0x10;
 const FN_SET_RANGE: u8 = 0x50;
 const FN_SET_SINGLE_VALUE: u8 = 0x60;
 const FN_FRAME_END: u8 = 0x70;
+
+const VERY_LONG: u8 = 0x12;
+const FN_8080_GET_INFO: u8 = 0x00;
+const FN_8080_GET_KEY_TYPE_INFO: u8 = 0x10;
+const FN_8080_GET_KEY_COLORS: u8 = 0x20;
+const FN_8080_SET_KEY_COLORS: u8 = 0x30;
+const FN_8080_FLUSH_LEDS: u8 = 0x50;
+const KEYS_PER_FRAME_8080: usize = 14;
+/// Keyboard, consumer, G-keys, buttons, logo, indicators.
+const KEY_TYPES_8080: [u16; 6] = [0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0040];
+const WINDOW_8080_MAX: usize = 4;
+const WINDOW_8080_MIN: usize = 1;
+const ACK_TAIL_8080_MS: u64 = 60;
+const KEYTYPE40_ID12_ONLY: u16 = 0xC330;
 
 const PLACEHOLDER: &str = "Logitech HID++ Device";
 const DEVICE_TYPE_MOUSE: u8 = 3;
@@ -149,13 +163,28 @@ pub struct Caps {
     pub idx_perkey_v2: u8,
     pub perkey_zone_ids: Vec<u16>,
     pub has_perkey: bool,
+    /// Firmware model ids: wireless, wired, third.
+    pub pids: [u16; 3],
+    pub idx_perkey_8080: u8,
+    pub perkey_8080_max_key_count: u16,
+    pub perkey_8080_types: Vec<KeyType8080>,
+    pub has_perkey_8080: bool,
+    pub has_numpad: bool,
+    pub layout_code: u8,
+}
+
+/// `HIDPP20PerKey8080Type`: one confirmed keyType and its keyIds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KeyType8080 {
+    pub key_type: u16,
+    pub key_ids: Vec<u8>,
 }
 
 /// What `Probe` found.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Probed {
     NoAnswer,
-    /// Answered, but with a lighting feature whose path is not ported (0x8080, 0x0620).
+    /// Answered, but with a lighting feature whose path is not ported (0x0620).
     Unported(u16),
     NoLighting,
     Lit,
@@ -181,6 +210,8 @@ pub struct FrameResult {
 /// `RGBController_LogitechHIDPP20`, without the reader, power and sender threads.
 pub struct Hidpp<L: Link> {
     pub link: L,
+    /// `dev_perkey_vl`: the 0x12 collection; `None` sends it on `link`.
+    pub vl: Option<L>,
     index: u8,
     wireless: bool,
     bluetooth: bool,
@@ -208,6 +239,8 @@ pub struct Hidpp<L: Link> {
     resync_cursor: usize,
     retry_attempt: usize,
     retry_at: Option<Instant>,
+    window_8080: usize,
+    clean_frames_8080: u8,
 }
 
 fn rgb(c: Color) -> u32 {
@@ -223,6 +256,7 @@ impl<L: Link> Hidpp<L> {
     pub fn new(link: L, index: u8, wireless: bool, bluetooth: bool, pairing_name: String) -> Self {
         Hidpp {
             link,
+            vl: None,
             index,
             wireless,
             bluetooth,
@@ -249,6 +283,8 @@ impl<L: Link> Hidpp<L> {
             resync_cursor: 0,
             retry_attempt: 0,
             retry_at: None,
+            window_8080: WINDOW_8080_MIN,
+            clean_frames_8080: 0,
         }
     }
 
@@ -265,6 +301,22 @@ impl<L: Link> Hidpp<L> {
             self.wire_error = Some(e);
             Fail::Wire
         })
+    }
+
+    /// `SendVeryLongFrame`: the answer lands on `link`.
+    fn send_very_long(&mut self, feat: u8, function: u8, data: &[u8]) -> bool {
+        let mut buf = [0u8; 64];
+        buf[0] = VERY_LONG;
+        buf[1] = self.index;
+        buf[2] = feat;
+        buf[3] = function | SW_ID;
+        let n = data.len().min(60);
+        buf[4..4 + n].copy_from_slice(&data[..n]);
+        let link = match self.vl.as_mut() {
+            Some(vl) => vl,
+            None => &mut self.link,
+        };
+        link.write(&buf).is_ok()
     }
 
     /// `ReadStandardDirect`: the next HID++ frame for this device index, skipping everything else.
@@ -467,12 +519,11 @@ impl<L: Link> Hidpp<L> {
             return Probed::Unported(FEAT_HEADSET_RGB_HOSTMODE);
         }
         self.discover_perkey_zones();
-        if self.feature(FEAT_PER_KEY_V1, RELIABLE) != 0 {
-            return Probed::Unported(FEAT_PER_KEY_V1);
-        }
+        self.discover_perkey_8080();
         let layout = self.feature(FEAT_KEYBOARD_LAYOUT, RELIABLE);
+        self.caps.layout_code = 0;
         if layout != 0 {
-            let _ = self.acked(layout, 0x00, &[], RELIABLE);
+            self.caps.layout_code = self.acked(layout, 0x00, &[], RELIABLE).map_or(0, |r| r[0]);
         }
         self.feature(FEAT_WIRELESS_STATUS, RELIABLE);
         // LogFeatureSummary looks each of these up, uncached ones on the wire.
@@ -493,7 +544,7 @@ impl<L: Link> Hidpp<L> {
         ] {
             self.feature(page, RELIABLE);
         }
-        if !self.caps.has_zone_effects && !self.caps.has_perkey {
+        if !self.caps.has_zone_effects && !self.caps.has_perkey && !self.caps.has_perkey_8080 {
             return Probed::NoLighting;
         }
         Probed::Lit
@@ -572,6 +623,7 @@ impl<L: Link> Hidpp<L> {
             if self.caps.serial.is_empty() && self.caps.unit_id != "00000000" {
                 self.caps.serial = self.caps.unit_id.clone();
             }
+            self.caps.pids = pids;
             // HIDPP20_QUIRK_KEEP_ONBOARD_MODE: G915 TKL, wireless 0x408E or wired 0xC343.
             self.caps.keep_onboard = pids.iter().any(|&p| p != 0 && (p == 0x408E || p == 0xC343));
         }
@@ -682,6 +734,80 @@ impl<L: Link> Hidpp<L> {
         self.caps.has_perkey = !self.caps.perkey_zone_ids.is_empty();
     }
 
+    /// `DiscoverPerKey8080`: fn0 typeFlags, fn1 keyCount per set keyType, fn2 keyIds.
+    fn discover_perkey_8080(&mut self) {
+        self.caps.has_perkey_8080 = false;
+        self.caps.has_numpad = false;
+        self.caps.perkey_8080_types.clear();
+        let idx = self.feature(FEAT_PER_KEY_V1, RELIABLE);
+        self.caps.idx_perkey_8080 = idx;
+        if idx == 0 {
+            return;
+        }
+        let Ok(info) = self.acked(idx, FN_8080_GET_INFO, &[], RELIABLE) else {
+            return;
+        };
+        let type_flags = u16::from_be_bytes([info[0], info[1]]);
+        self.caps.perkey_8080_max_key_count = u16::from_be_bytes([info[5], info[6]]);
+        for key_type in KEY_TYPES_8080 {
+            if type_flags & key_type == 0 {
+                continue;
+            }
+            let count = self
+                .acked(
+                    idx,
+                    FN_8080_GET_KEY_TYPE_INFO,
+                    &key_type.to_be_bytes(),
+                    PROBE,
+                )
+                .map(|r| u16::from_be_bytes([r[0], r[1]]));
+            if count == Ok(0) {
+                continue;
+            }
+            let key_ids = self.read_key_ids_8080(idx, key_type, count.unwrap_or(0));
+            if !key_ids.is_empty() {
+                self.caps
+                    .perkey_8080_types
+                    .push(KeyType8080 { key_type, key_ids });
+            }
+        }
+        self.caps.has_perkey_8080 = !self.caps.perkey_8080_types.is_empty();
+        self.caps.has_numpad = self
+            .caps
+            .perkey_8080_types
+            .iter()
+            .any(|t| t.key_ids.iter().any(|id| (0x53..=0x63).contains(id)));
+    }
+
+    /// `ReadPerKey8080Colors`: GetKeyColors pages of 14; `expected` 0 pages until one is empty.
+    fn read_key_ids_8080(&mut self, idx: u8, key_type: u16, expected: u16) -> Vec<u8> {
+        let pages = if expected > 0 {
+            (expected as usize).div_ceil(KEYS_PER_FRAME_8080)
+        } else {
+            (self.caps.perkey_8080_max_key_count as usize / KEYS_PER_FRAME_8080 + 4).max(16)
+        };
+        let mut ids = Vec::new();
+        for page in 0..pages {
+            let start = (page * KEYS_PER_FRAME_8080) as u16;
+            let mut query = [0u8; 5];
+            query[..2].copy_from_slice(&key_type.to_be_bytes());
+            query[2..4].copy_from_slice(&start.to_be_bytes());
+            let Ok(r) = self.acked(idx, FN_8080_GET_KEY_COLORS, &query, PROBE) else {
+                break;
+            };
+            let found: Vec<u8> = r[4..]
+                .chunks(4)
+                .map(|e| e[0])
+                .filter(|&id| id != 0)
+                .collect();
+            if found.is_empty() {
+                break;
+            }
+            ids.extend(found);
+        }
+        ids
+    }
+
     /// `SetSWControl`.
     fn set_sw_control(&mut self, mode: u8, flags: u8) -> Reply {
         if self.caps.idx_rgb_effects == 0 {
@@ -704,6 +830,9 @@ impl<L: Link> Hidpp<L> {
     /// `ClaimSWControlIfNeeded`, for the zone-effect pages this port drives.
     fn claim(&mut self) -> bool {
         if self.claimed {
+            return true;
+        }
+        if self.caps.rgb_page == FEAT_COLOR_LED_EFFECTS && self.caps.idx_perkey_8080 != 0 {
             return true;
         }
         if self.caps.idx_rgb_effects == 0 {
@@ -1275,22 +1404,223 @@ impl<L: Link> Hidpp<L> {
             self.upgrade();
             self.cancel_retry();
         } else if self.upgrade_to_5 {
-            if self.retry_attempt >= REPAINT_RETRY_BACKOFF_MS.len() {
+            if !self.schedule_retry() {
                 self.upgrade();
                 self.cancel_retry();
-            } else {
-                let wait = REPAINT_RETRY_BACKOFF_MS[self.retry_attempt];
-                self.retry_at = Some(Instant::now() + Duration::from_millis(wait));
-                self.retry_attempt += 1;
             }
         } else {
             self.cancel_retry();
         }
     }
 
+    /// `ScheduleRetryPaint`; false once the backoff is spent.
+    fn schedule_retry(&mut self) -> bool {
+        match REPAINT_RETRY_BACKOFF_MS.get(self.retry_attempt) {
+            Some(&wait) => {
+                self.retry_at = Some(Instant::now() + Duration::from_millis(wait));
+                self.retry_attempt += 1;
+                true
+            }
+            None => {
+                self.retry_at = None;
+                false
+            }
+        }
+    }
+
     fn cancel_retry(&mut self) {
         self.retry_at = None;
         self.retry_attempt = 0;
+    }
+
+    /// The 0x8080 branch of `DeviceUpdateLEDs`; `keys[i]` is LED `i`'s `keyType << 8 | keyId`.
+    fn perkey_8080_frame(&mut self, keys: &[u16], snapshot: &[Color]) {
+        self.claim();
+        let full = self.sent.len() != snapshot.len();
+        if full {
+            self.sent = vec![None; snapshot.len()];
+        }
+        let n = snapshot.len().min(keys.len());
+        let mut frame = Vec::new();
+        let mut in_frame = vec![false; n];
+        for i in 0..n {
+            if keys[i] != 0 && self.sent[i] != Some(snapshot[i]) {
+                frame.push(i);
+                in_frame[i] = true;
+            }
+        }
+        if !full && n > 0 {
+            let budget = if frame.len() <= RESYNC_QUIET_ZONES {
+                RESYNC_KEYS_MAX
+            } else {
+                RESYNC_KEYS_MIN
+            };
+            let mut added = 0;
+            for _ in 0..n {
+                if added >= budget {
+                    break;
+                }
+                let i = self.resync_cursor % n;
+                self.resync_cursor += 1;
+                if in_frame[i] || keys[i] == 0 {
+                    continue;
+                }
+                frame.push(i);
+                in_frame[i] = true;
+                added += 1;
+            }
+        }
+        let mut by_type: Vec<(u16, Vec<(u8, Color)>)> = Vec::new();
+        for &i in &frame {
+            let (key_type, key) = (keys[i] >> 8, (keys[i] & 0xFF) as u8);
+            match by_type.iter_mut().find(|(t, _)| *t == key_type) {
+                Some((_, group)) => group.push((key, snapshot[i])),
+                None => by_type.push((key_type, vec![(key, snapshot[i])])),
+            }
+        }
+        if by_type.is_empty() {
+            self.cancel_retry();
+            return;
+        }
+        let landed = self.set_perkey_8080(&by_type);
+        for &i in &frame {
+            self.sent[i] = landed.then_some(snapshot[i]);
+        }
+        if landed {
+            self.cancel_retry();
+        } else {
+            self.schedule_retry();
+        }
+    }
+
+    /// `SetPerKey8080`: true only when every SetKeyColors write and the FlushLEDs were acked.
+    fn set_perkey_8080(&mut self, by_type: &[(u16, Vec<(u8, Color)>)]) -> bool {
+        let idx = self.caps.idx_perkey_8080;
+        if idx == 0 {
+            return false;
+        }
+        self.flush();
+        let kt40_id12_only = self.caps.pids.contains(&KEYTYPE40_ID12_ONLY);
+        let (mut sent, mut answered, mut rejected) = (0, 0, 0);
+        let mut send_failed = false;
+        let mut aborted = false;
+        'types: for (key_type, keys) in by_type {
+            let keys: Vec<(u8, Color)> = keys
+                .iter()
+                .copied()
+                .filter(|&(id, _)| !(kt40_id12_only && *key_type == 0x40) || id == 1 || id == 2)
+                .collect();
+            for chunk in keys.chunks(KEYS_PER_FRAME_8080) {
+                let mut data = Vec::with_capacity(60);
+                data.extend(key_type.to_be_bytes());
+                data.extend((chunk.len() as u16).to_be_bytes());
+                for &(id, c) in chunk {
+                    data.extend([id, c.0, c.1, c.2]);
+                }
+                while answered < sent && sent - answered >= self.window_8080 {
+                    if !self.process_one_8080(PERKEY_ACK_WAIT_MS, &mut answered, &mut rejected) {
+                        aborted = true;
+                        break 'types;
+                    }
+                }
+                if !self.send_very_long(idx, FN_8080_SET_KEY_COLORS, &data) {
+                    send_failed = true;
+                    continue;
+                }
+                sent += 1;
+            }
+        }
+        if !aborted {
+            let deadline = Instant::now() + Duration::from_millis(250);
+            while answered < sent {
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                let remaining = ((deadline - now).as_millis() as u64).min(ACK_TAIL_8080_MS);
+                if remaining == 0 || !self.process_one_8080(remaining, &mut answered, &mut rejected)
+                {
+                    break;
+                }
+            }
+        }
+        let committed = !aborted && sent > 0 && self.commit_8080(&mut answered, &mut rejected);
+        let lost = sent.saturating_sub(answered);
+        if lost > 0 {
+            self.clean_frames_8080 = 0;
+            self.window_8080 = (self.window_8080 / 2).max(WINDOW_8080_MIN);
+        } else if sent > 0 && self.window_8080 < WINDOW_8080_MAX {
+            self.clean_frames_8080 += 1;
+            if self.clean_frames_8080 >= PERKEY_WINDOW_GROW_AFTER {
+                self.clean_frames_8080 = 0;
+                self.window_8080 += 1;
+            }
+        }
+        committed && !send_failed && lost == 0 && rejected == 0
+    }
+
+    /// `ProcessOne8080Response`: counts a SetKeyColors ACK or error; false when nothing came.
+    fn process_one_8080(
+        &mut self,
+        timeout_ms: u64,
+        answered: &mut usize,
+        rejected: &mut usize,
+    ) -> bool {
+        let Ok(Some((rf, rfn, rd))) = self.read_message(timeout_ms) else {
+            return false;
+        };
+        let idx = self.caps.idx_perkey_8080;
+        if rf == 0xFF {
+            if rfn == idx && rd[0] == FN_8080_SET_KEY_COLORS | SW_ID {
+                *answered += 1;
+                *rejected += 1;
+            }
+        } else if rf == idx && rfn == FN_8080_SET_KEY_COLORS | SW_ID {
+            *answered += 1;
+        }
+        true
+    }
+
+    /// `PerKeyCommit8080`: FlushLEDs on `link`, polling through BUSY.
+    fn commit_8080(&mut self, answered: &mut usize, rejected: &mut usize) -> bool {
+        let idx = self.caps.idx_perkey_8080;
+        if self.send(idx, FN_8080_FLUSH_LEDS, &[]).is_err() {
+            return false;
+        }
+        let deadline = Instant::now() + Duration::from_millis(250);
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            let Ok(Some((rf, rfn, rd))) = self.read_message((deadline - now).as_millis() as u64)
+            else {
+                return false;
+            };
+            if rf == 0xFF && rfn == idx && rd[0] & 0x0F == SW_ID {
+                match rd[0] & 0xF0 {
+                    FN_8080_SET_KEY_COLORS => {
+                        *answered += 1;
+                        *rejected += 1;
+                    }
+                    FN_8080_FLUSH_LEDS if rd[1] == 0x08 => {
+                        self.link.sleep(FRAME_END_BUSY_POLL_MS);
+                        let _ = self.send(idx, FN_8080_FLUSH_LEDS, &[]);
+                    }
+                    FN_8080_FLUSH_LEDS => return false,
+                    _ => {}
+                }
+                continue;
+            }
+            if rf != idx || rfn & 0x0F != SW_ID {
+                continue;
+            }
+            match rfn & 0xF0 {
+                FN_8080_FLUSH_LEDS => return true,
+                FN_8080_SET_KEY_COLORS => *answered += 1,
+                _ => {}
+            }
+        }
     }
 
     /// The zone-effect branch of `DeviceUpdateLEDs`: Direct rides Static, one LED per cluster.
@@ -1319,7 +1649,9 @@ impl<L: Link> Hidpp<L> {
         if !changed && !retry {
             return Ok(());
         }
-        if self.caps.has_perkey {
+        if perkey_8080(&self.caps) {
+            self.perkey_8080_frame(zones, colors);
+        } else if self.caps.has_perkey {
             self.perkey_frame(zones, colors);
         } else {
             self.zone_frame(colors);
@@ -1343,9 +1675,206 @@ fn kind(device_type: u8) -> DeviceKind {
     }
 }
 
+/// The KeyboardLayoutManager full board as HID usages (`hidpp20_key_name_to_usage`), 0 empty.
+#[rustfmt::skip]
+const BOARD_8080: [[u8; 21]; 6] = [
+    [0x29, 0, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0, 0, 0, 0],
+    [0x35, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2D, 0x2E, 0x2A, 0x49, 0x4A, 0x4B, 0x53, 0x54, 0x55, 0x56],
+    [0x2B, 0x14, 0x1A, 0x08, 0x15, 0x17, 0x1C, 0x18, 0x0C, 0x12, 0x13, 0x2F, 0x30, 0x31, 0x4C, 0x4D, 0x4E, 0x5F, 0x60, 0x61, 0x57],
+    [0x39, 0x04, 0x16, 0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x33, 0x34, 0x32, 0x28, 0, 0, 0, 0x5C, 0x5D, 0x5E, 0],
+    [0xE1, 0x64, 0x1D, 0x1B, 0x06, 0x19, 0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0, 0xE5, 0, 0x52, 0, 0x59, 0x5A, 0x5B, 0x58],
+    [0xE0, 0xE3, 0xE2, 0, 0, 0, 0x2C, 0, 0, 0, 0xE6, 0xE7, 0x65, 0xE4, 0x50, 0x51, 0x4F, 0, 0x62, 0x63, 0],
+];
+
+/// Strip key: row, column, `keyType << 8 | keyId`, and whether it opens a new row.
+type StripKey = (u8, u8, u16, bool);
+
+const G810_STRIP: &[StripKey] = &[
+    (0, 0, 0x1001, true),
+    (0, 12, 0x4005, false),
+    (0, 13, 0x4003, false),
+    (0, 14, 0x4004, false),
+    (0, 16, 0x4002, false),
+    (0, 18, 0x4001, false),
+    (0, 19, 0x02E2, false),
+    (1, 17, 0x02CD, false),
+    (1, 18, 0x02B7, false),
+    (1, 19, 0x02B6, false),
+    (1, 20, 0x02B5, false),
+];
+
+const GPRO_STRIP: &[StripKey] = &[
+    (0, 0, 0x1001, true),
+    (0, 12, 0x4003, false),
+    (0, 13, 0x4004, false),
+    (0, 15, 0x4002, false),
+    (0, 16, 0x4001, false),
+];
+
+const G512_STRIP: &[StripKey] = &[(0, 17, 0x4003, false), (0, 18, 0x4002, false)];
+
+const G910_STRIP: &[StripKey] = &[
+    (0, 3, 0x0406, true),
+    (0, 4, 0x0407, false),
+    (0, 5, 0x0408, false),
+    (0, 6, 0x0409, false),
+    (1, 0, 0x1001, false),
+    (2, 0, 0x0401, false),
+    (3, 0, 0x0402, false),
+    (4, 0, 0x0403, false),
+    (5, 0, 0x0404, false),
+    (6, 0, 0x0405, false),
+    (7, 3, 0x1002, false),
+];
+
+/// `known_kb_8080_strips`: model id, full size, strip. Unclaimed enumerated ids are phantoms.
+const STRIPS_8080: [(u16, bool, &[StripKey]); 9] = [
+    (0xC331, true, G810_STRIP),
+    (0xC337, true, G810_STRIP),
+    (0xC333, true, G810_STRIP),
+    (0xC338, true, G810_STRIP),
+    (0xC342, true, G512_STRIP),
+    (0xC33C, true, G512_STRIP),
+    (0xC32B, true, G910_STRIP),
+    (0xC335, true, G910_STRIP),
+    (0xC339, false, GPRO_STRIP),
+];
+
+/// `FindKb8080Strip` on the wireless and wired model ids.
+fn strip_8080(caps: &Caps) -> Option<(bool, &'static [StripKey])> {
+    STRIPS_8080
+        .iter()
+        .find(|s| s.0 == caps.pids[0] || s.0 == caps.pids[1])
+        .map(|s| (s.1, s.2))
+}
+
+/// `PerKey8080Capable`: enumerated keys, or a known keyboard whose strip addresses itself.
+fn perkey_8080(caps: &Caps) -> bool {
+    caps.has_perkey_8080
+        || (caps.device_type == 0 && caps.idx_perkey_8080 != 0 && strip_8080(caps).is_some())
+}
+
+/// Whether `hidpp20_key_name_for_usage` names this keyId.
+fn named_usage(id: u8) -> bool {
+    matches!(id, 0x04..=0x65 | 0x85 | 0x87 | 0xE0..=0xE7)
+}
+
+/// The KLM board for `hidpp20_derive_keyboard_layout`, with the ABNT2 wire overrides.
+fn board_8080(layout_code: u8, full: bool) -> Vec<(u8, u8, u16)> {
+    let dropped: &[u8] = match layout_code {
+        0x02 | 0x03 | 0x08 | 0x0E | 0x0F | 0x16 | 0x1A | 0x1D | 0x1F | 0x21 | 0x24 | 0x37 => {
+            &[0x31]
+        }
+        0x38 => &[0x31],
+        0x04 | 0x0D | 0x14 | 0x19 | 0x41 | 0x05 | 0x11 | 0x0A => &[],
+        _ => &[0x32, 0x64],
+    };
+    let mut keys = Vec::new();
+    for (r, row) in BOARD_8080.iter().enumerate() {
+        for (c, &usage) in row.iter().enumerate() {
+            if usage != 0 && (full || c < 17) && !dropped.contains(&usage) {
+                keys.push((r as u8, c as u8, usage as u16));
+            }
+        }
+    }
+    if layout_code == 0x38 {
+        for k in keys.iter_mut().filter(|k| (k.0, k.1) == (4, 11)) {
+            k.2 = 0x0138;
+        }
+        keys.push((4, 12, 0x0188));
+    }
+    keys
+}
+
+/// `SetupZones8080`: matrix then Extras on a row below; values `keyType << 8 | keyId`, 0 for none.
+fn layout_8080(caps: &Caps) -> (Vec<u16>, Vec<[f32; 2]>, [u32; 2]) {
+    let strip = strip_8080(caps);
+    let mut kb: Option<&KeyType8080> = None;
+    if caps.device_type == 0 {
+        let mut best = 0;
+        for t in &caps.perkey_8080_types {
+            let overlap = t.key_ids.iter().filter(|&&id| named_usage(id)).count();
+            if overlap > best {
+                best = overlap;
+                kb = Some(t);
+            }
+        }
+    }
+    let mut matrix: Vec<(u8, u8, u16)> = Vec::new();
+    if kb.is_some() || strip.is_some() {
+        let full = match (kb, strip) {
+            (None, Some((full, _))) => full,
+            _ => caps.has_numpad,
+        };
+        matrix = board_8080(caps.layout_code, full);
+        for &(row, col, value, new_row) in strip.map_or(&[][..], |s| s.1) {
+            for k in matrix.iter_mut() {
+                if new_row && k.0 >= row {
+                    k.0 += 1;
+                } else if !new_row && k.0 == row && k.1 >= col {
+                    k.1 += 1;
+                }
+            }
+            matrix.push((row, col, value));
+        }
+        matrix.sort_by_key(|k| (k.0, k.1));
+        let key_type = kb.map_or(0x0001, |t| t.key_type);
+        for k in matrix.iter_mut().filter(|k| k.2 < 0x100) {
+            let usage = k.2 as u8;
+            k.2 = match kb {
+                Some(t) if !t.key_ids.contains(&usage) => 0,
+                _ => key_type << 8 | usage as u16,
+            };
+        }
+    }
+    let claimed: Vec<u16> = matrix.iter().map(|k| k.2).filter(|&v| v != 0).collect();
+    let mut extras: Vec<u16> = Vec::new();
+    if kb.is_none() && strip.is_some() {
+        for usage in [0x31, 0x32, 0x64] {
+            if !claimed.contains(&(0x0100 | usage)) {
+                extras.push(0x0100 | usage);
+            }
+        }
+    }
+    if strip.is_none() {
+        for t in &caps.perkey_8080_types {
+            for &id in &t.key_ids {
+                let value = t.key_type << 8 | id as u16;
+                if !claimed.contains(&value) {
+                    extras.push(value);
+                }
+            }
+        }
+    }
+    let line = |n: usize, y: f32| (0..n).map(move |i| [(i as f32 + 0.5) / n as f32, y]);
+    if matrix.is_empty() {
+        let n = extras.len();
+        return (extras, line(n, 0.5).collect(), [n as u32, 1]);
+    }
+    let rows = matrix.iter().map(|k| k.0).max().unwrap_or(0) as u32 + 1;
+    let cols = matrix.iter().map(|k| k.1).max().unwrap_or(0) as u32 + 1;
+    let total = rows + !extras.is_empty() as u32;
+    let mut leds: Vec<[f32; 2]> = matrix
+        .iter()
+        .map(|k| {
+            [
+                (k.1 as f32 + 0.5) / cols as f32,
+                (k.0 as f32 + 0.5) / total as f32,
+            ]
+        })
+        .collect();
+    leds.extend(line(extras.len(), (rows as f32 + 0.5) / total as f32));
+    let mut values: Vec<u16> = matrix.iter().map(|k| k.2).collect();
+    values.extend(extras);
+    (values, leds, [cols, total])
+}
+
 /// LED order and positions: per-key zones in discovery order, else one LED per cluster.
 /// Keyboard zones sit where hidpp.rs's TKL table puts them; the rest go on a row below.
 fn layout(caps: &Caps) -> (Vec<u16>, Vec<[f32; 2]>, [u32; 2]) {
+    if perkey_8080(caps) {
+        return layout_8080(caps);
+    }
     if !caps.has_perkey {
         let n = caps.clusters.len().max(1);
         let leds = (0..caps.clusters.len())
@@ -1462,7 +1991,12 @@ pub fn receiver_targets(rap: &mut impl Link, node_path: &str) -> Vec<Target> {
 }
 
 /// `HIDPP20BuildController`: probe, and keep it when it has zone effects or per-key lighting.
-pub fn build<L: Link>(link: L, target: &Target, bluetooth: bool) -> Option<Unified<L>> {
+pub fn build<L: Link>(
+    link: L,
+    vl: Option<L>,
+    target: &Target,
+    bluetooth: bool,
+) -> Option<Unified<L>> {
     let mut ctl = Hidpp::new(
         link,
         target.index,
@@ -1470,10 +2004,30 @@ pub fn build<L: Link>(link: L, target: &Target, bluetooth: bool) -> Option<Unifi
         bluetooth,
         target.pairing_name.clone(),
     );
-    if ctl.probe() != Probed::Lit || !(ctl.caps.has_zone_effects || ctl.caps.has_perkey) {
+    ctl.vl = vl;
+    if ctl.probe() != Probed::Lit
+        || !(ctl.caps.has_zone_effects || ctl.caps.has_perkey || perkey_8080(&ctl.caps))
+    {
         return None;
     }
     Some(Unified::new(ctl, &target.identity))
+}
+
+/// The usage 0x0604 collection beside an 0xFF43 node, which carries the 0x12 report on Windows.
+fn very_long(api: &HidApi, info: &Info) -> Option<HidDevice> {
+    if info.usage_page != 0xFF43 {
+        return None;
+    }
+    let key = receiver::path_key(&info.path);
+    api.device_list()
+        .find(|d| {
+            d.vendor_id() == info.vid
+                && d.product_id() == info.pid
+                && d.usage_page() == 0xFF43
+                && d.usage() == 0x0604
+                && receiver::path_key(&d.path().to_string_lossy()) == key
+        })
+        .and_then(|d| d.open_device(api).ok())
 }
 
 /// `DetectLogitechHIDPP20`.
@@ -1518,7 +2072,7 @@ fn open(api: &HidApi, info: &Info, claimed: &mut Vec<String>) -> Vec<Box<dyn Bac
         let built = info
             .open(api)
             .ok()
-            .and_then(|hid| build(hid, &target, bluetooth));
+            .and_then(|hid| build(hid, very_long(api, info), &target, bluetooth));
         match built {
             Some(device) => found.push(Box::new(device)),
             None => claimed.retain(|c| *c != target.identity),

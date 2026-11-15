@@ -1,5 +1,7 @@
 //! Ported from OpenRGB Controllers/LogitechController/LogitechHIDPP20Controller (GPL-2.0-or-later).
 
+use std::sync::{Arc, Mutex};
+
 use super::super::fake::{Ev, Fake};
 use super::*;
 
@@ -23,6 +25,7 @@ fn root(index: u8, page: u16) -> Vec<u8> {
 }
 
 /// A device answering IRoot from `features` and everything else through `handle(feat, fn, params)`.
+/// Answers longer than 16 bytes come back as a very-long (0x12) report.
 fn sim(
     features: &'static [(u16, u8)],
     mut handle: impl FnMut(u8, u8, &[u8]) -> R + Send + 'static,
@@ -38,14 +41,15 @@ fn sim(
         };
         let mut frame = match answer {
             R::Ok(params) => {
-                let mut f = vec![0x11, index, feat, func];
+                let id = if params.len() > 16 { 0x12 } else { 0x11 };
+                let mut f = vec![id, index, feat, func];
                 f.extend(params);
                 f
             }
             R::Err(code) => vec![0x11, index, 0xFF, feat, func, code],
             R::Silent => return Vec::new(),
         };
-        frame.resize(20, 0);
+        frame.resize(if frame[0] == 0x12 { 64 } else { 20 }, 0);
         vec![frame]
     })
 }
@@ -329,7 +333,7 @@ fn probed(f: Fake) -> Unified<Fake> {
         behind_receiver: true,
         pairing_name: "G515 LS TKL".into(),
     };
-    let mut d = build(f, &target, false).unwrap();
+    let mut d = build(f, None, &target, false).unwrap();
     d.ctl.link.log.clear();
     d
 }
@@ -452,37 +456,298 @@ fn individual_ack_echo() {
     assert!(!d.ctl.match_ack(FN_SET_RANGE, &rd));
 }
 
-// Probe gives up on features whose paths are not ported (0x8080 per-key V1).
+/// A very-long request as `SendVeryLongFrame` frames it.
+fn vreq(index: u8, feat: u8, function: u8, params: &[u8]) -> Vec<u8> {
+    let mut b = vec![0x12, index, feat, function | 0x07];
+    b.extend(params);
+    b.resize(64, 0);
+    b
+}
+
+const V1: &[(u16, u8)] = &[
+    (0x0001, 1),
+    (0x0003, 3),
+    (0x0005, 2),
+    (0x8070, 5),
+    (0x8080, 7),
+];
+
+/// keyType, fn1 keyCount (`None` fails), keyIds.
+type Types = &'static [(u16, Option<u16>, &'static [u8])];
+
+const A_TO_Q: [u8; 17] = [
+    0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13,
+    0x14,
+];
+
+/// A wired 0x8070 + 0x8080 keyboard with model id `pid`, fn0 typeFlags `flags` and `types`.
+fn v1_board(pid: u16, flags: u16, types: Types, busy_flushes: usize) -> Fake {
+    let mut busy = busy_flushes;
+    sim(V1, move |feat, func, p| {
+        let key_type = u16::from_be_bytes([p[0], p[1]]);
+        let entry = types.iter().find(|t| t.0 == key_type);
+        match (feat, func) {
+            (2, 0x00) => R::Ok(vec![4]),
+            (2, 0x10) => R::Ok(b"G512".to_vec()),
+            (2, 0x20) => R::Ok(vec![0]),
+            (3, 0x00) => {
+                let [h, l] = pid.to_be_bytes();
+                R::Ok(vec![1, 1, 2, 3, 4, 0, 0, 0, 0, h, l])
+            }
+            (3, _) => R::Ok(Vec::new()),
+            (5, 0x00) => R::Ok(vec![1]),
+            (5, 0x10) => R::Ok(vec![0, 0, 0, 1]),
+            (5, 0x20) => R::Ok(vec![p[0], p[1], 0, 1]),
+            (7, 0x00) => {
+                let [h, l] = flags.to_be_bytes();
+                R::Ok(vec![h, l, 0, 0, types.len() as u8, 0, 0])
+            }
+            (7, 0x10) => match entry {
+                Some((_, Some(n), _)) => R::Ok(n.to_be_bytes().to_vec()),
+                _ => R::Err(0x02),
+            },
+            (7, 0x20) => {
+                let start = u16::from_be_bytes([p[2], p[3]]) as usize;
+                let mut r = p[..4].to_vec();
+                for &id in entry.map_or(&[][..], |t| t.2).iter().skip(start).take(14) {
+                    r.extend([id, 0, 0, 0]);
+                }
+                R::Ok(r)
+            }
+            (7, 0x30) => R::Ok(Vec::new()),
+            (7, 0x50) if busy > 0 => {
+                busy -= 1;
+                R::Err(0x08)
+            }
+            (7, 0x50) => R::Ok(Vec::new()),
+            _ => R::Err(0x02),
+        }
+    })
+}
+
+const G512_TYPES: Types = &[
+    (0x0001, Some(17), &A_TO_Q),
+    (0x0002, Some(0), &[]),
+    (0x0040, None, &[1, 2, 3, 4, 5]),
+];
+
+fn wired<L: Link>(link: L, vl: Option<L>) -> Unified<L> {
+    let target = Target {
+        identity: "x".into(),
+        index: 0xFF,
+        behind_receiver: false,
+        pairing_name: String::new(),
+    };
+    build(link, vl, &target, false).unwrap()
+}
+
+// DiscoverPerKey8080: fn0, fn1 per typeFlags bit, fn2 pages of 14; keyCount 0 skips, an fn1 failure pages fn2 until empty.
 #[test]
-fn per_key_v1_is_refused() {
-    const V1: &[(u16, u8)] = &[(0x0001, 1), (0x8070, 5), (0x8080, 7)];
-    let f = sim(V1, |feat, func, p| match (feat, func) {
-        (5, 0x00) => R::Ok(vec![1]),
-        (5, 0x10) => R::Ok(vec![0, 0, 0, 1]),
-        (5, 0x20) => R::Ok(vec![p[0], p[1], 0, 1]),
-        _ => R::Err(0x02),
-    });
-    let mut h = Hidpp::new(f, 0xFF, false, false, String::new());
-    assert_eq!(h.probe(), Probed::Unported(0x8080));
-    assert_eq!(h.caps.rgb_page, 0x8070);
+fn perkey_8080_discovery() {
+    let mut h = Hidpp::new(
+        v1_board(0xC342, 0x0043, G512_TYPES, 0),
+        0xFF,
+        false,
+        false,
+        String::new(),
+    );
+    assert_eq!(h.probe(), Probed::Lit);
     let writes = h.link.writes();
     let at = writes
         .iter()
-        .position(|w| *w == root(0xFF, 0x8070))
+        .position(|w| *w == root(0xFF, 0x8080))
         .unwrap();
+    let w = |func, p: &[u8]| req(0xFF, 7, func, p);
     assert_eq!(
-        writes[at - 2..],
+        writes[at..at + 10],
         [
-            root(0xFF, 0x8071),
-            root(0xFF, 0x0600),
-            root(0xFF, 0x8070),
-            req(0xFF, 5, 0x00, &[]),
-            req(0xFF, 5, 0x10, &[0, 0]),
-            req(0xFF, 5, 0x20, &[0, 0, 0, 0]),
-            root(0xFF, 0x8081),
             root(0xFF, 0x8080),
+            w(0x00, &[]),
+            w(0x10, &[0, 1]),
+            w(0x20, &[0, 1, 0, 0, 0]),
+            w(0x20, &[0, 1, 0, 14, 0]),
+            w(0x10, &[0, 2]),
+            w(0x10, &[0, 0x40]),
+            w(0x20, &[0, 0x40, 0, 0, 0]),
+            w(0x20, &[0, 0x40, 0, 14, 0]),
+            root(0xFF, 0x4540),
         ]
     );
+    assert_eq!(
+        h.caps.perkey_8080_types,
+        [
+            KeyType8080 {
+                key_type: 1,
+                key_ids: A_TO_Q.to_vec()
+            },
+            KeyType8080 {
+                key_type: 0x40,
+                key_ids: vec![1, 2, 3, 4, 5]
+            },
+        ]
+    );
+    assert!(h.caps.has_perkey_8080 && !h.caps.has_numpad);
+    assert_eq!(h.caps.pids, [0, 0xC342, 0]);
+}
+
+/// One collection of a shared fake device: `wide` takes only 0x12 reports, the other refuses them.
+struct Node(Arc<Mutex<Fake>>, bool);
+
+impl Link for Node {
+    fn write(&mut self, data: &[u8]) -> Result<usize, String> {
+        if (data[0] == 0x12) != self.1 {
+            return Err("wrong collection".into());
+        }
+        self.0.lock().unwrap().write(data)
+    }
+
+    fn read(&mut self, buf: &mut [u8], ms: i32) -> Result<usize, String> {
+        self.0.lock().unwrap().read(buf, ms)
+    }
+
+    fn send_feature(&mut self, data: &[u8]) -> Result<(), String> {
+        self.0.lock().unwrap().send_feature(data)
+    }
+
+    fn get_feature(&mut self, buf: &mut [u8]) -> Result<usize, String> {
+        self.0.lock().unwrap().get_feature(buf)
+    }
+
+    fn descriptor(&mut self, buf: &mut [u8]) -> Result<usize, String> {
+        self.0.lock().unwrap().descriptor(buf)
+    }
+
+    fn sleep(&mut self, ms: u64) {
+        self.0.lock().unwrap().sleep(ms)
+    }
+}
+
+// SetPerKey8080 on the 0x0604 handle: no claim on 0x8070, keyTypes in LED order, 14 keys a packet, FlushLEDs on the main handle.
+#[test]
+fn perkey_8080_frame_on_very_long_handle() {
+    let dev = Arc::new(Mutex::new(v1_board(0xC342, 0x0043, G512_TYPES, 0)));
+    let mut d = wired(Node(dev.clone(), false), Some(Node(dev.clone(), true)));
+    assert_eq!(d.zones.len(), 89);
+    assert_eq!(d.device.grid, [19, 6]);
+    assert_eq!(d.zones.iter().filter(|&&z| z >> 8 == 0x40).count(), 2);
+    dev.lock().unwrap().log.clear();
+    let id = d.device.id.clone();
+    let colors = vec![RED; d.device.leds.len()];
+    d.push(&id, &colors).unwrap();
+    let keys = |ids: &[u8]| {
+        let mut p = vec![0, 1, 0, ids.len() as u8];
+        for &k in ids {
+            p.extend([k, 0xFF, 0, 0]);
+        }
+        p
+    };
+    let order = [
+        0x14, 0x08, 0x0C, 0x12, 0x13, 0x04, 0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x06, 0x05,
+        0x11, 0x10,
+    ];
+    assert_eq!(
+        dev.lock().unwrap().writes(),
+        [
+            vreq(
+                0xFF,
+                7,
+                0x30,
+                &[0, 0x40, 0, 2, 3, 0xFF, 0, 0, 2, 0xFF, 0, 0]
+            ),
+            vreq(0xFF, 7, 0x30, &keys(&order[..14])),
+            vreq(0xFF, 7, 0x30, &keys(&order[14..])),
+            req(0xFF, 7, 0x50, &[]),
+        ]
+    );
+    assert!(d.ctl.retry_at.is_none());
+}
+
+// PerKeyCommit8080 without a very-long handle: 0x12 rides the main handle, BUSY on FlushLEDs is polled every 10 ms.
+#[test]
+fn perkey_8080_fallback_and_busy_flush() {
+    let mut d = wired(v1_board(0xC342, 0x0043, G512_TYPES, 1), None);
+    d.ctl.link.log.clear();
+    let id = d.device.id.clone();
+    d.push(&id, &vec![RED; d.device.leds.len()]).unwrap();
+    let flush = req(0xFF, 7, 0x50, &[]);
+    let log = &d.ctl.link.log;
+    assert_eq!(
+        log.iter()
+            .filter(|e| matches!(e, Ev::Write(w) if w[0] == 0x12))
+            .count(),
+        3
+    );
+    assert_eq!(
+        log[log.len() - 3..],
+        [Ev::Write(flush.clone()), Ev::Sleep(10), Ev::Write(flush)]
+    );
+    assert!(d.ctl.retry_at.is_none());
+}
+
+// HIDPP20_QUIRK_8080_KEYTYPE40_ID12_ONLY (G410, 0xC330): keyType 0x40 sends keyIds 1 and 2 only; no strip, so all three stay LEDs.
+#[test]
+fn g410_keytype40_filter() {
+    const TYPES: Types = &[(0x0001, Some(1), &[0x04]), (0x0040, Some(3), &[1, 2, 3])];
+    let mut d = wired(v1_board(0xC330, 0x0041, TYPES, 0), None);
+    assert_eq!(d.zones[d.zones.len() - 3..], [0x4001, 0x4002, 0x4003]);
+    assert_eq!(d.zones.len(), 87 + 3);
+    d.ctl.link.log.clear();
+    let id = d.device.id.clone();
+    d.push(&id, &vec![BLUE; d.device.leds.len()]).unwrap();
+    assert_eq!(
+        d.ctl.link.writes(),
+        [
+            vreq(0xFF, 7, 0x30, &[0, 1, 0, 1, 0x04, 0, 0, 0xFF]),
+            vreq(
+                0xFF,
+                7,
+                0x30,
+                &[0, 0x40, 0, 2, 1, 0, 0, 0xFF, 2, 0, 0, 0xFF]
+            ),
+            req(0xFF, 7, 0x50, &[]),
+        ]
+    );
+}
+
+// G910 (0xC32B): the over-reported media keyType is still walked, its keys are phantoms; a numpad id makes the board full size.
+#[test]
+fn g910_media_walked_then_suppressed() {
+    const TYPES: Types = &[
+        (0x0001, Some(2), &[0x04, 0x53]),
+        (0x0002, Some(2), &[0xB5, 0xB6]),
+    ];
+    let d = wired(v1_board(0xC32B, 0x0003, TYPES, 0), None);
+    assert_eq!(d.ctl.caps.perkey_8080_types.len(), 2);
+    assert!(d.ctl.caps.has_numpad);
+    assert!(d.zones.iter().all(|&z| z >> 8 != 0x02));
+    assert!(d.zones.contains(&0x0153) && d.zones.contains(&0x1001));
+    assert_eq!(d.zones.len(), 104 + 11);
+    assert_eq!(d.device.grid, [22, 8]);
+}
+
+// PerKey8080Capable on a known board with nothing enumerated: every main key on keyType 1, the off-frame backslashes as Extras.
+#[test]
+fn known_board_without_enumeration() {
+    let d = wired(v1_board(0xC342, 0x0000, &[], 0), None);
+    assert!(!d.ctl.caps.has_perkey_8080);
+    assert_eq!(d.zones.len(), 104 + 2 + 2);
+    assert!(d.zones.iter().all(|&z| z != 0));
+    assert_eq!(d.zones[106..], [0x0132, 0x0164]);
+    assert_eq!(d.device.grid, [21, 7]);
+}
+
+// Probe still gives up on the 0x0620 headset path.
+#[test]
+fn headset_hostmode_is_refused() {
+    const HEADSET: &[(u16, u8)] = &[(0x0001, 1), (0x0620, 6)];
+    let mut h = Hidpp::new(
+        sim(HEADSET, |_, _, _| R::Err(0x02)),
+        0xFF,
+        false,
+        false,
+        String::new(),
+    );
+    assert_eq!(h.probe(), Probed::Unported(0x0620));
 }
 
 // 0x8070 zone device: DiscoverRGBEffects' 0x8070 layout, the simple [1, 1] claim, Static on fn 3, no upgrade.
