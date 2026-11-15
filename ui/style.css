@@ -858,6 +858,11 @@ button.icon svg {
   stroke-width: 1.5;
 }
 
+button.discord svg {
+  fill: #5865f2;
+  stroke: none;
+}
+
 button.heart svg {
   fill: var(--heart, #e5484d);
   stroke: none;

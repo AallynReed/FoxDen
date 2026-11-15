@@ -25,6 +25,14 @@ const RELEASE: Duration = Duration::from_secs(2);
 /// How long the last black frame may take on the way out.
 const LAST_FRAME: Duration = Duration::from_millis(500);
 /// Backend groups in the order their devices are listed.
+/// When, after start, an empty boards-and-memory group is probed again.
+const BOARD_RETRIES: [Duration; 4] = [
+    Duration::from_secs(3),
+    Duration::from_secs(8),
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+];
+
 const GROUPS: [&str; 4] = ["openrgb", "hid", "board", "net"];
 
 #[derive(Clone, Debug, Serialize)]
@@ -397,6 +405,8 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         }
         let mut system = Vec::new();
         let mut job = Some(Job::Detect);
+        let started = Instant::now();
+        let mut board_tries = 0;
         loop {
             let asked = job.is_some();
             let detect_asked = matches!(job, Some(Job::Detect));
@@ -441,6 +451,20 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                 };
                 if stale.any() {
                     reload(&shared, &mut watch, stale);
+                }
+                // At start the service may answer before its memory driver is ready: look again a few times.
+                let none_yet = !lock(&shared).engine.views().any(|(label, ..)| label == "board");
+                if none_yet
+                    && self::enabled("board", &settings)
+                    && BOARD_RETRIES.get(board_tries).is_some_and(|&at| started.elapsed() >= at)
+                {
+                    board_tries += 1;
+                    let board = Kinds {
+                        board: true,
+                        ..Kinds::default()
+                    };
+                    reload(&shared, &mut watch, board);
+                    emit_snapshot(&app, &shared);
                 }
                 if detect_asked || change.seen || stale.any() {
                     emit_snapshot(&app, &shared);
