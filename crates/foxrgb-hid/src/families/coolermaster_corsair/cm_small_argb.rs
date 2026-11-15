@@ -8,7 +8,7 @@ use crate::registry::{Detector, Info};
 
 const TIMEOUT: i32 = 250;
 const DIRECT: u8 = 0xFE;
-/// OpenRGB leaves the header size to the user, up to 48; FoxRGB drives all 48.
+/// OpenRGB leaves the header size to the user, up to 48; FoxRGB starts at 48.
 const LEDS: usize = 48;
 const FW0012: &str = "A202104052336";
 
@@ -67,14 +67,20 @@ pub fn direct(colors: &[Color]) -> Vec<Report> {
     out
 }
 
+/// The header at the user's length.
+fn sized(id: &str) -> usize {
+    crate::lengths::length(id, 0, "Header 1", LEDS, 1, LEDS)
+}
+
 struct SmallArgb {
     hid: HidDevice,
+    leds: usize,
 }
 
 impl Driver for SmallArgb {
     fn frame(&mut self, colors: &[Color], first: bool) -> Result<(), String> {
         if first {
-            write(&self.hid, &led_count(1, LEDS as u8))?;
+            write(&self.hid, &led_count(1, self.leds as u8))?;
             let [a, b] = direct_mode(0xFF);
             write(&self.hid, &a)?;
             exchange(&self.hid, &b, TIMEOUT)?;
@@ -91,24 +97,33 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
         return Err("unsupported firmware".into());
     }
     let hid = info.open(api)?;
+    let id = info.device_id("coolermaster");
+    let leds = sized(&id);
     let dev = device(
-        info.device_id("coolermaster"),
+        id,
         det.name,
         DeviceKind::Strip,
-        line(LEDS),
-        [LEDS as u32, 1],
+        line(leds),
+        [leds as u32, 1],
     );
     Ok(Lights::boxed(
         "cooler master small argb",
         dev,
         None,
-        SmallArgb { hid },
+        SmallArgb { hid, leds },
     ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_set_length_sizes_the_header() {
+        assert_eq!(sized("hid:cm-small-argb-test"), 48);
+        crate::lengths::set_one("hid:cm-small-argb-test", 0, 12);
+        assert_eq!(sized("hid:cm-small-argb-test"), 12);
+    }
 
     // CMSmallARGBController::SetLedCount
     #[test]

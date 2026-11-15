@@ -48,7 +48,7 @@ pub fn other() -> Vec<Box<dyn Backend>> {
     found
 }
 
-pub use more_d::{LedProtocol, LedStrip, led_strips};
+pub use more_d::{LedProtocol, LedStrip, led_strips, serial_ports};
 
 /// Vendor-wide `HID_PID_ANY` lines of the ported families.
 pub fn matchers() -> Vec<&'static Matcher> {

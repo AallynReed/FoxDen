@@ -7,7 +7,7 @@ use hidapi::HidApi;
 
 const FAMILY: &str = "zalman-zsync";
 const CHANNELS: usize = 8;
-/// OpenRGB leaves channel sizes to the user; FoxRGB drives each at its 40-LED maximum.
+/// OpenRGB leaves channel sizes to the user; FoxRGB starts each at its 40-LED maximum.
 const CHANNEL_LEDS: usize = 40;
 const FIRMWARE: u8 = 0x02;
 const DIRECT: u8 = 0x32;
@@ -47,17 +47,29 @@ pub fn channel_packets(channel: u8, colors: &[Color]) -> Vec<[u8; 65]> {
     out
 }
 
-struct Zalman;
+/// Every channel at the user's length.
+fn sized(id: &str) -> [usize; CHANNELS] {
+    std::array::from_fn(|i| {
+        let name = format!("Channel {}", i + 1);
+        crate::lengths::length(id, i, &name, CHANNEL_LEDS, 0, CHANNEL_LEDS)
+    })
+}
+
+struct Zalman {
+    counts: [usize; CHANNELS],
+}
 
 impl Proto for Zalman {
     fn start(&mut self, io: &mut dyn Io) -> Result<(), String> {
         exchange(io, &packet(&[FIRMWARE]))
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for (ch, zone) in colors.chunks(CHANNEL_LEDS).enumerate() {
-            for p in channel_packets(ch as u8, zone) {
+        let mut at = 0;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            for p in channel_packets(ch as u8, &colors[at..at + n]) {
                 exchange(io, &p)?;
             }
+            at += n;
         }
         Ok(())
     }
@@ -67,21 +79,23 @@ impl Proto for Zalman {
     }
 }
 
-fn device(info: &Info, d: &Detector) -> Device {
+fn device(id: &str, d: &Detector, counts: &[usize; CHANNELS]) -> Device {
     let kind = DeviceKind::Strip;
     let mut dev = Device::grid(
-        &info.device_id(FAMILY),
+        id,
         d.name,
         kind,
         [0.06, 0.40, 0.60, 0.16],
         CHANNEL_LEDS as u32,
         CHANNELS as u32,
     );
-    dev.leds = (0..CHANNELS)
-        .flat_map(|r| {
-            (0..CHANNEL_LEDS).map(move |i| {
+    dev.leds = counts
+        .iter()
+        .enumerate()
+        .flat_map(|(r, &n)| {
+            (0..n).map(move |i| {
                 [
-                    (i as f32 + 0.5) / CHANNEL_LEDS as f32,
+                    (i as f32 + 0.5) / n as f32,
                     (r as f32 + 0.5) / CHANNELS as f32,
                 ]
             })
@@ -91,7 +105,15 @@ fn device(info: &Info, d: &Detector) -> Device {
 }
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    boxed(api, info, FAMILY, device(info, d), Zalman)
+    let id = info.device_id(FAMILY);
+    let counts = sized(&id);
+    boxed(
+        api,
+        info,
+        FAMILY,
+        device(&id, d, &counts),
+        Zalman { counts },
+    )
 }
 
 pub static DETECTORS: &[Detector] = &[det("Zalman Z Sync", 0x1C57, 0x7ED0, ANY, ANY, ANY, open)];
@@ -125,9 +147,26 @@ mod tests {
     #[test]
     fn firmware_then_reads() {
         let a = vec![Color::BLACK; CHANNELS * CHANNEL_LEDS];
-        let [first, _, _] = pushes(Zalman, a.len(), vec![], &a, &[]);
+        let proto = Zalman {
+            counts: [CHANNEL_LEDS; CHANNELS],
+        };
+        let [first, _, _] = pushes(proto, a.len(), vec![], &a, &[]);
         assert_eq!(first[0], w(packet(&[0x02]).to_vec()));
         assert_eq!(first[1], Op::Read);
         assert_eq!(first.len(), 2 + CHANNELS * 5 * 2);
+    }
+
+    #[test]
+    fn a_set_length_shortens_a_channel() {
+        crate::lengths::set_one("hid:zalman-test", 2, 7);
+        let counts = sized("hid:zalman-test");
+        assert_eq!(counts[1..3], [40, 7]);
+        let n = counts.iter().sum();
+        let [first, _, _] = pushes(Zalman { counts }, n, vec![], &vec![Color(1, 1, 1); n], &[]);
+        // channel 2's first plane packet: start 0, 7 LEDs
+        assert_eq!(
+            first[2 + 2 * 10 + 2],
+            w(packet(&[0x32, 2, 0, 7, 0, 1, 1, 1, 1, 1, 1, 1]).to_vec())
+        );
     }
 }

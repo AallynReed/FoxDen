@@ -142,13 +142,14 @@ pub fn set_settings(
     }
     let server = |s: &Settings| (s.openrgb_enabled, s.openrgb_host.clone(), s.openrgb_port);
     let net = |s: &Settings| (s.network_enabled, s.network.clone());
+    let hid = |s: &Settings| (s.native_drivers, s.led_strips.clone(), s.zone_leds.clone());
     let lighting = settings.lighting_module != old.lighting_module;
     let kinds = if lighting {
         Kinds::ALL
     } else {
         Kinds {
             openrgb: server(&settings) != server(&old),
-            hid: settings.native_drivers != old.native_drivers,
+            hid: hid(&settings) != hid(&old),
             net: net(&settings) != net(&old),
         }
     };
@@ -258,6 +259,12 @@ pub fn pair_nanoleaf(
         Ok(())
     })?;
     queue(&jobs, Job::Reload(NET))
+}
+
+/// COM ports of USB devices, for an LED strip.
+#[tauri::command(async)]
+pub fn serial_ports() -> Vec<String> {
+    foxrgb_hid::serial_ports()
 }
 
 /// Hands the work to the hardware thread; a "snapshot" follows when it is done.

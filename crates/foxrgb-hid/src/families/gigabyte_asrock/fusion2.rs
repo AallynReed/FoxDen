@@ -49,10 +49,23 @@ pub struct Zone {
     pub idx: u8,
     pub min: u16,
     pub max: u16,
+    pub leds: u16,
 }
 
 const fn z(idx: u8, min: u16, max: u16) -> Zone {
-    Zone { idx, min, max }
+    let leds = if DEFAULT_ARGB_LEDS < min {
+        min
+    } else if DEFAULT_ARGB_LEDS > max {
+        max
+    } else {
+        DEFAULT_ARGB_LEDS
+    };
+    Zone {
+        idx,
+        min,
+        max,
+        leds,
+    }
 }
 
 const fn led(n: u8) -> Zone {
@@ -175,9 +188,22 @@ pub fn apply_it5711_counts(zones: &mut [Zone], fw_id: u8, rev: u8) {
             _ => continue,
         };
         if n != 0 {
-            zone.min = n;
-            zone.max = n;
+            *zone = z(zone.idx, n, n);
         }
+    }
+}
+
+/// Each addressable header at the user's length, within its zone limits.
+pub fn sized(id: &str, zones: &mut [Zone]) {
+    for (n, (i, zone)) in zones
+        .iter_mut()
+        .enumerate()
+        .filter(|(_, z)| z.min != z.max)
+        .enumerate()
+    {
+        let name = format!("Header {}", n + 1);
+        let (min, max) = (zone.min as usize, zone.max as usize);
+        zone.leds = crate::lengths::length(id, i, &name, zone.leds as usize, min, max) as u16;
     }
 }
 
@@ -186,11 +212,7 @@ fn fixed(zone: &Zone) -> bool {
 }
 
 pub fn zone_leds(zone: &Zone) -> usize {
-    if fixed(zone) || zone.min == zone.max {
-        zone.min as usize
-    } else {
-        DEFAULT_ARGB_LEDS.clamp(zone.min, zone.max) as usize
-    }
+    zone.leds as usize
 }
 
 /// The IT8297Report fields the driver uses.
@@ -531,9 +553,11 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         None
     };
     let report = parse_report(&main, extra.as_deref()).ok_or("short IT8297 report")?;
-    let board = Board::new(info.pid, report);
+    let mut board = Board::new(info.pid, report);
+    let id = info.device_id("gigabyte-fusion2");
+    sized(&id, &mut board.zones);
     let name = if info.pid == 0xA100 { "GC-USB" } else { d.name };
-    let device = device(info.device_id("gigabyte-fusion2"), name, &board.zones);
+    let device = device(id, name, &board.zones);
     if device.leds.len() != board.led_count() {
         return Err("layout mismatch".into());
     }
@@ -749,5 +773,24 @@ mod tests {
         let total: usize = zones.iter().map(zone_leds).sum();
         assert_eq!(d.leds.len(), total);
         assert!(d.leds.iter().flatten().all(|v| (0.0..=1.0).contains(v)));
+    }
+
+    #[test]
+    fn a_set_length_sizes_a_header() {
+        let mut zones = IT5711.to_vec();
+        apply_it5711_counts(&mut zones, 0x03, 0);
+        crate::lengths::set_one("hid:fusion2-test", 1, 100);
+        crate::lengths::set_one("hid:fusion2-test", 3, 900);
+        crate::lengths::set_one("hid:fusion2-test", 10, 2);
+        sized("hid:fusion2-test", &mut zones);
+        let leds: Vec<usize> = zones.iter().map(zone_leds).collect();
+        assert_eq!(leds[..4], [32, 100, 32, 256]);
+        assert_eq!(leds[10], 13);
+        let names: Vec<String> = crate::lengths::resizable()
+            .into_iter()
+            .filter(|z| z.device == "hid:fusion2-test")
+            .map(|z| z.name)
+            .collect();
+        assert_eq!(names, ["Header 1", "Header 2", "Header 3", "Header 4"]);
     }
 }

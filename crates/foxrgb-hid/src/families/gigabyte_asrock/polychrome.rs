@@ -56,17 +56,37 @@ pub fn read_header(cfg: u8, len: usize) -> Vec<u8> {
     b
 }
 
+fn addressable(zone_type: u8) -> bool {
+    matches!(zone_type, 2 | 3 | 7)
+}
+
+/// Each addressable header at the user's length; the LED-count table for SetZoneSize if one changed.
+pub fn sized(id: &str, zones: &mut [Zone], counts: [u8; 8]) -> Option<[u8; 8]> {
+    let mut table = counts;
+    for (i, z) in zones.iter_mut().enumerate() {
+        if addressable(z.zone_type) {
+            let name = ZONE_NAMES[z.zone_type as usize];
+            let n = crate::lengths::length(id, i, name, z.leds, 0, z.leds_max);
+            // 30 in the table would mark the header unavailable
+            if n != ZONE_UNAVAILABLE as usize {
+                z.leds = n;
+            }
+            table[z.zone_type as usize] = z.leds as u8;
+        }
+    }
+    (table != counts).then_some(table)
+}
+
 /// SetDeviceInfo: one zone per present channel, from the three config tables.
 pub fn zones(max_leds: [u8; 8], rgswap: u8, header1: u8) -> Vec<Zone> {
     (0..8u8)
         .filter(|&z| max_leds[z as usize] != ZONE_UNAVAILABLE && (header1 >> z) & 1 == 1)
         .map(|z| {
             let leds = max_leds[z as usize] as usize;
-            let addressable = matches!(z, 2 | 3 | 7);
             Zone {
                 zone_type: z,
                 leds,
-                leds_max: if addressable {
+                leds_max: if addressable(z) {
                     ADDRESSABLE_MAX_LEDS
                 } else {
                     leds
@@ -147,12 +167,18 @@ fn with_reads(packets: Vec<Vec<u8>>) -> Vec<Op> {
 
 pub struct Board {
     zones: Vec<Zone>,
+    resize: Option<[u8; 8]>,
 }
 
 impl Plan for Board {
-    /// DeviceUpdateMode for Direct: RGSwap off, then each zone into mode 0x0F.
+    /// SetZoneSize if a header was resized, then DeviceUpdateMode for Direct: RGSwap off, each zone into mode 0x0F.
     fn first(&mut self, colors: &[Color]) -> Vec<Op> {
-        let mut packets = vec![write_header(RGSWAP_CFG, &[0x00])];
+        let mut packets: Vec<Vec<u8>> = self
+            .resize
+            .iter()
+            .map(|t| write_header(LEDCOUNT_CFG, t))
+            .collect();
+        packets.push(write_header(RGSWAP_CFG, &[0x00]));
         let mut at = 0;
         for z in &self.zones {
             if z.leds > 0 {
@@ -194,7 +220,9 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
     let header1 = query(&hid, 0x01, 64)?;
     let mut max_leds = [0u8; 8];
     max_leds.copy_from_slice(&counts[4..12]);
-    let zones = zones(max_leds, swap[4], header1[4]);
+    let mut zones = zones(max_leds, swap[4], header1[4]);
+    let id = info.device_id("asrock-polychrome");
+    let resize = sized(&id, &mut zones, max_leds);
     if zones.iter().all(|z| z.leds == 0) {
         return Err("no lighting zones".into());
     }
@@ -204,7 +232,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         .map(|z| ZONE_NAMES[z.zone_type as usize])
         .collect();
     let device = Device {
-        id: info.device_id("asrock-polychrome"),
+        id,
         name: format!("{} ({})", d.name, names.join(", ")),
         kind: DeviceKind::Motherboard,
         rect: [0.06, 0.12, 0.52, 0.03 * zones.len() as f32],
@@ -215,7 +243,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         "asrock polychrome usb",
         device,
         hid,
-        Board { zones },
+        Board { zones, resize },
     ))
 }
 
@@ -271,7 +299,10 @@ mod tests {
             zone(4, 1, 1, true),
             zone(2, 0, 100, false),
         ];
-        let mut b = Board { zones };
+        let mut b = Board {
+            zones,
+            resize: None,
+        };
         let ops = b.first(&[Color(0x11, 0x22, 0x33), Color(0x44, 0x55, 0x66)]);
         let mut rg = vec![0u8; 65];
         rg[1] = 0x15;
@@ -333,10 +364,38 @@ mod tests {
     #[test]
     fn session_sends_setup_then_frames() {
         let zones = vec![zone(0, 1, 1, false)];
-        let mut s = Session::new(Board { zones }, 1);
+        let board = Board {
+            zones,
+            resize: None,
+        };
+        let mut s = Session::new(board, 1);
         let first = s.step(&[Color(1, 2, 3)]);
         // rgswap + zone + one chunk of (1 + 8) * 3 bytes, each with a read
         assert_eq!(first.len(), 6);
         assert_eq!(s.step(&[Color(3, 2, 1)]).len(), 2);
+    }
+
+    // SetZoneSize: the LED-count table with the resized header, before Direct mode.
+    #[test]
+    fn a_set_length_resizes_a_header() {
+        let counts = [1, 0x1E, 31, 12, 1, 1, 1, 80];
+        let mut z = zones(counts, 0, 0b1000_1101);
+        crate::lengths::set_one("hid:polychrome-test", 2, 20);
+        let resize = sized("hid:polychrome-test", &mut z, counts);
+        assert_eq!(
+            z.iter().map(|z| z.leds).collect::<Vec<_>>(),
+            [1, 31, 20, 80]
+        );
+        let table = [1, 0x1E, 31, 20, 1, 1, 1, 80];
+        assert_eq!(resize, Some(table));
+        let mut fresh = zones(counts, 0, 0b1000_1101);
+        assert_eq!(sized("hid:polychrome-test-2", &mut fresh, counts), None);
+        crate::lengths::set_one("hid:polychrome-test-3", 1, 30);
+        let mut kept = zones(counts, 0, 0b1000_1101);
+        assert_eq!(sized("hid:polychrome-test-3", &mut kept, counts), None);
+        assert_eq!(kept[1].leds, 31);
+        let mut b = Board { zones: z, resize };
+        let ops = b.first(&[Color::BLACK; 132]);
+        assert_eq!(ops[0], Op::Write(write_header(LEDCOUNT_CFG, &table)));
     }
 }

@@ -142,6 +142,15 @@ fn with_replies(size: usize, packets: Vec<Vec<u8>>) -> Vec<Op> {
         .collect()
 }
 
+/// The pump, then each fan header at the user's length.
+fn sized(id: &str, pump: usize) -> Vec<usize> {
+    let fans = (1..=FANS).map(|i| {
+        let name = format!("Fan {i}");
+        crate::lengths::length(id, i, &name, FAN_LEDS, 0, FAN_LEDS)
+    });
+    std::iter::once(pump).chain(fans).collect()
+}
+
 struct Core {
     size: usize,
     zones: Vec<usize>,
@@ -258,10 +267,10 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         } else {
             *counts.first().ok_or("no pump")?
         };
-        let mut zones = vec![pump];
-        zones.extend([FAN_LEDS; FANS]);
+        let id = info.device_id("corsair-commander-core");
+        let zones = sized(&id, pump);
         let dev = device(
-            info.device_id("corsair-commander-core"),
+            id,
             d.name,
             DeviceKind::Other,
             [FAN_LEDS as u32, FANS as u32],
@@ -421,6 +430,16 @@ mod tests {
         assert_eq!(data[6..9], [2, 12, 22]);
         assert!(data[9..6 + 102].iter().all(|&b| b == 0));
         assert_eq!(data[108..114], [3, 13, 23, 4, 14, 24]);
+    }
+
+    #[test]
+    fn a_set_length_shortens_a_fan() {
+        crate::lengths::set_one("hid:commander-core-test", 2, 8);
+        crate::lengths::set_one("hid:commander-core-test", 6, 50);
+        let zones = sized("hid:commander-core-test", 29);
+        assert_eq!(zones, [29, 34, 8, 34, 34, 34, 34]);
+        let colors = vec![Color(1, 1, 1); 207];
+        assert_eq!(color_data(&colors, &zones).len(), 3 * (29 + 6 * 34));
     }
 
     // SetDirectColor -> WriteData(22 00, 12 00) for a 29-LED pump and six full fans

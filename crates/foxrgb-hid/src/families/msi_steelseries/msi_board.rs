@@ -348,6 +348,24 @@ impl Config185 {
         self.zones.iter().map(|&z| (z, self.count(z))).collect()
     }
 
+    /// `leds`, with each per-LED addressable header at the user's length.
+    fn sized(&self, id: &str) -> Vec<(u8, usize)> {
+        let mut out = self.leds();
+        for (i, (zone, n)) in out.iter_mut().enumerate() {
+            let name = match *zone {
+                J_RAINBOW_1 => "JRAINBOW 1",
+                J_RAINBOW_2 => "JRAINBOW 2",
+                J_RAINBOW_3 => "JRAINBOW 3",
+                J_CORSAIR => "JCORSAIR",
+                _ => continue,
+            };
+            if self.mode == Direct::PerLed {
+                *n = crate::lengths::length(id, i, name, *n, 0, HEADER_LEDS);
+            }
+        }
+        out
+    }
+
     /// Whether anything is driven per LED; Update sends nothing otherwise.
     fn per_led_active(&self) -> bool {
         [
@@ -362,20 +380,16 @@ impl Config185 {
     }
 
     /// sync_direct_mode from the settings, with each supported header set to its LED count.
-    fn sync(&self, settings: &[u8]) -> bool {
+    fn sync(&self, leds: &[(u8, usize)], settings: &[u8]) -> bool {
         let at = |i: usize| settings.get(i).copied().unwrap_or(0);
-        let mut r1 = at(41);
-        let mut r2 = at(52);
-        let mut r3 = at(63);
-        if self.has(J_RAINBOW_1) {
-            r1 = self.count(J_RAINBOW_1) as u8;
-        }
-        if self.has(J_RAINBOW_2) {
-            r2 = self.count(J_RAINBOW_2) as u8;
-        }
-        if self.has(J_RAINBOW_3) {
-            r3 = self.count(J_RAINBOW_3) as u8;
-        }
+        let len = |zone: u8, stored: u8| {
+            leds.iter()
+                .find(|z| z.0 == zone)
+                .map_or(stored, |z| z.1 as u8)
+        };
+        let r1 = len(J_RAINBOW_1, at(41));
+        let r2 = len(J_RAINBOW_2, at(52));
+        let r3 = len(J_RAINBOW_3, at(63));
         !(r1 > SYNC_JRAINBOW || r2 > SYNC_JRAINBOW || r3 > SYNC_CORSAIR)
     }
 
@@ -385,7 +399,7 @@ impl Config185 {
     }
 
     /// SetLedColor in per-LED mode, then Update: the packets in the order they are sent.
-    fn per_led_frames(&self, sync: bool, colors: &[Color]) -> Vec<Op> {
+    fn per_led_frames(&self, leds: &[(u8, usize)], sync: bool, colors: &[Color]) -> Vec<Op> {
         let mut main = per_led_header(0x06, 0x00);
         let mut r1 = per_led_header(0x04, 0x00);
         let mut r2 = per_led_header(0x04, 0x01);
@@ -397,7 +411,7 @@ impl Config185 {
         let r2_sync = r1_sync + SYNC_JRAINBOW as usize;
         let cors_sync = r2_sync + SYNC_JRAINBOW as usize;
         let mut base = 0;
-        for (zone, count) in self.leds() {
+        for &(zone, count) in leds {
             for i in (0..count).rev() {
                 let c = colors.get(base + i).copied().unwrap_or(Color::BLACK);
                 let (packet, start, max) = match zone {
@@ -440,10 +454,10 @@ impl Config185 {
     }
 
     /// SetLedColor in zone-based mode, then Update.
-    fn zone_based_frame(&self, colors: &[Color]) -> [u8; 185] {
+    fn zone_based_frame(&self, leds: &[(u8, usize)], colors: &[Color]) -> [u8; 185] {
         let mut p = zone_based_185();
         let mut base = 0;
-        for (zone, count) in self.leds() {
+        for &(zone, count) in leds {
             for i in (0..count).rev() {
                 let c = colors.get(base + i).copied().unwrap_or(Color::BLACK);
                 if matches!(zone, J_RAINBOW_1 | J_RAINBOW_2 | J_PIPE_1 | J_PIPE_2) && i != 0 {
@@ -466,21 +480,27 @@ impl Config185 {
 
 struct Gen185 {
     config: &'static Config185,
+    leds: Vec<(u8, usize)>,
     sync: bool,
     enabled: bool,
 }
 
 impl Proto for Gen185 {
     fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
-        match self.config.mode {
-            Direct::ZoneBased => vec![Op::Feature(self.config.zone_based_frame(colors).to_vec())],
+        let config = self.config;
+        match config.mode {
+            Direct::ZoneBased => {
+                vec![Op::Feature(
+                    config.zone_based_frame(&self.leds, colors).to_vec(),
+                )]
+            }
             _ => {
                 let mut ops = Vec::new();
                 if !self.enabled {
-                    ops.push(Op::Feature(self.config.enable(self.sync).to_vec()));
+                    ops.push(Op::Feature(config.enable(self.sync).to_vec()));
                     self.enabled = true;
                 }
-                ops.extend(self.config.per_led_frames(self.sync, colors));
+                ops.extend(config.per_led_frames(&self.leds, self.sync, colors));
                 ops
             }
         }
@@ -555,15 +575,12 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
             {
                 return Err("board has no Mystic Light direct mode".into());
             }
-            let dev = device(
-                id,
-                det.name,
-                DeviceKind::Motherboard,
-                layout(&config.leds()),
-            );
+            let leds = config.sized(&id);
+            let dev = device(id, det.name, DeviceKind::Motherboard, layout(&leds));
             let proto = Gen185 {
                 config,
-                sync: config.sync(&settings),
+                sync: config.sync(&leds, &settings),
+                leds,
                 enabled: false,
             };
             Ok(Driver::boxed(hid, "msi mystic light", dev, proto))
@@ -1840,7 +1857,7 @@ mod tests {
             .collect();
         let mut theirs = vec![Color::BLACK; 6];
         theirs.extend_from_slice(&colors);
-        let ops = cfg.per_led_frames(true, &colors);
+        let ops = cfg.per_led_frames(&cfg.leds(), true, &colors);
         assert_eq!(ops.len(), 1);
         assert_eq!(feature(&ops[0]), &crate::msi::direct_frame(&theirs)[..]);
     }
@@ -1851,6 +1868,7 @@ mod tests {
         let config = config_185(0x7C56).unwrap();
         let mut g = Gen185 {
             config,
+            leds: config.leds(),
             sync: true,
             enabled: false,
         };
@@ -1862,13 +1880,30 @@ mod tests {
         assert_eq!(g.frame(&colors).len(), 1);
     }
 
+    #[test]
+    fn a_set_length_shortens_a_header() {
+        let config = config_185(0x7C90).unwrap();
+        crate::lengths::set_one("hid:msi-185-test", 1, 5);
+        let leds = config.sized("hid:msi-185-test");
+        assert_eq!(leds[..4], [(1, 1), (8, 5), (9, 40), (11, 40)]);
+        let n: usize = leds.iter().map(|z| z.1).sum();
+        let colors: Vec<Color> = (0..n).map(|i| Color(i as u8, 0, 1)).collect();
+        let ops = config.per_led_frames(&leds, false, &colors);
+        let r1 = feature(&ops[0]);
+        assert_eq!(r1[5 + 4 * 3..5 + 5 * 3], [5, 0, 1]);
+        assert!(r1[5 + 5 * 3..].iter().all(|&b| b == 0));
+        assert_eq!(feature(&ops[2])[5..8], [6, 0, 1]);
+        let zoned = config_185(0x7B93).unwrap();
+        assert_eq!(zoned.sized("hid:msi-185-test"), zoned.leds());
+    }
+
     // Update() in non-sync mode: JRAINBOW1, JRAINBOW2, JCORSAIR packets with 13 ms gaps, then the main packet.
     #[test]
     fn non_sync_frames_per_header() {
         let config = config_185(0x7C90).unwrap(); // JRGB1, JR1, JR2, JCORSAIR, PIPE1(4), ONBOARD(6)
         let n: usize = config.leds().iter().map(|z| z.1).sum();
         let colors: Vec<Color> = (0..n).map(|i| Color(i as u8, 0, 1)).collect();
-        let ops = config.per_led_frames(false, &colors);
+        let ops = config.per_led_frames(&config.leds(), false, &colors);
         assert_eq!(ops.len(), 7);
         let r1 = feature(&ops[0]);
         assert_eq!(r1[..5], [0x53, 0x25, 0x04, 0x00, 0x00]);
@@ -1895,11 +1930,12 @@ mod tests {
     fn sync_follows_stored_lengths() {
         let config = config_185(0x7C67).unwrap(); // JRGB1, JRAINBOW1 only
         let mut s = defaults_185().to_vec();
-        assert!(!config.sync(&s), "JRAINBOW2 stores 100 by default");
+        let leds = config.leds();
+        assert!(!config.sync(&leds, &s), "JRAINBOW2 stores 100 by default");
         s[52] = 40;
-        assert!(config.sync(&s));
+        assert!(config.sync(&leds, &s));
         s[63] = 121;
-        assert!(!config.sync(&s));
+        assert!(!config.sync(&leds, &s));
     }
 
     // zone_based_per_led_data after SetLedColor for 7B93 (JRGB1, JR1, JR2, JCORSAIR, PIPE1, ONBOARD x6).
@@ -1909,7 +1945,7 @@ mod tests {
         let leds = config.leds();
         assert_eq!(leds, vec![(1, 1), (8, 1), (9, 1), (11, 1), (3, 1), (13, 6)]);
         let colors: Vec<Color> = (1..=11).map(|i| Color(i, i, i)).collect();
-        let p = config.zone_based_frame(&colors);
+        let p = config.zone_based_frame(&leds, &colors);
         let mut e = defaults_185();
         for at in [
             1, 11, 21, 31, 42, 74, 84, 94, 104, 114, 124, 134, 144, 154, 164, 174,
@@ -1944,7 +1980,7 @@ mod tests {
         colors[1] = Color(9, 8, 7); // JRGB2
         let last = n - 1; // onboard LED 5 -> ON_BOARD_LED_6
         colors[last] = Color(5, 5, 5);
-        let p = config.zone_based_frame(&colors);
+        let p = config.zone_based_frame(&leds, &colors);
         assert_eq!(p[135..138], [9, 8, 7]);
         assert_eq!(p[65..68], [5, 5, 5]);
         assert_eq!(p[175..178], [0, 0, 0]);

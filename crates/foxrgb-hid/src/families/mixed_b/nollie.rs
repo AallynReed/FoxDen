@@ -113,6 +113,17 @@ fn report(head: &[u8]) -> Vec<u8> {
     b
 }
 
+/// Each channel at the user's length, up to the model's maximum.
+fn sized(id: &str, channels: usize, per_channel: usize) -> Vec<usize> {
+    (0..channels)
+        .map(|i| {
+            let name = format!("Channel {}", i + 1);
+            let default = CHANNEL_LEDS.min(per_channel);
+            crate::lengths::length(id, i, &name, default, 0, per_channel)
+        })
+        .collect()
+}
+
 struct Nollie {
     vid: u16,
     pid: u16,
@@ -176,15 +187,10 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         .find(|m| m.0 == info.vid && m.1 == info.pid)
         .ok_or("unknown Nollie model")?;
     open_with(api, info, "nollie", |_| {
-        let zones = vec![CHANNEL_LEDS.min(per_channel); channels];
+        let id = info.device_id("nollie");
+        let zones = sized(&id, channels, per_channel);
         let (leds, grid) = rows(&zones);
-        let dev = device(
-            info.device_id("nollie"),
-            d.name,
-            DeviceKind::Strip,
-            grid,
-            leds,
-        );
+        let dev = device(id, d.name, DeviceKind::Strip, grid, leds);
         Ok((
             dev,
             Nollie {
@@ -290,6 +296,20 @@ mod tests {
         assert_eq!(last[2..5], [100, (7 * 60 + 42) as u8, 200]);
         assert!(last[2 + 18 * 3..].iter().all(|&b| b == 0));
         assert_eq!(bytes(&ops[24]), buf(65, &[0x00, 0xFF]).as_slice());
+    }
+
+    #[test]
+    fn a_set_length_sizes_a_channel() {
+        crate::lengths::set_one("hid:nollie-test", 0, 300);
+        let zones = sized("hid:nollie-test", 1, 630);
+        assert_eq!(zones, [300]);
+        let mut n = Nollie {
+            zones,
+            ..nollie(FS_VID, NOLLIE1)
+        };
+        let ops = n.setup(&[]);
+        assert_eq!(ops, vec![Op::Write(buf(65, &[0x00, 0xFE, 0x03, 44, 1]))]);
+        assert_eq!(n.frame(&[]).len(), 300usize.div_ceil(21) + 1);
     }
 
     // SendPacketFS on the 28 L1 keeps RGB order with interval 25

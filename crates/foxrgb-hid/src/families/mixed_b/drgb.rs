@@ -16,6 +16,9 @@ const CHANNEL_LEDS: usize = 60;
 const V4_FIRST: usize = 316;
 const V4_NEXT: usize = 340;
 const FS_PER_PACKET: usize = 21;
+/// LEDs that fit OpenRGB's RGBData buffers: 24 V4 packets, and 1801 colours for V1/V3.
+const V4_MAX_TOTAL: usize = V4_FIRST + 23 * V4_NEXT;
+const FS_MAX_TOTAL: usize = 1800;
 
 /// (pid, channels, LEDs per channel, protocol version) from `DRGBDevices.cpp`.
 const DEVICES: [(u16, usize, usize, u8); 33] = [
@@ -180,6 +183,22 @@ fn sleep_report() -> Vec<u8> {
     fs_report(&[0x65])
 }
 
+/// Each channel at the user's length, within the byte count and the buffers above.
+fn sized(id: &str, channels: usize, per_channel: usize, version: u8) -> Vec<usize> {
+    let total = match version {
+        4 => V4_MAX_TOTAL,
+        2 => usize::MAX,
+        _ => FS_MAX_TOTAL,
+    };
+    let max = per_channel.min(255).min(total / channels.max(1));
+    (0..channels)
+        .map(|i| {
+            let name = format!("Channel {}", i + 1);
+            crate::lengths::length(id, i, &name, CHANNEL_LEDS.min(max), 0, max)
+        })
+        .collect()
+}
+
 struct Drgb {
     version: u8,
     zones: Vec<usize>,
@@ -211,15 +230,10 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         .find(|e| e.0 == info.pid)
         .ok_or("unknown DRGB model")?;
     open_with(api, info, "drgb", |_| {
-        let zones = vec![CHANNEL_LEDS.min(per_channel); channels];
+        let id = info.device_id("drgb");
+        let zones = sized(&id, channels, per_channel, version);
         let (leds, grid) = rows(&zones);
-        let dev = device(
-            info.device_id("drgb"),
-            d.name,
-            DeviceKind::Strip,
-            grid,
-            leds,
-        );
+        let dev = device(id, d.name, DeviceKind::Strip, grid, leds);
         Ok((dev, Drgb { version, zones }))
     })
 }
@@ -373,6 +387,21 @@ mod tests {
         };
         assert_eq!(d.keepalive(), Some(Duration::from_millis(500)));
         assert_eq!(d.refresh(&[]), vec![Op::Write(buf(65, &[0x00, 0x65]))]);
+    }
+
+    #[test]
+    fn a_set_length_sizes_a_channel_within_the_buffers() {
+        crate::lengths::set_one("hid:drgb-test", 1, 5);
+        crate::lengths::set_one("hid:drgb-test", 2, 900);
+        assert_eq!(sized("hid:drgb-test", 3, 512, 2), [60, 5, 255]);
+        crate::lengths::set_one("hid:drgb-test-v4", 0, 900);
+        let zones = sized("hid:drgb-test-v4", 36, 256, 4);
+        assert_eq!(zones[..2], [226, 60]);
+        let mut full = Drgb {
+            version: 4,
+            zones: vec![226; 36],
+        };
+        assert_eq!(full.frame(&[]).len(), 24);
     }
 
     #[test]

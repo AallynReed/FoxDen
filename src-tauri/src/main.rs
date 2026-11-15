@@ -52,7 +52,10 @@ fn main() {
             };
             report::set_enabled(settings.send_reports);
             report::send_last_crash();
-            log::info("app", format!("FoxRGB {} started", env!("CARGO_PKG_VERSION")));
+            log::info(
+                "app",
+                format!("FoxRGB {} started", env!("CARGO_PKG_VERSION")),
+            );
             tray::create(handle)?;
             let at_sign_in = std::env::args().any(|arg| arg == autostart::TRAY_ARG);
             if !settings.start_minimized && !at_sign_in {
@@ -94,6 +97,7 @@ fn main() {
             commands::scan_network,
             commands::pair_hue,
             commands::pair_nanoleaf,
+            commands::serial_ports,
             commands::get_conflicts,
             commands::close_conflicts_now,
             commands::last_conflicts,

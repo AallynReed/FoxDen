@@ -170,6 +170,8 @@
         ddp: [],
         espurna: [],
       },
+      led_strips: [],
+      zone_leds: {},
       close_to_tray: true,
       start_minimized: false,
       autostart: false,
@@ -318,11 +320,36 @@
     return s.openrgb_enabled && /^(127\.0\.0\.1|localhost)$/.test(s.openrgb_host) && s.openrgb_port === 6742;
   }
 
+  // Addressable headers whose length the user sets, as Aura USB reports them.
+  const resizable = { "hid:board": [["Header 1", 24, 0, 120], ["Header 2", 60, 0, 120]] };
+
+  function rows(d, counts) {
+    const leds = counts.flatMap((n, r) => Array.from({ length: n }, (_, i) => [(i + 0.5) / n, (r + 0.5) / counts.length]));
+    return { ...d, grid: [Math.max(1, ...counts), counts.length], leds };
+  }
+
+  function sized(d) {
+    const zones = (resizable[d.id] || []).map(([name, leds, min, max], i) => {
+      const key = d.id + "#" + i;
+      return { key, name, leds: clamp(state.settings.zone_leds[key] ?? leds, min, max), min, max };
+    });
+    return zones.length ? { ...rows(d, zones.map((z) => z.leds)), zones } : { ...d, zones };
+  }
+
+  function strips() {
+    return state.settings.led_strips
+      .filter((s) => /^(COM\d+|udp:\S+)$/i.test(s.port) && s.baud > 0 && s.leds > 0)
+      .map((s, i) => {
+        const id = "hid:ledstrip-" + s.port.toLowerCase().replace(/[^a-z0-9]/g, "");
+        return rows({ id, name: s.name, kind: "strip", backend: "hid", rect: [0.06, 0.45 + i * 0.02, 0.6, 0.04] }, [s.leds]);
+      });
+  }
+
   function devices() {
     const on = { openrgb: openrgb(), hid: state.settings.native_drivers };
-    return hardware
+    return [...hardware, ...strips()]
       .filter((d) => on[d.backend] && (state.keyboard || d.id !== "hid:046d:c547"))
-      .map((d) => ({ ...d, enabled: true, brightness: 1, ...state.tweaks[d.id] }));
+      .map((d) => ({ ...sized(d), enabled: true, brightness: 1, ...state.tweaks[d.id] }));
   }
 
   function detected() {
@@ -469,6 +496,9 @@
       window.open("logs.html", "logs", "width=760,height=480");
     },
     rescan() {},
+    serial_ports() {
+      return ["COM3", "COM4", "COM7"];
+    },
     // The pretend network has a Hue bridge, Nanoleaf panels, a LIFX bulb and a Govee strip.
     scan_network() {
       if (!state.settings.network_enabled) throw "network lights are off";

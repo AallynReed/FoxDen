@@ -60,8 +60,19 @@ impl Model {
     }
 }
 
+/// Each header at the user's length.
+fn sized(id: &str, model: Model) -> Vec<usize> {
+    (0..model.channels())
+        .map(|i| {
+            let name = format!("Header {}", i + 1);
+            crate::lengths::length(id, i, &name, CHANNEL_LEDS, 0, CHANNEL_LEDS)
+        })
+        .collect()
+}
+
 struct Srgb {
     model: Model,
+    counts: Vec<usize>,
 }
 
 impl Driver for Srgb {
@@ -78,13 +89,13 @@ impl Driver for Srgb {
 
     // DeviceUpdateLEDs of both models: every channel in turn.
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for ch in 0..self.model.channels() {
-            let zone: Vec<Color> = (0..CHANNEL_LEDS)
-                .map(|i| at(colors, ch * CHANNEL_LEDS + i))
-                .collect();
+        let mut start = 0;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            let zone: Vec<Color> = (start..start + n).map(|i| at(colors, i)).collect();
             for p in self.model.channel(ch as u8, &zone) {
                 io.write(&p)?;
             }
+            start += n;
         }
         Ok(())
     }
@@ -102,15 +113,11 @@ impl Driver for Srgb {
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     let model = model(&info.product).ok_or("unknown SRGBmods product")?;
     let io = open_io(api, info)?;
-    let (leds, grid) = rows(&vec![CHANNEL_LEDS; model.channels()]);
-    let dev = device(
-        info.device_id("srgbmods"),
-        d.name,
-        DeviceKind::Strip,
-        grid,
-        leds,
-    );
-    Ok(backend(io, dev, Srgb { model }, "srgbmods"))
+    let id = info.device_id("srgbmods");
+    let counts = sized(&id, model);
+    let (leds, grid) = rows(&counts);
+    let dev = device(id, d.name, DeviceKind::Strip, grid, leds);
+    Ok(backend(io, dev, Srgb { model, counts }, "srgbmods"))
 }
 
 pub(super) static DETECTORS: [Detector; 2] = [
@@ -140,7 +147,10 @@ mod tests {
     #[test]
     fn pico_frame() {
         let mut fake = Fake::default();
-        let mut s = Srgb { model: Model::Pico };
+        let mut s = Srgb {
+            model: Model::Pico,
+            counts: vec![CHANNEL_LEDS; 2],
+        };
         s.setup(&mut fake).unwrap();
         s.frame(&mut fake, &colors(120)).unwrap();
         let ops = fake.ops();
@@ -154,11 +164,31 @@ mod tests {
         assert_eq!(first[..8], [0, 1, 0, 3, 1, 0, 1, 2]);
     }
 
+    #[test]
+    fn a_set_length_shortens_a_header() {
+        crate::lengths::set_one("hid:srgbmods-test", 0, 5);
+        let counts = sized("hid:srgbmods-test", Model::Pico);
+        assert_eq!(counts, [5, 60]);
+        let mut fake = Fake::default();
+        let mut s = Srgb {
+            model: Model::Pico,
+            counts,
+        };
+        s.frame(&mut fake, &colors(65)).unwrap();
+        let ops = fake.ops();
+        assert_eq!(ops.len(), 4);
+        let Op::Write(p) = &ops[1] else { panic!() };
+        assert_eq!(p[..8], [0, 1, 0, 3, 2, 5, 1, 2]);
+    }
+
     // SRGBmodsPicoController::KeepaliveThread: SendPacket(1, 0, 0, false, NULL, 0)
     #[test]
     fn pico_keepalive() {
         let mut fake = Fake::default();
-        let mut s = Srgb { model: Model::Pico };
+        let mut s = Srgb {
+            model: Model::Pico,
+            counts: vec![CHANNEL_LEDS; 2],
+        };
         assert_eq!(s.keepalive(), Some(Duration::from_secs(5)));
         s.refresh(&mut fake, &[]).unwrap();
         assert_eq!(fake.ops(), vec![Op::Write(buf(65, &[0, 0, 0, 0, 2]))]);
@@ -168,7 +198,10 @@ mod tests {
     #[test]
     fn v1_setup_and_frame() {
         let mut fake = Fake::default();
-        let mut s = Srgb { model: Model::V1 };
+        let mut s = Srgb {
+            model: Model::V1,
+            counts: vec![CHANNEL_LEDS],
+        };
         assert_eq!(s.keepalive(), None);
         s.setup(&mut fake).unwrap();
         s.frame(&mut fake, &colors(60)).unwrap();

@@ -51,9 +51,23 @@ pub struct Params {
     pub matrix: Matrix,
     pub rows: usize,
     pub cols: usize,
+    pub argb: [u8; 6],
 }
 
 impl Params {
+    /// `new`, with each addressable channel at the user's length.
+    pub fn sized(id: &str, pid: u16) -> Params {
+        let mut p = Params::new(pid);
+        if p.matrix == Matrix::ExtendedArgb {
+            p.argb = std::array::from_fn(|i| {
+                let name = format!("Channel {}", i + 1);
+                let max = ARGB_CHANNEL_LEDS as usize;
+                crate::lengths::length(id, i, &name, max, 0, max) as u8
+            });
+        }
+        p
+    }
+
     pub fn new(pid: u16) -> Params {
         let m: &Model = model(pid);
         Params {
@@ -68,6 +82,7 @@ impl Params {
             matrix: m.matrix,
             rows: m.rows as usize,
             cols: m.cols as usize,
+            argb: [ARGB_CHANNEL_LEDS; 6],
         }
     }
 
@@ -321,11 +336,15 @@ pub fn set_leds(p: &Params, colors: &[Color]) -> Vec<Step> {
 }
 
 /// The addressable controller packs each zone at 80 LEDs per row (`RGBController_RazerAddressable::DeviceUpdateLEDs`).
-pub fn argb_buffer(colors: &[Color]) -> Vec<Color> {
+pub fn argb_buffer(colors: &[Color], sizes: &[u8; 6]) -> Vec<Color> {
     let per = ARGB_CHANNEL_LEDS as usize;
     let mut buf = vec![Color::BLACK; per * 6];
-    for (i, c) in colors.iter().take(per * 6).enumerate() {
-        buf[i] = *c;
+    let mut from = 0;
+    for (z, &n) in sizes.iter().enumerate() {
+        for i in 0..n as usize {
+            buf[z * per + i] = colors.get(from + i).copied().unwrap_or(Color::BLACK);
+        }
+        from += n as usize;
     }
     buf
 }
@@ -336,9 +355,9 @@ pub fn plan(p: &Params, first: bool, colors: &[Color]) -> Vec<Step> {
     if p.matrix == Matrix::ExtendedArgb {
         // DeviceConfigureZone, then DeviceUpdateMode(Direct): frame first, brightness after.
         if first {
-            steps.push(send(addressable_sizes(p, [ARGB_CHANNEL_LEDS; 6])));
+            steps.push(send(addressable_sizes(p, p.argb)));
         }
-        steps.extend(set_leds(p, &argb_buffer(colors)));
+        steps.extend(set_leds(p, &argb_buffer(colors, &p.argb)));
         if first {
             steps.extend(set_brightness(p, 255));
         }
@@ -368,37 +387,37 @@ pub struct Chroma {
     last_keepalive: Instant,
 }
 
-fn device_for(id: String, name: String, pid: u16) -> Device {
-    let m = model(pid);
+fn device_for(id: String, name: String, p: &Params) -> Device {
+    let m = model(p.pid);
     if m.matrix == Matrix::ExtendedArgb {
-        let lines = [(1, ARGB_CHANNEL_LEDS); 6];
+        let lines = p.argb.map(|n| (1, n));
         return stacked(id, name, m.kind, &lines);
     }
     stacked(id, name, m.kind, m.zones)
+}
+
+fn unit(id: String, name: String, pid: u16, wait: bool) -> Unit {
+    let p = Params::sized(&id, pid);
+    Unit {
+        device: device_for(id, name, &p),
+        p,
+        wait,
+        sent: None,
+    }
 }
 
 /// `DetectRazerControllers`, including devices paired to a wireless receiver.
 pub fn open(api: &HidApi, info: &Info, detector: &Detector) -> Result<Box<dyn Backend>, String> {
     let hid = info.open(api)?;
     let id = info.device_id("razer");
-    let mut units = vec![Unit {
-        p: Params::new(info.pid),
-        device: device_for(id.clone(), detector.name.into(), info.pid),
-        wait: false,
-        sent: None,
-    }];
+    let mut units = vec![unit(id.clone(), detector.name.into(), info.pid, false)];
     let receiver = model(info.pid).name;
     for pid in query_paired(&hid, &units[0].p) {
         if pid == info.pid || !super::listed(pid) {
             continue;
         }
         let name = format!("{} ({receiver})", model(pid).name);
-        units.push(Unit {
-            p: Params::new(pid),
-            device: device_for(format!("{id}-{pid:04x}"), name, pid),
-            wait: true,
-            sent: None,
-        });
+        units.push(unit(format!("{id}-{pid:04x}"), name, pid, true));
     }
     Ok(Box::new(Chroma {
         hid,
@@ -438,12 +457,7 @@ pub fn open_argb(
     Ok(Box::new(Chroma {
         hid,
         argb: Some(argb),
-        units: vec![Unit {
-            p: Params::new(info.pid),
-            device: device_for(id, detector.name.into(), info.pid),
-            wait: false,
-            sent: None,
-        }],
+        units: vec![unit(id, detector.name.into(), info.pid, false)],
         last_keepalive: Instant::now(),
     }))
 }
@@ -900,17 +914,45 @@ mod tests {
 
     #[test]
     fn argb_device_has_six_lines_of_80() {
-        let d = device_for("x".into(), "X".into(), 0x0F1F);
+        let d = device_for("x".into(), "X".into(), &Params::new(0x0F1F));
         assert_eq!(d.leds.len(), 480);
         assert_eq!(d.grid, [80, 6]);
     }
 
     #[test]
+    fn a_set_length_sizes_a_channel() {
+        crate::lengths::set_one("hid:razer-argb-test", 1, 3);
+        crate::lengths::set_one("hid:razer-argb-test", 5, 0);
+        let p = Params::sized("hid:razer-argb-test", 0x0F1F);
+        assert_eq!(p.argb, [80, 3, 80, 80, 80, 0]);
+        assert_eq!(Params::sized("hid:razer-argb-test", 0x0241).argb, [80; 6]);
+        let d = device_for("x".into(), "X".into(), &p);
+        assert_eq!(d.leds.len(), 323);
+        let mut colors = vec![Color::BLACK; 323];
+        colors[82] = Color(1, 2, 3);
+        colors[83] = Color(4, 5, 6);
+        let s = sends(&plan(&p, true, &colors));
+        assert_eq!(s[0][..], addressable_sizes(&p, [80, 3, 80, 80, 80, 0])[..]);
+        assert_eq!(s[2][6 + 2 * 3..6 + 3 * 3], [1, 2, 3]);
+        assert_eq!(s[3][6..9], [4, 5, 6]);
+    }
+
+    #[test]
     fn devices_match_openrgb_led_counts() {
-        assert_eq!(device_for("x".into(), "X".into(), 0x0241).leds.len(), 132);
-        assert_eq!(device_for("x".into(), "X".into(), 0x0287).leds.len(), 156);
         assert_eq!(
-            device_for("x".into(), "X".into(), MAMBA_2012_WIRED)
+            device_for("x".into(), "X".into(), &Params::new(0x0241))
+                .leds
+                .len(),
+            132
+        );
+        assert_eq!(
+            device_for("x".into(), "X".into(), &Params::new(0x0287))
+                .leds
+                .len(),
+            156
+        );
+        assert_eq!(
+            device_for("x".into(), "X".into(), &Params::new(MAMBA_2012_WIRED))
                 .leds
                 .len(),
             1

@@ -32,6 +32,11 @@ fn fixed(colors: &[Color]) -> [Vec<u8>; 2] {
     [a, b]
 }
 
+/// The count the accessories gave, or the user's.
+fn sized(id: &str, found: usize) -> usize {
+    crate::lengths::length(id, 0, "Channel 1", found, 0, MAX_LEDS)
+}
+
 struct Hue1 {
     leds: usize,
 }
@@ -74,18 +79,14 @@ fn initialize(hid: &HidDevice) -> Result<usize, String> {
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "nzxt hue+", |hid| {
-        let leds = initialize(hid)?;
-        if leds == 0 {
+        let found = initialize(hid)?;
+        if found == 0 {
             return Err("no accessories".into());
         }
+        let id = info.device_id("nzxt-hue1");
+        let leds = sized(&id, found);
         let (pos, grid) = rows(&[leds]);
-        let dev = device(
-            info.device_id("nzxt-hue1"),
-            d.name,
-            DeviceKind::Strip,
-            grid,
-            pos,
-        );
+        let dev = device(id, d.name, DeviceKind::Strip, grid, pos);
         Ok((dev, Hue1 { leds }))
     })
 }
@@ -135,6 +136,13 @@ mod tests {
             b[at..at + 3].copy_from_slice(&[100 + i, i, 200]);
         }
         assert_eq!(ops, vec![Op::Write(a), Op::Write(b)]);
+    }
+
+    #[test]
+    fn a_set_length_overrides_the_found_one() {
+        assert_eq!(sized("hid:nzxt-hue1-test", 24), 24);
+        crate::lengths::set_one("hid:nzxt-hue1-test", 0, 32);
+        assert_eq!(sized("hid:nzxt-hue1-test", 24), 32);
     }
 
     #[test]
