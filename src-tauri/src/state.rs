@@ -539,9 +539,18 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
                 .filter_map(|s| s.strip())
                 .collect();
             let mut backends = foxrgb_hid::led_strips(&strips);
+            // Hubs whose fans the service drives get their lighting from it too, admin or not.
+            let hubs = crate::service_lights::hubs(&settings.zone_leds);
+            let skip = crate::service_lights::left_to_service(hubs.is_some());
             foxrgb_hid::set_lengths(settings.zone_leds.clone());
-            backends.extend(foxrgb_hid::probe_with(&foxrgb_xpack::detectors()));
+            backends.extend(foxrgb_hid::probe_picked(
+                &foxrgb_xpack::detectors(),
+                foxrgb_hid::Pick::Skip(&skip),
+            ));
             backends.extend(foxrgb_xpack::probe_other());
+            if let Some(hubs) = hubs {
+                backends.push(Box::new(hubs));
+            }
             for (what, ms) in foxrgb_hid::slow_opens() {
                 crate::log::info("devices", format!("{what} took {ms} ms to open"));
             }
@@ -616,7 +625,11 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
         }
         fresh.push((label, outcome));
     }
-    let zones = kinds.hid.then(foxrgb_hid::resizable);
+    let zones = kinds.hid.then(|| {
+        let mut zones = foxrgb_hid::resizable();
+        zones.extend(crate::service_lights::hub_zones());
+        zones
+    });
     let mut state = lock(shared);
     if let Some(zones) = zones {
         state.zones = group_zones(zones);

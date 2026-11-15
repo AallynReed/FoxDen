@@ -1,7 +1,7 @@
 //! ASUS ROG Ryujin AIO fans and pumps (protocol learned from SignalRGB's Asus/ASUS_Ryujin_AIO_Controller.js).
 
 use super::util::{Every, hub_id, iface, le16, open, scan, spun};
-use crate::fan::{Channel, FanHub, backend, byte, percent};
+use crate::fan::{Channel, FanHub, backend_on, byte, percent};
 use crate::hid::{Io, drain, read_until};
 use foxrgb_fan::FanBackend;
 use foxrgb_hid::registry::Info;
@@ -253,7 +253,7 @@ pub fn backends(api: &HidApi, seen: &mut Vec<String>) -> Vec<Box<dyn FanBackend>
                 poll: Every::ms(1500),
             };
             hub.seed();
-            Some(backend(hub))
+            Some(backend_on(&info, hub))
         })
         .collect()
 }

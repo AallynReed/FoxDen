@@ -60,7 +60,7 @@ impl Plan for Cooler {
 }
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    let hid = info.open(api)?;
+    let hid = info.port(api)?;
     // Firmware query from the constructor; the answer only names the version.
     let mut answer = [0u8; IN_SIZE];
     run(&hid, &[Op::Write(packet(&[0xDE, 0x00]))])?;

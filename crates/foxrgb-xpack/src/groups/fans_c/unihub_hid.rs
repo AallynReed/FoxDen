@@ -1,10 +1,11 @@
 //! Lian Li Uni Fan controllers SL Infinity, SL V2 and AL V2, fan side (protocol learned from SignalRGB's LianLi_SL_Infinity.js, Lian_Li_Uni_Fans_SL_V2.js and Lian_Li_Uni_Fans_AL_V2.js).
 
 use super::usb::{self, Shared};
-use crate::fan::{Channel, FanHub, backend, percent};
+use crate::fan::{Channel, FanHub, backend_on, percent};
 use foxrgb_fan::FanBackend;
+use foxrgb_hid::port::Port;
 use foxrgb_hid::registry::Info;
-use hidapi::{HidApi, HidDevice};
+use hidapi::HidApi;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -128,7 +129,7 @@ pub fn ids() -> Vec<(u16, u16, &'static str)> {
 }
 
 struct Hub {
-    dev: HidDevice,
+    dev: Port,
     usb: Option<Shared>,
     id: String,
     name: &'static str,
@@ -270,7 +271,7 @@ pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     }
     let mut out = Vec::new();
     for (info, m) in picked.into_values() {
-        let Ok(dev) = info.open(api) else {
+        let Ok(dev) = info.port(api) else {
             continue;
         };
         let usb = (m.kind == Kind::V2)
@@ -280,17 +281,20 @@ pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
                 s.lock()
                     .is_ok_and(|u| u.ctrl_in(v2::RPM_READ[0], v2::RPM_LEN).is_ok())
             });
-        out.push(backend(Hub {
-            dev,
-            usb,
-            id: info.device_id(FAMILY).replacen("hid:", "fan:", 1),
-            name: m.name,
-            kind: m.kind,
-            duty: [None; CHANNELS],
-            software: [false; CHANNELS],
-            rpms: [None; CHANNELS],
-            read_at: None,
-        }));
+        out.push(backend_on(
+            &info,
+            Hub {
+                dev,
+                usb,
+                id: info.device_id(FAMILY).replacen("hid:", "fan:", 1),
+                name: m.name,
+                kind: m.kind,
+                duty: [None; CHANNELS],
+                software: [false; CHANNELS],
+                rpms: [None; CHANNELS],
+                read_at: None,
+            },
+        ));
     }
     out
 }

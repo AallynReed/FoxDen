@@ -565,3 +565,70 @@ fn drives_the_real_service() {
     assert_eq!(server_pid(PIPE), None);
     let _ = std::fs::remove_dir_all(&data);
 }
+
+#[test]
+fn an_older_service_refuses_hub_lights_and_still_answers_the_rest() {
+    let (client, _) = fake("old-hubs");
+    assert!(client.hub_lights(&BTreeMap::new()).is_err());
+    assert!(client.set_hub_lights(&[]).is_ok());
+    assert_eq!(client.status(), Ok(report()));
+}
+
+#[test]
+fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let log = asked.clone();
+    let pipe = serve("hubs", move |mut peer| {
+        while let Some(line) = peer.read() {
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let reply = match request["cmd"].as_str() {
+                Some("hub_lights") => json!({"ok": true, "devices": [], "zones": [{
+                    "device": "hid:hub", "index": 1, "name": "Fan 1",
+                    "leds": request["lengths"]["hid:hub#1"], "min": 0, "max": 34}]}),
+                Some("set_hub_lights") => {
+                    json!({"ok": true, "failed": {"hid:gone": "unknown device"}})
+                }
+                _ => json!({"ok": true}),
+            };
+            log.lock().unwrap().push(request);
+            peer.write(&reply.to_string());
+        }
+    });
+    let client = Client::new(&pipe, QUICK);
+    let lengths = BTreeMap::from([("hid:hub#1".to_string(), 12)]);
+    let hubs = client.hub_lights(&lengths).unwrap();
+    assert_eq!(hubs.zones[0].leds, 12);
+    let frame = |device: &str| HubFrame {
+        device: device.into(),
+        colors: "ff0000".into(),
+    };
+    let failed = client
+        .set_hub_lights(&[frame("hid:hub"), frame("hid:gone")])
+        .unwrap();
+    assert_eq!(failed["hid:gone"], "unknown device");
+    client.release_hub_lights().unwrap();
+    let asked = asked.lock().unwrap();
+    assert_eq!(
+        asked[0],
+        json!({"cmd": "hub_lights", "lengths": {"hid:hub#1": 12}})
+    );
+    assert_eq!(
+        asked[1],
+        json!({"cmd": "set_hub_lights", "frames": [
+            {"device": "hid:hub", "colors": "ff0000"},
+            {"device": "hid:gone", "colors": "ff0000"}]})
+    );
+    assert_eq!(asked[2], json!({"cmd": "release_hub_lights"}));
+}
+
+#[test]
+fn hub_frames_are_split_to_fit_a_line() {
+    let frame = |n: usize| HubFrame {
+        device: "d".into(),
+        colors: "0".repeat(n),
+    };
+    let frames = [frame(50), frame(50), frame(200), frame(10)];
+    let sizes: Vec<usize> = batches(&frames, 180).iter().map(|b| b.len()).collect();
+    assert_eq!(sizes, [2, 1, 1]);
+    assert!(batches(&[], 180).is_empty());
+}

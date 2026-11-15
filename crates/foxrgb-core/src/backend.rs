@@ -6,6 +6,10 @@ pub trait Backend: Send {
     fn devices(&self) -> Vec<Device>;
     /// `colors` has one entry per LED, in `Device::leds` order.
     fn push(&mut self, device_id: &str, colors: &[Color]) -> Result<(), String>;
+    /// Called once the pushes of one frame are done, for backends that send frames in batches.
+    fn flush(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Preview-only devices laid out like the development machine.

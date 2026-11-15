@@ -35,7 +35,7 @@ pub fn iface(info: &Info, n: i32) -> bool {
 }
 
 pub fn open(api: &HidApi, info: &Info) -> Result<Box<dyn Io>, String> {
-    Ok(Box::new(info.open(api)?))
+    Ok(Box::new(info.port(api)?))
 }
 
 /// True at most once per period; the first call is always due.

@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
@@ -177,13 +178,76 @@ enum Request {
     },
     /// Closes software from the service's own list; the request only narrows it.
     CloseConflicts(Scope),
+    /// Lighting of the fan hubs whose fans the service drives, so one process owns each hub.
+    HubLights {
+        #[serde(default)]
+        lengths: BTreeMap<String, usize>,
+    },
+    SetHubLights {
+        frames: Vec<HubFrame>,
+    },
+    ReleaseHubLights,
     #[cfg(test)]
     Panic,
+}
+
+#[derive(Deserialize)]
+struct HubFrame {
+    device: String,
+    /// `rrggbb` per LED.
+    colors: String,
 }
 
 struct State {
     controller: Controller,
     status: Status,
+}
+
+/// What opening the hubs' lighting gives: the backends and their resizable zones.
+pub type HubOpener = fn(&BTreeMap<String, usize>) -> (Vec<Box<dyn Backend>>, Vec<foxrgb_hid::Zone>);
+
+struct Hub {
+    backend: Box<dyn Backend>,
+    ids: Vec<String>,
+}
+
+#[derive(Default)]
+struct Hubs {
+    open: Option<(Vec<Hub>, Vec<foxrgb_hid::Zone>)>,
+    lengths: BTreeMap<String, usize>,
+}
+
+impl Hubs {
+    fn ids(&self) -> Vec<String> {
+        let hubs = self.open.iter().flat_map(|(hubs, _)| hubs);
+        hubs.flat_map(|h| h.ids.clone()).collect()
+    }
+}
+
+/// The lengths that belong to `ids`.
+fn lengths_of(lengths: &BTreeMap<String, usize>, ids: &[String]) -> BTreeMap<String, usize> {
+    let ours = |key: &String| {
+        ids.iter().any(|id| {
+            key.strip_prefix(id.as_str())
+                .is_some_and(|r| r.starts_with('#'))
+        })
+    };
+    lengths
+        .iter()
+        .filter(|(k, _)| ours(k))
+        .map(|(k, v)| (k.clone(), *v))
+        .collect()
+}
+
+/// The combined hubs' lighting, through the same handles as their fans.
+pub fn open_hubs(
+    lengths: &BTreeMap<String, usize>,
+) -> (Vec<Box<dyn Backend>>, Vec<foxrgb_hid::Zone>) {
+    let ids = foxrgb_xpack::combined();
+    foxrgb_hid::port::share(&ids);
+    foxrgb_hid::set_lengths(lengths.clone());
+    let found = foxrgb_hid::probe_picked(&foxrgb_xpack::detectors(), foxrgb_hid::Pick::Only(&ids));
+    (found, foxrgb_hid::resizable())
 }
 
 pub struct Host {
@@ -203,6 +267,8 @@ pub struct Host {
     ended: Mutex<Option<Result<(), String>>>,
     /// SMBus, Super I/O and WMI lighting, opened on the first request for it.
     lights: Mutex<Option<Vec<Box<dyn Backend>>>>,
+    hubs: Mutex<Hubs>,
+    hub_opener: HubOpener,
     closer: fn(Scope) -> Closed,
 }
 
@@ -234,6 +300,8 @@ impl Host {
             stop: AtomicBool::new(false),
             ended: Mutex::new(None),
             lights: Mutex::new(None),
+            hubs: Mutex::default(),
+            hub_opener: open_hubs,
             closer: crate::close::run,
         }
     }
@@ -305,11 +373,102 @@ impl Host {
                 let out = (self.closer)(scope);
                 json!({"ok": true, "closed": out.closed, "left": out.left})
             }
+            Ok(Request::HubLights { lengths }) => self.hub_lights(lengths),
+            Ok(Request::SetHubLights { frames }) => {
+                json!({"ok": true, "failed": self.set_hub_lights(frames)})
+            }
+            Ok(Request::ReleaseHubLights) => {
+                locked(&self.hubs).open = None;
+                json!({"ok": true})
+            }
             #[cfg(test)]
             Ok(Request::Panic) => panic!("the request panics on purpose"),
             Err(e) => fail(format!("bad request: {e}")),
         };
         (reply.to_string(), shutdown)
+    }
+
+    /// Opens the hubs, again only when the lengths of their zones changed.
+    fn hub_lights(&self, lengths: BTreeMap<String, usize>) -> Value {
+        let mut hubs = locked(&self.hubs);
+        let ids = hubs.ids();
+        if hubs.open.is_none() || lengths_of(&lengths, &ids) != lengths_of(&hubs.lengths, &ids) {
+            hubs.open = None;
+            let (found, zones) = (self.hub_opener)(&lengths);
+            let found = found
+                .into_iter()
+                .map(|backend| Hub {
+                    ids: backend.devices().into_iter().map(|d| d.id).collect(),
+                    backend,
+                })
+                .collect();
+            hubs.open = Some((found, zones));
+        }
+        hubs.lengths = lengths;
+        let (found, zones) = hubs.open.as_ref().expect("opened above");
+        let devices: Vec<_> = found.iter().flat_map(|h| h.backend.devices()).collect();
+        let zones: Vec<_> = zones
+            .iter()
+            .filter(|z| found.iter().any(|h| h.ids.contains(&z.device)))
+            .map(|z| {
+                json!({"device": z.device, "index": z.index, "name": z.name,
+                    "leds": z.leds, "min": z.min, "max": z.max})
+            })
+            .collect();
+        json!({"ok": true, "devices": devices, "zones": zones})
+    }
+
+    /// Pushes one frame to every hub, the hubs side by side so a slow one holds up only itself.
+    fn set_hub_lights(&self, frames: Vec<HubFrame>) -> BTreeMap<String, String> {
+        let mut failed = BTreeMap::new();
+        let mut hubs = locked(&self.hubs);
+        let Some((found, _)) = hubs.open.as_mut() else {
+            let closed = "the hub lights are not open";
+            return frames
+                .into_iter()
+                .map(|f| (f.device, closed.into()))
+                .collect();
+        };
+        let mut work: Vec<Vec<(String, Vec<Color>)>> = found.iter().map(|_| Vec::new()).collect();
+        for frame in frames {
+            let hub = found.iter().position(|h| h.ids.contains(&frame.device));
+            match (hub, foxrgb_core::from_hex(&frame.colors)) {
+                (Some(i), Ok(colors)) => work[i].push((frame.device, colors)),
+                (None, _) => {
+                    failed.insert(frame.device, "unknown device".into());
+                }
+                (_, Err(e)) => {
+                    failed.insert(frame.device, e);
+                }
+            }
+        }
+        let push = |backend: &mut Box<dyn Backend>, frames: Vec<(String, Vec<Color>)>| {
+            let mut failed: Vec<(String, String)> = frames
+                .into_iter()
+                .filter_map(|(id, colors)| backend.push(&id, &colors).err().map(|e| (id, e)))
+                .collect();
+            if let Err(e) = backend.flush() {
+                failed.push((String::new(), e));
+            }
+            failed
+        };
+        thread::scope(|scope| {
+            let jobs: Vec<_> = found
+                .iter_mut()
+                .zip(work)
+                .filter(|(_, frames)| !frames.is_empty())
+                .map(|(hub, frames)| scope.spawn(|| push(&mut hub.backend, frames)))
+                .collect();
+            for job in jobs {
+                match job.join() {
+                    Ok(out) => failed.extend(out),
+                    Err(panic) => {
+                        failed.insert(String::new(), panic_text(&*panic).to_string());
+                    }
+                }
+            }
+        });
+        failed
     }
 
     fn set_config(&self, config: FanConfig) -> Result<(), String> {
@@ -610,6 +769,8 @@ impl Drop for Running {
             }
         }
         self.host.release_all();
+        // Lighting after the fans, so a hub's last driver is the one that hands it back.
+        locked(&self.host.hubs).open = None;
         if let Some(watch) = self.watch.take() {
             let _ = watch.join();
         }
@@ -623,6 +784,7 @@ impl Drop for Running {
 
 /// Every sensor and fan this machine offers: read-only sources, then the board and CPU through PawnIO.
 pub fn hardware() -> Vec<Box<dyn FanBackend>> {
+    foxrgb_hid::port::share(&foxrgb_xpack::combined());
     let usb = thread::spawn(foxrgb_xpack::fan_backends);
     let mut backends = foxrgb_hwmon::backends();
     let amd_card = backends
@@ -683,6 +845,7 @@ impl FanBackend for RelayBackend {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::sync::LazyLock;
     use std::sync::atomic::AtomicU32;
 
     use foxrgb_fan::{Curve, Fan, FanRule, Sensor};
@@ -1249,5 +1412,284 @@ pub(crate) mod tests {
         let host = Host::new(dir.clone(), Vec::new, Mode::Console);
         assert_eq!(*host.lock().controller.config(), FanConfig::default());
         assert!(log_of(&dir).contains("fans.json"));
+    }
+
+    type Pushes = Arc<Mutex<Vec<(String, Vec<Color>)>>>;
+    type Writes = Arc<Mutex<Vec<(u8, bool)>>>;
+
+    /// Hub lighting that records its pushes, and refuses an empty frame.
+    struct Lit {
+        id: &'static str,
+        pushes: Pushes,
+    }
+
+    impl Backend for Lit {
+        fn name(&self) -> &str {
+            "lit"
+        }
+        fn devices(&self) -> Vec<foxrgb_core::Device> {
+            let kind = foxrgb_core::DeviceKind::Other;
+            vec![foxrgb_core::Device::grid(
+                self.id, "Hub", kind, [0.0; 4], 2, 1,
+            )]
+        }
+        fn push(&mut self, device_id: &str, colors: &[Color]) -> Result<(), String> {
+            if colors.is_empty() {
+                return Err("refused".into());
+            }
+            locked(&self.pushes).push((device_id.into(), colors.to_vec()));
+            Ok(())
+        }
+    }
+
+    fn zone(device: &str, leds: usize) -> foxrgb_hid::Zone {
+        foxrgb_hid::Zone {
+            device: device.into(),
+            index: 1,
+            name: "Fan 1".into(),
+            leds,
+            min: 0,
+            max: 34,
+        }
+    }
+
+    #[test]
+    fn hub_lights_get_the_zone_lengths_and_take_one_batch_per_frame() {
+        static OPENED: Mutex<Vec<BTreeMap<String, usize>>> = Mutex::new(Vec::new());
+        static PUSHES: LazyLock<Pushes> = LazyLock::new(Arc::default);
+        fn opener(
+            lengths: &BTreeMap<String, usize>,
+        ) -> (Vec<Box<dyn Backend>>, Vec<foxrgb_hid::Zone>) {
+            locked(&OPENED).push(lengths.clone());
+            let lit = |id| {
+                Box::new(Lit {
+                    id,
+                    pushes: PUSHES.clone(),
+                }) as Box<dyn Backend>
+            };
+            let leds = lengths.get("hid:a#1").copied().unwrap_or(34);
+            (
+                vec![lit("hid:a"), lit("hid:b")],
+                vec![zone("hid:a", leds), zone("hid:gone", 1)],
+            )
+        }
+        let mut host = host("hubs");
+        host.hub_opener = opener;
+        let set = |frames: Value| {
+            reply(
+                &host,
+                &json!({"cmd": "set_hub_lights", "frames": frames}).to_string(),
+            )
+        };
+        assert_eq!(
+            set(json!([{"device": "hid:a", "colors": "ff0000"}]))["failed"]["hid:a"],
+            "the hub lights are not open"
+        );
+
+        let ask = |lengths: Value| {
+            reply(
+                &host,
+                &json!({"cmd": "hub_lights", "lengths": lengths}).to_string(),
+            )
+        };
+        let r = ask(json!({"hid:a#1": 12, "other#0": 3}));
+        assert_eq!(r["ok"], true);
+        assert_eq!(r["devices"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            r["zones"],
+            json!([{"device": "hid:a", "index": 1, "name": "Fan 1", "leds": 12, "min": 0, "max": 34}])
+        );
+        // Only a change to the hubs' own zones opens them again.
+        ask(json!({"hid:a#1": 12, "other#0": 9}));
+        assert_eq!(locked(&OPENED).len(), 1);
+        assert_eq!(locked(&OPENED)[0]["hid:a#1"], 12);
+        ask(json!({"hid:a#1": 20}));
+        assert_eq!(locked(&OPENED).len(), 2);
+        // An older app asks without lengths.
+        assert_eq!(reply(&host, r#"{"cmd":"hub_lights"}"#)["ok"], true);
+        assert_eq!(locked(&OPENED).len(), 3);
+
+        let r = set(json!([
+            {"device": "hid:a", "colors": "ff0000"},
+            {"device": "hid:b", "colors": "00ff0000ff00"},
+            {"device": "hid:b", "colors": ""},
+            {"device": "hid:c", "colors": "000000"},
+            {"device": "hid:a", "colors": "f"},
+        ]));
+        assert_eq!(r["ok"], true);
+        assert_eq!(r["failed"]["hid:b"], "refused");
+        assert_eq!(r["failed"]["hid:c"], "unknown device");
+        assert!(
+            r["failed"]["hid:a"]
+                .as_str()
+                .unwrap()
+                .starts_with("bad colour")
+        );
+        let mut pushes = locked(&PUSHES).clone();
+        pushes.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            pushes,
+            [
+                ("hid:a".into(), vec![Color(255, 0, 0)]),
+                ("hid:b".into(), vec![Color(0, 255, 0), Color(0, 255, 0)]),
+            ]
+        );
+
+        assert_eq!(
+            reply(&host, r#"{"cmd":"release_hub_lights"}"#),
+            json!({"ok": true})
+        );
+        assert!(locked(&host.hubs).open.is_none());
+        ask(json!({"hid:a#1": 20}));
+        assert_eq!(locked(&OPENED).len(), 4);
+    }
+
+    /// One HID handle that notes, for each write, whether its device's lock was held.
+    struct Wire {
+        device: Arc<foxrgb_hid::port::Device>,
+        writes: Writes,
+    }
+
+    impl foxrgb_hid::port::Raw for Wire {
+        fn write(&self, data: &[u8]) -> foxrgb_hid::port::HidResult<usize> {
+            locked(&self.writes).push((data[0], self.device.held_here()));
+            thread::sleep(Duration::from_micros(200));
+            Ok(data.len())
+        }
+        fn read_timeout(&self, _: &mut [u8], _: i32) -> foxrgb_hid::port::HidResult<usize> {
+            Ok(0)
+        }
+        fn send_feature_report(&self, _: &[u8]) -> foxrgb_hid::port::HidResult<()> {
+            Ok(())
+        }
+        fn get_feature_report(&self, _: &mut [u8]) -> foxrgb_hid::port::HidResult<usize> {
+            Ok(0)
+        }
+        fn get_input_report(&self, _: &mut [u8]) -> foxrgb_hid::port::HidResult<usize> {
+            Ok(0)
+        }
+    }
+
+    /// Lighting that sends each frame as two reports, 1 then 2.
+    struct TwoPart(foxrgb_hid::port::Port);
+
+    impl Backend for TwoPart {
+        fn name(&self) -> &str {
+            "two part"
+        }
+        fn devices(&self) -> Vec<foxrgb_core::Device> {
+            let kind = foxrgb_core::DeviceKind::Other;
+            vec![foxrgb_core::Device::grid(
+                "hid:combined",
+                "Hub",
+                kind,
+                [0.0; 4],
+                1,
+                1,
+            )]
+        }
+        fn push(&mut self, _: &str, _: &[Color]) -> Result<(), String> {
+            self.0.write(&[1]).map_err(|e| e.to_string())?;
+            self.0.write(&[2]).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+    }
+
+    /// Fans that send each duty as two reports, 3 then 4.
+    struct Cooled(foxrgb_hid::port::Port);
+
+    impl foxrgb_xpack::fan::FanHub for Cooled {
+        fn id(&self) -> String {
+            "fan:combined".into()
+        }
+        fn name(&self) -> String {
+            "Hub".into()
+        }
+        fn channels(&self) -> Vec<foxrgb_xpack::fan::Channel> {
+            vec![foxrgb_xpack::fan::Channel::fan("Fan 1")]
+        }
+        fn rpm(&mut self, _: usize) -> Option<u32> {
+            None
+        }
+        fn set_duty(&mut self, _: usize, _: f32) -> Result<(), String> {
+            self.0.write(&[3]).map_err(|e| e.to_string())?;
+            self.0.write(&[4]).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        fn release(&mut self, _: usize) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_combined_hub_is_opened_once_and_both_drivers_write_under_its_lock() {
+        use foxrgb_hid::port::{self, Port, Raw};
+        use foxrgb_hid::registry::{Bus, Info};
+        static INFO: LazyLock<Info> = LazyLock::new(|| Info {
+            vid: 0xF0F1,
+            pid: 0x0001,
+            interface: 0,
+            usage_page: 0xFF42,
+            usage: 1,
+            path: "combined".into(),
+            serial: "S1".into(),
+            product: String::new(),
+            bus: Bus::Usb,
+            release: 0,
+        });
+        static OPENS: AtomicU32 = AtomicU32::new(0);
+        static WRITES: LazyLock<Writes> = LazyLock::new(Arc::default);
+        fn open() -> Result<Box<dyn Raw>, String> {
+            OPENS.fetch_add(1, Ordering::Relaxed);
+            let device = port::device_for(&INFO).unwrap();
+            Ok(Box::new(Wire {
+                device,
+                writes: WRITES.clone(),
+            }))
+        }
+        fn opener(_: &BTreeMap<String, usize>) -> (Vec<Box<dyn Backend>>, Vec<foxrgb_hid::Zone>) {
+            let device = port::device_for(&INFO).unwrap();
+            let lit = TwoPart(Port::open(&INFO, open).unwrap());
+            (vec![port::guard(Box::new(lit), device)], Vec::new())
+        }
+        port::share(&[(INFO.vid, INFO.pid)]);
+        // The service lists the fans first, as `hardware` does.
+        let mut fans =
+            foxrgb_xpack::fan::backend_on(&INFO, Cooled(Port::open(&INFO, open).unwrap()));
+        let mut host = host("combined");
+        host.hub_opener = opener;
+        assert_eq!(
+            reply(&host, r#"{"cmd":"hub_lights"}"#)["devices"][0]["id"],
+            "hid:combined"
+        );
+        assert_eq!(OPENS.load(Ordering::Relaxed), 1);
+
+        let mut fan = fans.fans().remove(0);
+        let lights = thread::spawn({
+            let host = Arc::new(host);
+            move || {
+                for i in 0..40u8 {
+                    let frame = json!({"device": "hid:combined", "colors": format!("{i:02x}0000")});
+                    let r = reply(
+                        &host,
+                        &json!({"cmd": "set_hub_lights", "frames": [frame]}).to_string(),
+                    );
+                    assert_eq!(r["failed"], json!({}));
+                }
+            }
+        });
+        for _ in 0..40 {
+            fan.set_duty(0.5).unwrap();
+        }
+        lights.join().unwrap();
+        let writes = locked(&WRITES).clone();
+        assert_eq!(writes.len(), 160);
+        assert!(writes.iter().all(|(_, held)| *held), "{writes:?}");
+        for pair in writes.chunks(2) {
+            assert!(
+                matches!(pair, [(1, _), (2, _)] | [(3, _), (4, _)]),
+                "{writes:?}"
+            );
+        }
     }
 }

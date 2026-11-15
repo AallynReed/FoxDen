@@ -1,6 +1,7 @@
 //! Shared HID plumbing for every lighting driver: the calls a driver makes and a backend shell.
 
 use foxrgb_core::{Backend, Color, Device};
+use foxrgb_hid::port::Port;
 use foxrgb_hid::registry::{Detector, Info, Open};
 use hidapi::{HidApi, HidDevice};
 use std::time::{Duration, Instant};
@@ -17,6 +18,10 @@ pub trait Io: Send {
     fn read(&mut self, len: usize, timeout_ms: i32) -> Result<Vec<u8>, String>;
     fn sleep(&mut self, ms: u64) {
         std::thread::sleep(Duration::from_millis(ms));
+    }
+    /// The shared handle behind this `Io`, when there is one.
+    fn port(&self) -> Option<&Port> {
+        None
     }
 }
 
@@ -51,6 +56,36 @@ impl Io for HidDevice {
             .map_err(|e| e.to_string())?;
         b.truncate(n);
         Ok(b)
+    }
+}
+
+impl Io for Port {
+    fn write(&mut self, data: &[u8], len: usize) -> Result<(), String> {
+        Port::write(self, &padded(data, len))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    fn feature(&mut self, data: &[u8], len: usize) -> Result<(), String> {
+        self.send_feature_report(&padded(data, len))
+            .map_err(|e| e.to_string())
+    }
+    fn get_feature(&mut self, first: u8, len: usize) -> Result<Vec<u8>, String> {
+        let mut b = vec![0u8; len];
+        b[0] = first;
+        let n = self.get_feature_report(&mut b).map_err(|e| e.to_string())?;
+        b.truncate(n);
+        Ok(b)
+    }
+    fn read(&mut self, len: usize, timeout_ms: i32) -> Result<Vec<u8>, String> {
+        let mut b = vec![0u8; len];
+        let n = self
+            .read_timeout(&mut b, timeout_ms)
+            .map_err(|e| e.to_string())?;
+        b.truncate(n);
+        Ok(b)
+    }
+    fn port(&self) -> Option<&Port> {
+        Some(self)
     }
 }
 
@@ -238,5 +273,5 @@ pub const fn on_p(
 
 /// Opens the collection a detector matched as a boxed `Io`.
 pub fn open_io(api: &HidApi, info: &Info) -> Result<Box<dyn Io>, String> {
-    Ok(Box::new(info.open(api)?))
+    Ok(Box::new(info.port(api)?))
 }

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 foxrgb-fan = { path = "../foxrgb-fan" }
+foxrgb-hid = { path = "../foxrgb-hid" }
 foxrgb-hwmon = { path = "../foxrgb-hwmon" }
 foxrgb-core.workspace = true
 foxrgb-smbus = { path = "../foxrgb-smbus" }

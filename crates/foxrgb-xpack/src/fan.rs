@@ -1,6 +1,8 @@
 //! Turns one USB fan controller or AIO into FoxRGB fans and temperature sensors.
 
 use foxrgb_fan::{Fan, FanBackend, Sensor};
+use foxrgb_hid::port::{Device, Hold};
+use foxrgb_hid::registry::Info;
 use std::sync::{Arc, Mutex};
 
 /// Lowest duty ever sent to a pump: below it most AIO pumps stall or report a fault.
@@ -57,14 +59,29 @@ type Shared = Arc<Mutex<Box<dyn FanHub>>>;
 pub struct HubBackend {
     hub: Shared,
     name: String,
+    device: Option<Arc<Device>>,
 }
 
 pub fn backend(hub: impl FanHub + 'static) -> Box<dyn FanBackend> {
+    with_device(None, hub)
+}
+
+/// A hub on `info`'s device, holding that device's lock for every call when it is shared.
+pub fn backend_on(info: &Info, hub: impl FanHub + 'static) -> Box<dyn FanBackend> {
+    with_device(foxrgb_hid::port::device_for(info), hub)
+}
+
+pub fn with_device(device: Option<Arc<Device>>, hub: impl FanHub + 'static) -> Box<dyn FanBackend> {
     let name = hub.name();
     Box::new(HubBackend {
         hub: Arc::new(Mutex::new(Box::new(hub))),
         name,
+        device,
     })
+}
+
+fn hold(device: &Option<Arc<Device>>) -> Option<Hold> {
+    device.as_ref().map(|d| d.hold())
 }
 
 impl FanBackend for HubBackend {
@@ -80,6 +97,7 @@ impl FanBackend for HubBackend {
             .map(|(i, n)| {
                 Box::new(HubSensor {
                     hub: self.hub.clone(),
+                    device: self.device.clone(),
                     index: i,
                     id: format!("{base}:t{i}"),
                     name: format!("{} {n}", hub.name()),
@@ -96,6 +114,7 @@ impl FanBackend for HubBackend {
             .map(|(i, c)| {
                 Box::new(HubFan {
                     hub: self.hub.clone(),
+                    device: self.device.clone(),
                     index: i,
                     id: format!("{base}:{i}"),
                     name: format!("{} {}", hub.name(), c.name),
@@ -112,6 +131,7 @@ impl FanBackend for HubBackend {
 
 struct HubFan {
     hub: Shared,
+    device: Option<Arc<Device>>,
     index: usize,
     id: String,
     name: String,
@@ -126,25 +146,26 @@ impl Fan for HubFan {
         &self.name
     }
     fn rpm(&mut self) -> Option<u32> {
-        self.hub.lock().ok()?.rpm(self.index)
+        let mut hub = self.hub.lock().ok()?;
+        let _hold = hold(&self.device);
+        hub.rpm(self.index)
     }
     fn set_duty(&mut self, duty: f32) -> Result<(), String> {
         let d = duty.clamp(0.0, 1.0).max(self.min);
-        self.hub
-            .lock()
-            .map_err(|e| e.to_string())?
-            .set_duty(self.index, d)
+        let mut hub = self.hub.lock().map_err(|e| e.to_string())?;
+        let _hold = hold(&self.device);
+        hub.set_duty(self.index, d)
     }
     fn release(&mut self) -> Result<(), String> {
-        self.hub
-            .lock()
-            .map_err(|e| e.to_string())?
-            .release(self.index)
+        let mut hub = self.hub.lock().map_err(|e| e.to_string())?;
+        let _hold = hold(&self.device);
+        hub.release(self.index)
     }
 }
 
 struct HubSensor {
     hub: Shared,
+    device: Option<Arc<Device>>,
     index: usize,
     id: String,
     name: String,
@@ -158,7 +179,9 @@ impl Sensor for HubSensor {
         &self.name
     }
     fn read(&mut self) -> Option<f32> {
-        self.hub.lock().ok()?.temperature(self.index)
+        let mut hub = self.hub.lock().ok()?;
+        let _hold = hold(&self.device);
+        hub.temperature(self.index)
     }
 }
 

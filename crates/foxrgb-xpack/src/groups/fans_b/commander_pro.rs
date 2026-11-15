@@ -2,7 +2,7 @@
 //! Corsair_Lighting_Commander_Pro.js).
 
 use super::util::{Cached, ask, device_key, due, fan_id, u16be};
-use crate::fan::{Channel, FanHub, backend, percent};
+use crate::fan::{Channel, FanHub, backend_on, percent};
 use crate::hid::{Io, open_io};
 use foxrgb_fan::FanBackend;
 use foxrgb_hid::registry::Info;
@@ -166,17 +166,20 @@ impl FanHub for Hub {
 pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
     let name = IDS.iter().find(|i| i.0 == info.pid)?.1;
     let io = open_io(api, info).ok()?;
-    Some(backend(Hub {
-        io,
-        id: fan_id(info, "corsair-commander-pro"),
-        name: name.into(),
-        states: Cached::new(STATE_MS),
-        probes: Cached::new(STATE_MS),
-        rpm: (0..FANS).map(|_| Cached::new(POLL_MS)).collect(),
-        temps: (0..PROBES).map(|_| Cached::new(POLL_MS)).collect(),
-        duty: [None; FANS],
-        sent: [None; FANS],
-    }))
+    Some(backend_on(
+        info,
+        Hub {
+            io,
+            id: fan_id(info, "corsair-commander-pro"),
+            name: name.into(),
+            states: Cached::new(STATE_MS),
+            probes: Cached::new(STATE_MS),
+            rpm: (0..FANS).map(|_| Cached::new(POLL_MS)).collect(),
+            temps: (0..PROBES).map(|_| Cached::new(POLL_MS)).collect(),
+            duty: [None; FANS],
+            sent: [None; FANS],
+        },
+    ))
 }
 
 pub fn key(info: &Info) -> String {

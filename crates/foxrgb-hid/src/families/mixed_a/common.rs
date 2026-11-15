@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use hidapi::{HidApi, HidDevice};
 
+use crate::port::Port;
 use crate::registry::Info;
 
 /// The HID calls the drivers make, so tests can record them.
@@ -20,6 +21,31 @@ pub trait Io: Send {
 impl Io for HidDevice {
     fn write(&mut self, data: &[u8]) -> Result<(), String> {
         HidDevice::write(self, data)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    fn send_feature(&mut self, data: &[u8]) -> Result<(), String> {
+        self.send_feature_report(data).map_err(|e| e.to_string())
+    }
+
+    fn get_feature(&mut self, buf: &mut [u8]) -> Result<usize, String> {
+        self.get_feature_report(buf).map_err(|e| e.to_string())
+    }
+
+    fn read(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, String> {
+        self.read_timeout(buf, timeout_ms)
+            .map_err(|e| e.to_string())
+    }
+
+    fn sleep(&mut self, ms: u64) {
+        std::thread::sleep(Duration::from_millis(ms));
+    }
+}
+
+impl Io for Port {
+    fn write(&mut self, data: &[u8]) -> Result<(), String> {
+        Port::write(self, data)
             .map(|_| ())
             .map_err(|e| e.to_string())
     }

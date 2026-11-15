@@ -52,6 +52,11 @@ impl Info {
         api.open_path(&path).map_err(|e| e.to_string())
     }
 
+    /// Opens this collection, or reuses the handle another driver of a shared device holds.
+    pub fn port(&self, api: &HidApi) -> Result<crate::port::Port, String> {
+        crate::port::Port::open(self, || Ok(Box::new(self.open(api)?)))
+    }
+
     /// One physical device: collections of the same device share it.
     pub fn key(&self) -> String {
         format!("{:04x}{:04x}{}", self.vid, self.pid, self.serial)

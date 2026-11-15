@@ -103,11 +103,16 @@ fn packet(seq: u8, command: u8, body: &[u8]) -> Vec<u8> {
 struct Platinum {
     leds: usize,
     sequence: u8,
+    /// The fan driver's device, whose sequence both drivers step.
+    shared: Option<std::sync::Arc<crate::port::Device>>,
 }
 
 impl Platinum {
     /// `GetSequenceNumber`: 1..=31, shifted into the top five bits.
     fn next(&mut self) -> u8 {
+        if let Some(d) = &self.shared {
+            return d.next_seq() << 3;
+        }
         self.sequence = if self.sequence < 31 {
             self.sequence + 1
         } else {
@@ -171,7 +176,7 @@ fn fan_leds(id: &str, pid: u16) -> usize {
 }
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    open_with(api, info, "corsair hydro platinum", |_| {
+    open_with(api, info, "corsair hydro platinum", |hid| {
         let id = info.device_id("corsair-hydro-platinum");
         let fan = fan_leds(&id, info.pid);
         let leds_n = BLOCK_LEDS + fan;
@@ -186,6 +191,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
             Platinum {
                 leds: leds_n,
                 sequence: 0,
+                shared: crate::port::is_shared(info.vid, info.pid).then(|| hid.device().clone()),
             },
         ))
     })
@@ -248,6 +254,7 @@ mod tests {
         let mut p = Platinum {
             leds: 48,
             sequence: 0,
+            shared: None,
         };
         let ops = p.setup(&[]);
         assert_eq!(ops.len(), 9);
@@ -269,6 +276,7 @@ mod tests {
         let mut p = Platinum {
             leds: 48,
             sequence: 3,
+            shared: None,
         };
         let ops = p.frame(&colors);
         assert_eq!(ops.len(), 6);
@@ -292,6 +300,7 @@ mod tests {
         let mut p = Platinum {
             leds: 48,
             sequence: 10,
+            shared: None,
         };
         let ops = p.release();
         assert_eq!(ops.len(), 12);
@@ -309,6 +318,7 @@ mod tests {
         let mut p = Platinum {
             leds: 20,
             sequence: 0,
+            shared: None,
         };
         assert_eq!(p.frame(&[Color(1, 2, 3); 20]).len(), 2);
     }
@@ -319,6 +329,7 @@ mod tests {
         let mut p = Platinum {
             leds: 16,
             sequence: 31,
+            shared: None,
         };
         let ops = p.frame(&[Color(1, 2, 3); 16]);
         assert_eq!(ops.len(), 2);

@@ -15,7 +15,7 @@ use tauri::plugin::Builder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
 
 use crate::config;
-use crate::state::{Shared, lock as lock_state};
+use crate::state::{Job, Jobs, Kinds, Shared, lock as lock_state};
 
 pub use foxrgb_client::FanState;
 
@@ -151,6 +151,7 @@ fn keep_backup(config: Option<FanConfig>) {
 fn poll(force: bool) -> FanState {
     let mut told = lock(&LINK.told);
     let state = LINK.client.state();
+    hubs_follow(state.service);
     if force || *told != state {
         *told = state.clone();
         if let Some(app) = APP.get() {
@@ -158,6 +159,22 @@ fn poll(force: bool) -> FanState {
         }
     }
     state
+}
+
+/// Reconnects the native devices when the service comes or goes, so the hubs it lights move
+/// between it and the app. The first state seen is the one the devices were opened with.
+fn hubs_follow(service: Service) {
+    static SEEN: Mutex<Option<bool>> = Mutex::new(None);
+    let up = service == Service::Running;
+    if lock(&SEEN).replace(up).is_some_and(|was| was != up)
+        && let Some(jobs) = APP.get().and_then(|app| app.try_state::<Jobs>())
+    {
+        let hid = Kinds {
+            hid: true,
+            ..Kinds::default()
+        };
+        let _ = jobs.send(Job::Reload(hid));
+    }
 }
 
 /// Sends the UI the state a fan command left behind, then hands on its result.

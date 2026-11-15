@@ -85,16 +85,23 @@ fn spawn_pusher(
                 mail.busy = true;
                 std::mem::take(&mut mail.batch)
             };
-            for ((id, name), colors) in devices.iter().zip(batch) {
-                let Some(colors) = colors else { continue };
-                if let Err(e) = backend.push(id, &colors) {
-                    let mut mail = link.mail();
-                    mail.error = Some(format!("{name}: {e}"));
-                    mail.busy = false;
-                    failed.store(true, Ordering::Relaxed);
-                    link.wake.notify_all();
-                    return;
-                }
+            let pushed = devices
+                .iter()
+                .zip(batch)
+                .filter_map(|(device, colors)| Some((device, colors?)))
+                .try_for_each(|((id, name), colors)| {
+                    backend
+                        .push(id, &colors)
+                        .map_err(|e| format!("{name}: {e}"))
+                })
+                .and_then(|()| backend.flush());
+            if let Err(e) = pushed {
+                let mut mail = link.mail();
+                mail.error = Some(e);
+                mail.busy = false;
+                failed.store(true, Ordering::Relaxed);
+                link.wake.notify_all();
+                return;
             }
         }
     })
@@ -459,6 +466,11 @@ mod tests {
                 Ok(())
             }
         }
+
+        fn flush(&mut self) -> Result<(), String> {
+            self.pushes.lock().unwrap().push("flush".into());
+            Ok(())
+        }
     }
 
     fn fake(fail: bool) -> (Engine, Arc<Mutex<Vec<String>>>) {
@@ -537,11 +549,11 @@ mod tests {
         let (mut engine, pushes) = fake(false);
         engine.set_device("a", false, 1.0, None);
         engine.flush(SOON);
-        assert_eq!(*pushes.lock().unwrap(), ["a"]);
+        assert_eq!(*pushes.lock().unwrap(), ["a", "flush"]);
         let frames = engine.render(1.0, &Inputs::default());
         engine.flush(SOON);
         assert!(all_black(frames.iter().find(|f| f.device == "a").unwrap()));
-        assert_eq!(*pushes.lock().unwrap(), ["a", "b", "c"]);
+        assert_eq!(*pushes.lock().unwrap(), ["a", "flush", "b", "c", "flush"]);
     }
 
     #[test]

@@ -1,7 +1,9 @@
 //! Ported from OpenRGB Controllers/NZXTHue1Controller (GPL-2.0-or-later).
 
 use foxrgb_core::{Backend, Color, DeviceKind};
-use hidapi::{HidApi, HidDevice};
+use hidapi::HidApi;
+
+use crate::port::Port;
 
 use super::{Op, Protocol, any, device, open_with, rows, span};
 use crate::registry::{Detector, Info};
@@ -60,7 +62,7 @@ fn init_packets() -> [Vec<u8>; 2] {
     })
 }
 
-fn initialize(hid: &HidDevice) -> Result<usize, String> {
+fn initialize(hid: &Port) -> Result<usize, String> {
     for b in init_packets() {
         hid.write(&b).map_err(|e| e.to_string())?;
     }

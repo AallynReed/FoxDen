@@ -109,7 +109,7 @@ fn open_sl(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, 
     let dev = hub(id, d.name, SL_FANS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub sl",
-        info.open(api)?,
+        info.port(api)?,
         UniHubSl { counts },
         dev,
     ))
@@ -191,7 +191,7 @@ fn open_al(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, 
     let dev = hub(id, d.name, AL_LEDS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub al",
-        info.open(api)?,
+        info.port(api)?,
         UniHubAl { counts },
         dev,
     ))
@@ -259,7 +259,7 @@ fn open_v2(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, 
     let dev = hub(id, d.name, V2_LEDS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub sl v2",
-        info.open(api)?,
+        info.port(api)?,
         UniHubV2 {
             infinity: false,
             counts,
@@ -274,7 +274,7 @@ fn open_infinity(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Back
     let dev = hub(id, d.name, V2_LEDS, &counts);
     Ok(Hid::boxed(
         "lian li uni hub sl infinity",
-        info.open(api)?,
+        info.port(api)?,
         UniHubV2 {
             infinity: true,
             counts,
@@ -336,7 +336,7 @@ fn open_strimer(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backe
     let dev = strimer_device(info.device_id("lianli"), d.name);
     Ok(Hid::boxed(
         "lian li strimer l connect",
-        info.open(api)?,
+        info.port(api)?,
         Strimer,
         dev,
     ))
@@ -364,7 +364,7 @@ fn open_ga2(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>,
     let dev = line(info.device_id("lianli"), d.name, DeviceKind::Other, FANS, 2);
     Ok(Hid::boxed(
         "lian li ga ii trinity",
-        info.open(api)?,
+        info.port(api)?,
         GaII,
         dev,
     ))

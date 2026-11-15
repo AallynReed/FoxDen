@@ -1,5 +1,6 @@
 //! Ported from OpenRGB Controllers (shared shell for the ASUS HID families) (GPL-2.0-or-later).
 
+use crate::port::Port;
 use crate::registry::{Detector, Info, Open};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use hidapi::{HidApi, HidDevice};
@@ -16,6 +17,27 @@ pub trait Io: Send {
 impl Io for HidDevice {
     fn write(&mut self, data: &[u8]) -> Result<(), String> {
         HidDevice::write(self, data)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    fn feature(&mut self, data: &[u8]) -> Result<(), String> {
+        self.send_feature_report(data).map_err(|e| e.to_string())
+    }
+    fn get_feature(&mut self, buf: &mut [u8]) -> Result<usize, String> {
+        self.get_feature_report(buf).map_err(|e| e.to_string())
+    }
+    fn read(&mut self, buf: &mut [u8], timeout_ms: i32) -> Result<usize, String> {
+        self.read_timeout(buf, timeout_ms)
+            .map_err(|e| e.to_string())
+    }
+    fn sleep(&mut self, ms: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+}
+
+impl Io for Port {
+    fn write(&mut self, data: &[u8]) -> Result<(), String> {
+        Port::write(self, data)
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -124,7 +146,7 @@ pub fn boxed<P: Proto + 'static>(
 }
 
 pub fn opened(api: &HidApi, info: &Info) -> Result<Box<dyn Io>, String> {
-    Ok(Box::new(info.open(api)?))
+    Ok(Box::new(info.port(api)?))
 }
 
 pub fn rect(kind: DeviceKind) -> [f32; 4] {

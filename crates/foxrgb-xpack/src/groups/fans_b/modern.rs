@@ -3,9 +3,10 @@
 //! Corsair_ICUE_Link_Hub.js).
 
 use super::util::{Cached, ask_strict, device_key, due, fan_id, u16le};
-use crate::fan::{Channel, FanHub, PUMP_MIN, backend, percent};
+use crate::fan::{Channel, FanHub, PUMP_MIN, backend_on, percent};
 use crate::hid::{Io, open_io};
 use foxrgb_fan::FanBackend;
+use foxrgb_hid::port::FANS;
 use foxrgb_hid::registry::Info;
 use hidapi::HidApi;
 use std::time::Instant;
@@ -492,7 +493,30 @@ impl Hub {
             self.sent = None;
         }
         self.controlling = true;
+        if let Some(p) = self.bus.io.port() {
+            p.device().set_active(FANS, true);
+        }
         Ok(())
+    }
+
+    /// Hardware mode hands lighting back too, so it is sent only once lighting has let go.
+    fn let_go(&mut self) -> Result<(), String> {
+        self.controlling = false;
+        let device = self.bus.io.port().map(|p| p.device().clone());
+        let lit = device.as_ref().is_some_and(|d| {
+            d.set_active(FANS, false);
+            d.others_active(FANS)
+        });
+        let owed = device.as_ref().is_some_and(|d| d.owed());
+        let took = std::mem::take(&mut self.took);
+        if (took || owed) && !lit {
+            if let Some(d) = &device {
+                d.owe(false);
+            }
+            self.sent = None;
+            return self.bus.set_property(PROP_MODE, HARDWARE);
+        }
+        self.push(true)
     }
 }
 
@@ -558,13 +582,7 @@ impl FanHub for Hub {
         if self.duty.iter().any(Option::is_some) {
             return self.push(true);
         }
-        self.controlling = false;
-        if self.took {
-            self.took = false;
-            self.sent = None;
-            return self.bus.set_property(PROP_MODE, HARDWARE);
-        }
-        self.push(true)
+        self.let_go()
     }
     fn temperature(&mut self, sensor: usize) -> Option<f32> {
         let slot = self.sensors.get(sensor)?.1;
@@ -651,21 +669,24 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
         return None;
     }
     let n = chans.len();
-    Some(backend(Hub {
-        bus,
-        id: fan_id(info, "corsair-modern"),
-        name: name.into(),
-        chans,
-        sensors,
-        duty: vec![None; n],
-        rpm: Cached::new(POLL_MS),
-        temps: Cached::new(POLL_MS),
-        states: Cached::new(STATE_MS),
-        took: false,
-        controlling: false,
-        sent: None,
-        mode_at: None,
-    }))
+    Some(backend_on(
+        info,
+        Hub {
+            bus,
+            id: fan_id(info, "corsair-modern"),
+            name: name.into(),
+            chans,
+            sensors,
+            duty: vec![None; n],
+            rpm: Cached::new(POLL_MS),
+            temps: Cached::new(POLL_MS),
+            states: Cached::new(STATE_MS),
+            took: false,
+            controlling: false,
+            sent: None,
+            mode_at: None,
+        },
+    ))
 }
 
 pub fn key(info: &Info) -> String {

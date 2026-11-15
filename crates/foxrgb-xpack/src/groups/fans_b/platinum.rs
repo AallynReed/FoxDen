@@ -2,12 +2,14 @@
 //! Platinum_Pro_XT_Elite_AIO.js).
 
 use super::util::{Cached, ask, device_key, due, fan_id, u16le};
-use crate::fan::{Channel, FanHub, backend, byte};
+use crate::fan::{Channel, FanHub, backend_on, byte};
 use crate::hid::{Driver, Io, Proto, open_io};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use foxrgb_fan::FanBackend;
+use foxrgb_hid::port::Device as Dev;
 use foxrgb_hid::registry::{Detector, Info};
 use hidapi::HidApi;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Instant;
 
@@ -92,6 +94,11 @@ fn next_seq() -> u8 {
             Err(cur) => s = cur,
         }
     }
+}
+
+/// The shared device's sequence, which the lighting driver steps too, else this crate's.
+fn seq(device: &Option<Arc<Dev>>) -> u8 {
+    device.as_ref().map_or_else(next_seq, |d| d.next_seq() << 3)
 }
 
 pub fn crc(data: &[u8]) -> u8 {
@@ -208,9 +215,15 @@ struct Hub {
     pump: Option<u8>,
     status: Cached<Status>,
     sent: Option<(Vec<Fan>, u8, Instant)>,
+    /// The device's epoch at the last push: lighting setup and release reuse command 3.
+    epoch: u32,
 }
 
 impl Hub {
+    fn device(&self) -> Option<Arc<Dev>> {
+        self.io.port().map(|p| p.device().clone())
+    }
+
     fn write(&mut self, p: &[u8]) -> Result<(), String> {
         self.io.write(p, LEN)?;
         self.io.sleep(PACE_MS);
@@ -225,6 +238,9 @@ impl Hub {
     }
 
     fn push(&mut self, force: bool) -> Result<(), String> {
+        let device = self.device();
+        let epoch = device.as_ref().map_or(0, |d| d.epoch());
+        let force = force || std::mem::replace(&mut self.epoch, epoch) != epoch;
         let (fans, pump) = self.plan();
         let fresh = self
             .sent
@@ -234,10 +250,10 @@ impl Hub {
             return Ok(());
         }
         if self.fans == 3 {
-            self.write(&cooling_third(next_seq(), fans[2]))?;
+            self.write(&cooling_third(seq(&device), fans[2]))?;
         }
         let second = fans.get(1).copied().unwrap_or(Fan::Curve);
-        self.write(&cooling(next_seq(), fans[0], second, pump))?;
+        self.write(&cooling(seq(&device), fans[0], second, pump))?;
         self.sent = Some((fans, pump, Instant::now()));
         Ok(())
     }
@@ -247,10 +263,11 @@ impl Hub {
     }
 
     fn read_status(&mut self) -> Option<Status> {
+        let device = self.device();
         let io = self.io.as_mut();
         self.status.get(|| {
             for _ in 0..2 {
-                let r = ask(io, &status_request(next_seq()), LEN, LEN, 100, |r| {
+                let r = ask(io, &status_request(seq(&device)), LEN, LEN, 100, |r| {
                     r.len() > 44
                 })
                 .ok()?;
@@ -318,16 +335,20 @@ impl FanHub for Hub {
 pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
     let &(_, name, fans) = IDS.iter().find(|i| i.0 == info.pid)?;
     let io = open_io(api, info).ok()?;
-    Some(backend(Hub {
-        io,
-        id: fan_id(info, "corsair-platinum"),
-        name: name.into(),
-        fans,
-        duty: [None; 3],
-        pump: None,
-        status: Cached::new(POLL_MS),
-        sent: None,
-    }))
+    Some(backend_on(
+        info,
+        Hub {
+            io,
+            id: fan_id(info, "corsair-platinum"),
+            name: name.into(),
+            fans,
+            duty: [None; 3],
+            pump: None,
+            status: Cached::new(POLL_MS),
+            sent: None,
+            epoch: 0,
+        },
+    ))
 }
 
 pub fn key(info: &Info) -> String {

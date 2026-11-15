@@ -3,7 +3,9 @@
 use std::time::Duration;
 
 use foxrgb_core::{Backend, Color, DeviceKind};
-use hidapi::{HidApi, HidDevice};
+use hidapi::HidApi;
+
+use crate::port::Port;
 
 use super::{NA, Op, Protocol, at, device, matrix, on_ipu, open_with};
 use crate::registry::{Detector, Info};
@@ -179,10 +181,14 @@ impl Protocol for Core {
             vec![command(self.size, [0x01, 0x03], &[0x00, 0x01])],
         )
     }
+
+    fn release_waits(&self) -> bool {
+        true
+    }
 }
 
 /// Writes one command and reads until a reply starts with 0, as `SendCommand` does.
-fn exchange(hid: &HidDevice, packet: &[u8], size: usize) -> Result<Vec<u8>, String> {
+fn exchange(hid: &Port, packet: &[u8], size: usize) -> Result<Vec<u8>, String> {
     hid.write(packet).map_err(|e| e.to_string())?;
     for _ in 0..10 {
         let mut buf = vec![0u8; size];
@@ -224,7 +230,7 @@ fn init_packets(size: usize, pid: u16) -> (Vec<Vec<u8>>, [Vec<u8>; 3]) {
     (fan, counts)
 }
 
-fn handshake(hid: &HidDevice, pid: u16) -> Result<(usize, Vec<usize>), String> {
+fn handshake(hid: &Port, pid: u16) -> Result<(usize, Vec<usize>), String> {
     let first = first_size(pid);
     let firmware = exchange(hid, &firmware_request(first), first)?;
     let size = size_after(pid, first, firmware[3]);

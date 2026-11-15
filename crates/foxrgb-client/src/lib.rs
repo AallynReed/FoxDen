@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::os::windows::fs::OpenOptionsExt;
@@ -24,6 +25,8 @@ const CLOSED: &str = "the service closed the connection";
 const SILENT: &str = "the service is not answering";
 
 const MAX_REPLY: u64 = 1024 * 1024;
+/// Below the service's 64 KiB line limit, with room for the request around the frames.
+const MAX_REQUEST: usize = 60 * 1024;
 const ERROR_PIPE_BUSY: i32 = 231;
 /// Lets the server see who is calling without being able to act as the caller.
 const SECURITY_IDENTIFICATION: u32 = 0x0001_0000;
@@ -78,6 +81,44 @@ enum Request<'a> {
         colors: &'a [foxrgb_core::Color],
     },
     CloseConflicts(Scope),
+    HubLights {
+        lengths: &'a BTreeMap<String, usize>,
+    },
+    SetHubLights {
+        frames: &'a [HubFrame],
+    },
+    ReleaseHubLights,
+}
+
+/// One device's colours in a `set_hub_lights` batch, as `rrggbb` hex.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HubFrame {
+    pub device: String,
+    pub colors: String,
+}
+
+/// A hub zone whose LED count the user sets, as the service opened it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubZone {
+    pub device: String,
+    pub index: usize,
+    pub name: String,
+    pub leds: usize,
+    pub min: usize,
+    pub max: usize,
+}
+
+/// The fan hubs whose lighting the service drives.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HubLights {
+    pub devices: Vec<foxrgb_core::Device>,
+    pub zones: Vec<HubZone>,
+}
+
+#[derive(Deserialize)]
+struct HubFailures {
+    #[serde(default)]
+    failed: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -147,6 +188,28 @@ impl Client {
     pub fn set_lights(&self, device: &str, colors: &[foxrgb_core::Color]) -> Result<(), String> {
         self.ask::<IgnoredAny>(&Request::SetLights { device, colors })
             .map(drop)
+    }
+
+    /// The fan hubs the service lights itself, opened with these zone lengths. An older service
+    /// refuses the request, and the app then lights the hubs as before.
+    pub fn hub_lights(&self, lengths: &BTreeMap<String, usize>) -> Result<HubLights, String> {
+        self.ask(&Request::HubLights { lengths })
+    }
+
+    /// Sends one frame for every hub in as few requests as fit a line. Returns the devices that
+    /// failed, with why.
+    pub fn set_hub_lights(&self, frames: &[HubFrame]) -> Result<BTreeMap<String, String>, String> {
+        let mut failed = BTreeMap::new();
+        for batch in batches(frames, MAX_REQUEST) {
+            let reply: HubFailures = self.ask(&Request::SetHubLights { frames: batch })?;
+            failed.extend(reply.failed);
+        }
+        Ok(failed)
+    }
+
+    /// Hands the hubs' lighting back to their firmware.
+    pub fn release_hub_lights(&self) -> Result<(), String> {
+        self.ask::<IgnoredAny>(&Request::ReleaseHubLights).map(drop)
     }
 
     /// Has the service close what its own list names within `scope`.
@@ -227,6 +290,24 @@ impl Client {
             }
         }
     }
+}
+
+/// Frames split so each batch's colours stay under `limit` bytes; a lone frame over it goes alone.
+fn batches(frames: &[HubFrame], limit: usize) -> Vec<&[HubFrame]> {
+    let mut out = Vec::new();
+    let (mut start, mut size) = (0, 0);
+    for (i, f) in frames.iter().enumerate() {
+        let len = f.device.len() + f.colors.len() + 32;
+        if i > start && size + len > limit {
+            out.push(&frames[start..i]);
+            (start, size) = (i, 0);
+        }
+        size += len;
+    }
+    if start < frames.len() {
+        out.push(&frames[start..]);
+    }
+    out
 }
 
 /// What a reply line holds, or the service's reason for refusing.

@@ -2,8 +2,8 @@
 //! SignalRGB's ThermalTake_Riing_Plus.js, ThermalTake_Ring_Controller.js,
 //! ThermalTake_LEDBOX_Standard.js and ThermalTake_LEDBOX_0x213Cf.js).
 
-use super::util::{Cached, ask, device_key, due, fan_id, u16le};
-use crate::fan::{Channel, FanHub, backend};
+use super::util::{Cached, ask, ask_strict, device_key, due, fan_id, u16le};
+use crate::fan::{Channel, FanHub, backend_on};
 use crate::hid::{Driver, Io, Proto, open_io};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use foxrgb_fan::FanBackend;
@@ -107,6 +107,8 @@ struct Hub {
     rpm: Vec<Cached<u32>>,
     duty: [Option<u8>; CHANNELS],
     sent: [Option<(u8, Instant)>; CHANNELS],
+    /// The device's epoch at the last send: the lighting init may reset the fans.
+    epoch: u32,
 }
 
 impl Hub {
@@ -120,6 +122,10 @@ impl Hub {
     }
 
     fn send(&mut self, channel: usize, pct: u8) -> Result<(), String> {
+        let epoch = self.io.port().map_or(0, |p| p.device().epoch());
+        if std::mem::replace(&mut self.epoch, epoch) != epoch {
+            self.sent = [None; CHANNELS];
+        }
         self.init()?;
         let fresh = self.sent[channel].is_some_and(|(p, at)| p == pct && !due(Some(at), RESEND_MS));
         if !fresh {
@@ -157,7 +163,7 @@ impl FanHub for Hub {
         let (io, len) = (self.io.as_mut(), self.len);
         let port = channel as u8 + 1;
         let rpm = self.rpm[channel].get(|| {
-            let r = ask(io, &get_fan(channel), len, len, 60, |r| {
+            let r = ask_strict(io, &get_fan(channel), len, len, 60, |r| {
                 r.len() > 6 && r[0] == GET && r[1] == FAN && r[2] == port
             })
             .ok()?;
@@ -189,16 +195,20 @@ impl FanHub for Hub {
 pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
     let name = IDS.iter().find(|i| i.0 == info.pid)?.1;
     let io = open_io(api, info).ok()?;
-    Some(backend(Hub {
-        io,
-        id: fan_id(info, "thermaltake"),
-        name: name.into(),
-        len: report_len(info.pid),
-        ready: false,
-        rpm: (0..CHANNELS).map(|_| Cached::new(POLL_MS / 3)).collect(),
-        duty: [None; CHANNELS],
-        sent: [None; CHANNELS],
-    }))
+    Some(backend_on(
+        info,
+        Hub {
+            io,
+            id: fan_id(info, "thermaltake"),
+            name: name.into(),
+            len: report_len(info.pid),
+            ready: false,
+            rpm: (0..CHANNELS).map(|_| Cached::new(POLL_MS / 3)).collect(),
+            duty: [None; CHANNELS],
+            sent: [None; CHANNELS],
+            epoch: 0,
+        },
+    ))
 }
 
 pub fn key(info: &Info) -> String {

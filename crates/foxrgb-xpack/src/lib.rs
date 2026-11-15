@@ -21,6 +21,18 @@ pub fn fan_devices() -> Vec<(u16, u16, &'static str)> {
     groups::fan_ids()
 }
 
+/// Hubs and coolers an OpenRGB port lights and this crate cools: the service drives both sides.
+pub fn combined() -> Vec<(u16, u16)> {
+    let lit = foxrgb_hid::detectors();
+    let mut v: Vec<(u16, u16)> = Vec::new();
+    for (vid, pid, _) in fan_devices() {
+        if lit.iter().any(|d| (d.vid, d.pid) == (vid, pid)) && !v.contains(&(vid, pid)) {
+            v.push((vid, pid));
+        }
+    }
+    v
+}
+
 /// Ids of the raw-USB and serial lighting devices `probe_other` opens.
 pub fn other_devices() -> Vec<(u16, u16, &'static str)> {
     groups::other_ids()
@@ -107,12 +119,19 @@ mod tests {
             );
             assert!(!fans.contains(&(v, p)), "fan hub {n} twice");
             fans.push((v, p));
-            if fox.iter().any(|d| (d.vid, d.pid) == (v, p)) {
+            if super::combined().contains(&(v, p)) {
                 assert!(
                     !ours.iter().any(|d| (d.vid, d.pid) == (v, p)),
                     "{n} lit twice"
                 );
             }
         }
+        let combined = super::combined();
+        assert_eq!(combined.len(), 64);
+        assert!(
+            combined
+                .iter()
+                .all(|id| fox.iter().any(|d| (d.vid, d.pid) == *id) && fans.contains(id))
+        );
     }
 }

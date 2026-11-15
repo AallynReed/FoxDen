@@ -1350,6 +1350,7 @@ version = "0.5.0"
 dependencies = [
  "foxrgb-core",
  "foxrgb-fan",
+ "foxrgb-hid",
  "foxrgb-hwmon",
  "foxrgb-smbus",
  "foxrgb-superio",

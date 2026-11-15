@@ -8,9 +8,9 @@ mod castor3;
 mod fusion2;
 mod polychrome;
 
+use crate::port::Port;
 use crate::registry::Detector;
 use foxrgb_core::{Backend, Color, Device};
-use hidapi::HidDevice;
 use std::time::Duration;
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -40,7 +40,7 @@ pub enum Op {
     Sleep(u64),
 }
 
-pub fn run(hid: &HidDevice, ops: &[Op]) -> Result<(), String> {
+pub fn run(hid: &Port, ops: &[Op]) -> Result<(), String> {
     for op in ops {
         match op {
             Op::Feature(b) => hid.send_feature_report(b).map_err(|e| e.to_string())?,
@@ -110,12 +110,17 @@ impl<P: Plan> Session<P> {
 pub struct Driver<P> {
     name: &'static str,
     device: Device,
-    hid: HidDevice,
+    hid: Port,
     session: Session<P>,
 }
 
 impl<P: Plan> Driver<P> {
-    pub fn boxed(name: &'static str, device: Device, hid: HidDevice, plan: P) -> Box<dyn Backend>
+    pub fn boxed(
+        name: &'static str,
+        device: Device,
+        hid: impl Into<Port>,
+        plan: P,
+    ) -> Box<dyn Backend>
     where
         P: 'static,
     {
@@ -123,7 +128,7 @@ impl<P: Plan> Driver<P> {
         Box::new(Driver {
             name,
             device,
-            hid,
+            hid: hid.into(),
             session: Session::new(plan, leds),
         })
     }

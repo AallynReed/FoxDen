@@ -2,7 +2,7 @@
 //! Nzxt/NZXT_Smart_Device_V2_Controller.js).
 
 use super::util::{Every, hub_id, latest, le16, open, scan};
-use crate::fan::{Channel, FanHub, backend, percent};
+use crate::fan::{Channel, FanHub, backend_on, percent};
 use crate::hid::{Io, read_until};
 use foxrgb_fan::FanBackend;
 use foxrgb_hid::registry::Info;
@@ -118,13 +118,16 @@ pub fn backends(api: &HidApi, seen: &mut Vec<String>) -> Vec<Box<dyn FanBackend>
             let mut io = open(api, &info).ok()?;
             io.write(&RATE_RESET, LEN).ok()?;
             io.write(&rate(TICKS), LEN).ok()?;
-            Some(backend(Hub {
-                io,
-                id: hub_id(&info, "nzxt-smart2"),
-                name: name_of(&info)?,
-                rpm: [None; FANS],
-                poll: Every::ms(1000),
-            }))
+            Some(backend_on(
+                &info,
+                Hub {
+                    io,
+                    id: hub_id(&info, "nzxt-smart2"),
+                    name: name_of(&info)?,
+                    rpm: [None; FANS],
+                    poll: Every::ms(1000),
+                },
+            ))
         })
         .collect()
 }

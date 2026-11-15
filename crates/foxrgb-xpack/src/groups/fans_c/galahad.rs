@@ -1,11 +1,12 @@
 //! Lian Li Galahad II Trinity and Galahad II LCD AIOs (protocol learned from SignalRGB's Lian_Li_Galahad_II_Trinity.js and Lian_Li_Galahad_II_LCD.js).
 
-use crate::fan::{Channel, FanHub, backend, percent};
+use crate::fan::{Channel, FanHub, backend_on, percent};
 use crate::hid::{Driver, Io, Proto, drain, on_i, open_io};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use foxrgb_fan::FanBackend;
+use foxrgb_hid::port::Port;
 use foxrgb_hid::registry::{Detector, Info};
-use hidapi::{HidApi, HidDevice};
+use hidapi::HidApi;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
@@ -207,7 +208,7 @@ const PUMP: usize = 0;
 const FAN: usize = 1;
 
 struct Hub {
-    dev: HidDevice,
+    dev: Port,
     id: String,
     name: &'static str,
     coolant: bool,
@@ -319,18 +320,21 @@ pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
         if !seen.insert(info.key()) {
             continue;
         }
-        let Ok(dev) = info.open(api) else {
+        let Ok(dev) = info.port(api) else {
             continue;
         };
-        out.push(backend(Hub {
-            dev,
-            id: info.device_id(FAMILY).replacen("hid:", "fan:", 1),
-            name: m.name,
-            coolant: m.coolant,
-            status: None,
-            read_at: None,
-            duty: [None; 2],
-        }));
+        out.push(backend_on(
+            &info,
+            Hub {
+                dev,
+                id: info.device_id(FAMILY).replacen("hid:", "fan:", 1),
+                name: m.name,
+                coolant: m.coolant,
+                status: None,
+                read_at: None,
+                duty: [None; 2],
+            },
+        ));
     }
     out
 }

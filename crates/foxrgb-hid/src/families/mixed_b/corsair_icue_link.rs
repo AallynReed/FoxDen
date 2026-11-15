@@ -3,7 +3,9 @@
 use std::time::Duration;
 
 use foxrgb_core::{Backend, Color, DeviceKind};
-use hidapi::{HidApi, HidDevice};
+use hidapi::HidApi;
+
+use crate::port::Port;
 
 use super::{Op, Protocol, at, device, on_ipu, open_with, rows};
 use crate::registry::{Detector, Info};
@@ -141,9 +143,13 @@ impl Protocol for Link {
     fn release(&mut self) -> Vec<Op> {
         vec![Op::Write(command(&[0x01, 0x03, 0x00, 0x01], &[])), READ]
     }
+
+    fn release_waits(&self) -> bool {
+        true
+    }
 }
 
-fn send(hid: &HidDevice, packet: &[u8]) -> Result<Vec<u8>, String> {
+fn send(hid: &Port, packet: &[u8]) -> Result<Vec<u8>, String> {
     hid.write(packet).map_err(|e| e.to_string())?;
     let mut buf = vec![0u8; READ_LEN];
     hid.read_timeout(&mut buf, 1000)
@@ -163,7 +169,7 @@ fn handshake_packets() -> [Vec<u8>; 6] {
     ]
 }
 
-fn handshake(hid: &HidDevice) -> Result<Vec<usize>, String> {
+fn handshake(hid: &Port) -> Result<Vec<usize>, String> {
     let [firmware, software, close, open, read, close_again] = handshake_packets();
     for p in [firmware, software, close, open] {
         send(hid, &p)?;

@@ -8,7 +8,7 @@ mod input;
 mod keys;
 
 pub use backend::{Backend, VirtualBackend};
-pub use color::Color;
+pub use color::{Color, from_hex, to_hex};
 pub use device::{Device, DeviceKind};
 pub use effect::{Control, Effect, EffectInfo, ParamInfo};
 pub use engine::{Engine, Frame};

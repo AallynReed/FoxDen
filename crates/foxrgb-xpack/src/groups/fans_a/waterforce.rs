@@ -1,7 +1,7 @@
 //! Gigabyte AORUS Waterforce X AIOs (protocol learned from SignalRGB's GigaByte/Gigabyte_AORUS_Waterforce_X_I.js and _X_II.js).
 
 use super::util::{Every, cells, hub_id, iface, open, scan, spun};
-use crate::fan::{Channel, FanHub, backend};
+use crate::fan::{Channel, FanHub, backend_on};
 use crate::hid::{Driver, Io, Proto, drain, open_io, read_until};
 use foxrgb_core::{Backend, Color, DeviceKind};
 use foxrgb_fan::FanBackend;
@@ -149,16 +149,19 @@ pub fn backends(api: &HidApi, seen: &mut Vec<String>) -> Vec<Box<dyn FanBackend>
         .filter_map(|info| {
             let mut io = open(api, &info).ok()?;
             let modes = ask(io.as_mut(), MODES).map(|r| [r[2], r[3]]);
-            Some(backend(Hub {
-                io,
-                id: hub_id(&info, "aorus-waterforce"),
-                name: name_of(&info)?,
-                modes,
-                custom: [false; 2],
-                rpm: [0; 2],
-                seen: [false; 2],
-                poll: Every::ms(1500),
-            }))
+            Some(backend_on(
+                &info,
+                Hub {
+                    io,
+                    id: hub_id(&info, "aorus-waterforce"),
+                    name: name_of(&info)?,
+                    modes,
+                    custom: [false; 2],
+                    rpm: [0; 2],
+                    seen: [false; 2],
+                    poll: Every::ms(1500),
+                },
+            ))
         })
         .collect()
 }

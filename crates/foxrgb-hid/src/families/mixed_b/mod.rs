@@ -4,7 +4,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
-use hidapi::{HidApi, HidDevice};
+use hidapi::HidApi;
+
+use crate::port::{LIGHTS, Port};
 
 use crate::registry::{Detector, Info, Open};
 
@@ -157,6 +159,10 @@ pub(super) trait Protocol: Send {
     fn release(&mut self) -> Vec<Op> {
         Vec::new()
     }
+    /// The release hands the whole device to firmware, fans too, so it waits for the last user.
+    fn release_waits(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -182,7 +188,7 @@ fn step(
     }
 }
 
-fn run(hid: &HidDevice, ops: &[Op]) -> Result<(), String> {
+fn run(hid: &Port, ops: &[Op]) -> Result<(), String> {
     for op in ops {
         match op {
             Op::Write(b) => {
@@ -201,7 +207,7 @@ fn run(hid: &HidDevice, ops: &[Op]) -> Result<(), String> {
 
 /// Writes `request` and reads replies until `ok` accepts one or `tries` reads pass.
 pub(super) fn ask(
-    hid: &HidDevice,
+    hid: &Port,
     request: &[u8],
     len: usize,
     ms: i32,
@@ -221,7 +227,7 @@ pub(super) fn ask(
 
 /// One physical device driven by a protocol.
 pub(super) struct Hid<P: Protocol> {
-    hid: HidDevice,
+    hid: Port,
     device: Device,
     proto: P,
     label: &'static str,
@@ -230,7 +236,7 @@ pub(super) struct Hid<P: Protocol> {
 }
 
 pub(super) fn backend<P: Protocol + 'static>(
-    hid: HidDevice,
+    hid: Port,
     device: Device,
     proto: P,
     label: &'static str,
@@ -250,9 +256,9 @@ pub(super) fn open_with<P: Protocol + 'static>(
     api: &HidApi,
     info: &Info,
     label: &'static str,
-    make: impl FnOnce(&HidDevice) -> Result<(Device, P), String>,
+    make: impl FnOnce(&Port) -> Result<(Device, P), String>,
 ) -> Result<Box<dyn Backend>, String> {
-    let hid = info.open(api)?;
+    let hid = info.port(api)?;
     let (device, proto) = make(&hid)?;
     Ok(backend(hid, device, proto, label))
 }
@@ -293,6 +299,10 @@ impl<P: Protocol> Backend for Hid<P> {
         };
         match run(&self.hid, &ops) {
             Ok(()) => {
+                if first {
+                    self.hid.device().set_active(LIGHTS, true);
+                    self.hid.device().bump();
+                }
                 self.sent = Some(colors.to_vec());
                 self.at = Instant::now();
                 Ok(())
@@ -307,8 +317,16 @@ impl<P: Protocol> Backend for Hid<P> {
 
 impl<P: Protocol> Drop for Hid<P> {
     fn drop(&mut self) {
-        let ops = self.proto.release();
-        let _ = run(&self.hid, &ops);
+        let device = self.hid.device().clone();
+        if self.proto.release_waits() && device.others_active(LIGHTS) {
+            device.owe(true);
+        } else {
+            let ops = self.proto.release();
+            let _ = run(&self.hid, &ops);
+            device.owe(false);
+        }
+        device.set_active(LIGHTS, false);
+        device.bump();
     }
 }
 
@@ -421,6 +439,49 @@ mod tests {
         );
         assert_eq!(step(false, true, ms(20), None, ms(33)), Step::Skip);
         assert_eq!(step(false, true, ms(33), None, ms(33)), Step::Frame);
+    }
+
+    struct Handback;
+
+    impl Protocol for Handback {
+        fn frame(&mut self, _: &[Color]) -> Vec<Op> {
+            vec![Op::Write(vec![1])]
+        }
+        fn release(&mut self) -> Vec<Op> {
+            vec![Op::Write(vec![9])]
+        }
+        fn release_waits(&self) -> bool {
+            true
+        }
+    }
+
+    // A release that would hand the fans back too waits while the fan driver is active.
+    #[test]
+    fn a_device_wide_release_waits_for_the_fan_driver() {
+        use crate::port::tests::Fake;
+        use crate::port::{FANS, Port};
+        use std::sync::{Arc, Mutex};
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let port = Port::alone(Box::new(Fake {
+            writes: writes.clone(),
+            device: Arc::default(),
+        }));
+        let dev = port.device().clone();
+        let lit = || device("t".into(), "t", DeviceKind::Other, [1, 1], vec![[0.5, 0.5]]);
+        dev.set_active(FANS, true);
+        let mut b = backend(port.clone(), lit(), Handback, "t");
+        b.push("t", &[Color(1, 1, 1)]).unwrap();
+        assert!(dev.others_active(FANS));
+        drop(b);
+        let sent = |w: &Mutex<Vec<(Vec<u8>, bool)>>| -> Vec<Vec<u8>> {
+            w.lock().unwrap().iter().map(|(b, _)| b.clone()).collect()
+        };
+        assert_eq!(sent(&writes), [vec![1]]);
+        assert!(dev.owed() && !dev.others_active(FANS));
+        dev.set_active(FANS, false);
+        drop(backend(port, lit(), Handback, "t"));
+        assert_eq!(sent(&writes), [vec![1], vec![9]]);
+        assert!(!dev.owed());
     }
 
     #[test]

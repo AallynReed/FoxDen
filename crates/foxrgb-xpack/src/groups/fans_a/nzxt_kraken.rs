@@ -2,7 +2,7 @@
 //! Nzxt/Nzxt_Kraken_X3_AIO.js, Nzxt_Kraken_Z3_AIO.js, NZXT_Kraken_Elite.js and NZXT_Kraken_Elite_V2_AIO.js).
 
 use super::util::{Every, hub_id, iface, latest, le16, open, scan, spun};
-use crate::fan::{Channel, FanHub, backend, percent};
+use crate::fan::{Channel, FanHub, backend_on, percent};
 use crate::hid::{Driver, Io, Proto, drain, open_io, read_until};
 use foxrgb_core::{Backend, Color, Device, DeviceKind};
 use foxrgb_fan::FanBackend;
@@ -237,14 +237,17 @@ pub fn backends(api: &HidApi, seen: &mut Vec<String>) -> Vec<Box<dyn FanBackend>
             if m.firmware_gate {
                 upgrade(io.as_mut(), &mut m);
             }
-            Some(backend(Hub {
-                io,
-                id: hub_id(&info, "nzxt-kraken"),
-                m,
-                status: None,
-                seen: false,
-                poll: Every::ms(1000),
-            }))
+            Some(backend_on(
+                &info,
+                Hub {
+                    io,
+                    id: hub_id(&info, "nzxt-kraken"),
+                    m,
+                    status: None,
+                    seen: false,
+                    poll: Every::ms(1000),
+                },
+            ))
         })
         .collect()
 }

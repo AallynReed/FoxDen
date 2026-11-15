@@ -6,6 +6,7 @@ mod generic_any;
 mod hidpp;
 mod lengths;
 mod msi;
+pub mod port;
 pub mod registry;
 
 pub use families::{LedProtocol, LedStrip, led_strips, serial_ports, winusb};
@@ -188,8 +189,33 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
     probe_with(&[])
 }
 
+/// Which devices a probe opens.
+#[derive(Clone, Copy)]
+pub enum Pick<'a> {
+    All,
+    /// Everything but these ids.
+    Skip(&'a [(u16, u16)]),
+    /// Only the fixed detectors of these ids: no generic matchers and no serial or WinUSB devices.
+    Only(&'a [(u16, u16)]),
+}
+
+impl Pick<'_> {
+    pub fn wants(&self, vid: u16, pid: u16) -> bool {
+        match self {
+            Pick::All => true,
+            Pick::Skip(ids) => !ids.contains(&(vid, pid)),
+            Pick::Only(ids) => ids.contains(&(vid, pid)),
+        }
+    }
+}
+
 /// Like `probe`, with `extra` detectors from other crates tried after the ported families'.
 pub fn probe_with(extra: &[&'static registry::Detector]) -> Vec<Box<dyn Backend>> {
+    probe_picked(extra, Pick::All)
+}
+
+/// Like `probe_with`, opening only what `pick` wants.
+pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Box<dyn Backend>> {
     lengths::clear();
     SLOW_OPENS.lock().unwrap_or_else(|e| e.into_inner()).clear();
     let Ok(api) = HidApi::new() else {
@@ -202,6 +228,9 @@ pub fn probe_with(extra: &[&'static registry::Detector]) -> Vec<Box<dyn Backend>
     let mut infos = Vec::new();
     for raw in api.device_list() {
         let info = registry::Info::from_hidapi(raw);
+        if !pick.wants(info.vid, info.pid) {
+            continue;
+        }
         match (info.vid, info.pid) {
             (msi::VID, msi::PID) if !board => {
                 if let Ok(hid) = raw.open_device(&api)
@@ -239,14 +268,23 @@ pub fn probe_with(extra: &[&'static registry::Detector]) -> Vec<Box<dyn Backend>
             && !taken.contains(&key)
         {
             let start = std::time::Instant::now();
+            let shared = port::device_for(&info);
+            let hold = shared.as_ref().map(|d| d.hold());
             let opened = (detector.open)(&api, &info, detector);
+            drop(hold);
             note_slow(detector.name, start);
             if let Ok(backend) = opened {
                 taken.push(key);
-                found.push(backend);
+                found.push(match shared {
+                    Some(d) => port::guard(backend, d),
+                    None => backend,
+                });
             }
         }
         infos.push(info);
+    }
+    if matches!(pick, Pick::Only(_)) {
+        return found;
     }
     // Any-product matchers only see what the fixed detectors and hidpp.rs left.
     let mut claimed = Vec::new();
@@ -259,7 +297,10 @@ pub fn probe_with(extra: &[&'static registry::Detector]) -> Vec<Box<dyn Backend>
         |info, matcher| {
             let start = std::time::Instant::now();
             let opened = (matcher.open)(&api, info, &mut claimed);
-            note_slow(&format!("{} {:04x}:{:04x}", matcher.name, info.vid, info.pid), start);
+            note_slow(
+                &format!("{} {:04x}:{:04x}", matcher.name, info.vid, info.pid),
+                start,
+            );
             opened
         },
     ));

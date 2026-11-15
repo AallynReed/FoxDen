@@ -1,7 +1,9 @@
 //! Ported from OpenRGB Controllers/NZXTHue2Controller (GPL-2.0-or-later).
 
 use foxrgb_core::{Backend, Color, DeviceKind};
-use hidapi::{HidApi, HidDevice};
+use hidapi::HidApi;
+
+use crate::port::Port;
 
 use super::{Op, Protocol, any, ask, device, open_with, rows, span};
 use crate::registry::{Detector, Info};
@@ -113,7 +115,7 @@ fn handshake_packets() -> [(Vec<u8>, [u8; 2]); 2] {
     ]
 }
 
-fn handshake(hid: &HidDevice, channels: usize) -> Result<Vec<usize>, String> {
+fn handshake(hid: &Port, channels: usize) -> Result<Vec<usize>, String> {
     let [(firmware, fw_reply), (list, list_reply)] = handshake_packets();
     ask(hid, &firmware, 64, 1000, 10, |r| {
         r.len() == 64 && r[..2] == fw_reply
