@@ -7,4 +7,4 @@ license.workspace = true
 [dependencies]
 foxrgb-core.workspace = true
 foxrgb-smbus = { path = "../foxrgb-smbus" }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_Memory"] }
