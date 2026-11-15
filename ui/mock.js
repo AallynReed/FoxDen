@@ -153,6 +153,23 @@
       openrgb_host: "127.0.0.1",
       openrgb_port: 6742,
       native_drivers: true,
+      network_enabled: false,
+      network: {
+        discover: false,
+        hue: [{ ip: "192.168.1.40", username: "", clientkey: "" }],
+        wiz: [],
+        nanoleaf: [],
+        lifx: [{ ip: "192.168.1.52", name: "Desk", multizone: false, extended_multizone: false }],
+        govee: [],
+        yeelight: [],
+        kasa: [],
+        elgato_key_light: [],
+        elgato_light_strip: [],
+        e131: [],
+        dmx: [],
+        ddp: [],
+        espurna: [],
+      },
       close_to_tray: true,
       start_minimized: false,
       autostart: false,
@@ -349,6 +366,7 @@
       { name: "openrgb", active: openrgb(), devices: count("openrgb"), error: s.openrgb_enabled && !openrgb() ? refused : null },
       { name: "hid", active: s.native_drivers, devices: count("hid"), error: null },
     ];
+    if (s.network_enabled) backends.push({ name: "net", active: true, devices: 0, error: null });
     // The captures only show up while an effect uses them.
     if (state.effect.kind.startsWith("audio")) backends.push({ name: "audio", active: true, devices: 0, error: null });
     if (state.effect.kind === "screen_ambience") backends.push({ name: "screen", active: true, devices: 0, error: null });
@@ -451,6 +469,29 @@
       window.open("logs.html", "logs", "width=760,height=480");
     },
     rescan() {},
+    // The pretend network has a Hue bridge, Nanoleaf panels, a LIFX bulb and a Govee strip.
+    scan_network() {
+      if (!state.settings.network_enabled) throw "network lights are off";
+      return [
+        { family: "hue", ip: "192.168.1.40", port: 80, name: "Philips Hue bridge" },
+        { family: "nanoleaf", ip: "192.168.1.61", port: 16021, name: "Nanoleaf" },
+        { family: "lifx", ip: "192.168.1.52", port: 56700, name: "LIFX" },
+        { family: "govee", ip: "192.168.1.77", port: 4003, name: "Govee H619A" },
+      ];
+    },
+    pair_hue({ ip }) {
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          const list = state.settings.network.hue.filter((b) => b.ip !== ip);
+          state.settings.network.hue = [...list, { ip, username: "mock-user", clientkey: "00" }];
+          emit("snapshot", snapshot());
+          resolve();
+        }, 2000),
+      );
+    },
+    pair_nanoleaf() {
+      return new Promise((_, reject) => setTimeout(() => reject("the panels were not in pairing mode"), 2000));
+    },
     // Returns at once, as the app does. The pass then finds the Logitech keyboard unplugged or plugged back in.
     detect() {
       setTimeout(() => {

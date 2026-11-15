@@ -25,7 +25,7 @@ const RELEASE: Duration = Duration::from_secs(2);
 /// How long the last black frame may take on the way out.
 const LAST_FRAME: Duration = Duration::from_millis(500);
 /// Backend groups in the order their devices are listed.
-const GROUPS: [&str; 2] = ["openrgb", "hid"];
+const GROUPS: [&str; 3] = ["openrgb", "hid", "net"];
 
 #[derive(Clone, Debug, Serialize)]
 pub struct BackendStatus {
@@ -68,21 +68,24 @@ pub struct Snapshot {
 pub struct Kinds {
     pub openrgb: bool,
     pub hid: bool,
+    pub net: bool,
 }
 
 impl Kinds {
     pub const ALL: Kinds = Kinds {
         openrgb: true,
         hid: true,
+        net: true,
     };
 
     pub fn any(self) -> bool {
-        self.openrgb || self.hid
+        self.openrgb || self.hid || self.net
     }
 
     fn has(self, label: &str) -> bool {
         match label {
             "openrgb" => self.openrgb,
+            "net" => self.net,
             _ => self.hid,
         }
     }
@@ -348,6 +351,7 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         let enabled = Kinds {
             openrgb: enabled("openrgb", &first),
             hid: enabled("hid", &first),
+            net: enabled("net", &first),
         };
         if enabled.any() {
             reload(&shared, &mut watch, enabled);
@@ -394,6 +398,7 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                 let stale = Kinds {
                     openrgb: change.openrgb && !done.openrgb,
                     hid,
+                    net: false,
                 };
                 if stale.any() {
                     reload(&shared, &mut watch, stale);
@@ -416,6 +421,7 @@ fn enabled(label: &str, settings: &Settings) -> bool {
     settings.lighting_module
         && match label {
             "openrgb" => settings.openrgb_enabled,
+            "net" => settings.network_enabled,
             _ => settings.native_drivers,
         }
 }
@@ -449,6 +455,7 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             Ok(backend) => (vec![Box::new(backend)], None),
             Err(e) => (Vec::new(), Some(e)),
         },
+        "net" => (foxrgb_net::probe(&settings.network), None),
         _ => {
             let mut backends = foxrgb_hid::probe();
             backends.extend(foxrgb_gpu::probe());
@@ -478,9 +485,15 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
             state.engine.flush(LAST_FRAME);
             old.push(state.engine.remove("openrgb"));
             old.push(state.engine.remove("hid"));
-        } else if kinds.hid {
-            // HID devices have to be let go before they are probed again.
-            old.push(state.engine.remove("hid"));
+            old.push(state.engine.remove("net"));
+        } else {
+            // HID devices and DMX ports have to be let go before they are probed again.
+            if kinds.hid {
+                old.push(state.engine.remove("hid"));
+            }
+            if kinds.net {
+                old.push(state.engine.remove("net"));
+            }
         }
         (state.config.settings.clone(), old)
     };
@@ -738,6 +751,8 @@ mod tests {
                 "fps",
                 "lighting_module",
                 "native_drivers",
+                "network",
+                "network_enabled",
                 "openrgb_enabled",
                 "openrgb_host",
                 "openrgb_port",
@@ -749,6 +764,8 @@ mod tests {
         assert_eq!(json["settings"]["native_drivers"], true);
         assert_eq!(json["settings"]["autostart"], true);
         assert_eq!(json["settings"]["auto_detect"], true);
+        assert_eq!(json["settings"]["network_enabled"], false);
+        assert_eq!(json["settings"]["network"]["hue"], json!([]));
         assert_eq!(json["detected"], json!([]));
 
         let gpu = json["devices"]
@@ -787,7 +804,11 @@ mod tests {
             backends[1],
             json!({ "name": "hid", "active": true, "devices": 6, "error": null })
         );
-        assert_eq!(backends.len(), 2);
+        assert_eq!(
+            backends[2],
+            json!({ "name": "net", "active": false, "devices": 0, "error": null })
+        );
+        assert_eq!(backends.len(), 3);
     }
 
     #[test]
