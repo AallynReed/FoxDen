@@ -62,14 +62,6 @@ cargo build --workspace
 cargo run -p foxrgb
 ```
 
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
-[SignPath Foundation](https://signpath.org).
-
-- Committers and reviewers: [AallynReed](https://github.com/AallynReed)
-- Approvers: [AallynReed](https://github.com/AallynReed)
-
 ## Privacy
 
 FoxRGB only connects to:
