@@ -35,25 +35,33 @@ Over 2,000 devices: keyboards, mice, headsets, RAM, motherboards, graphics cards
 hubs, LED strips and network lights.
 
 <p align="center">
-<img src=".github/brands/razer.svg" height="32" alt="Razer" title="Razer">&nbsp;&nbsp;
-<img src=".github/brands/logitechg.svg" height="32" alt="Logitech G" title="Logitech G">&nbsp;&nbsp;
-<img src=".github/brands/corsair.svg" height="32" alt="Corsair" title="Corsair">&nbsp;&nbsp;
-<img src=".github/brands/steelseries.svg" height="32" alt="SteelSeries" title="SteelSeries">&nbsp;&nbsp;
-<img src=".github/brands/hyperx.svg" height="32" alt="HyperX" title="HyperX">&nbsp;&nbsp;
-<img src=".github/brands/asus.svg" height="32" alt="ASUS" title="ASUS">&nbsp;&nbsp;
-<img src=".github/brands/msi.svg" height="32" alt="MSI" title="MSI">&nbsp;&nbsp;
-<img src=".github/brands/nvidia.svg" height="32" alt="NVIDIA" title="NVIDIA">&nbsp;&nbsp;
-<img src=".github/brands/alienware.svg" height="32" alt="Alienware" title="Alienware">&nbsp;&nbsp;
-<img src=".github/brands/kingstontechnology.svg" height="32" alt="Kingston" title="Kingston">&nbsp;&nbsp;
-<img src=".github/brands/nzxt.svg" height="32" alt="NZXT" title="NZXT">&nbsp;&nbsp;
-<img src=".github/brands/coolermaster.svg" height="32" alt="Cooler Master" title="Cooler Master">&nbsp;&nbsp;
-<img src=".github/brands/elgato.svg" height="32" alt="Elgato" title="Elgato">&nbsp;&nbsp;
-<img src=".github/brands/philipshue.svg" height="32" alt="Philips Hue" title="Philips Hue">&nbsp;&nbsp;
-<img src=".github/brands/lifx.svg" height="32" alt="LIFX" title="LIFX">
+<img src=".github/brands/razer.svg" height="28" alt="Razer" title="Razer">&nbsp;&nbsp;
+<img src=".github/brands/logitechg.svg" height="28" alt="Logitech G" title="Logitech G">&nbsp;&nbsp;
+<img src=".github/brands/corsair.svg" height="28" alt="Corsair" title="Corsair">&nbsp;&nbsp;
+<img src=".github/brands/steelseries.svg" height="28" alt="SteelSeries" title="SteelSeries">&nbsp;&nbsp;
+<img src=".github/brands/hyperx.svg" height="28" alt="HyperX" title="HyperX">&nbsp;&nbsp;
+<img src=".github/brands/asus.svg" height="28" alt="ASUS" title="ASUS">&nbsp;&nbsp;
+<img src=".github/brands/msi.svg" height="28" alt="MSI" title="MSI">&nbsp;&nbsp;
+<img src=".github/brands/gigabyte.svg" height="28" alt="Gigabyte" title="Gigabyte">&nbsp;&nbsp;
+<img src=".github/brands/asrock.svg" height="28" alt="ASRock" title="ASRock">&nbsp;&nbsp;
+<img src=".github/brands/nvidia.svg" height="28" alt="NVIDIA" title="NVIDIA">&nbsp;&nbsp;
+<img src=".github/brands/alienware.svg" height="28" alt="Alienware" title="Alienware">&nbsp;&nbsp;
+<img src=".github/brands/kingstontechnology.svg" height="28" alt="Kingston" title="Kingston">&nbsp;&nbsp;
+<img src=".github/brands/nzxt.svg" height="28" alt="NZXT" title="NZXT">&nbsp;&nbsp;
+<img src=".github/brands/coolermaster.svg" height="28" alt="Cooler Master" title="Cooler Master">&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset=".github/brands/lianli-dark.svg"><img src=".github/brands/lianli.svg" height="28" alt="Lian Li" title="Lian Li"></picture>&nbsp;&nbsp;
+<img src=".github/brands/thermaltake.svg" height="28" alt="Thermaltake" title="Thermaltake">&nbsp;&nbsp;
+<img src=".github/brands/aquacomputer.gif" height="28" alt="Aqua Computer" title="Aqua Computer">&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset=".github/brands/keychron-dark.svg"><img src=".github/brands/keychron.svg" height="28" alt="Keychron" title="Keychron"></picture>&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset=".github/brands/wooting-dark.svg"><img src=".github/brands/wooting.svg" height="28" alt="Wooting" title="Wooting"></picture>&nbsp;&nbsp;
+<img src=".github/brands/elgato.svg" height="28" alt="Elgato" title="Elgato">&nbsp;&nbsp;
+<img src=".github/brands/philipshue.svg" height="28" alt="Philips Hue" title="Philips Hue">&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset=".github/brands/nanoleaf-dark.svg"><img src=".github/brands/nanoleaf.svg" height="28" alt="Nanoleaf" title="Nanoleaf"></picture>&nbsp;&nbsp;
+<img src=".github/brands/lifx.svg" height="28" alt="LIFX" title="LIFX">&nbsp;&nbsp;
+<picture><source media="(prefers-color-scheme: dark)" srcset=".github/brands/govee-dark.svg"><img src=".github/brands/govee.svg" height="28" alt="Govee" title="Govee"></picture>
 </p>
 
-Also Gigabyte, ASRock, Lian Li, Thermaltake, Aqua Computer, Keychron, Wooting, Nanoleaf, Govee
-and many more.
+And many more.
 
 Tested so far on MSI Mystic Light boards, Logitech G502 and G515, and Corsair Vengeance RGB
 DDR5. If yours works or doesn't, [open an issue](../../issues/new/choose).
