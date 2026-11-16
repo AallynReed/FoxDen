@@ -32,8 +32,28 @@ animation, with its own drivers and nothing else to install.
 ## Devices
 
 Over 2,000 devices: keyboards, mice, headsets, RAM, motherboards, graphics cards, coolers, fan
-hubs, LED strips and network lights from Razer, Logitech, Corsair, SteelSeries, ASUS, MSI,
-Gigabyte, NZXT, HyperX, Lian Li, Philips Hue, Nanoleaf and many more.
+hubs, LED strips and network lights.
+
+<p align="center">
+<img src=".github/brands/razer.svg" height="32" alt="Razer" title="Razer">&nbsp;&nbsp;
+<img src=".github/brands/logitechg.svg" height="32" alt="Logitech G" title="Logitech G">&nbsp;&nbsp;
+<img src=".github/brands/corsair.svg" height="32" alt="Corsair" title="Corsair">&nbsp;&nbsp;
+<img src=".github/brands/steelseries.svg" height="32" alt="SteelSeries" title="SteelSeries">&nbsp;&nbsp;
+<img src=".github/brands/hyperx.svg" height="32" alt="HyperX" title="HyperX">&nbsp;&nbsp;
+<img src=".github/brands/asus.svg" height="32" alt="ASUS" title="ASUS">&nbsp;&nbsp;
+<img src=".github/brands/msi.svg" height="32" alt="MSI" title="MSI">&nbsp;&nbsp;
+<img src=".github/brands/nvidia.svg" height="32" alt="NVIDIA" title="NVIDIA">&nbsp;&nbsp;
+<img src=".github/brands/alienware.svg" height="32" alt="Alienware" title="Alienware">&nbsp;&nbsp;
+<img src=".github/brands/kingstontechnology.svg" height="32" alt="Kingston" title="Kingston">&nbsp;&nbsp;
+<img src=".github/brands/nzxt.svg" height="32" alt="NZXT" title="NZXT">&nbsp;&nbsp;
+<img src=".github/brands/coolermaster.svg" height="32" alt="Cooler Master" title="Cooler Master">&nbsp;&nbsp;
+<img src=".github/brands/elgato.svg" height="32" alt="Elgato" title="Elgato">&nbsp;&nbsp;
+<img src=".github/brands/philipshue.svg" height="32" alt="Philips Hue" title="Philips Hue">&nbsp;&nbsp;
+<img src=".github/brands/lifx.svg" height="32" alt="LIFX" title="LIFX">
+</p>
+
+Also Gigabyte, ASRock, Lian Li, Thermaltake, Aqua Computer, Keychron, Wooting, Nanoleaf, Govee
+and many more.
 
 Tested so far on MSI Mystic Light boards, Logitech G502 and G515, and Corsair Vengeance RGB
 DDR5. If yours works or doesn't, [open an issue](../../issues/new/choose).
