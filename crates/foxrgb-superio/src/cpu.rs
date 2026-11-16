@@ -1,4 +1,4 @@
-//! Intel CPU package temperature from MSRs, as LibreHardwareMonitor reads it.
+//! Intel CPU package temperature from MSRs.
 
 use foxrgb_pawnio::{INTEL_MSR, Module};
 

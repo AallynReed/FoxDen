@@ -73,7 +73,7 @@ impl Sio {
         self.inb(0x87);
     }
 
-    /// Leaves config mode, as LibreHardwareMonitor does after each access.
+    /// Leaves config mode after each access.
     pub fn exit(&self) {
         let _ = self
             .pawn
@@ -156,7 +156,7 @@ pub(crate) struct Dmi {
     pub product_name: String,
 }
 
-fn dmi() -> Dmi {
+pub(crate) fn dmi() -> Dmi {
     Dmi {
         manufacturer: bios_value("BaseBoardManufacturer").unwrap_or_default(),
         mainboard: bios_value("BaseBoardProduct").unwrap_or_default(),
@@ -164,7 +164,17 @@ fn dmi() -> Dmi {
     }
 }
 
+/// Whether the processor is an AMD one, which decides how some boards are reached.
+pub(crate) fn cpu_is_amd() -> bool {
+    let key = "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
+    registry_value(key, "VendorIdentifier").is_some_and(|v| v == "AuthenticAMD")
+}
+
 fn bios_value(name: &str) -> Option<String> {
+    registry_value("HARDWARE\\DESCRIPTION\\System\\BIOS", name)
+}
+
+fn registry_value(key: &str, name: &str) -> Option<String> {
     use std::ffi::c_void;
     #[link(name = "advapi32")]
     unsafe extern "system" {
@@ -179,9 +189,7 @@ fn bios_value(name: &str) -> Option<String> {
         ) -> i32;
     }
     let hklm = 0x8000_0002u32 as i32 as isize as *mut c_void;
-    let sub: Vec<u16> = "HARDWARE\\DESCRIPTION\\System\\BIOS\0"
-        .encode_utf16()
-        .collect();
+    let sub: Vec<u16> = key.encode_utf16().chain([0]).collect();
     let value: Vec<u16> = name.encode_utf16().chain([0]).collect();
     let mut buf = [0u16; 256];
     let mut len = (buf.len() * 2) as u32;
