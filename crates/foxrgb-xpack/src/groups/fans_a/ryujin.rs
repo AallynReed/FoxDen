@@ -345,6 +345,31 @@ mod tests {
     }
 
     #[test]
+    fn ryuo_has_one_fan_channel_and_releases_to_full() {
+        let rec = super::super::util::mock::Rec::default();
+        let mut hub = Hub {
+            io: Box::new(rec.clone()),
+            id: String::new(),
+            model: MODELS[6],
+            pump: SAFE,
+            fan: SAFE,
+            status: Status::default(),
+            hub_rpm: [0; 4],
+            seen: [false; 3],
+            poll: Every::ms(1500),
+        };
+        assert_eq!(hub.channels().len(), 1);
+        assert!(hub.sensors().is_empty());
+        assert_eq!(hub.rpm(0), None);
+        hub.set_duty(0, 0.45).unwrap();
+        hub.release(0).unwrap();
+        let sent = rec.sent.lock().unwrap();
+        assert_eq!(sent[0], crate::hid::padded(&[0xEC, 0x2A, 45], LEN));
+        assert_eq!(sent[1], crate::hid::padded(&[0xEC, 0x2A, 100], LEN));
+        assert_eq!(sent.len(), 2);
+    }
+
+    #[test]
     fn fan_write_keeps_pump() {
         let rec = super::super::util::mock::Rec::default();
         let mut hub = Hub {

@@ -281,6 +281,8 @@ fn kind_of(kind: u8, model: u8) -> Option<&'static Kind> {
 
 /// The child list read record by record: (channel, type, model) of every occupied channel.
 /// A record is eight bytes, the device id's length in its last, then the id.
+const MAX_ID: usize = 64;
+
 pub fn parse_link(data: &[u8]) -> Option<Vec<(u8, u8, u8)>> {
     let n = *data.get(6)?;
     let mut at = 7;
@@ -289,11 +291,38 @@ pub fn parse_link(data: &[u8]) -> Option<Vec<(u8, u8, u8)>> {
         let rec = data.get(at..at + 8)?;
         let len = usize::from(rec[7]);
         if len > 0 {
+            let id = data.get(at + 8..at + 8 + len)?;
+            let sane =
+                rec[..2] == [0, 0] && len <= MAX_ID && id.iter().all(|b| (0x20..0x7F).contains(b));
+            if !sane {
+                return None;
+            }
             out.push((ch, rec[2], rec[3]));
         }
         at += 8 + len;
     }
     Some(out)
+}
+
+/// Channels and probes by the record walk; anything it cannot place falls back to the scan.
+pub fn link_channels(
+    children: &[u8],
+    rpms: &[u32],
+    temps: &[Option<f32>],
+) -> (Vec<Chan>, Vec<(String, usize)>) {
+    let exact = parse_link(children).filter(|e| e.iter().all(|c| usize::from(c.0) < rpms.len()));
+    let chans = exact
+        .as_ref()
+        .and_then(|e| map_link_exact(e, rpms))
+        .filter(|c| !c.is_empty());
+    let sensors = exact
+        .as_ref()
+        .and_then(|e| map_link_sensors_exact(e, temps));
+    let kids = parse_children(children);
+    (
+        chans.unwrap_or_else(|| map_link(&kids, rpms)),
+        sensors.unwrap_or_else(|| map_link_sensors(&kids, temps)),
+    )
 }
 
 /// Every RPM-reporting child on its own channel's slot; `None` when a slot was not read.
@@ -705,6 +734,27 @@ impl FanHub for Hub {
     }
 }
 
+/// The Core's pump on slot 0 then six fans; the XT's six fans and the DUO's two from slot 0.
+fn core_chans(pid: u16) -> Vec<Chan> {
+    let core = Flavor::of(pid) == Some(Flavor::Core);
+    let mut chans = Vec::new();
+    if core {
+        chans.push(Chan {
+            name: "Pump".into(),
+            pump: true,
+            slot: 0,
+        });
+    }
+    let from = u8::from(core);
+    let fans = if pid == DUO { 2 } else { 6 };
+    chans.extend((0..fans).map(|i| Chan {
+        name: format!("Fan {}", i + 1),
+        pump: false,
+        slot: from + i,
+    }));
+    chans
+}
+
 fn open_bus(api: &HidApi, info: &Info, flavor: Flavor) -> Option<Bus> {
     let io = open_io(api, info).ok()?;
     let first = first_size(info.pid);
@@ -739,22 +789,7 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
                     _ => (format!("Temperature Probe {}", i + 1), i),
                 })
                 .collect();
-            let mut chans = Vec::new();
-            if core {
-                chans.push(Chan {
-                    name: "Pump".into(),
-                    pump: true,
-                    slot: 0,
-                });
-            }
-            let from = u8::from(core);
-            let fans = if info.pid == DUO { 2 } else { 6 };
-            chans.extend((0..fans).map(|i| Chan {
-                name: format!("Fan {}", i + 1),
-                pump: false,
-                slot: from + i,
-            }));
-            (chans, sensors)
+            (core_chans(info.pid), sensors)
         }
         Flavor::Link => {
             let (children, rpms, temps) = bus.with_access(|b| {
@@ -772,19 +807,7 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
                     .unwrap_or_default();
                 Some((children, rpms, temps))
             })?;
-            let exact = parse_link(&children);
-            let chans = exact
-                .as_ref()
-                .and_then(|e| map_link_exact(e, &rpms))
-                .filter(|c| !c.is_empty());
-            let sensors = exact
-                .as_ref()
-                .and_then(|e| map_link_sensors_exact(e, &temps));
-            let kids = parse_children(&children);
-            (
-                chans.unwrap_or_else(|| map_link(&kids, &rpms)),
-                sensors.unwrap_or_else(|| map_link_sensors(&kids, &temps)),
-            )
+            link_channels(&children, &rpms, &temps)
         }
     };
     if chans.is_empty() {
@@ -948,6 +971,26 @@ mod tests {
         let slots: Vec<usize> = sensors.iter().map(|s| s.1).collect();
         assert_eq!(slots, [1, 3, 4, 5]);
         assert_eq!(parse_link(&d[..20]), None);
+        let (chans, _) = link_channels(&d, &[0, 0, 1500, 0, 0, 2800, 0], &[None; 7]);
+        assert_eq!(chans.len(), 3);
+    }
+
+    // A record that does not parse leaves every slot pump-safe.
+    #[test]
+    fn a_broken_link_record_falls_back_to_pump_safe_slots() {
+        let mut d = vec![0, 0, 0, 0, 0x21, 0, 2];
+        d.extend(record(1, 0, b"QX0000000000000000000001"));
+        d.extend(record(19, 0, b"RX0000000000000000000002"));
+        d[7 + 7] = 0xF0;
+        assert_eq!(parse_link(&d), None);
+        let (chans, _) = link_channels(&d, &[0, 900, 0], &[]);
+        assert_eq!(chans.len(), 3);
+        assert!(chans.iter().all(|c| c.pump));
+        let mut short = d.clone();
+        short[7 + 7] = 24;
+        assert!(parse_link(&short).is_some());
+        let (chans, _) = link_channels(&short, &[0, 900], &[]);
+        assert!(chans.iter().all(|c| c.pump));
     }
 
     /// Answers each Core command once with success, and records what was written.
@@ -1066,6 +1109,12 @@ mod tests {
         assert_eq!(first_size(CORE2), 65);
         assert_eq!(first_size(XT), 385);
         assert_eq!(first_size(DUO), 65);
+        let duo: Vec<(bool, u8)> = core_chans(DUO).iter().map(|c| (c.pump, c.slot)).collect();
+        assert_eq!(duo, [(false, 0), (false, 1)]);
+        assert_eq!(core_chans(XT).len(), 6);
+        assert_eq!(core_chans(CORE)[0].slot, 0);
+        assert!(core_chans(CORE)[0].pump);
+        assert_eq!(core_chans(CORE).len(), 7);
         assert_eq!(Flavor::of(DUO), Some(Flavor::Xt));
         assert_eq!(size_after(CORE, 97, 1), 1025);
         assert_eq!(size_after(CORE, 97, 2), 97);

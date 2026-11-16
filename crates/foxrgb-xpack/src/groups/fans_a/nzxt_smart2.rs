@@ -195,6 +195,26 @@ mod tests {
     }
 
     #[test]
+    fn release_writes_full_speed_at_the_model_width() {
+        let rec = super::super::util::mock::Rec::default();
+        let hub = |pid: u16| Hub {
+            io: Box::new(rec.clone()),
+            id: String::new(),
+            name: "N",
+            pid,
+            rpm: vec![None; fans_of(pid)],
+            poll: Every::ms(60_000),
+        };
+        hub(H1).release(1).unwrap();
+        hub(CONTROL_HUB).release(4).unwrap();
+        hub(0x2006).set_duty(2, 0.25).unwrap();
+        let sent = rec.sent.lock().unwrap();
+        assert_eq!(&sent[0][..6], &[0x62, 0x01, 0x02, 0, 100, 0]);
+        assert_eq!(&sent[1][..9], &[0x62, 0x01, 0x10, 0, 0, 0, 0, 100, 0]);
+        assert_eq!(&sent[2][..7], &[0x62, 0x01, 0x04, 0, 0, 25, 0]);
+    }
+
+    #[test]
     fn h1_fans_sit_five_bytes_apart() {
         let mut r = vec![0u8; 64];
         r[..2].copy_from_slice(&H1_STATUS);

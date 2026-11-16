@@ -82,6 +82,7 @@ struct Hub {
     name: &'static str,
     seq: u8,
     status: Cached<Status>,
+    sent: [Option<u8>; 3],
 }
 
 impl Hub {
@@ -151,10 +152,19 @@ impl FanHub for Hub {
         }
     }
     fn set_duty(&mut self, ch: usize, duty: f32) -> Result<(), String> {
-        self.set(ch, duty)
+        let b = byte(duty);
+        if self.sent.get(ch) == Some(&Some(b)) {
+            return Ok(());
+        }
+        self.set(ch, duty)?;
+        self.sent[ch] = Some(b);
+        Ok(())
     }
     /// The pump goes back to its quiet speed, fans to full.
     fn release(&mut self, ch: usize) -> Result<(), String> {
+        if let Some(s) = self.sent.get_mut(ch) {
+            *s = None;
+        }
         self.set(ch, if ch == 0 { 0.0 } else { SAFE })
     }
     fn temperature(&mut self, _sensor: usize) -> Option<f32> {
@@ -176,6 +186,7 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
             name,
             seq: 1,
             status: Cached::new(POLL_MS),
+            sent: [None; 3],
         },
     ))
 }
@@ -258,7 +269,9 @@ mod tests {
             name: "H",
             seq: 1,
             status: Cached::new(60_000),
+            sent: [None; 3],
         };
+        hub.set_duty(2, 0.4).unwrap();
         hub.set_duty(2, 0.4).unwrap();
         hub.set_duty(0, 0.9).unwrap();
         hub.release(2).unwrap();

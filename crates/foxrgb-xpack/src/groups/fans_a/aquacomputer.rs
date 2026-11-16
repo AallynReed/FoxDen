@@ -159,6 +159,7 @@ struct Hub {
     status: Option<Vec<u8>>,
     /// Each channel's settings before FoxRGB first set it.
     saved: Vec<Option<[u8; 3]>>,
+    sent: Vec<Option<u8>>,
     seen: Vec<bool>,
     poll: Every,
 }
@@ -232,16 +233,25 @@ impl FanHub for Hub {
         }
     }
     fn set_duty(&mut self, ch: usize, duty: f32) -> Result<(), String> {
+        let pct = crate::fan::percent(duty);
+        if self.sent.get(ch) == Some(&Some(pct)) {
+            return Ok(());
+        }
         let mut block = [0u8; 3];
-        set_manual(&mut block, 0, crate::fan::percent(duty));
-        self.write(ch, block)
+        set_manual(&mut block, 0, pct);
+        self.write(ch, block)?;
+        self.sent[ch] = Some(pct);
+        Ok(())
     }
     /// Puts the channel's own settings back.
     fn release(&mut self, ch: usize) -> Result<(), String> {
-        match self.saved.get_mut(ch).and_then(Option::take) {
-            Some(block) => self.write(ch, block).map(|_| self.saved[ch] = None),
-            None => Ok(()),
-        }
+        let Some(block) = self.saved.get(ch).copied().flatten() else {
+            return Ok(());
+        };
+        self.write(ch, block)?;
+        self.saved[ch] = None;
+        self.sent[ch] = None;
+        Ok(())
     }
     fn temperature(&mut self, sensor: usize) -> Option<f32> {
         self.refresh();
@@ -267,6 +277,7 @@ pub fn backends(api: &HidApi, seen: &mut Vec<String>) -> Vec<Box<dyn FanBackend>
                     model,
                     status: None,
                     saved: vec![None; n],
+                    sent: vec![None; n],
                     seen: vec![false; n],
                     poll: Every::ms(1000),
                 },
@@ -303,6 +314,7 @@ mod tests {
             model: quadro,
             status: None,
             saved: vec![None; 4],
+            sent: vec![None; 4],
             seen: vec![false; 4],
             poll: Every::ms(60_000),
         };
@@ -326,10 +338,12 @@ mod tests {
             model: d5,
             status: None,
             saved: vec![None; 2],
+            sent: vec![None; 2],
             seen: vec![false; 2],
             poll: Every::ms(60_000),
         };
         *rec.replies.lock().unwrap() = vec![before.clone()];
+        hub.set_duty(0, 0.65).unwrap();
         hub.set_duty(0, 0.65).unwrap();
         let mut want = before.clone();
         want[0x96..0x99].copy_from_slice(&[0, 0x19, 0x64]);

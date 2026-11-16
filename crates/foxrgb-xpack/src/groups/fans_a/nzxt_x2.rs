@@ -5,6 +5,7 @@ use crate::fan::{Channel, FanHub, backend_on, percent};
 use crate::hid::{Io, read_until};
 use foxrgb_fan::FanBackend;
 use hidapi::HidApi;
+use std::time::{Duration, Instant};
 
 const VID: u16 = 0x1E71;
 const PID: u16 = 0x170E;
@@ -19,6 +20,8 @@ const CRITICAL: u8 = 60;
 const FAN_DEFAULT: [(u8, u8); 4] = [(20, 25), (30, 50), (50, 90), (60, 100)];
 const PUMP_DEFAULT: [(u8, u8); 4] = [(20, 50), (30, 60), (40, 90), (50, 100)];
 const SAFE: u8 = 100;
+/// An unchanged duty is sent again only this often.
+const RESEND: Duration = Duration::from_secs(10);
 
 /// The curve's temperatures: every degree to 49, every other to 58, then 60.
 pub fn curve_temps() -> Vec<u8> {
@@ -93,6 +96,7 @@ struct Hub {
     status: Option<Status>,
     seen: bool,
     poll: Every,
+    sent: [Option<(u8, Instant)>; 2],
 }
 
 impl Hub {
@@ -149,10 +153,20 @@ impl FanHub for Hub {
         }
     }
     fn set_duty(&mut self, ch: usize, duty: f32) -> Result<(), String> {
+        let pct = percent(duty);
+        let last = *self.sent.get(ch).ok_or("no such channel")?;
+        if last.is_some_and(|(p, at)| p == pct && at.elapsed() < RESEND) {
+            return Ok(());
+        }
         self.refresh();
-        self.send(base(ch), percent(duty), None)
+        self.send(base(ch), pct, None)?;
+        self.sent[ch] = Some((pct, Instant::now()));
+        Ok(())
     }
     fn release(&mut self, ch: usize) -> Result<(), String> {
+        if let Some(s) = self.sent.get_mut(ch) {
+            *s = None;
+        }
         self.refresh();
         let default: &[(u8, u8)] = if ch == 0 { &PUMP_DEFAULT } else { &FAN_DEFAULT };
         self.send(base(ch), SAFE, Some(default))
@@ -177,6 +191,7 @@ pub fn backends(api: &HidApi, seen: &mut Vec<String>) -> Vec<Box<dyn FanBackend>
                 status: None,
                 seen: false,
                 poll: Every::ms(1000),
+                sent: [None; 2],
             };
             hub.refresh();
             Some(backend_on(&info, hub))
@@ -199,6 +214,7 @@ mod tests {
             }),
             seen: false,
             poll: Every::ms(60_000),
+            sent: [None; 2],
         };
         h.poll.due();
         h
@@ -235,6 +251,7 @@ mod tests {
     fn fixed_duty_is_a_flat_curve_then_full_at_60() {
         let rec = Rec::default();
         let mut h = hub(&rec, 6);
+        h.set_duty(1, 0.4).unwrap();
         h.set_duty(1, 0.4).unwrap();
         let sent = rec.sent.lock().unwrap();
         assert_eq!(sent.len(), 36);
