@@ -274,7 +274,10 @@ pub fn k55_k95_setup(logical: Logical, physical: u8) -> Vec<Report> {
 /// What the constructor (and ReadFirmwareInfo for mice and pads) sends to take software control.
 pub fn init(kind: Kind) -> Vec<Report> {
     let mut out = Vec::new();
-    if !matches!(kind, Kind::Keyboard(..)) || needs_special(kind) {
+    if !matches!(kind, Kind::Keyboard(..))
+        || needs_special(kind)
+        || matches!(kind, Kind::Keyboard(Logical::K63, _))
+    {
         out.push(special_function());
     }
     out.push(lighting_control(kind));
@@ -877,7 +880,8 @@ mod tests {
         b[0x0F] = 0x40;
         b[0x14] = 0xC0;
         assert_eq!(parse_firmware(&b, 0), Some(Kind::Keyboard(Logical::K63, 0)));
-        assert_eq!(init(Kind::Keyboard(Logical::K63, 0)).len(), 1);
+        let k63 = Kind::Keyboard(Logical::K63, 0);
+        assert_eq!(init(k63), vec![special_function(), lighting_control(k63)]);
     }
 
     // Red plane in three bulk packets of 60, 60 and 48, then submit colour 1 with finish 1.

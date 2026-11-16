@@ -23,6 +23,7 @@ const WIRED: u8 = 0x08;
 const WIRELESS: u8 = 0x09;
 const LIGHT_CTRL1: u8 = 1;
 const LIGHT_CTRL2: u8 = 0x22;
+const LIGHT_MONO: u8 = 0x10;
 const MODE_HW: u8 = 0x01;
 const MODE_SW: u8 = 0x02;
 const DIRECT: u16 = 0x0012;
@@ -824,7 +825,9 @@ fn open(api: &HidApi, info: &Info, det: &Detector, hw: bool) -> Result<Box<dyn B
         taken: false,
         mono: MONO.contains(&spec.pid),
     };
-    if light_ctrl == LIGHT_CTRL2 && !PINNED.contains(&spec.pid) {
+    if driver.mono {
+        driver.light_ctrl = LIGHT_MONO;
+    } else if light_ctrl == LIGHT_CTRL2 && !PINNED.contains(&spec.pid) {
         let request = start_tx(cmd, 0, driver.light_ctrl, pkt);
         write(&driver.hid, &request)?;
         let answer = if skip_reads {
@@ -951,6 +954,8 @@ mod tests {
         let blocks = blocks(WIRED, &mono_plane(&colors), 65);
         assert_eq!(blocks.len(), 1);
         assert!(DEVICES.iter().any(|d| d.pid == MONO[0]));
+        let open = start_tx(WIRED, 1, LIGHT_MONO, 65);
+        assert_eq!(open[..5], [0x00, 0x08, 0x0D, 0x01, 0x10]);
     }
 
     #[test]
