@@ -57,6 +57,8 @@ const LINK_DEFAULT: u8 = 0x35;
 /// Below 60% the Capellix pump goes into failsafe until power cycled.
 const CORE_PUMP_MIN: u8 = 60;
 const LINK_SIZE: usize = 513;
+/// Header bytes before the data of a continued LINK read.
+const LINK_MORE: usize = 4;
 const REPLY_MS: u64 = 500;
 const POLL_MS: u64 = 1500;
 const STATE_MS: u64 = 10_000;
@@ -223,6 +225,7 @@ pub fn parse_children(data: &[u8]) -> Vec<(u8, u8)> {
 
 struct Kind {
     kind: u8,
+    model: Option<u8>,
     name: &'static str,
     rpm: bool,
     probe: bool,
@@ -232,6 +235,7 @@ struct Kind {
 const fn k(kind: u8, name: &'static str, rpm: bool, probe: bool, pump: bool) -> Kind {
     Kind {
         kind,
+        model: None,
         name,
         rpm,
         probe,
@@ -254,7 +258,73 @@ const KINDS: &[Kind] = &[
     k(14, "LINK XD5 Elite", true, true, true),
     k(25, "LINK XD6 Elite", true, true, true),
     k(16, "LINK VRM Fan", true, false, false),
+    k(27, "Commander DUO Channel", true, true, false),
+    k(9, "LINK XC7 Elite", false, true, false),
+    k(11, "LINK PSU", false, true, false),
+    Kind {
+        model: Some(0),
+        ..k(26, "LINK Fan", true, false, false)
+    },
+    Kind {
+        model: Some(1),
+        ..k(26, "LINK AIO Pump", true, true, true)
+    },
 ];
+
+fn kind_of(kind: u8, model: u8) -> Option<&'static Kind> {
+    KINDS
+        .iter()
+        .find(|k| k.kind == kind && k.model.is_none_or(|m| m == model))
+}
+
+/// The child list read record by record: (channel, type, model) of every occupied channel.
+/// A record is eight bytes, the device id's length in its last, then the id.
+pub fn parse_link(data: &[u8]) -> Option<Vec<(u8, u8, u8)>> {
+    let n = *data.get(6)?;
+    let mut at = 7;
+    let mut out = Vec::new();
+    for ch in 1..=n {
+        let rec = data.get(at..at + 8)?;
+        let len = usize::from(rec[7]);
+        if len > 0 {
+            out.push((ch, rec[2], rec[3]));
+        }
+        at += 8 + len;
+    }
+    Some(out)
+}
+
+/// Every RPM-reporting child on its own channel's slot; `None` when a slot was not read.
+pub fn map_link_exact(children: &[(u8, u8, u8)], rpms: &[u32]) -> Option<Vec<Chan>> {
+    children
+        .iter()
+        .filter_map(|&(slot, kind, model)| Some((slot, kind_of(kind, model).filter(|k| k.rpm)?)))
+        .enumerate()
+        .map(|(i, (slot, k))| {
+            (usize::from(slot) < rpms.len()).then(|| Chan {
+                name: format!("{} {}", k.name, i + 1),
+                pump: k.pump,
+                slot,
+            })
+        })
+        .collect()
+}
+
+/// Probe-reporting children read their own channel's temperature slot.
+pub fn map_link_sensors_exact(
+    children: &[(u8, u8, u8)],
+    temps: &[Option<f32>],
+) -> Option<Vec<(String, usize)>> {
+    children
+        .iter()
+        .filter_map(|&(slot, kind, model)| Some((slot, kind_of(kind, model).filter(|k| k.probe)?)))
+        .enumerate()
+        .map(|(i, (slot, k))| {
+            let slot = usize::from(slot);
+            (slot < temps.len()).then(|| (format!("{} {}", k.name, i + 1), slot))
+        })
+        .collect()
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chan {
@@ -400,7 +470,7 @@ impl Bus {
         self.close();
         let mut data = first?;
         if let Some(s) = second {
-            data.extend(s.get(3..).unwrap_or(&[]));
+            data.extend(s.get(LINK_MORE..).unwrap_or(&[]));
         }
         Some(data)
     }
@@ -699,8 +769,19 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
                     .unwrap_or_default();
                 Some((children, rpms, temps))
             })?;
+            let exact = parse_link(&children);
+            let chans = exact
+                .as_ref()
+                .and_then(|e| map_link_exact(e, &rpms))
+                .filter(|c| !c.is_empty());
+            let sensors = exact
+                .as_ref()
+                .and_then(|e| map_link_sensors_exact(e, &temps));
             let kids = parse_children(&children);
-            (map_link(&kids, &rpms), map_link_sensors(&kids, &temps))
+            (
+                chans.unwrap_or_else(|| map_link(&kids, &rpms)),
+                sensors.unwrap_or_else(|| map_link_sensors(&kids, &temps)),
+            )
         }
     };
     if chans.is_empty() {
@@ -824,6 +905,46 @@ mod tests {
         let sensors = map_link_sensors(&kids, &[Some(30.0), None, Some(28.5)]);
         assert_eq!(sensors.len(), 3);
         assert_eq!(sensors[0].1, 0);
+    }
+
+    fn record(kind: u8, model: u8, id: &[u8]) -> Vec<u8> {
+        let mut r = vec![0, 0, kind, model, 0, 0, 0, id.len() as u8];
+        r.extend_from_slice(id);
+        r
+    }
+
+    #[test]
+    fn link_children_map_to_their_own_channel() {
+        let mut d = vec![0, 0, 0, 0, 0x21, 0, 6];
+        d.extend(record(1, 0, b"QX0000000000000000000001"));
+        d.extend([0u8; 8]);
+        d.extend(record(7, 2, b"AIO000000000000000000002"));
+        d.extend(record(9, 0, b"XC7000000000000000000003"));
+        d.extend(record(26, 1, b"PUMP0000000000000000004"));
+        d.extend(record(26, 8, b"LCD00000000000000000005"));
+        let kids = parse_link(&d).unwrap();
+        assert_eq!(
+            kids,
+            [(1, 1, 0), (3, 7, 2), (4, 9, 0), (5, 26, 1), (6, 26, 8)]
+        );
+        let chans = map_link_exact(&kids, &[0, 0, 1500, 0, 0, 2800, 0]).unwrap();
+        let got: Vec<(&str, bool, u8)> = chans
+            .iter()
+            .map(|c| (c.name.as_str(), c.pump, c.slot))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("QX Fan 1", false, 1),
+                ("LINK AIO Pump 2", true, 3),
+                ("LINK AIO Pump 3", true, 5)
+            ]
+        );
+        assert_eq!(map_link_exact(&kids, &[0, 0, 0]), None);
+        let sensors = map_link_sensors_exact(&kids, &[None; 7]).unwrap();
+        let slots: Vec<usize> = sensors.iter().map(|s| s.1).collect();
+        assert_eq!(slots, [1, 3, 4, 5]);
+        assert_eq!(parse_link(&d[..20]), None);
     }
 
     /// Answers each Core command once with success, and records what was written.
