@@ -39,6 +39,7 @@ pub static DETECTORS: &[Detector] = &[
         open_sw
     ),
     det!("Corsair K60 RGB PRO", VID, 0x1BA0, I1, PAGE, None, open_sw),
+    det!("Corsair K60 PRO", VID, 0x1B83, I1, PAGE, None, open_sw),
     det!(
         "Corsair K60 RGB PRO SE",
         VID,
@@ -271,6 +272,8 @@ pub static DETECTORS: &[Detector] = &[
 
 const RECEIVERS: [u16; 5] = [0x1BA6, 0x1B66, 0x1B65, 0x1BDC, 0x2B00];
 const K57_WIRED: u16 = 0x1B6E;
+/// Single-colour boards: one intensity per LED instead of three planes.
+const MONO: [u16; 1] = [0x1B83];
 /// These keep lighting endpoint 2 without probing it.
 const PINNED: [u16; 4] = [0x1B7C, 0x1BC5, 0x1B7D, 0x1BAF];
 
@@ -537,6 +540,7 @@ static DEVICES: &[Spec] = &[
     spec(0x1BA4, KB, Shape::Leds(6), 0x5F, 65),
     spec(0x1B6E, KB, Shape::Keys(&K57), 0x5F, 65),
     spec(0x1BA0, KB, Shape::Keys(&K60), 0x5F, 65),
+    spec(0x1B83, KB, Shape::Keys(&K60), 0x5F, 65),
     spec(0x1B8D, KB, Shape::Keys(&K60), 0x5F, 65),
     spec(0x1BAD, KB, Shape::Keys(&K60), 0x5F, 65),
     spec(0x1BC7, KB, Shape::Keys(&K60_TKL), 0x5F, 65),
@@ -650,6 +654,11 @@ pub fn colour_blocks(colors: &[Color]) -> Vec<u8> {
     out
 }
 
+/// One intensity plane, the brightest channel of each colour.
+pub fn mono_plane(colors: &[Color]) -> Vec<u8> {
+    colors.iter().map(|c| c.0.max(c.1).max(c.2)).collect()
+}
+
 /// SetLedsDirectTriplets: the direct mode id, then RGB per LED.
 pub fn triplets(colors: &[Color]) -> Vec<u8> {
     let mut out = DIRECT.to_le_bytes().to_vec();
@@ -701,6 +710,7 @@ struct V2 {
     values: Vec<u32>,
     len: usize,
     taken: bool,
+    mono: bool,
 }
 
 impl V2 {
@@ -735,7 +745,9 @@ impl Driver for V2 {
             self.taken = true;
         }
         let buffer = ordered(&self.values, self.len, colors);
-        let data = if self.hw && self.light_ctrl == LIGHT_CTRL2 {
+        let data = if self.mono {
+            mono_plane(&buffer)
+        } else if self.hw && self.light_ctrl == LIGHT_CTRL2 {
             triplets(&buffer)
         } else {
             colour_blocks(&buffer)
@@ -810,6 +822,7 @@ fn open(api: &HidApi, info: &Info, det: &Detector, hw: bool) -> Result<Box<dyn B
         values: Vec::new(),
         len: 0,
         taken: false,
+        mono: MONO.contains(&spec.pid),
     };
     if light_ctrl == LIGHT_CTRL2 && !PINNED.contains(&spec.pid) {
         let request = start_tx(cmd, 0, driver.light_ctrl, pkt);
@@ -931,6 +944,15 @@ mod tests {
     }
 
     // CorsairPeripheralV2SWController::SetLedsDirect
+    #[test]
+    fn mono_plane_bytes() {
+        let colors = [Color(0x10, 0x20, 0x05), Color(0xFF, 0, 0), Color::BLACK];
+        assert_eq!(mono_plane(&colors), vec![0x20, 0xFF, 0x00]);
+        let blocks = blocks(WIRED, &mono_plane(&colors), 65);
+        assert_eq!(blocks.len(), 1);
+        assert!(DEVICES.iter().any(|d| d.pid == MONO[0]));
+    }
+
     #[test]
     fn colour_block_order() {
         let d = colour_blocks(&[Color(1, 2, 3), Color(4, 5, 6)]);

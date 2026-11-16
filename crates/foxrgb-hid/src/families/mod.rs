@@ -55,3 +55,41 @@ pub use more_d::{LedProtocol, LedStrip, led_strips, other_ids, serial_ports, win
 pub fn matchers() -> Vec<&'static Matcher> {
     more_c::matchers()
 }
+
+#[cfg(test)]
+mod tests {
+    // Razer and Corsair ids belong to one family each.
+    #[test]
+    fn no_razer_or_corsair_id_in_two_families() {
+        let families = [
+            super::razer::detectors(),
+            super::logitech::detectors(),
+            super::msi_steelseries::detectors(),
+            super::coolermaster_corsair::detectors(),
+            super::gigabyte_asrock::detectors(),
+            super::mixed_a::detectors(),
+            super::mixed_b::detectors(),
+            super::small::detectors(),
+            super::more_a::detectors(),
+            super::more_b::detectors(),
+            super::more_c::detectors(),
+            super::more_d::detectors(),
+            super::asus::detectors(),
+            super::generic::detectors(),
+            super::streamdeck::detectors(),
+        ];
+        for (i, a) in families.iter().enumerate() {
+            for b in &families[i + 1..] {
+                for d in a.iter().filter(|d| matches!(d.vid, 0x1532 | 0x1B1C)) {
+                    assert!(
+                        !b.iter().any(|e| (e.vid, e.pid) == (d.vid, d.pid)),
+                        "{} {:04x}:{:04x}",
+                        d.name,
+                        d.vid,
+                        d.pid
+                    );
+                }
+            }
+        }
+    }
+}

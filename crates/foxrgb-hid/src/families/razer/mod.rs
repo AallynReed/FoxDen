@@ -19,6 +19,8 @@ pub enum Matrix {
     Linear,
     ExtendedArgb,
     Custom,
+    /// One colour per LED id, set as a static effect.
+    Static,
 }
 
 /// One `razer_device` row; zones are (rows, cols).
@@ -115,7 +117,7 @@ mod tests {
     // plus 19 ids from SignalRGB's Razer plugins.
     #[test]
     fn one_detector_per_registered_line() {
-        assert_eq!(detectors().len(), 222);
+        assert_eq!(detectors().len(), 253);
         assert!(detectors().iter().all(|d| d.vid == 0x1532));
     }
 
@@ -208,7 +210,7 @@ mod tests {
 
     #[test]
     fn table_rows_are_sane() {
-        assert_eq!(devices::MODELS.len(), 220);
+        assert_eq!(devices::MODELS.len(), 251);
         for m in &devices::MODELS {
             assert!(m.led_count() > 0, "{}", m.name);
             assert!(
@@ -219,6 +221,43 @@ mod tests {
         }
         let bw4 = model(0x0287);
         assert_eq!((bw4.rows, bw4.cols, bw4.led_count()), (8, 23, 156));
+    }
+
+    #[test]
+    fn added_rows() {
+        let blade = model(0x02C7);
+        assert_eq!(
+            (blade.matrix, blade.tid, blade.rows, blade.cols),
+            (Matrix::Standard, 0xFF, 6, 19)
+        );
+        assert_eq!((model(0x02E0).rows, model(0x02E0).cols), (6, 17));
+        assert_eq!(model(0x00DA).matrix, Matrix::Static);
+        assert_eq!(model(0x02CD).tid, 0x1F);
+        assert_eq!(model(0x021F).tid, 0x3F);
+        assert_eq!(model(0x0F17).led_count(), 20);
+        assert_eq!((model(0x02A7).rows, model(0x02A7).cols), (6, 22));
+        for pid in [
+            0x0214, 0x0237, 0x024B, 0x02E1, 0x003F, 0x00A1, 0x00D4, 0x0520, 0x0F12,
+        ] {
+            assert!(listed(pid), "{pid:04x}");
+            assert!(detectors().iter().any(|d| d.pid == pid), "{pid:04x}");
+        }
+    }
+
+    #[test]
+    fn every_led_is_placed_once() {
+        for m in &devices::MODELS {
+            let d = stacked("x".into(), m.name.into(), m.kind, m.zones);
+            assert_eq!(d.leds.len(), m.led_count(), "{}", m.name);
+            let mut cells: Vec<(u32, u32)> = d
+                .leds
+                .iter()
+                .map(|p| ((p[0] * 10000.0) as u32, (p[1] * 10000.0) as u32))
+                .collect();
+            cells.sort();
+            cells.dedup();
+            assert_eq!(cells.len(), d.leds.len(), "{}", m.name);
+        }
     }
 
     #[test]

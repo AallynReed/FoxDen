@@ -9,6 +9,7 @@ pub const REPORT_LEN: usize = 37;
 
 const KRAKEN: u16 = 0x0504;
 const KRAKEN_V2: u16 = 0x0510;
+const KRAKEN_TE: u16 = 0x0520;
 const KRAKEN_KITTY_BLACK_EDITION_V2: u16 = 0x0560;
 const KRAKEN_ULTIMATE: u16 = 0x0527;
 
@@ -18,7 +19,7 @@ const EFFECT_ON: u8 = 0x01;
 /// The register addresses the constructor picks per PID: (led mode, custom colour).
 pub fn addresses(pid: u16) -> (u16, u16) {
     match pid {
-        KRAKEN_V2 | KRAKEN_KITTY_BLACK_EDITION_V2 | KRAKEN_ULTIMATE => (0x172D, 0x1189),
+        KRAKEN_V2 | KRAKEN_TE | KRAKEN_KITTY_BLACK_EDITION_V2 | KRAKEN_ULTIMATE => (0x172D, 0x1189),
         _ => (0x1008, 0x1189),
     }
 }
@@ -41,7 +42,7 @@ pub fn set_mode_custom(pid: u16, c: Color) -> Vec<[u8; REPORT_LEN]> {
     let mut out = Vec::new();
     if matches!(
         pid,
-        KRAKEN | KRAKEN_V2 | KRAKEN_KITTY_BLACK_EDITION_V2 | KRAKEN_ULTIMATE
+        KRAKEN | KRAKEN_V2 | KRAKEN_TE | KRAKEN_KITTY_BLACK_EDITION_V2 | KRAKEN_ULTIMATE
     ) {
         out.push(report(0x04, 0x40, 3, custom, &[c.0, c.1, c.2]));
     }
@@ -122,6 +123,14 @@ mod tests {
         let mut fx = [0u8; 37];
         fx[..6].copy_from_slice(&[0x04, 0x40, 0x01, 0x17, 0x2D, 0x01]);
         assert_eq!(r[1], fx);
+    }
+
+    // Tournament Edition uses the V2 addresses and writes the colour.
+    #[test]
+    fn tournament_edition_matches_v2() {
+        let c = Color(0x11, 0x22, 0x33);
+        assert_eq!(set_mode_custom(KRAKEN_TE, c), set_mode_custom(KRAKEN_V2, c));
+        assert_eq!(addresses(KRAKEN_TE), (0x172D, 0x1189));
     }
 
     // razer_set_mode_custom on the Kraken 7.1 Chroma.

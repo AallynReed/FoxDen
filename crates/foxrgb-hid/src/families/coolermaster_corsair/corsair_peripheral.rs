@@ -11,6 +11,8 @@ const I1: Option<i32> = Some(1);
 const PAGE: Option<u16> = Some(0xFFC2);
 const NA: u32 = u32::MAX;
 const ISO: u8 = 0x01;
+const DARK_CORE: u16 = 0x1B35;
+const TKL_COLS: usize = 19;
 
 pub static DETECTORS: &[Detector] = &[
     det!("Corsair K55 RGB", VID, 0x1B3D, I1, PAGE, None, open),
@@ -131,6 +133,10 @@ pub static DETECTORS: &[Detector] = &[
         None,
         open
     ),
+    det!("Corsair Sabre RGB Laser", VID, 0x1B19, I1, PAGE, None, open),
+    det!("Corsair Katar RGB", VID, 0x1B22, I1, PAGE, None, open),
+    det!("Corsair Dark Core RGB", VID, 0x1B35, I1, PAGE, None, open),
+    det!("Corsair K63", VID, 0x1B40, I1, PAGE, None, open),
     det!(
         "Corsair MM800 RGB Polaris",
         VID,
@@ -152,6 +158,8 @@ pub enum Logical {
     K70Mk2,
     K68,
     K70LuxRgb,
+    /// Tenkeyless, red LEDs only.
+    K63,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,6 +167,8 @@ pub enum Kind {
     /// Logical layout and physical layout (ANSI 0, ISO 1, ...).
     Keyboard(Logical, u8),
     Mouse,
+    /// Three zones set through static-animation packets.
+    DarkCore,
     Mousemat,
     Stand,
 }
@@ -188,6 +198,7 @@ pub fn parse_firmware(buf: &[u8; 65], offset: usize) -> Option<Kind> {
                 0x1B33 => Logical::K70LuxRgb,
                 0x1B38 | 0x1B49 | 0x1B6B | 0x1B55 | 0x1B48 => Logical::K70Mk2,
                 0x1B4F => Logical::K68,
+                0x1B40 => Logical::K63,
                 _ => Logical::Normal,
             };
             let physical = match buf[0x17 + offset] {
@@ -228,7 +239,7 @@ pub fn special_function() -> Report {
 pub fn lighting_control(kind: Kind) -> Report {
     let b5 = match kind {
         Kind::Keyboard(..) | Kind::Stand => 0x03,
-        Kind::Mouse => 0x01,
+        Kind::Mouse | Kind::DarkCore => 0x01,
         Kind::Mousemat => 0x04,
     };
     packet(&[0x00, 0x07, 0x05, 0x02, 0x00, b5])
@@ -309,6 +320,44 @@ pub fn keyboard_full(logical: Logical, colors: &[Color]) -> Vec<Report> {
     out
 }
 
+/// LED indices of the full-size map left of the numpad, in order.
+fn tkl_leds() -> Vec<u32> {
+    let mut v: Vec<u32> = MATRIX_MAP
+        .iter()
+        .flat_map(|row| row[..TKL_COLS].iter().copied())
+        .filter(|&i| i != NA)
+        .collect();
+    v.sort_unstable();
+    v
+}
+
+/// Red channel only: three bulk packets of one intensity per key, then one submit.
+pub fn keyboard_mono(colors: &[Color]) -> Vec<Report> {
+    let mut plane = [0u8; 168];
+    for (c, i) in colors.iter().zip(tkl_leds()) {
+        plane[KEYS[i as usize] as usize] = c.0.max(c.1).max(c.2);
+    }
+    vec![
+        stream(1, &plane[..60]),
+        stream(2, &plane[60..120]),
+        stream(3, &plane[120..168]),
+        submit_full(1, 1),
+    ]
+}
+
+/// One static-colour packet per Dark Core zone: front, thumb, rear.
+pub fn dark_core(colors: &[Color]) -> Vec<Report> {
+    (0..3u8)
+        .map(|z| {
+            let c = colors.get(z as usize).copied().unwrap_or(Color::BLACK);
+            let mut r = packet(&[0x00, 0x07, 0xAA, 0x00, 0x00, 1 << z, 0x07, 0x00, 0x00, 100]);
+            r[10..13].copy_from_slice(&[c.0, c.1, c.2]);
+            r[16] = 5 - z;
+            r
+        })
+        .collect()
+}
+
 /// SubmitKeyboardZonesColors, for the K55's three zones.
 pub fn keyboard_zones(left: Color, mid: Color, right: Color) -> Report {
     packet(&[
@@ -347,8 +396,10 @@ pub fn stand(colors: &[Color]) -> Report {
 pub fn frame(kind: Kind, colors: &[Color]) -> Vec<Report> {
     match kind {
         Kind::Keyboard(Logical::K55, _) => vec![keyboard_zones(colors[0], colors[1], colors[2])],
+        Kind::Keyboard(Logical::K63, _) => keyboard_mono(colors),
         Kind::Keyboard(logical, _) => keyboard_full(logical, colors),
         Kind::Mouse => vec![mouse(colors)],
+        Kind::DarkCore => dark_core(colors),
         Kind::Mousemat => vec![mousemat(colors)],
         Kind::Stand => vec![stand(colors)],
     }
@@ -366,8 +417,24 @@ fn layout(kind: Kind) -> (DeviceKind, Vec<[f32; 2]>, [u32; 2]) {
         Kind::Keyboard(Logical::K70LuxRgb, _) => m(&MATRIX_MAP_K70_LUX_RGB, 116),
         Kind::Keyboard(Logical::K70Mk2, _) => m(&MATRIX_MAP_K70_MK2, 116),
         Kind::Keyboard(Logical::K55, _) => (DeviceKind::Keyboard, line(3), [3, 1]),
+        Kind::Keyboard(Logical::K63, _) => {
+            let leds = tkl_leds();
+            let map: Vec<Vec<u32>> = MATRIX_MAP
+                .iter()
+                .map(|row| {
+                    row[..TKL_COLS]
+                        .iter()
+                        .map(|v| leds.iter().position(|l| l == v).map_or(NA, |i| i as u32))
+                        .collect()
+                })
+                .collect();
+            let rows: Vec<&[u32]> = map.iter().map(|r| r.as_slice()).collect();
+            let (pos, grid) = matrix(&rows, leds.len());
+            (DeviceKind::Keyboard, pos, grid)
+        }
         Kind::Keyboard(..) => m(&MATRIX_MAP, 113),
         Kind::Mouse => (DeviceKind::Mouse, line(15), [15, 1]),
+        Kind::DarkCore => (DeviceKind::Mouse, line(3), [3, 1]),
         Kind::Mousemat => (DeviceKind::Other, line(15), [15, 1]),
         Kind::Stand => (DeviceKind::Other, rows(&[8, 1]), [8, 2]),
     }
@@ -418,7 +485,10 @@ fn read_kind(hid: &HidDevice) -> Result<Kind, String> {
 
 fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, String> {
     let hid = info.open(api)?;
-    let kind = read_kind(&hid)?;
+    let kind = match read_kind(&hid)? {
+        Kind::Mouse if info.pid == DARK_CORE => Kind::DarkCore,
+        k => k,
+    };
     let (dk, leds, grid) = layout(kind);
     let dev = device(
         info.device_id("corsairperipheral"),
@@ -798,6 +868,66 @@ mod tests {
         let reds: Vec<u8> = (0..9).map(|i| r[5 + i * 3]).collect();
         assert_eq!(reds, vec![0, 1, 2, 3, 8, 4, 5, 6, 7]);
         assert_eq!(r[3], 9);
+    }
+
+    #[test]
+    fn k63_from_firmware() {
+        let mut b = [0u8; 65];
+        b[0x0E] = 0x1B;
+        b[0x0F] = 0x40;
+        b[0x14] = 0xC0;
+        assert_eq!(parse_firmware(&b, 0), Some(Kind::Keyboard(Logical::K63, 0)));
+        assert_eq!(init(Kind::Keyboard(Logical::K63, 0)).len(), 1);
+    }
+
+    // Red plane in three bulk packets of 60, 60 and 48, then submit colour 1 with finish 1.
+    #[test]
+    fn k63_mono_frame() {
+        let k = Kind::Keyboard(Logical::K63, 0);
+        let n = layout(k).1.len();
+        let mut colors = vec![Color::BLACK; n];
+        colors[0] = Color(0x10, 0x80, 0x20);
+        let r = frame(k, &colors);
+        assert_eq!(r.len(), 4);
+        assert_eq!(r[0][..6], [0x00, 0x7F, 0x01, 60, 0x00, 0x80]);
+        assert_eq!(r[1][..4], [0x00, 0x7F, 0x02, 60]);
+        assert_eq!(r[2][..4], [0x00, 0x7F, 0x03, 48]);
+        assert_eq!(r[3], packet(&[0x00, 0x07, 0x28, 0x01, 0x03, 0x01]));
+    }
+
+    #[test]
+    fn k63_layout_places_each_key_once() {
+        let (_, leds, grid) = layout(Kind::Keyboard(Logical::K63, 0));
+        assert_eq!(grid, [19, 6]);
+        assert_eq!(leds.len(), tkl_leds().len());
+        assert_eq!(leds.len(), 89);
+        for (i, a) in leds.iter().enumerate() {
+            assert!(a[1] < 1.0 && !leds[i + 1..].contains(a));
+        }
+    }
+
+    #[test]
+    fn dark_core_zone_packets() {
+        let r = dark_core(&[Color(1, 2, 3), Color(4, 5, 6), Color(7, 8, 9)]);
+        assert_eq!(r.len(), 3);
+        assert_eq!(
+            r[0],
+            packet(&[
+                0, 0x07, 0xAA, 0, 0, 0x01, 0x07, 0, 0, 100, 1, 2, 3, 0, 0, 0, 5
+            ])
+        );
+        assert_eq!(
+            r[1][..17],
+            [
+                0, 0x07, 0xAA, 0, 0, 0x02, 0x07, 0, 0, 100, 4, 5, 6, 0, 0, 0, 4
+            ]
+        );
+        assert_eq!(r[2][5..17], [0x04, 0x07, 0, 0, 100, 7, 8, 9, 0, 0, 0, 3]);
+        assert_eq!(layout(Kind::DarkCore).1.len(), 3);
+        assert_eq!(
+            lighting_control(Kind::DarkCore),
+            lighting_control(Kind::Mouse)
+        );
     }
 
     #[test]

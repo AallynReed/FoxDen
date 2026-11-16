@@ -31,6 +31,7 @@ const DEATHADDER_ESSENTIAL_V2: u16 = 0x0098;
 const MAMBA_2012_WIRED: u16 = 0x0024;
 const MAMBA_2012_WIRELESS: u16 = 0x0025;
 const NAGA_EPIC_CHROMA: u16 = 0x003E;
+const NAGA_EPIC_CHROMA_DOCK: u16 = 0x003F;
 const LEVIATHAN_V2: u16 = 0x0532;
 const LEVIATHAN_V2X: u16 = 0x054A;
 const LEVIATHAN_V2_PRO: u16 = 0x0548;
@@ -230,6 +231,12 @@ pub fn mode_custom_extended(p: &Params) -> Report {
     report(p, 0x0F, 0x02, 0x0C, &[0x00, 0x00, 0x08])
 }
 
+/// Static effect on one LED id: effect 0x01, one colour.
+pub fn effect_static(p: &Params, led: u8, rgb: &[u8]) -> Report {
+    let args = [NO_SAVE, led, 0x01, 0x00, 0x00, 0x01, rgb[0], rgb[1], rgb[2]];
+    report(p, 0x0F, 0x02, 0x09, &args)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
     /// Feature report on the main collection.
@@ -271,7 +278,7 @@ pub fn set_custom_frame(p: &Params, row: u8, start: u8, stop: u8, rgb: &[u8]) ->
                 send(set_led_rgb(p, LED_SCROLL_WHEEL, rgb)),
                 send(set_led_rgb(p, LED_LOGO, &rgb[3..])),
             ],
-            NAGA_EPIC_CHROMA => vec![
+            NAGA_EPIC_CHROMA | NAGA_EPIC_CHROMA_DOCK => vec![
                 send(set_led_rgb(p, LED_SCROLL_WHEEL, rgb)),
                 Step::SleepMs(1),
                 send(set_led_rgb(p, LED_BACKLIGHT, &rgb[3..])),
@@ -290,6 +297,7 @@ pub fn set_custom_frame(p: &Params, row: u8, start: u8, stop: u8, rgb: &[u8]) ->
             }
             _ => Vec::new(),
         },
+        Matrix::Static => vec![send(effect_static(p, p.led_id + start, rgb))],
         Matrix::None => Vec::new(),
     }
 }
@@ -305,7 +313,7 @@ pub fn set_mode_custom(p: &Params) -> Vec<Step> {
                 send(set_led_effect(p, LED_SCROLL_WHEEL, 0)),
                 send(set_led_effect(p, LED_LOGO, 0)),
             ],
-            NAGA_EPIC_CHROMA => vec![
+            NAGA_EPIC_CHROMA | NAGA_EPIC_CHROMA_DOCK => vec![
                 send(set_led_effect(p, LED_SCROLL_WHEEL, 0)),
                 Step::SleepMs(1),
                 send(set_led_effect(p, LED_BACKLIGHT, 0)),
@@ -316,7 +324,7 @@ pub fn set_mode_custom(p: &Params) -> Vec<Step> {
             ORBWEAVER_CHROMA => vec![send(mode_custom_standard(p))],
             _ => Vec::new(),
         },
-        Matrix::ExtendedArgb | Matrix::None => Vec::new(),
+        Matrix::ExtendedArgb | Matrix::Static | Matrix::None => Vec::new(),
     }
 }
 
@@ -964,6 +972,65 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    // Blades from 2023 on: standard frames with transaction id 0xFF.
+    #[test]
+    fn blade_standard_frame_bytes() {
+        let p = Params::new(0x029E);
+        let rgb: Vec<u8> = (1..=48).collect();
+        let r = frame_standard(&p, 3, 0, 15, &rgb);
+        let mut want = [0u8; REPORT_LEN];
+        want[..13].copy_from_slice(&[0, 0, 0xFF, 0, 0, 0, 48 + 4, 0x03, 0x0B, 0xFF, 3, 0, 15]);
+        want[13..61].copy_from_slice(&rgb);
+        want[89] = want[3..89].iter().fold(0, |a, b| a ^ b);
+        assert_eq!(r, want);
+        assert_eq!(sends(&plan(&p, false, &[Color::BLACK; 96])).len(), 7);
+    }
+
+    // Static-colour mice: effect 0x01 on LED id 0 with one colour, nothing else per frame.
+    #[test]
+    fn static_effect_bytes() {
+        for pid in [0x00DA, 0x00DB, 0x00D0, 0x00D1] {
+            let p = Params::new(pid);
+            let s = sends(&plan(&p, true, &[Color(0x12, 0x34, 0x56)]));
+            assert_eq!(s.len(), 1);
+            let mut want = [0u8; REPORT_LEN];
+            want[..18].copy_from_slice(&[
+                0, 0, 0x1F, 0, 0, 0, 0x09, 0x0F, 0x02, 0x00, 0x00, 0x01, 0, 0, 0x01, 0x12, 0x34,
+                0x56,
+            ]);
+            want[89] = want[3..89].iter().fold(0, |a, b| a ^ b);
+            assert_eq!(s[0][..], want[..]);
+        }
+    }
+
+    // Joro and the Basilisk Mobile: extended frames at 0x1F.
+    #[test]
+    fn joro_and_basilisk_mobile_frames() {
+        let p = Params::new(0x02CD);
+        let s = sends(&plan(&p, false, &[Color(1, 2, 3); 96]));
+        assert_eq!(s.len(), 7);
+        assert_eq!(
+            s[0][..14],
+            [0, 0, 0x1F, 0, 0, 0, 16 * 3 + 5, 0x0F, 0x03, 0, 0, 0, 0, 15]
+        );
+        let m = Params::new(0x00D3);
+        let s = sends(&plan(&m, false, &[Color(9, 8, 7), Color(6, 5, 4)]));
+        assert_eq!(
+            s[0][6..20],
+            [11, 0x0F, 0x03, 0, 0, 0, 0, 1, 9, 8, 7, 6, 5, 4]
+        );
+    }
+
+    // The dock PID drives the same two LEDs as the Naga Epic Chroma.
+    #[test]
+    fn naga_epic_dock_matches_naga_epic() {
+        let colors = [Color(1, 2, 3), Color(4, 5, 6)];
+        let dock = sends(&plan(&Params::new(NAGA_EPIC_CHROMA_DOCK), true, &colors));
+        let naga = sends(&plan(&Params::new(NAGA_EPIC_CHROMA), true, &colors));
+        assert_eq!(dock, naga);
+        assert_eq!(dock.len(), 4);
     }
 
     // SignalRGB Razer_Nommo_Speakers.js: Nommo V2 pair uses report id 7 and one 12-LED row.
