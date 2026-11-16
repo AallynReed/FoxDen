@@ -30,6 +30,12 @@ pub const NOT_OWNED: &[(u16, u16, &str)] = &[
     (0x1E71, 0x300E, "no lighting driver"),
     (0x1E71, 0x3014, "no lighting driver"),
     (0x1E71, 0x300C, "no lighting driver"),
+    (0x1E71, 0x1711, "no lighting driver"),
+    (0x1E71, 0x2015, "no lighting driver"),
+    (0x0B05, 0x1BCB, "no lighting driver"),
+    (0x0B05, 0x1ADE, "no lighting driver"),
+    (0x0DB0, 0xB130, "no lighting driver"),
+    (0x1B1C, 0x0C04, "no lighting driver"),
     (0x1B1C, 0x0C42, "a coolant probe, no fan or pump to drive"),
     (
         0x0416,
@@ -80,7 +86,8 @@ pub fn probe_network(config: &NetConfig) -> Vec<Box<dyn Backend>> {
 /// Fan and pump control for every USB controller this crate supports.
 pub fn fan_backends() -> Vec<Box<dyn FanBackend>> {
     let ids = fan_devices();
-    let Some(api) = foxrgb_hid::hid_api(|c| ids.iter().any(|d| (d.0, d.1) == (c.vid, c.pid))) else {
+    let Some(api) = foxrgb_hid::hid_api(|c| ids.iter().any(|d| (d.0, d.1) == (c.vid, c.pid)))
+    else {
         return Vec::new();
     };
     groups::fan_backends(&api)
@@ -187,7 +194,7 @@ mod tests {
             let fan = super::fan_devices().iter().any(|f| (f.0, f.1) == (*v, *p));
             assert!(fan, "{v:04x}:{p:04x} ({why}) is no fan device");
         }
-        assert_eq!(combined.len(), 79);
+        assert_eq!(combined.len(), 82);
         for id in [
             (0x1B1C, 0x0C2E),
             (0x1B1C, 0x0C2F),
@@ -199,6 +206,9 @@ mod tests {
             (0x0CF2, 0x7750),
             (0x0CF2, 0xA106),
             (0x0416, 0x8051),
+            (0x1E71, 0x170E),
+            (0x1E71, 0x1714),
+            (0x0B05, 0x1887),
         ] {
             assert!(combined.contains(&id), "{id:04x?} is lit by this crate");
         }

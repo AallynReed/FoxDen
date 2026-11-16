@@ -1,10 +1,13 @@
-//! SignalRGB plugin ports, group fans_a: USB fan controllers and AIO coolers.
+//! Group fans_a: USB fan controllers and AIO coolers.
 
 mod arctic;
+mod msi_coreliquid;
 mod nuvoton;
 mod nuvoton_layouts;
+mod nzxt_grid;
 mod nzxt_kraken;
 mod nzxt_smart2;
+mod nzxt_x2;
 mod razer_pwm;
 mod ryujin;
 mod util;
@@ -31,6 +34,9 @@ pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
     v.extend(nzxt_kraken::ids());
     v.extend(nzxt_smart2::ids());
     v.extend_from_slice(nuvoton::IDS);
+    v.extend(nzxt_x2::ids());
+    v.extend(nzxt_grid::ids());
+    v.extend(msi_coreliquid::ids());
     v
 }
 
@@ -51,5 +57,8 @@ pub fn fan_backends(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     v.extend(nzxt_kraken::backends(api, &mut seen));
     v.extend(nzxt_smart2::backends(api, &mut seen));
     v.extend(nuvoton::backends(api, &mut seen));
+    v.extend(nzxt_x2::backends(api, &mut seen));
+    v.extend(nzxt_grid::backends(api, &mut seen));
+    v.extend(msi_coreliquid::backends(api, &mut seen));
     v
 }
