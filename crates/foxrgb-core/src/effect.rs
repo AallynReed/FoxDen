@@ -6,6 +6,8 @@ use std::f32::consts::{PI, TAU};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Effect {
+    /// Black, for a post effect on its own.
+    None,
     Static {
         color: Color,
     },
@@ -88,13 +90,6 @@ pub enum Effect {
         saturation: f32,
         brightness: f32,
     },
-    KeyRipple {
-        color: Color,
-        background: Color,
-        speed: f32,
-        width: f32,
-        fade: f32,
-    },
 }
 
 /// How the UI edits one parameter.
@@ -129,7 +124,7 @@ const CYAN: Color = Color(0, 200, 255);
 const NAVY: Color = Color(0, 12, 40);
 const WHITE: Color = Color(255, 255, 255);
 
-fn range(name: &'static str, label: &'static str, min: f32, max: f32, step: f32) -> ParamInfo {
+pub(crate) fn range(name: &'static str, label: &'static str, min: f32, max: f32, step: f32) -> ParamInfo {
     ParamInfo {
         name,
         label,
@@ -137,7 +132,7 @@ fn range(name: &'static str, label: &'static str, min: f32, max: f32, step: f32)
     }
 }
 
-fn color(name: &'static str, label: &'static str) -> ParamInfo {
+pub(crate) fn color(name: &'static str, label: &'static str) -> ParamInfo {
     ParamInfo {
         name,
         label,
@@ -145,7 +140,7 @@ fn color(name: &'static str, label: &'static str) -> ParamInfo {
     }
 }
 
-fn toggle(name: &'static str, label: &'static str) -> ParamInfo {
+pub(crate) fn toggle(name: &'static str, label: &'static str) -> ParamInfo {
     ParamInfo {
         name,
         label,
@@ -153,7 +148,7 @@ fn toggle(name: &'static str, label: &'static str) -> ParamInfo {
     }
 }
 
-fn smooth(k: f32) -> f32 {
+pub(crate) fn smooth(k: f32) -> f32 {
     k * k * (3.0 - 2.0 * k)
 }
 
@@ -162,19 +157,19 @@ fn mix(a: f32, b: f32, k: f32) -> f32 {
 }
 
 /// Distance along the direction `angle` (degrees).
-fn along(x: f32, y: f32, angle: f32) -> f32 {
+pub(crate) fn along(x: f32, y: f32, angle: f32) -> f32 {
     let a = angle.to_radians();
     x * a.cos() + y * a.sin()
 }
 
 /// 1 in the middle of a repeating band `width` wide (as a share of the period), 0 outside it.
-fn band(phase: f32, width: f32) -> f32 {
+pub(crate) fn band(phase: f32, width: f32) -> f32 {
     let dist = (phase.rem_euclid(1.0) - 0.5).abs();
     smooth((1.0 - dist / (width * 0.5).max(1e-3)).clamp(0.0, 1.0))
 }
 
 /// Repeatable pseudo-random value in 0..1.
-fn hash(x: i32, y: i32, n: i32) -> f32 {
+pub(crate) fn hash(x: i32, y: i32, n: i32) -> f32 {
     let mut h = (x as u32).wrapping_mul(0x9E37_79B1)
         ^ (y as u32).wrapping_mul(0x85EB_CA6B)
         ^ (n as u32).wrapping_mul(0xC2B2_AE35);
@@ -221,6 +216,11 @@ impl Effect {
         let main = || color("color", "Colour");
         let background = || color("background", "Background");
         vec![
+            EffectInfo {
+                label: "None",
+                default: Effect::None,
+                params: vec![],
+            },
             EffectInfo {
                 label: "Rainbow wave",
                 default: Effect::default(),
@@ -397,23 +397,6 @@ impl Effect {
                     range("brightness", "Brightness", 0.2, 3.0, 0.05),
                 ],
             },
-            EffectInfo {
-                label: "Key ripple",
-                default: Effect::KeyRipple {
-                    color: ORANGE,
-                    background: NAVY,
-                    speed: 1.5,
-                    width: 0.05,
-                    fade: 1.0,
-                },
-                params: vec![
-                    main(),
-                    background(),
-                    speed(),
-                    range("width", "Width", 0.01, 0.3, 0.01),
-                    range("fade", "Fade", 0.2, 4.0, 0.1),
-                ],
-            },
         ]
     }
 
@@ -430,14 +413,10 @@ impl Effect {
         matches!(self, Effect::ScreenAmbience { .. })
     }
 
-    /// True when the effect reads `Inputs::presses`.
-    pub fn uses_keys(&self) -> bool {
-        matches!(self, Effect::KeyRipple { .. })
-    }
-
     /// `x`, `y` in 0..=1 on the canvas (`y` = 1 is the bottom), `t` in seconds.
     pub fn sample(&self, x: f32, y: f32, t: f32, inputs: &Inputs) -> Color {
         match *self {
+            Effect::None => Color::BLACK,
             Effect::Static { color } => color,
             Effect::Breathing { color, speed } => color.scale(0.5 - 0.5 * (t * speed * 2.0).cos()),
             Effect::Cycle { speed } => Color::hsv(t * speed * 0.1, 1.0, 1.0),
@@ -569,25 +548,6 @@ impl Effect {
                     |c: u8| ((grey + (c as f32 - grey) * saturation) * brightness).round() as u8;
                 Color(f(r), f(g), f(b))
             }
-            Effect::KeyRipple {
-                color,
-                background,
-                speed,
-                width,
-                fade,
-            } => {
-                let mut k = 0.0f32;
-                for p in &inputs.presses {
-                    let life = 1.0 - p.age / fade.max(0.05);
-                    if life.is_nan() || life <= 0.0 {
-                        continue;
-                    }
-                    let off = (x - p.x).hypot(y - p.y) - p.age * speed * 0.3;
-                    let ring = smooth((1.0 - off.abs() / (width * 0.5).max(1e-3)).clamp(0.0, 1.0));
-                    k = k.max(ring * life.min(1.0));
-                }
-                background.lerp(color, k)
-            }
         }
     }
 }
@@ -622,8 +582,8 @@ mod tests {
                 pixels,
             },
             presses: vec![
-                Press { x: 0.3, y: 0.7, age: 0.4 },
-                Press { x: 0.8, y: 0.9, age: 0.1 },
+                Press { x: 0.3, y: 0.7, age: 0.4, hw: 0.02, hh: 0.04 },
+                Press { x: 0.8, y: 0.9, age: 0.1, hw: 0.02, hh: 0.04 },
             ],
         }
     }
@@ -735,6 +695,7 @@ mod tests {
             })
             .collect();
         let expected = [
+            "none",
             "rainbow",
             "gradient",
             "cycle",
@@ -751,7 +712,6 @@ mod tests {
             "audio_spectrum",
             "audio_pulse",
             "screen_ambience",
-            "key_ripple",
         ];
         assert_eq!(kinds, expected);
     }
@@ -814,7 +774,7 @@ mod tests {
             };
             assert_eq!(e.uses_audio(), reacts(&audio), "{}", info.label);
             assert_eq!(e.uses_screen(), reacts(&screen), "{}", info.label);
-            assert_eq!(e.uses_keys(), reacts(&keys), "{}", info.label);
+            assert!(!reacts(&keys), "{}", info.label);
         }
     }
 
@@ -1164,27 +1124,5 @@ mod tests {
         assert!(grey.0 == grey.1 && grey.1 == grey.2, "{grey:?}");
         assert_eq!(sample(1.0, 2.0), Color(240, 200, 160));
         assert_eq!(sample(1.0, 3.0), Color(255, 255, 240));
-    }
-
-    #[test]
-    fn key_ripple_rings_spread_from_the_key_and_fade() {
-        let e = Effect::KeyRipple {
-            color: WHITE,
-            background: Color::BLACK,
-            speed: 1.0,
-            width: 0.05,
-            fade: 1.0,
-        };
-        let press = |age| Inputs {
-            presses: vec![Press { x: 0.5, y: 0.5, age }],
-            ..Inputs::default()
-        };
-        assert!(light(e.sample(0.5, 0.5, 0.0, &press(0.0))) > 700.0);
-        assert_eq!(e.sample(0.9, 0.5, 0.0, &press(0.0)), Color::BLACK);
-        let ring = e.sample(0.65, 0.5, 0.0, &press(0.5));
-        assert!(light(ring) > 0.0 && light(ring) < 700.0);
-        assert_eq!(e.sample(0.5, 0.5, 0.0, &press(0.5)), Color::BLACK);
-        assert_eq!(e.sample(0.8, 0.5, 0.0, &press(1.0)), Color::BLACK);
-        assert_eq!(e.sample(0.5, 0.5, 0.0, &Inputs::default()), Color::BLACK);
     }
 }

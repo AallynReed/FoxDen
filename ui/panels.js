@@ -25,7 +25,8 @@ try {
 let picker = null;
 let held = null;
 let pressed = 0;
-let pendingEffect = null;
+const pending = { effect: null, post: null };
+const lastPost = {};
 let rowCount = 0;
 let asking = null;
 let refocus = "";
@@ -198,7 +199,7 @@ function remember(rgb) {
 }
 
 // A colour field: a swatch that opens sliders, a hex field and ready-made colours below its row.
-function colourField(param, id) {
+function colourField(param, id, target) {
   const chip = el("span", { className: "chip" });
   const code = el("span", { id: id + "-code" });
   const button = el("button", { type: "button", className: "swatch", id }, chip, code);
@@ -218,7 +219,7 @@ function colourField(param, id) {
     if (!keep) hsv = toHsv(rgb);
     sentAt = performance.now();
     paint();
-    queueEffect(param.name, rgb);
+    queueEffect(param.name, rgb, target);
     clearTimeout(timer);
     timer = setTimeout(scheduleRender, 350);
   };
@@ -317,17 +318,18 @@ function colourField(param, id) {
   return el("div", { className: "field colour" }, el("label", { htmlFor: id, id: id + "-label", textContent: param.label }), button, panel);
 }
 
-function queueEffect(name, value) {
+// `target` is "effect" for the base effect or "post" for the layer over it.
+function queueEffect(name, value, target = "effect") {
   if (!state.snap) return;
-  if (!pendingEffect) {
-    pendingEffect = { ...state.snap.effect };
+  if (!pending[target]) {
+    pending[target] = { ...state.snap[target] };
     requestAnimationFrame(() => {
-      const effect = pendingEffect;
-      pendingEffect = null;
-      call("set_effect", { effect });
+      const value = pending[target];
+      pending[target] = null;
+      call(target === "post" ? "set_post" : "set_effect", { [target]: value });
     });
   }
-  pendingEffect[name] = value;
+  pending[target][name] = value;
 }
 
 function currentInfo() {
@@ -390,23 +392,24 @@ function searchKey(e) {
   }
 }
 
-function paramRow(param) {
+function paramRow(param, target = "effect") {
   const control = param.control;
-  const id = "param-" + param.name;
-  if (control.type === "color") return colourField(param, id);
+  const id = (target === "post" ? "post-param-" : "param-") + param.name;
+  const problem = $(target === "post" ? "post-problem" : "params-problem");
+  if (control.type === "color") return colourField(param, id, target);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
   if (control.type === "range") {
     input = el("input", { type: "range", min: control.min, max: control.max, step: control.step });
     const box = el("input", { type: "number", className: "exact" });
     box.setAttribute("aria-label", param.label);
-    pair(input, box, 1, (value) => queueEffect(param.name, value), $("params-problem"));
+    pair(input, box, 1, (value) => queueEffect(param.name, value, target), problem);
     row.classList.add("range");
     row.append(input, box);
   } else {
     if (control.type === "toggle") input = el("input", { type: "checkbox", className: "switch" });
     else input = el("select", {}, ...(control.options || []).map((o) => el("option", { value: o, textContent: words(o) })));
-    input.oninput = () => queueEffect(param.name, read(input));
+    input.oninput = () => queueEffect(param.name, read(input), target);
     row.append(input);
   }
   input.id = id;
@@ -445,12 +448,43 @@ function renderEffects(snap) {
   for (const input of box.querySelectorAll("[data-param]")) put(input, snap.effect[input.dataset.param]);
   $("params-empty").hidden = params.length > 0;
 
+  renderPost(snap);
+
   // The list scrolls on its own, so keep the chosen effect in view.
   if (!$("panel-effects").hidden && list.dataset.kind !== snap.effect.kind) {
     list.dataset.kind = snap.effect.kind;
     const checked = list.querySelector("input:checked");
     if (checked) checked.parentNode.scrollIntoView({ block: "nearest" });
   }
+}
+
+function renderPost(snap) {
+  const pick = $("post-kind");
+  const listKey = snap.post_catalog.map((c) => c.default.kind + "=" + c.label).join("|");
+  if (pick.dataset.key !== listKey) {
+    pick.dataset.key = listKey;
+    pick.replaceChildren(...snap.post_catalog.map((info) => el("option", { value: info.default.kind, textContent: info.label })));
+  }
+  if (!busy(pick)) pick.value = snap.post.kind;
+  lastPost[snap.post.kind] = snap.post;
+
+  const box = $("post-params");
+  const info = snap.post_catalog.find((c) => c.default.kind === snap.post.kind);
+  const params = info ? info.params : [];
+  const key = snap.post.kind + JSON.stringify(params);
+  if (box.dataset.key !== key) {
+    box.dataset.key = key;
+    if (picker) picker.close();
+    box.replaceChildren(...params.map((p) => paramRow(p, "post")));
+    $("post-problem").hidden = true;
+  }
+  for (const input of box.querySelectorAll("[data-param]")) put(input, snap.post[input.dataset.param]);
+  $("post-actions").hidden = params.length === 0;
+}
+
+function choosePost(kind) {
+  const info = state.snap.post_catalog.find((c) => c.default.kind === kind);
+  if (info) call("set_post", { post: lastPost[kind] || info.default });
 }
 
 // Only reset_layout knows the defaults, so reset everything and put the other devices back.
@@ -1210,6 +1244,11 @@ function wirePanels() {
   const search = $("effect-search");
   search.oninput = filterEffects;
   search.onkeydown = searchKey;
+  $("post-kind").oninput = () => choosePost($("post-kind").value);
+  $("post-reset").onclick = () => {
+    const info = state.snap.post_catalog.find((c) => c.default.kind === state.snap.post.kind);
+    if (info) call("set_post", { post: info.default });
+  };
   $("effect-reset").onclick = () => currentInfo() && call("set_effect", { effect: currentInfo().default });
   $("effect-random").onclick = randomise;
   $("effect-copy").onclick = copyEffect;

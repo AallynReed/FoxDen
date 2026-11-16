@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use foxrgb_core::Effect;
+use foxrgb_core::{Effect, Post};
 use foxrgb_fan::FanConfig;
 use foxrgb_net::NetConfig;
 use serde::de::DeserializeOwned;
@@ -132,6 +132,8 @@ impl Default for DeviceConfig {
 pub struct Profile {
     #[serde(default, deserialize_with = "lenient")]
     pub effect: Effect,
+    #[serde(default, deserialize_with = "lenient")]
+    pub post: Post,
     #[serde(default = "full")]
     pub brightness: f32,
 }
@@ -141,6 +143,8 @@ pub struct Profile {
 pub struct Config {
     #[serde(deserialize_with = "lenient")]
     pub effect: Effect,
+    #[serde(deserialize_with = "lenient")]
+    pub post: Post,
     pub brightness: f32,
     pub settings: Settings,
     pub devices: BTreeMap<String, DeviceConfig>,
@@ -154,6 +158,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             effect: Effect::default(),
+            post: Post::None,
             brightness: 1.0,
             settings: Settings::default(),
             devices: BTreeMap::new(),
@@ -196,7 +201,11 @@ pub fn load(dir: &Path) -> Config {
     let Ok(bytes) = fs::read(&path) else {
         return Config::default();
     };
-    let mut config: Config = serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+    let read = serde_json::from_slice::<serde_json::Value>(&bytes).and_then(|mut value| {
+        upgrade(&mut value);
+        serde_json::from_value::<Config>(value)
+    });
+    let mut config: Config = read.unwrap_or_else(|e| {
         crate::log::warn(
             "config",
             format!("{FILE} could not be read and was set aside: {e}"),
@@ -207,6 +216,28 @@ pub fn load(dir: &Path) -> Config {
     config.settings.fps = config.settings.fps.clamp(10, 60);
     config.brightness = config.brightness.clamp(0.0, 1.0);
     config
+}
+
+/// Key ripple used to be a base effect: it becomes its background with the ripple drawn over it.
+fn upgrade(config: &mut serde_json::Value) {
+    use serde_json::json;
+    let move_ripple = |holder: &mut serde_json::Value| {
+        let e = &holder["effect"];
+        if e["kind"] != "key_ripple" {
+            return;
+        }
+        let post = json!({"kind": "press_ripple", "color": e["color"], "rainbow": false,
+            "speed": e["speed"], "width": e["width"], "fade": e["fade"], "strength": 1.0, "blend": "over"});
+        holder["effect"] = json!({"kind": "static", "color": e["background"]});
+        holder["post"] = post;
+    };
+    if !config.is_object() {
+        return;
+    }
+    move_ripple(config);
+    if let Some(profiles) = config.get_mut("profiles").and_then(|p| p.as_object_mut()) {
+        profiles.values_mut().filter(|p| p.is_object()).for_each(move_ripple);
+    }
 }
 
 /// Writes a temporary file and renames it over the old one.
@@ -260,6 +291,7 @@ mod tests {
         };
         let profile = Profile {
             effect: Effect::Cycle { speed: 2.0 },
+            post: Post::None,
             brightness: 0.2,
         };
         let config = Config {
@@ -277,6 +309,30 @@ mod tests {
         save(&dir, &config).unwrap();
         assert_eq!(load(&dir), config);
         assert!(!dir.join("config.json.tmp").exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_saved_key_ripple_becomes_a_post_effect() {
+        let dir = scratch("ripple");
+        let ripple = r#"{"kind":"key_ripple","color":[1,2,3],"background":[4,5,6],"speed":1.5,"width":0.05,"fade":1.0}"#;
+        let text = format!(r#"{{"effect":{ripple},"profiles":{{"p":{{"effect":{ripple}}}}}}}"#);
+        fs::write(dir.join(FILE), text).unwrap();
+        let config = load(&dir);
+        let wanted = Post::PressRipple {
+            color: foxrgb_core::Color(1, 2, 3),
+            rainbow: false,
+            speed: 1.5,
+            width: 0.05,
+            fade: 1.0,
+            strength: 1.0,
+            blend: foxrgb_core::Blend::Over,
+        };
+        let background = Effect::Static {
+            color: foxrgb_core::Color(4, 5, 6),
+        };
+        assert_eq!((&config.effect, &config.post), (&background, &wanted));
+        assert_eq!((&config.profiles["p"].effect, &config.profiles["p"].post), (&background, &wanted));
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -315,6 +371,7 @@ mod tests {
             config.profiles["p"],
             Profile {
                 effect: Effect::default(),
+                post: Post::None,
                 brightness: 1.0
             }
         );

@@ -32,6 +32,16 @@
           <button type="button" id="effect-reset">Reset to defaults</button>
           <button type="button" id="effect-random">Randomise</button>
         </div>
+        <h2 id="post-heading">Post effect</h2>
+        <p class="hint">Drawn over the effect. Key effects follow your typing.</p>
+        <div class="fields">
+          <div class="field"><label for="post-kind">Layer</label><select id="post-kind"></select></div>
+        </div>
+        <div class="fields" id="post-params"></div>
+        <p class="problem" id="post-problem" hidden></p>
+        <div class="actions" id="post-actions">
+          <button type="button" id="post-reset">Reset to defaults</button>
+        </div>
       </section>
 
       <section class="panel" id="panel-devices" role="tabpanel" aria-labelledby="tab-devices" hidden>

@@ -1,4 +1,4 @@
-use foxrgb_core::Effect;
+use foxrgb_core::{Effect, Post};
 use tauri::{AppHandle, State};
 
 use crate::config::{DeviceConfig, Profile, Settings};
@@ -19,6 +19,20 @@ pub fn set_effect(app: AppHandle, shared: State<'_, Shared>, effect: Effect) -> 
         s.check_profile();
         Ok(())
     })
+}
+
+#[tauri::command]
+pub fn set_post(app: AppHandle, shared: State<'_, Shared>, post: Post) -> Reply {
+    update(&app, &shared, |s| {
+        s.engine.post = post;
+        s.check_profile();
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub fn key_event(vk: u32, down: bool) {
+    crate::keys::from_window(vk, down);
 }
 
 #[tauri::command]
@@ -97,6 +111,7 @@ pub fn save_profile(app: AppHandle, shared: State<'_, Shared>, name: String) -> 
         }
         let profile = Profile {
             effect: s.engine.effect.clone(),
+            post: s.engine.post.clone(),
             brightness: s.engine.brightness,
         };
         s.config.profiles.insert(name.clone(), profile);

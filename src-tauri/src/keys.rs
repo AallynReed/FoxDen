@@ -2,6 +2,7 @@
 //! nothing but which key went down and when.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -31,20 +32,36 @@ fn seen() -> std::sync::MutexGuard<'static, Seen> {
     SEEN.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Set while the hook runs: only then are presses kept.
+static ON: AtomicBool = AtomicBool::new(false);
+
+fn seen_key(vk: u32, down: bool) {
+    let i = (vk & 0xFF) as usize;
+    let mut s = seen();
+    if !down {
+        s.down[i] = false;
+    } else if !s.down[i] {
+        s.down[i] = true;
+        if s.presses.len() >= MOST {
+            s.presses.remove(0);
+        }
+        s.presses.push((vk, Instant::now()));
+    }
+}
+
+/// A key the app's own window got. Windows does not show the hook keys typed into this app.
+pub fn from_window(vk: u32, down: bool) {
+    if ON.load(Ordering::Relaxed) {
+        seen_key(vk, down);
+    }
+}
+
 unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let vk = unsafe { (*(lparam as *const KBDLLHOOKSTRUCT)).vkCode };
-        let i = (vk & 0xFF) as usize;
-        let mut s = seen();
         match wparam as u32 {
-            WM_KEYDOWN | WM_SYSKEYDOWN if !s.down[i] => {
-                s.down[i] = true;
-                if s.presses.len() >= MOST {
-                    s.presses.remove(0);
-                }
-                s.presses.push((vk, Instant::now()));
-            }
-            WM_KEYUP | WM_SYSKEYUP => s.down[i] = false,
+            WM_KEYDOWN | WM_SYSKEYDOWN => seen_key(vk, true),
+            WM_KEYUP | WM_SYSKEYUP => seen_key(vk, false),
             _ => {}
         }
     }
@@ -71,6 +88,7 @@ impl KeyCapture {
             UnhookWindowsHookEx(handle);
         });
         let thread = rx.recv().map_err(|e| e.to_string())??;
+        ON.store(true, Ordering::Relaxed);
         Ok(KeyCapture {
             thread,
             worker: Some(worker),
@@ -90,6 +108,7 @@ impl KeyCapture {
 
 impl Drop for KeyCapture {
     fn drop(&mut self) {
+        ON.store(false, Ordering::Relaxed);
         unsafe { PostThreadMessageW(self.thread, WM_QUIT, 0, 0) };
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();

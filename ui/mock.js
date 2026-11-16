@@ -54,6 +54,7 @@
 
   // Same entries, in the same order, as Effect::catalog in crates/foxrgb-core/src/effect.rs.
   const catalog = [
+    entry("None", { kind: "none" }),
     entry("Rainbow wave", { kind: "rainbow", speed: 1, scale: 1, angle: 0 }, speed, scale, angle),
     entry("Gradient", { kind: "gradient", from: ORANGE, to: VIOLET, speed: 1, scale: 1 }, colour("from", "From"), colour("to", "To"), speed, scale),
     entry("Spectrum cycle", { kind: "cycle", speed: 1 }, speed),
@@ -124,26 +125,45 @@
       range("saturation", "Saturation", 0, 3, 0.05),
       range("brightness", "Brightness", 0.2, 3, 0.05),
     ),
-    entry(
-      "Key ripple",
-      { kind: "key_ripple", color: ORANGE, background: NAVY, speed: 1.5, width: 0.05, fade: 1 },
-      main,
-      background,
-      speed,
-      range("width", "Width", 0.01, 0.3, 0.01),
-      range("fade", "Fade", 0.2, 4, 0.1),
-    ),
+  ];
+
+
+  // Same entries, in the same order, as Post::catalog in crates/foxrgb-core/src/post.rs.
+  const blend = { name: "blend", label: "Blend", control: { type: "choice", options: ["over", "add", "tint"] } };
+  const perKey = toggle("rainbow", "Rainbow per key");
+  const fade = range("fade", "Fade", 0.1, 4, 0.05);
+  const strength = range("strength", "Strength", 0, 1, 0.05);
+  const pspeed = range("speed", "Speed", 0.1, 5, 0.05);
+  const WHITE = [255, 255, 255];
+  const postCatalog = [
+    entry("None", { kind: "none" }),
+    entry("Key ghosting", { kind: "press_ghost", color: WHITE, rainbow: false, hold: 0.1, fade: 1, size: 1, strength: 1, blend: "over" },
+      main, perKey, range("hold", "Hold", 0, 1, 0.05), fade, range("size", "Size", 0.5, 4, 0.1), strength, blend),
+    entry("Key ripple", { kind: "press_ripple", color: ORANGE, rainbow: false, speed: 1.5, width: 0.05, fade: 1, strength: 1, blend: "over" },
+      main, perKey, pspeed, range("width", "Width", 0.01, 0.3, 0.01), fade, strength, blend),
+    entry("Key splash", { kind: "press_splash", color: CYAN, rainbow: false, speed: 1, fade: 0.8, strength: 1, blend: "over" },
+      main, perKey, pspeed, fade, strength, blend),
+    entry("Key crosshair", { kind: "press_cross", color: WHITE, rainbow: false, speed: 2, fade: 0.8, size: 1, strength: 1, blend: "over" },
+      main, perKey, pspeed, fade, range("size", "Thickness", 0.5, 3, 0.1), strength, blend),
+    entry("Glitter", { kind: "glitter", color: WHITE, rainbow: false, speed: 1, density: 0.05, strength: 1, blend: "over" },
+      main, perKey, pspeed, range("density", "Density", 0.01, 0.5, 0.01), strength, blend),
+    entry("Scanline", { kind: "scanline", color: WHITE, speed: 1, width: 0.15, angle: 0, strength: 0.8, blend: "add" },
+      main, pspeed, range("width", "Width", 0.05, 1, 0.05), angle, strength, blend),
+    entry("Breathe", { kind: "breathe", speed: 1, depth: 0.7 }, pspeed, range("depth", "Depth", 0, 1, 0.05)),
+    entry("Beat flash", { kind: "beat_flash", color: WHITE, sensitivity: 1.5, strength: 0.8, blend: "add" },
+      main, sensitivity, strength, blend),
   ];
 
   const state = {
     // Per device: enabled, brightness and, once moved, rect.
     tweaks: {},
-    effect: copy(catalog[0].default),
+    effect: copy(catalog[1].default),
+    post: copy(postCatalog[0].default),
     brightness: 1,
     paused: false,
     profiles: new Map([
-      ["Desk", { effect: copy(catalog[1].default), brightness: 0.8 }],
-      ["Night", { effect: { kind: "static", color: [255, 60, 0] }, brightness: 0.25 }],
+      ["Desk", { effect: copy(catalog[2].default), post: copy(postCatalog[1].default), brightness: 0.8 }],
+      ["Night", { effect: { kind: "static", color: [255, 60, 0] }, post: { kind: "none" }, brightness: 0.25 }],
     ]),
     active: null,
     keyboard: true,
@@ -240,6 +260,8 @@
 
   function sample(e, x, y, t, sound) {
     switch (e.kind) {
+      case "none":
+        return [0, 0, 0];
       case "static":
         return e.color;
       case "breathing":
@@ -304,17 +326,84 @@
         const grey = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
         return c.map((v) => (grey + (v - grey) * e.saturation) * e.brightness);
       }
-      case "key_ripple": {
-        // Pretend presses: one a second, walking across the keyboard.
-        const n = Math.floor(t);
-        const age = t - n;
-        const px = 0.3 + ((n * 0.37) % 0.4);
-        const off = Math.hypot(x - px, y - 0.75) - age * e.speed * 0.3;
-        const ring = smooth(sat(1 - Math.abs(off) / Math.max(e.width * 0.5, 1e-3)));
-        return mix(e.background, e.color, ring * sat(1 - age / Math.max(e.fade, 0.05)));
-      }
       default:
         return [0, 0, 0];
+    }
+  }
+
+  // Pretend presses on the TKL keyboard: a new key every 0.4 seconds.
+  function presses(t) {
+    const [kx, ky, kw, kh] = hardware.find((d) => d.id === "hid:keyboard").rect;
+    const out = [];
+    for (let n = Math.floor(t / 0.4); n > Math.floor(t / 0.4) - 12; n--) {
+      const c = (n * 7) % 17;
+      const r = (n * 5) % 6;
+      out.push({ x: kx + ((c + 0.5) / 17) * kw, y: ky + ((r + 0.5) / 6) * kh, age: t - n * 0.4, hw: kw / 34, hh: kh / 12 });
+    }
+    return out;
+  }
+
+  function put(base, over, k, how) {
+    k = sat(k);
+    if (how === "add") return base.map((v, i) => Math.min(255, v + over[i] * k));
+    if (how === "tint") return mix(base, mul(over, Math.max(...base) / 255), k);
+    return mix(base, over, k);
+  }
+
+  function apply(p, base, x, y, t, sound) {
+    const life = (q, hold, fade) => smooth(sat(q.age < hold ? 1 : 1 - (q.age - hold) / Math.max(fade, 0.05)));
+    const shade = (q) => (p.rainbow ? hsv((t - q.age) * 0.37) : p.color);
+    const strongest = (f) => {
+      let best = [0, [0, 0, 0]];
+      for (const q of presses(t)) {
+        const k = f(q);
+        if (k > best[0]) best = [k, shade(q)];
+      }
+      return put(base, best[1], best[0] * p.strength, p.blend);
+    };
+    switch (p.kind) {
+      case "press_ripple":
+        return strongest((q) => {
+          const off = Math.hypot(x - q.x, y - q.y) - q.age * p.speed * 0.3;
+          return smooth(sat(1 - Math.abs(off) / Math.max(p.width * 0.5, 1e-3))) * life(q, 0, p.fade);
+        });
+      case "press_ghost":
+        return strongest((q) => {
+          const d = Math.hypot((x - q.x) / (q.hw * p.size), (y - q.y) / (q.hh * p.size));
+          return smooth(sat((1 - d) * 5)) * life(q, p.hold, p.fade);
+        });
+      case "press_splash":
+        return strongest((q) => {
+          const reach = Math.max(q.hw, q.hh) + q.age * p.speed * 0.3;
+          return smooth(sat((1 - Math.hypot(x - q.x, y - q.y) / reach) * 4)) * life(q, 0, p.fade);
+        });
+      case "press_cross":
+        return strongest((q) => {
+          const reach = q.age * p.speed * 0.5;
+          const dx = Math.abs(x - q.x);
+          const dy = Math.abs(y - q.y);
+          const lit = (dy <= q.hh * p.size && dx <= q.hw + reach) || (dx <= q.hw * p.size && dy <= q.hh + reach);
+          return lit ? life(q, 0, p.fade) : 0;
+        });
+      case "glitter": {
+        const cx = Math.floor(x * 256);
+        const cy = Math.floor(y * 256);
+        const time = t * p.speed * 2 + hash(cx, cy, -2);
+        const bucket = Math.floor(time);
+        if (hash(cx, cy, bucket ^ 0x5bd1) >= p.density) return base;
+        const c = p.rainbow ? hsv(hash(cx, cy, bucket)) : p.color;
+        return put(base, c, Math.sin(Math.PI * (time - bucket)) * p.strength, p.blend);
+      }
+      case "scanline":
+        return put(base, p.color, band(along(x, y, p.angle) - t * p.speed * 0.2, p.width) * p.strength, p.blend);
+      case "breathe":
+        return mul(base, 1 - sat(p.depth) * (0.5 - 0.5 * Math.cos(t * p.speed * 2)));
+      case "beat_flash": {
+        const level = sat(sound.level * p.sensitivity);
+        return put(base, p.color, level * level * p.strength, p.blend);
+      }
+      default:
+        return base;
     }
   }
 
@@ -399,11 +488,13 @@
     ];
     if (s.network_enabled) backends.push({ name: "net", active: true, devices: 0, error: null });
     // The captures only show up while an effect uses them.
-    if (state.effect.kind.startsWith("audio")) backends.push({ name: "audio", active: true, devices: 0, error: null });
+    if (state.effect.kind.startsWith("audio") || state.post.kind === "beat_flash") backends.push({ name: "audio", active: true, devices: 0, error: null });
     if (state.effect.kind === "screen_ambience") backends.push({ name: "screen", active: true, devices: 0, error: null });
     return copy({
       devices: list,
       effect: state.effect,
+      post: state.post,
+      post_catalog: postCatalog,
       brightness: state.brightness,
       paused: state.paused,
       catalog,
@@ -418,7 +509,7 @@
 
   // An edit that no longer matches the active profile clears it.
   function checkProfile() {
-    const live = { effect: state.effect, brightness: state.brightness };
+    const live = { effect: state.effect, post: state.post, brightness: state.brightness };
     if (state.active && !same(state.profiles.get(state.active), live)) state.active = null;
   }
 
@@ -427,6 +518,12 @@
     set_effect({ effect }) {
       if (!catalog.some((c) => c.default.kind === effect.kind)) throw `unknown effect ${effect.kind}`;
       state.effect = effect;
+      checkProfile();
+    },
+    key_event() {},
+    set_post({ post }) {
+      if (!postCatalog.some((c) => c.default.kind === post.kind)) throw `unknown post effect ${post.kind}`;
+      state.post = post;
       checkProfile();
     },
     set_brightness({ value }) {
@@ -446,13 +543,14 @@
     },
     save_profile({ name }) {
       if (!name.trim()) throw "profile name is empty";
-      state.profiles.set(name.trim(), copy({ effect: state.effect, brightness: state.brightness }));
+      state.profiles.set(name.trim(), copy({ effect: state.effect, post: state.post, brightness: state.brightness }));
       state.active = name.trim();
     },
     load_profile({ name }) {
       const profile = state.profiles.get(name);
       if (!profile) throw `no profile named ${name}`;
       state.effect = copy(profile.effect);
+      state.post = copy(profile.post);
       state.brightness = profile.brightness;
       state.active = name;
     },
@@ -575,7 +673,7 @@
     const frames = devices().map((d) => {
       const [x, y, w, h] = d.rect;
       const k = state.paused || !d.enabled ? 0 : state.brightness * d.brightness;
-      const colors = d.leds.map(([lx, ly]) => sample(state.effect, x + lx * w, y + ly * h, t, sound).map((v) => Math.round(clamp(v, 0, 255) * k)));
+      const colors = d.leds.map(([lx, ly]) => apply(state.post, sample(state.effect, x + lx * w, y + ly * h, t, sound), x + lx * w, y + ly * h, t, sound).map((v) => Math.round(clamp(v, 0, 255) * k)));
       return { device: d.id, colors };
     });
     emit("frame", frames);

@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use foxrgb_audio::AudioCapture;
-use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, presses_on};
+use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, Post, PostInfo, presses_on};
 use foxrgb_openrgb::OpenRgbBackend;
 use foxrgb_screen::ScreenCapture;
 use serde::Serialize;
@@ -83,6 +83,8 @@ impl From<foxrgb_hid::Zone> for ZoneView {
 pub struct Snapshot {
     devices: Vec<DeviceView>,
     effect: Effect,
+    post: Post,
+    post_catalog: Vec<PostInfo>,
     brightness: f32,
     pub paused: bool,
     catalog: Vec<EffectInfo>,
@@ -164,6 +166,7 @@ impl AppState {
     pub fn new(config: Config) -> Self {
         let mut engine = Engine::new(Vec::new());
         engine.effect = config.effect.clone();
+        engine.post = config.post.clone();
         engine.brightness = config.brightness;
         for (id, device) in &config.devices {
             engine.set_device(id, device.enabled, device.brightness, device.rect);
@@ -208,6 +211,8 @@ impl AppState {
         Snapshot {
             devices,
             effect: self.engine.effect.clone(),
+            post: self.engine.post.clone(),
+            post_catalog: Post::catalog(),
             brightness: self.engine.brightness,
             paused: self.engine.paused,
             catalog: Effect::catalog(),
@@ -278,6 +283,7 @@ impl AppState {
             .get(name)
             .ok_or_else(|| format!("no profile named {name}"))?;
         self.engine.effect = profile.effect.clone();
+        self.engine.post = profile.post.clone();
         self.engine.brightness = profile.brightness.clamp(0.0, 1.0);
         self.config.active_profile = Some(name.to_string());
         Ok(())
@@ -287,6 +293,7 @@ impl AppState {
     pub fn check_profile(&mut self) {
         let live = Profile {
             effect: self.engine.effect.clone(),
+            post: self.engine.post.clone(),
             brightness: self.engine.brightness,
         };
         let name = self.config.active_profile.as_ref();
@@ -298,6 +305,7 @@ impl AppState {
     fn to_save(&self) -> Config {
         Config {
             effect: self.engine.effect.clone(),
+            post: self.engine.post.clone(),
             brightness: self.engine.brightness,
             ..self.config.clone()
         }
@@ -737,14 +745,17 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
         loop {
             let (fps, want_audio, want_screen, want_keys, retry) = {
                 let mut state = lock(&shared);
-                let effect = &state.engine.effect;
+                let (effect, post) = (&state.engine.effect, &state.engine.post);
                 let on = state.config.settings.lighting_module;
-                let wanted = (on && effect.uses_audio(), on && effect.uses_screen());
+                let wanted = (
+                    on && (effect.uses_audio() || post.uses_audio()),
+                    on && effect.uses_screen(),
+                );
                 (
                     state.config.settings.fps,
                     wanted.0,
                     wanted.1,
-                    on && effect.uses_keys(),
+                    on && post.uses_keys(),
                     std::mem::take(&mut state.retry_inputs),
                 )
             };
@@ -890,6 +901,8 @@ mod tests {
                 "devices",
                 "effect",
                 "paused",
+                "post",
+                "post_catalog",
                 "profiles",
                 "settings",
                 "version"
@@ -1129,6 +1142,7 @@ mod tests {
         let mut state = AppState::new(Config::default());
         let profile = config::Profile {
             effect: Effect::Cycle { speed: 2.0 },
+            post: Post::None,
             brightness: 0.25,
         };
         state.config.profiles.insert("Night".into(), profile);
@@ -1145,6 +1159,7 @@ mod tests {
         let mut state = AppState::new(Config::default());
         let profile = Profile {
             effect: Effect::Cycle { speed: 2.0 },
+            post: Post::None,
             brightness: 0.25,
         };
         state.config.profiles.insert("Night".into(), profile);

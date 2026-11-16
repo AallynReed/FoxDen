@@ -36,6 +36,9 @@ pub struct Press {
     pub x: f32,
     pub y: f32,
     pub age: f32,
+    /// Half the key's width and height on the canvas.
+    pub hw: f32,
+    pub hh: f32,
 }
 
 /// Everything an effect may react to besides position and time.

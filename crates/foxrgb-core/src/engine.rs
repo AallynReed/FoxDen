@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::{Backend, Color, Device, Effect, Inputs};
+use crate::{Backend, Color, Device, Effect, Inputs, Post};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -158,6 +158,8 @@ pub struct Engine {
     tuning: HashMap<String, Tuning>,
     failed: Arc<AtomicBool>,
     pub effect: Effect,
+    /// Drawn over `effect`.
+    pub post: Post,
     pub brightness: f32,
     /// Every LED is black while set.
     pub paused: bool,
@@ -171,6 +173,7 @@ impl Engine {
             tuning: HashMap::new(),
             failed: Arc::default(),
             effect: Effect::default(),
+            post: Post::None,
             brightness: 1.0,
             paused: false,
         };
@@ -347,7 +350,10 @@ impl Engine {
                 let colors: Vec<Color> = if k > 0.0 {
                     device
                         .canvas_positions()
-                        .map(|(x, y)| self.effect.sample(x, y, t, inputs).scale(k))
+                        .map(|(x, y)| {
+                            let base = self.effect.sample(x, y, t, inputs);
+                            self.post.apply(base, x, y, t, inputs).scale(k)
+                        })
                         .collect()
                 } else {
                     vec![Color::BLACK; device.leds.len()]

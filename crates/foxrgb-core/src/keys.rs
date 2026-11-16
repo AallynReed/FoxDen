@@ -130,6 +130,8 @@ pub fn presses_on(keys: &[(u32, f32)], keyboards: &[([f32; 4], bool)]) -> Vec<Pr
                     x: x + kx * w,
                     y: y + ky * h,
                     age,
+                    hw: w / if full { FULL } else { TKL } / 2.0,
+                    hh: h / 12.0,
                 })
             })
         })

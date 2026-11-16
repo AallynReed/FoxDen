@@ -85,6 +85,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
             commands::set_effect,
+            commands::set_post,
+            commands::key_event,
             commands::set_brightness,
             commands::set_paused,
             commands::set_device,
