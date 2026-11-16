@@ -221,6 +221,13 @@ fn run() -> Result<(), String> {
     })
     .map_err(describe)?;
 
+    // Fans and the app's first requests come before other background work at boot.
+    unsafe {
+        windows_sys::Win32::System::Threading::SetPriorityClass(
+            windows_sys::Win32::System::Threading::GetCurrentProcess(),
+            windows_sys::Win32::System::Threading::ABOVE_NORMAL_PRIORITY_CLASS,
+        );
+    }
     let dir = host::data_dir(host::Mode::Service);
     // Before anything is written, a log line included: the folder may be somebody else's.
     if let Err(e) = guard::data_dir(&dir) {

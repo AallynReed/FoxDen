@@ -62,7 +62,7 @@ fn main() {
             if !settings.start_minimized && !at_sign_in {
                 tray::show_window(handle);
             }
-            // Keeps the Run entry pointing at this copy. Development builds leave it alone.
+            // Keeps the sign-in task pointing at this copy. Development builds leave it alone.
             if !cfg!(debug_assertions) {
                 let _ = autostart::set(settings.autostart);
             }

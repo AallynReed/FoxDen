@@ -15,4 +15,5 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   nsExec::Exec '"$INSTDIR\foxrgb-service.exe" uninstall'
+  nsExec::Exec 'schtasks /Delete /TN FoxRGB /F'
 !macroend
