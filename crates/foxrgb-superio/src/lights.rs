@@ -73,7 +73,7 @@ impl Sio {
         self.inb(0x87);
     }
 
-    /// Leaves config mode, as LibreHardwareMonitor does after each access.
+    /// Leaves config mode after each access.
     pub fn exit(&self) {
         let _ = self
             .pawn

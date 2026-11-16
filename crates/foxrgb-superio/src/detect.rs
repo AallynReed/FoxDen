@@ -1,5 +1,4 @@
-//! Finds the Super I/O chips at 0x2E and 0x4E by their chip ids. Nothing is written to a chip
-//! beyond the configuration keys until it has been recognised.
+//! Finds Super I/O chips at 0x2E and 0x4E by chip id, writing nothing until one is recognised.
 
 use crate::boards::Maker;
 use crate::chip::{self, Board, Chip};
@@ -204,6 +203,32 @@ mod tests {
         let log = bus.take();
         assert_eq!(log[..13], want[..]);
         assert_eq!(log[13], "select_slot 01");
+    }
+
+    #[test]
+    fn winbond_found_without_unlocking() {
+        let bus = Bus::default();
+        bus.config(0, 0x20, 0xA0)
+            .config(0, 0x21, 0x21)
+            .config(0, 0x28, 0x10)
+            .word(0x0B, 0x60, 0x0295);
+        let found = run(&bus, &Board::default());
+        assert_eq!((found[0].chip, found[0].base), (Chip::W83627DHG, 0x290));
+        let want = log(&[
+            "select_slot 00",
+            "pio_outb 2e 87",
+            "pio_outb 2e 87",
+            "superio_inb 20",
+            "superio_inb 21",
+            "find_bars",
+            "superio_outb 07 0b",
+            "superio_inw 60",
+            "superio_inw 60",
+            "superio_inw 23",
+            "pio_outb 2e aa",
+            "select_slot 01",
+        ]);
+        assert_eq!(bus.take()[..12], want[..]);
     }
 
     #[test]

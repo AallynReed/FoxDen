@@ -221,3 +221,149 @@ pub(crate) fn ite(id: u16) -> Option<Chip> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::boards::Maker;
+
+    #[test]
+    fn every_id_and_revision() {
+        let plain = Board::default();
+        let fintek = [
+            (0x05, 0x07, F71858),
+            (0x05, 0x41, F71882),
+            (0x06, 0x01, F71862),
+            (0x07, 0x23, F71889F),
+            (0x08, 0x14, F71869),
+            (0x09, 0x01, F71808E),
+            (0x09, 0x09, F71889ED),
+            (0x10, 0x05, F71889AD),
+            (0x10, 0x07, F71869A),
+            (0x11, 0x18, F71869A),
+            (0x11, 0x06, F71878AD),
+        ];
+        for (id, rev, chip) in fintek {
+            let ldn = if chip == F71858 {
+                F71858_LDN
+            } else {
+                FINTEK_LDN
+            };
+            assert_eq!(
+                winbond_family(id, rev, &plain),
+                Some((chip, ldn)),
+                "{id:x} {rev:x}"
+            );
+        }
+        let nuvoton = [
+            (0x52, 0x17, W83627HF),
+            (0x52, 0x3A, W83627HF),
+            (0x52, 0x41, W83627HF),
+            (0x82, 0x83, W83627THF),
+            (0x85, 0x41, W83687THF),
+            (0x88, 0x51, W83627EHF),
+            (0x88, 0x61, W83627EHF),
+            (0xA0, 0x21, W83627DHG),
+            (0xA5, 0x12, W83667HG),
+            (0xB0, 0x73, W83627DHGP),
+            (0xB3, 0x51, W83667HGB),
+            (0xB4, 0x70, NCT6771F),
+            (0xC3, 0x33, NCT6776F),
+            (0xC4, 0x51, NCT610XD),
+            (0xC5, 0x62, NCT6779D),
+            (0xC7, 0x32, NCT6683D),
+            (0xC8, 0x03, NCT6791D),
+            (0xC9, 0x11, NCT6792D),
+            (0xC9, 0x13, NCT6792DA),
+            (0xD1, 0x21, NCT6793D),
+            (0xD3, 0x52, NCT6795D),
+            (0xD4, 0x23, NCT6796D),
+            (0xD4, 0x2A, NCT6796DR),
+            (0xD4, 0x51, NCT6797D),
+            (0xD4, 0x2B, NCT6798D),
+            (0xD4, 0x40, NCT6686D),
+            (0xD4, 0x41, NCT6686D),
+            (0xD5, 0x92, NCT6687D),
+            (0xD8, 0x02, NCT6799D),
+            (0xD8, 0x06, NCT6701D),
+        ];
+        for (id, rev, chip) in nuvoton {
+            assert_eq!(
+                winbond_family(id, rev, &plain),
+                Some((chip, NUVOTON_LDN)),
+                "{id:x} {rev:x}"
+            );
+        }
+        for (id, rev) in [
+            (0x00, 0x00),
+            (0xFF, 0xFF),
+            (0xC7, 0x33),
+            (0x52, 0x18),
+            (0xD5, 0x93),
+        ] {
+            assert_eq!(winbond_family(id, rev, &plain), None);
+        }
+        let hdv = Board {
+            model: Some("B650M_HDV_M_2"),
+            ..Board::default()
+        };
+        assert_eq!(winbond_family(0xD8, 0x02, &hdv).unwrap().0, NCT6796DS);
+        let msi = |product: &str| Board {
+            maker: Maker::MSI,
+            product: product.into(),
+            ..Board::default()
+        };
+        for product in [
+            "PRO B840-P",
+            "B850 GAMING",
+            "B860M",
+            "MEG X870E GODLIKE",
+            "MPG Z890 EDGE",
+        ] {
+            assert_eq!(
+                winbond_family(0xD5, 0x92, &msi(product)).unwrap().0,
+                NCT6687DR
+            );
+        }
+        assert_eq!(
+            winbond_family(0xD5, 0x92, &msi("MAG B650 TOMAHAWK"))
+                .unwrap()
+                .0,
+            NCT6687D
+        );
+
+        let ite_ids = [
+            (0x8613, IT8613E),
+            (0x8620, IT8620E),
+            (0x8625, IT8625E),
+            (0x8628, IT8628E),
+            (0x8631, IT8631E),
+            (0x8638, IT8638E),
+            (0x8655, IT8655E),
+            (0x8665, IT8665E),
+            (0x8686, IT8686E),
+            (0x8688, IT8688E),
+            (0x8689, IT8689E),
+            (0x8696, IT8696E),
+            (0x8705, IT8705F),
+            (0x8712, IT8712F),
+            (0x8716, IT8716F),
+            (0x8718, IT8718F),
+            (0x8720, IT8720F),
+            (0x8721, IT8721F),
+            (0x8726, IT8726F),
+            (0x8728, IT8728F),
+            (0x8771, IT8771E),
+            (0x8772, IT8772E),
+            (0x8790, IT8790E),
+            (0x8733, IT8792E),
+            (0x8695, IT87952E),
+        ];
+        for (id, chip) in ite_ids {
+            assert_eq!(ite(id), Some(chip));
+            assert!(chip.is_ite());
+        }
+        assert_eq!(ite(0x8792), None);
+        assert_eq!(ite(0xFFFF), None);
+    }
+}

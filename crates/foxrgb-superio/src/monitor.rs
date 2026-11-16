@@ -1,5 +1,4 @@
-//! The fan backend every Super I/O and EC family shares: one cached read per tick, named
-//! headers, manual duty and the hand-back to the chip's own control.
+//! The fan backend every Super I/O and EC family shares, with one cached read per tick.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -7,6 +6,8 @@ use std::time::{Duration, Instant};
 use foxrgb_fan::{Fan, FanBackend, Sensor};
 use foxrgb_pawnio::SharedLock;
 
+/// The pump never goes below this, whatever a curve asks.
+pub(crate) const PUMP_FLOOR: f32 = 0.7;
 /// Readings stay good for this long, so one tick costs one pass over the chip.
 const FRESH: Duration = Duration::from_millis(500);
 
@@ -169,7 +170,11 @@ impl Fan for Header {
     }
     fn set_duty(&mut self, duty: f32) -> Result<(), String> {
         let index = self.control.ok_or("this header can only be read")?;
-        let value = (duty.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let mut duty = duty.clamp(0.0, 1.0);
+        if self.name.to_lowercase().contains("pump") {
+            duty = duty.max(PUMP_FLOOR);
+        }
+        let value = (duty * 255.0).round() as u8;
         lock(&self.shared).set(index, Some(value))?;
         self.taken = true;
         Ok(())
@@ -257,6 +262,21 @@ mod tests {
                 .push(format!("{index} {value:?}"));
             Ok(())
         }
+    }
+
+    #[test]
+    fn pumps_keep_a_floor() {
+        let probe = Probe::default();
+        let calls = probe.calls.clone();
+        let layout = Layout {
+            controls: vec![("AIO pump".into(), 0), ("CPU fan".into(), 1)],
+            ..Layout::default()
+        };
+        let mut board = Board::new("x".into(), "board/x".into(), Box::new(probe), layout, None);
+        let mut fans = board.fans();
+        fans[0].set_duty(0.0).unwrap();
+        fans[1].set_duty(0.0).unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["0 Some(179)", "1 Some(0)"]);
     }
 
     #[test]

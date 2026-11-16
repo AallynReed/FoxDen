@@ -21,8 +21,7 @@ const TACH_EXT: [u8; 6] = [0x18, 0x19, 0x1A, 0x81, 0x83, 0x4D];
 const TACH_ALT: [u8; 6] = [0x0D, 0x0E, 0x0F, 0x80, 0x82, 0x93];
 const TACH_EXT_ALT: [u8; 6] = [0x18, 0x19, 0x1A, 0x81, 0x83, 0x94];
 
-/// The board firmware's own fan controller on the second chip of some Gigabyte boards. It
-/// has to be paused while FoxRGB sets duties, or it writes over them.
+/// The firmware fan controller on some Gigabyte boards' second chip, paused while FoxRGB drives.
 pub(crate) struct Controller {
     initial: Option<bool>,
     current: Option<bool>,
@@ -35,13 +34,7 @@ const ENABLE: u16 = 0x47;
 
 /// The second chip's EC memory through its I/O mailbox.
 fn wait(lpc: &Lpc, ready: impl Fn(u8) -> bool) -> bool {
-    for _ in 0..1000 {
-        if ready(lpc.inb(ECIO_COMMAND)) {
-            return true;
-        }
-        lpc.sleep(1);
-    }
-    false
+    lpc.until(200, || ready(lpc.inb(ECIO_COMMAND)))
 }
 
 fn ecio_start(lpc: &Lpc, command: u8, offset: u16) -> bool {

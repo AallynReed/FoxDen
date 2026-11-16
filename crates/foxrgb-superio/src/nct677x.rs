@@ -1,5 +1,4 @@
-//! Fan control for Nuvoton NCT610x, NCT677x and NCT679x Super I/O chips, and the NCT5585D and
-//! NCT6701D, all reached through a banked register window.
+//! Fan control for Nuvoton NCT610x, NCT677x, NCT679x, NCT5585D and NCT6701D Super I/O chips.
 
 use crate::chip::Chip::{self, *};
 use crate::monitor::{Monitor, Values};

@@ -1,6 +1,6 @@
 //! One Super I/O configuration port, 0x2E or 0x4E, and the chip's I/O ports behind it.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::lights::Pawn;
 
@@ -28,6 +28,20 @@ impl Lpc {
 
     pub fn sleep(&self, ms: u64) {
         (self.sleep)(Duration::from_millis(ms))
+    }
+
+    /// Polls about once a millisecond until `ready`, for at most `ms` milliseconds.
+    pub fn until(&self, ms: u64, mut ready: impl FnMut() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_millis(ms);
+        loop {
+            if ready() {
+                return true;
+            }
+            if Instant::now() > deadline {
+                return false;
+            }
+            self.sleep(1);
+        }
     }
 
     pub fn inb(&self, port: u16) -> u8 {

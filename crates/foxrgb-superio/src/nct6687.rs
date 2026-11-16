@@ -62,13 +62,12 @@ impl Chip {
 
     /// Waits up to half a second for the EC page register to be free, then takes it.
     fn claim(&self) {
-        for _ in 0..500 {
-            if self.lpc.inb(self.base + EC_PAGE) == EC_FREE {
-                return;
-            }
-            self.lpc.sleep(1);
+        if !self
+            .lpc
+            .until(500, || self.lpc.inb(self.base + EC_PAGE) == EC_FREE)
+        {
+            self.lpc.outb(self.base + EC_PAGE, EC_FREE);
         }
-        self.lpc.outb(self.base + EC_PAGE, EC_FREE);
     }
 
     /// Temperature at a register pair, in degrees Celsius.
@@ -140,8 +139,8 @@ const LOCKED: u8 = 1 << 6;
 const PHASE: u8 = 1 << 3;
 const INVALID: u8 = 1 << 4;
 const CHECKED: u8 = 1 << 5;
-/// Polls of about a millisecond each before the engine is given up on.
-const PATIENCE: usize = 1000;
+/// Milliseconds the fan engine gets for each step.
+const PATIENCE: u64 = 1000;
 const NONE: u16 = 0xFFF;
 
 /// The NCT6683D, NCT6686D, and the NCT6687D on MSI 800-series boards, as a generic monitor.
@@ -205,21 +204,12 @@ impl Paged {
         if ready(self.engine()) {
             return true;
         }
-        for _ in 0..PATIENCE {
-            if self.engine() & PHASE == 0 && self.chip.raw_read(REQUEST) & CFG_REQUEST == 0 {
-                break;
-            }
-            self.chip.lpc.sleep(1);
-        }
+        self.chip.lpc.until(PATIENCE, || {
+            self.engine() & PHASE == 0 && self.chip.raw_read(REQUEST) & CFG_REQUEST == 0
+        });
         self.update_byte(REQUEST, 0x7F, CFG_REQUEST);
         self.chip.lpc.sleep(10);
-        for _ in 0..PATIENCE {
-            if ready(self.engine()) {
-                return true;
-            }
-            self.chip.lpc.sleep(1);
-        }
-        false
+        self.chip.lpc.until(PATIENCE, || ready(self.engine()))
     }
 
     fn commit(&self) -> bool {
@@ -229,12 +219,9 @@ impl Paged {
         }
         self.update_byte(REQUEST, 0xBF, CFG_COMPLETE);
         self.chip.lpc.sleep(10);
-        for _ in 0..PATIENCE {
-            if self.engine() & CHECKED != 0 {
-                break;
-            }
-            self.chip.lpc.sleep(1);
-        }
+        self.chip
+            .lpc
+            .until(PATIENCE, || self.engine() & CHECKED != 0);
         self.engine() & INVALID == 0
     }
 

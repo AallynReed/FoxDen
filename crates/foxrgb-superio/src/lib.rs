@@ -31,7 +31,7 @@ use foxrgb_pawnio::{LPC_IO, Module, SharedLock};
 use crate::chip::Chip;
 use crate::detect::Found;
 use crate::lights::Pawn;
-use crate::monitor::{Layout, Monitor};
+use crate::monitor::{Layout, Monitor, PUMP_FLOOR};
 use crate::nct6687::ISA_MUTEX;
 
 /// Header names on MSI boards with the NCT6687D, as other fan tools show them.
@@ -46,8 +46,6 @@ const HEADERS: [&str; 8] = [
     "System fan 6",
 ];
 const PUMP: u8 = 1;
-/// The pump never goes below this, whatever a curve asks.
-const PUMP_FLOOR: f32 = 0.7;
 const BOARD_TEMPS: [(&str, &str, u16); 7] = [
     ("board/cpu", "CPU (board)", 0x100),
     ("board/system", "System", 0x102),
@@ -243,5 +241,58 @@ impl FanBackend for BoardBackend {
                 }) as Box<dyn Fan>
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::it87::Firmware;
+    use crate::testbus::{Bus, Flat, regs};
+
+    fn found(bus: &Bus, chip: Chip, base: u16) -> Found {
+        Found {
+            chip,
+            lpc: bus.lpc(0x2E),
+            base,
+            version: 0,
+            firmware: Firmware::Absent,
+        }
+    }
+
+    #[test]
+    fn nct6687d_keeps_its_ids_and_others_carry_chip_and_port() {
+        let bus = Bus::default();
+        let mut old = backend(
+            found(&bus, Chip::NCT6687D, 0xA20),
+            &chip::Board::default(),
+            0,
+        )
+        .unwrap();
+        let fans: Vec<String> = old.fans().iter().map(|f| f.id().to_string()).collect();
+        assert_eq!(fans[0], "board/fan0");
+        assert_eq!(fans.len(), 8);
+        assert_eq!(old.sensors()[0].id(), "board/cpu");
+
+        let values = regs(&[(0x58, 0x90), (0x00, 0x10), (0x0C, 0x30)]);
+        bus.device(0xA40, 0xA47, Flat::new(0xA40, &values));
+        let mut ite = backend(
+            found(&bus, Chip::IT8688E, 0xA40),
+            &chip::Board::default(),
+            0,
+        )
+        .unwrap();
+        assert_eq!(ite.fans()[0].id(), "board/it8688e-2e/fan0");
+        assert_eq!(ite.sensors()[0].id(), "board/it8688e-2e/temp0");
+        let gone = regs(&[]);
+        bus.device(0xB40, 0xB47, Flat::new(0xB40, &gone));
+        assert!(
+            backend(
+                found(&bus, Chip::IT8688E, 0xB40),
+                &chip::Board::default(),
+                0
+            )
+            .is_none()
+        );
     }
 }
