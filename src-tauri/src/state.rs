@@ -905,6 +905,7 @@ mod tests {
                 "close_to_tray",
                 "fans_module",
                 "fps",
+                "keep_running",
                 "led_strips",
                 "lighting_module",
                 "native_drivers",
