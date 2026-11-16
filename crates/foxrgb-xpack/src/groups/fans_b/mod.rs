@@ -4,7 +4,9 @@
 
 mod bragi;
 mod bragi_models;
+mod commander_duo;
 mod commander_pro;
+mod coolit;
 mod modern;
 mod platinum;
 mod thermaltake;
@@ -20,6 +22,7 @@ pub fn detectors() -> Vec<&'static Detector> {
         .iter()
         .chain(platinum::DETECTORS.iter())
         .chain(bragi::DETECTORS.iter())
+        .chain(commander_duo::DETECTORS.iter())
         .collect()
 }
 
@@ -37,6 +40,11 @@ pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
         modern::IDS
             .iter()
             .map(|&(pid, name)| (modern::VID, pid, name)),
+    );
+    v.extend(
+        coolit::IDS
+            .iter()
+            .map(|&(pid, name)| (coolit::VID, pid, name)),
     );
     v.extend(
         platinum::IDS
@@ -64,6 +72,8 @@ fn family(info: &Info) -> Option<(Make, String)> {
         Some((commander_pro::hub, commander_pro::key(info)))
     } else if modern::wants(info) {
         Some((modern::hub, modern::key(info)))
+    } else if coolit::wants(info) {
+        Some((coolit::hub, coolit::key(info)))
     } else if platinum::wants(info) {
         Some((platinum::hub, platinum::key(info)))
     } else {

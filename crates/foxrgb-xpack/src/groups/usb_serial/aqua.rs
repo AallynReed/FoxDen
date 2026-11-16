@@ -119,9 +119,13 @@ pub fn device(id: &str, m: &Model) -> Device {
     dev
 }
 
-pub fn probe() -> Vec<Box<dyn Backend>> {
+/// The D5 Next pump has fans too, so the fan hubs' group opens its lighting.
+pub const WITH_FANS: u16 = 0xF00E;
+
+/// Every model `want` accepts.
+pub fn probe(want: impl Fn(u16) -> bool) -> Vec<Box<dyn Backend>> {
     let mut out = Vec::new();
-    for m in MODELS {
+    for m in MODELS.iter().filter(|m| want(m.pid)) {
         for f in open_bulk(FAMILY, VID, m.pid, ENDPOINT) {
             out.push(Driver::new(Box::new(f.io), device(&f.id, m), FAMILY, Aqua(m)).boxed());
         }
