@@ -31,8 +31,9 @@ animation, with its own drivers and nothing else to install.
 
 ## Devices
 
-Keyboards, mice, headsets, coolers, RAM, motherboards and graphics cards from Razer, Logitech,
-Corsair, SteelSeries, ASUS, MSI, Gigabyte, NZXT, HyperX, Elgato Stream Deck and many more.
+Over 2,000 devices: keyboards, mice, headsets, RAM, motherboards, graphics cards, coolers, fan
+hubs, LED strips and network lights from Razer, Logitech, Corsair, SteelSeries, ASUS, MSI,
+Gigabyte, NZXT, HyperX, Lian Li, Philips Hue, Nanoleaf and many more.
 
 Tested so far on MSI Mystic Light boards, Logitech G502 and G515, and Corsair Vengeance RGB
 DDR5. If yours works or doesn't, [open an issue](../../issues/new/choose).
@@ -43,9 +44,11 @@ OpenRGB can optionally drive anything else through its server.
 
 - Effects, including audio, screen and key-press reactive ones
 - Layout editor and profiles
-- Fan curves for board headers, AIO pumps and AMD graphics cards
+- Fan curves for motherboard headers, coolers, fan hubs and AMD graphics cards, with zero RPM
+- LED strips and network lights
 - Lighting and Fans modules you can switch off
-- Closes conflicting software such as SignalRGB, G HUB and iCUE
+- Closes conflicting software such as SignalRGB, G HUB and iCUE, unless you keep it running
+- Send device info for anything not supported yet
 - Starts with Windows and updates itself
 
 ## Install
