@@ -124,7 +124,13 @@ const CYAN: Color = Color(0, 200, 255);
 const NAVY: Color = Color(0, 12, 40);
 const WHITE: Color = Color(255, 255, 255);
 
-pub(crate) fn range(name: &'static str, label: &'static str, min: f32, max: f32, step: f32) -> ParamInfo {
+pub(crate) fn range(
+    name: &'static str,
+    label: &'static str,
+    min: f32,
+    max: f32,
+    step: f32,
+) -> ParamInfo {
     ParamInfo {
         name,
         label,
@@ -582,8 +588,22 @@ mod tests {
                 pixels,
             },
             presses: vec![
-                Press { x: 0.3, y: 0.7, age: 0.4, hw: 0.02, hh: 0.04 },
-                Press { x: 0.8, y: 0.9, age: 0.1, hw: 0.02, hh: 0.04 },
+                Press {
+                    x: 0.3,
+                    y: 0.7,
+                    age: 0.4,
+                    hw: 0.02,
+                    hh: 0.04,
+                    seed: 0,
+                },
+                Press {
+                    x: 0.8,
+                    y: 0.9,
+                    age: 0.1,
+                    hw: 0.02,
+                    hh: 0.04,
+                    seed: 0,
+                },
             ],
         }
     }

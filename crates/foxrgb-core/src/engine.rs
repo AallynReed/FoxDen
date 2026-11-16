@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::{Backend, Color, Device, Effect, Inputs, Post};
+use crate::{Backend, Color, Device, Effect, Inputs, Layer};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -158,8 +158,10 @@ pub struct Engine {
     tuning: HashMap<String, Tuning>,
     failed: Arc<AtomicBool>,
     pub effect: Effect,
-    /// Drawn over `effect`.
-    pub post: Post,
+    /// Devices with an effect of their own instead of `effect`.
+    pub overrides: HashMap<String, Effect>,
+    /// Drawn over the effect, bottom first.
+    pub layers: Vec<Layer>,
     pub brightness: f32,
     /// Every LED is black while set.
     pub paused: bool,
@@ -173,7 +175,8 @@ impl Engine {
             tuning: HashMap::new(),
             failed: Arc::default(),
             effect: Effect::default(),
-            post: Post::None,
+            overrides: HashMap::new(),
+            layers: Vec::new(),
             brightness: 1.0,
             paused: false,
         };
@@ -333,6 +336,17 @@ impl Engine {
         }
     }
 
+    /// Whether anything shown reads audio, the screen, and key presses.
+    pub fn wants(&self) -> (bool, bool, bool) {
+        let effects = || std::iter::once(&self.effect).chain(self.overrides.values());
+        let layers = || self.layers.iter();
+        (
+            effects().any(Effect::uses_audio) || layers().any(Layer::uses_audio),
+            effects().any(Effect::uses_screen) || layers().any(Layer::uses_screen),
+            layers().any(Layer::uses_keys),
+        )
+    }
+
     /// Renders the effect at time `t`, hands it to every backend and returns what was rendered.
     pub fn render(&mut self, t: f32, inputs: &Inputs) -> Vec<Frame> {
         let mut frames = Vec::new();
@@ -348,11 +362,17 @@ impl Engine {
                     0.0
                 };
                 let colors: Vec<Color> = if k > 0.0 {
+                    let effect = self.overrides.get(&device.id).unwrap_or(&self.effect);
+                    let layers: Vec<&Layer> =
+                        self.layers.iter().filter(|l| l.covers(device)).collect();
                     device
                         .canvas_positions()
                         .map(|(x, y)| {
-                            let base = self.effect.sample(x, y, t, inputs);
-                            self.post.apply(base, x, y, t, inputs).scale(k)
+                            let base = effect.sample(x, y, t, inputs);
+                            layers
+                                .iter()
+                                .fold(base, |below, l| l.apply(below, x, y, t, inputs))
+                                .scale(k)
                         })
                         .collect()
                 } else {

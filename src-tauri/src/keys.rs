@@ -19,13 +19,15 @@ const KEEP: Duration = Duration::from_secs(5);
 const MOST: usize = 64;
 
 struct Seen {
-    presses: Vec<(u32, Instant)>,
+    presses: Vec<(u32, Instant, u32)>,
     down: [bool; 256],
+    count: u32,
 }
 
 static SEEN: Mutex<Seen> = Mutex::new(Seen {
     presses: Vec::new(),
     down: [false; 256],
+    count: 0,
 });
 
 fn seen() -> std::sync::MutexGuard<'static, Seen> {
@@ -45,7 +47,9 @@ fn seen_key(vk: u32, down: bool) {
         if s.presses.len() >= MOST {
             s.presses.remove(0);
         }
-        s.presses.push((vk, Instant::now()));
+        s.count = s.count.wrapping_add(1);
+        let n = s.count;
+        s.presses.push((vk, Instant::now(), n));
     }
 }
 
@@ -95,13 +99,13 @@ impl KeyCapture {
         })
     }
 
-    /// Recent presses as (virtual-key code, seconds ago).
-    pub fn frame(&self) -> Vec<(u32, f32)> {
+    /// Recent presses as (virtual-key code, seconds ago, press number).
+    pub fn frame(&self) -> Vec<(u32, f32, u32)> {
         let mut s = seen();
-        s.presses.retain(|(_, at)| at.elapsed() < KEEP);
+        s.presses.retain(|(_, at, _)| at.elapsed() < KEEP);
         s.presses
             .iter()
-            .map(|(vk, at)| (*vk, at.elapsed().as_secs_f32()))
+            .map(|(vk, at, n)| (*vk, at.elapsed().as_secs_f32(), *n))
             .collect()
     }
 }

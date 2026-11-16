@@ -36,7 +36,7 @@ for (const type of ["keydown", "keyup"]) {
   document.addEventListener(
     type,
     (e) => {
-      if (e.repeat || !e.keyCode || !(state.snap && state.snap.post.kind.startsWith("press_"))) return;
+      if (e.repeat || !e.keyCode) return;
       invoke("key_event", { vk: e.keyCode, down: type === "keydown" }).catch(() => {});
     },
     true,
@@ -120,7 +120,7 @@ function noteChanges(snap) {
 
 function undoable(snap) {
   const per = (pick) => Object.fromEntries(snap.devices.map((d) => [d.id, pick(d)]));
-  return { effect: snap.effect, post: snap.post, brightness: snap.brightness, rects: per((d) => d.rect), levels: per((d) => [d.enabled, d.brightness]) };
+  return { effect: snap.effect, layers: snap.layers, overrides: snap.overrides, brightness: snap.brightness, rects: per((d) => d.rect), levels: per((d) => [d.enabled, d.brightness]) };
 }
 
 // What changed between two states: a label for the user, and a key that tells one kind of edit from another.
@@ -130,7 +130,8 @@ function difference(a, b) {
   const [moved, tuned] = [changed("rects"), changed("levels")];
   const parts = [];
   if (fields.length) parts.push(["effect", fields.includes("kind") ? "kind" : fields]);
-  if (!same(a.post, b.post)) parts.push(["post effect", ""]);
+  if (!same(a.layers, b.layers)) parts.push(["layers", ""]);
+  if (!same(a.overrides, b.overrides)) parts.push(["device effect", ""]);
   if (a.brightness !== b.brightness) parts.push(["brightness", ""]);
   if (tuned.length) parts.push(["device", tuned]);
   if (moved.length) parts.push(["layout", moved]);
@@ -201,7 +202,10 @@ function step(by) {
   note((by < 0 ? "Undid " : "Redid ") + label + " change");
   quietly(async () => {
     if (!same(from.effect, to.effect)) await call("set_effect", { effect: to.effect });
-    if (!same(from.post, to.post)) await call("set_post", { post: to.post });
+    if (!same(from.layers, to.layers)) await call("set_layers", { layers: to.layers });
+    for (const id of new Set([...Object.keys(from.overrides), ...Object.keys(to.overrides)])) {
+      if (!same(from.overrides[id], to.overrides[id])) await call("set_override", { id, effect: to.overrides[id] || null });
+    }
     if (from.brightness !== to.brightness) await call("set_brightness", { value: to.brightness });
     for (const [id, rect] of Object.entries(to.rects)) {
       if (!findDevice(id) || !from.rects[id] || (same(from.rects[id], rect) && same(from.levels[id], to.levels[id]))) continue;

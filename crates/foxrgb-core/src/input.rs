@@ -39,6 +39,8 @@ pub struct Press {
     /// Half the key's width and height on the canvas.
     pub hw: f32,
     pub hh: f32,
+    /// Different for every press, for colours picked at random.
+    pub seed: u32,
 }
 
 /// Everything an effect may react to besides position and time.

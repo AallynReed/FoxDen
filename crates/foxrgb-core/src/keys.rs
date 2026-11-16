@@ -121,10 +121,10 @@ pub fn key_spot(vk: u32, full: bool) -> Option<(f32, f32)> {
     Some(((x / width).min(1.0), (row as f32 + 0.5) / 6.0))
 }
 
-/// Places key presses `(virtual-key code, age)` on each keyboard `(rect, full)` of the canvas.
-pub fn presses_on(keys: &[(u32, f32)], keyboards: &[([f32; 4], bool)]) -> Vec<Press> {
+/// Places key presses `(virtual-key code, age, seed)` on each keyboard `(rect, full)` of the canvas.
+pub fn presses_on(keys: &[(u32, f32, u32)], keyboards: &[([f32; 4], bool)]) -> Vec<Press> {
     keys.iter()
-        .flat_map(|&(vk, age)| {
+        .flat_map(|&(vk, age, seed)| {
             keyboards.iter().filter_map(move |&([x, y, w, h], full)| {
                 key_spot(vk, full).map(|(kx, ky)| Press {
                     x: x + kx * w,
@@ -132,6 +132,7 @@ pub fn presses_on(keys: &[(u32, f32)], keyboards: &[([f32; 4], bool)]) -> Vec<Pr
                     age,
                     hw: w / if full { FULL } else { TKL } / 2.0,
                     hh: h / 12.0,
+                    seed,
                 })
             })
         })
@@ -155,7 +156,7 @@ mod tests {
     #[test]
     fn a_press_lands_on_every_keyboard() {
         let boards = [([0.0, 0.0, 0.5, 0.5], true), ([0.5, 0.5, 0.5, 0.5], false)];
-        let p = presses_on(&[(0x1B, 0.2), (0xFF, 0.1)], &boards);
+        let p = presses_on(&[(0x1B, 0.2, 1), (0xFF, 0.1, 2)], &boards);
         assert_eq!(p.len(), 2);
         assert!(p[0].x < 0.05 && p[1].x >= 0.5 && p[1].y >= 0.5);
         assert_eq!(p[0].age, 0.2);

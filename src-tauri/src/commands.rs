@@ -1,4 +1,4 @@
-use foxrgb_core::{Effect, Post};
+use foxrgb_core::{Effect, Layer};
 use tauri::{AppHandle, State};
 
 use crate::config::{DeviceConfig, Profile, Settings};
@@ -22,9 +22,22 @@ pub fn set_effect(app: AppHandle, shared: State<'_, Shared>, effect: Effect) -> 
 }
 
 #[tauri::command]
-pub fn set_post(app: AppHandle, shared: State<'_, Shared>, post: Post) -> Reply {
+pub fn set_layers(app: AppHandle, shared: State<'_, Shared>, layers: Vec<Layer>) -> Reply {
     update(&app, &shared, |s| {
-        s.engine.post = post;
+        s.engine.layers = layers;
+        s.check_profile();
+        Ok(())
+    })
+}
+
+/// Gives a device its own effect, or with `None` has it follow the main one again.
+#[tauri::command]
+pub fn set_override(app: AppHandle, shared: State<'_, Shared>, id: String, effect: Option<Effect>) -> Reply {
+    update(&app, &shared, |s| {
+        match effect {
+            Some(effect) => s.engine.overrides.insert(id, effect),
+            None => s.engine.overrides.remove(&id),
+        };
         s.check_profile();
         Ok(())
     })
@@ -111,7 +124,8 @@ pub fn save_profile(app: AppHandle, shared: State<'_, Shared>, name: String) -> 
         }
         let profile = Profile {
             effect: s.engine.effect.clone(),
-            post: s.engine.post.clone(),
+            layers: s.engine.layers.clone(),
+            overrides: s.engine.overrides.clone().into_iter().collect(),
             brightness: s.engine.brightness,
         };
         s.config.profiles.insert(name.clone(), profile);

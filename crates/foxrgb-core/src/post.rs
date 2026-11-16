@@ -1,76 +1,112 @@
 use crate::effect::{along, band, color, hash, range, smooth, toggle};
-use crate::{Color, Control, Inputs, ParamInfo, Press};
+use crate::{Color, Control, Device, DeviceKind, Effect, Inputs, ParamInfo, Press};
 use serde::{Deserialize, Serialize};
 
-/// How a post effect meets the base effect.
+/// How a layer meets what is under it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Blend {
-    /// Covers the base.
     #[default]
-    Over,
-    /// Adds light to the base.
+    #[serde(alias = "over")]
+    Normal,
     Add,
-    /// Tints the base, keeping its brightness.
+    Screen,
+    Multiply,
+    /// Recolours what is under it, keeping its brightness.
     Tint,
 }
 
-/// A layer drawn over the base effect.
+/// Where a layer's colour comes from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Colors {
+    #[default]
+    Single,
+    /// From the colour to the second colour as it fades.
+    FadeToSecond,
+    /// Each press its own hue, in turn.
+    Rainbow,
+    Random,
+    /// Hue by place on the canvas, left to right.
+    ByPosition,
+}
+
+/// How a light dies away.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Curve {
+    Linear,
+    #[default]
+    Smooth,
+    Quick,
+    Slow,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Lines {
+    #[default]
+    Both,
+    Row,
+    Column,
+}
+
+/// An effect drawn over the base effect.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Post {
     #[default]
     None,
-    PressRipple {
-        color: Color,
-        rainbow: bool,
-        speed: f32,
-        width: f32,
-        fade: f32,
-        strength: f32,
-        blend: Blend,
-    },
     PressGhost {
+        colors: Colors,
         color: Color,
-        rainbow: bool,
+        second: Color,
         hold: f32,
         fade: f32,
+        curve: Curve,
         size: f32,
-        strength: f32,
-        blend: Blend,
+    },
+    PressRipple {
+        colors: Colors,
+        color: Color,
+        second: Color,
+        speed: f32,
+        width: f32,
+        rings: f32,
+        fade: f32,
+        curve: Curve,
     },
     PressSplash {
+        colors: Colors,
         color: Color,
-        rainbow: bool,
+        second: Color,
         speed: f32,
         fade: f32,
-        strength: f32,
-        blend: Blend,
+        curve: Curve,
     },
     PressCross {
+        colors: Colors,
         color: Color,
-        rainbow: bool,
+        second: Color,
+        lines: Lines,
         speed: f32,
         fade: f32,
+        curve: Curve,
         size: f32,
-        strength: f32,
-        blend: Blend,
     },
     Glitter {
+        colors: Colors,
         color: Color,
-        rainbow: bool,
+        second: Color,
         speed: f32,
         density: f32,
-        strength: f32,
-        blend: Blend,
     },
     Scanline {
         color: Color,
         speed: f32,
         width: f32,
         angle: f32,
-        strength: f32,
-        blend: Blend,
+        bounce: bool,
     },
     Breathe {
         speed: f32,
@@ -79,8 +115,6 @@ pub enum Post {
     BeatFlash {
         color: Color,
         sensitivity: f32,
-        strength: f32,
-        blend: Blend,
     },
 }
 
@@ -91,36 +125,129 @@ pub struct PostInfo {
     pub params: Vec<ParamInfo>,
 }
 
+/// Which devices a layer is drawn on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    #[default]
+    All,
+    Keyboards,
+    Chosen,
+}
+
+/// What a layer draws: a key or overlay effect, or any base effect filling it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LayerEffect {
+    Post(Post),
+    Fill(Effect),
+}
+
+/// One layer of the stack over the base effect.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Layer {
+    pub enabled: bool,
+    pub opacity: f32,
+    pub blend: Blend,
+    pub scope: Scope,
+    /// Device ids, for `Scope::Chosen`.
+    #[serde(default)]
+    pub devices: Vec<String>,
+    pub effect: LayerEffect,
+}
+
+impl Layer {
+    pub fn new(effect: LayerEffect) -> Self {
+        Layer {
+            enabled: true,
+            opacity: 1.0,
+            blend: Blend::Normal,
+            scope: Scope::All,
+            devices: Vec::new(),
+            effect,
+        }
+    }
+
+    /// `below` with this layer drawn over it.
+    pub fn apply(&self, below: Color, x: f32, y: f32, t: f32, inputs: &Inputs) -> Color {
+        let (color, k) = match &self.effect {
+            LayerEffect::Post(p) => p.render(x, y, t, inputs),
+            LayerEffect::Fill(e) => (e.sample(x, y, t, inputs), 1.0),
+        };
+        mix(below, color, k * self.opacity.clamp(0.0, 1.0), self.blend)
+    }
+
+    pub fn uses_keys(&self) -> bool {
+        self.enabled && matches!(&self.effect, LayerEffect::Post(p) if p.uses_keys())
+    }
+
+    pub fn uses_audio(&self) -> bool {
+        self.enabled
+            && match &self.effect {
+                LayerEffect::Post(p) => p.uses_audio(),
+                LayerEffect::Fill(e) => e.uses_audio(),
+            }
+    }
+
+    pub fn uses_screen(&self) -> bool {
+        self.enabled && matches!(&self.effect, LayerEffect::Fill(e) if e.uses_screen())
+    }
+
+    /// True when the layer is on and drawn on `device`.
+    pub fn covers(&self, device: &Device) -> bool {
+        self.enabled
+            && match self.scope {
+                Scope::All => true,
+                Scope::Keyboards => device.kind == DeviceKind::Keyboard,
+                Scope::Chosen => self.devices.contains(&device.id),
+            }
+    }
+}
+
 const WHITE: Color = Color(255, 255, 255);
 const ORANGE: Color = Color(255, 106, 0);
 const CYAN: Color = Color(0, 200, 255);
+const VIOLET: Color = Color(150, 60, 255);
 
-fn blend_choice() -> ParamInfo {
+fn choice(name: &'static str, label: &'static str, options: Vec<&'static str>) -> ParamInfo {
     ParamInfo {
-        name: "blend",
-        label: "Blend",
-        control: Control::Choice {
-            options: vec!["over", "add", "tint"],
-        },
+        name,
+        label,
+        control: Control::Choice { options },
+    }
+}
+
+fn shape(curve: Curve, k: f32) -> f32 {
+    match curve {
+        Curve::Linear => k,
+        Curve::Smooth => smooth(k),
+        Curve::Quick => k * k,
+        Curve::Slow => k.sqrt(),
     }
 }
 
 /// How lit a press still is: full for `hold` seconds, then gone over `fade`.
-fn life(p: &Press, hold: f32, fade: f32) -> f32 {
+fn life(p: &Press, hold: f32, fade: f32, curve: Curve) -> f32 {
     let k = if p.age < hold {
         1.0
     } else {
         1.0 - (p.age - hold) / fade.max(0.05)
     };
-    if k.is_nan() { 0.0 } else { smooth(k.clamp(0.0, 1.0)) }
+    if k.is_nan() {
+        0.0
+    } else {
+        shape(curve, k.clamp(0.0, 1.0))
+    }
 }
 
-/// The colour a press shows: its own hue when `rainbow`, fixed for its whole life.
-fn shade(color: Color, rainbow: bool, p: &Press, t: f32) -> Color {
-    if rainbow {
-        Color::hsv((t - p.age) * 0.37, 1.0, 1.0)
-    } else {
-        color
+/// The colour a press shows when `left` of its life remains.
+fn shade(colors: Colors, color: Color, second: Color, p: &Press, t: f32, left: f32) -> Color {
+    match colors {
+        Colors::Single => color,
+        Colors::FadeToSecond => second.lerp(color, left),
+        Colors::Rainbow => Color::hsv((t - p.age) * 0.37, 1.0, 1.0),
+        Colors::Random => Color::hsv(hash(p.seed as i32, 7, 3), 1.0, 1.0),
+        Colors::ByPosition => Color::hsv(p.x, 1.0, 1.0),
     }
 }
 
@@ -131,25 +258,41 @@ fn on_key(x: f32, y: f32, p: &Press, size: f32) -> f32 {
     smooth(((1.0 - d) * 5.0).clamp(0.0, 1.0))
 }
 
-/// The brightest press at this point, with its colour.
-fn strongest(inputs: &Inputs, mut f: impl FnMut(&Press) -> (f32, Color)) -> (f32, Color) {
-    let mut best = (0.0f32, Color::BLACK);
-    for p in &inputs.presses {
-        let (k, c) = f(p);
-        if k > best.0 {
-            best = (k, c);
-        }
-    }
-    best
+/// The brightest press at this point: how lit, and how much of its life is left.
+fn strongest(inputs: &Inputs, f: impl Fn(&Press) -> (f32, f32)) -> Option<(f32, f32, &Press)> {
+    inputs
+        .presses
+        .iter()
+        .map(|p| {
+            let (k, left) = f(p);
+            (k, left, p)
+        })
+        .filter(|(k, _, _)| *k > 0.0)
+        .max_by(|a, b| a.0.total_cmp(&b.0))
 }
 
-fn put(base: Color, over: Color, k: f32, blend: Blend) -> Color {
+/// `over` laid on `base` with `blend`, showing `k` of it.
+pub fn mix(base: Color, over: Color, k: f32, blend: Blend) -> Color {
     let k = if k.is_nan() { 0.0 } else { k.clamp(0.0, 1.0) };
     match blend {
-        Blend::Over => base.lerp(over, k),
+        Blend::Normal => base.lerp(over, k),
         Blend::Add => {
             let f = |a: u8, b: u8| (a as f32 + b as f32 * k).min(255.0).round() as u8;
             Color(f(base.0, over.0), f(base.1, over.1), f(base.2, over.2))
+        }
+        Blend::Screen => {
+            let f = |a: u8, b: u8| 255 - ((255 - a) as u16 * (255 - b) as u16 / 255) as u8;
+            base.lerp(
+                Color(f(base.0, over.0), f(base.1, over.1), f(base.2, over.2)),
+                k,
+            )
+        }
+        Blend::Multiply => {
+            let f = |a: u8, b: u8| (a as u16 * b as u16 / 255) as u8;
+            base.lerp(
+                Color(f(base.0, over.0), f(base.1, over.1), f(base.2, over.2)),
+                k,
+            )
         }
         Blend::Tint => {
             let level = base.0.max(base.1).max(base.2) as f32 / 255.0;
@@ -160,109 +303,125 @@ fn put(base: Color, over: Color, k: f32, blend: Blend) -> Color {
 
 impl Post {
     pub fn catalog() -> Vec<PostInfo> {
+        let colors = || {
+            choice(
+                "colors",
+                "Colours",
+                vec![
+                    "single",
+                    "fade_to_second",
+                    "rainbow",
+                    "random",
+                    "by_position",
+                ],
+            )
+        };
         let main = || color("color", "Colour");
-        let rainbow = || toggle("rainbow", "Rainbow per key");
+        let second = || color("second", "Second colour");
         let speed = || range("speed", "Speed", 0.1, 5.0, 0.05);
-        let fade = || range("fade", "Fade", 0.1, 4.0, 0.05);
-        let strength = || range("strength", "Strength", 0.0, 1.0, 0.05);
+        let fade = || range("fade", "Fade time", 0.1, 4.0, 0.05);
+        let curve = || {
+            choice(
+                "curve",
+                "Fade curve",
+                vec!["linear", "smooth", "quick", "slow"],
+            )
+        };
         vec![
-            PostInfo {
-                label: "None",
-                default: Post::None,
-                params: vec![],
-            },
             PostInfo {
                 label: "Key ghosting",
                 default: Post::PressGhost {
+                    colors: Colors::Single,
                     color: WHITE,
-                    rainbow: false,
+                    second: VIOLET,
                     hold: 0.1,
                     fade: 1.0,
+                    curve: Curve::Smooth,
                     size: 1.0,
-                    strength: 1.0,
-                    blend: Blend::Over,
                 },
                 params: vec![
+                    colors(),
                     main(),
-                    rainbow(),
-                    range("hold", "Hold", 0.0, 1.0, 0.05),
+                    second(),
+                    range("hold", "Hold", 0.0, 2.0, 0.05),
                     fade(),
+                    curve(),
                     range("size", "Size", 0.5, 4.0, 0.1),
-                    strength(),
-                    blend_choice(),
                 ],
             },
             PostInfo {
                 label: "Key ripple",
                 default: Post::PressRipple {
+                    colors: Colors::Single,
                     color: ORANGE,
-                    rainbow: false,
+                    second: VIOLET,
                     speed: 1.5,
                     width: 0.05,
+                    rings: 1.0,
                     fade: 1.0,
-                    strength: 1.0,
-                    blend: Blend::Over,
+                    curve: Curve::Smooth,
                 },
                 params: vec![
+                    colors(),
                     main(),
-                    rainbow(),
+                    second(),
                     speed(),
                     range("width", "Width", 0.01, 0.3, 0.01),
+                    range("rings", "Rings", 1.0, 5.0, 1.0),
                     fade(),
-                    strength(),
-                    blend_choice(),
+                    curve(),
                 ],
             },
             PostInfo {
                 label: "Key splash",
                 default: Post::PressSplash {
+                    colors: Colors::Single,
                     color: CYAN,
-                    rainbow: false,
+                    second: VIOLET,
                     speed: 1.0,
                     fade: 0.8,
-                    strength: 1.0,
-                    blend: Blend::Over,
+                    curve: Curve::Smooth,
                 },
-                params: vec![main(), rainbow(), speed(), fade(), strength(), blend_choice()],
+                params: vec![colors(), main(), second(), speed(), fade(), curve()],
             },
             PostInfo {
                 label: "Key crosshair",
                 default: Post::PressCross {
+                    colors: Colors::Single,
                     color: WHITE,
-                    rainbow: false,
+                    second: VIOLET,
+                    lines: Lines::Both,
                     speed: 2.0,
                     fade: 0.8,
+                    curve: Curve::Smooth,
                     size: 1.0,
-                    strength: 1.0,
-                    blend: Blend::Over,
                 },
                 params: vec![
+                    colors(),
                     main(),
-                    rainbow(),
+                    second(),
+                    choice("lines", "Lines", vec!["both", "row", "column"]),
                     speed(),
                     fade(),
+                    curve(),
                     range("size", "Thickness", 0.5, 3.0, 0.1),
-                    strength(),
-                    blend_choice(),
                 ],
             },
             PostInfo {
                 label: "Glitter",
                 default: Post::Glitter {
+                    colors: Colors::Single,
                     color: WHITE,
-                    rainbow: false,
+                    second: VIOLET,
                     speed: 1.0,
                     density: 0.05,
-                    strength: 1.0,
-                    blend: Blend::Over,
                 },
                 params: vec![
+                    colors(),
                     main(),
-                    rainbow(),
+                    second(),
                     speed(),
                     range("density", "Density", 0.01, 0.5, 0.01),
-                    strength(),
-                    blend_choice(),
                 ],
             },
             PostInfo {
@@ -272,16 +431,14 @@ impl Post {
                     speed: 1.0,
                     width: 0.15,
                     angle: 0.0,
-                    strength: 0.8,
-                    blend: Blend::Add,
+                    bounce: false,
                 },
                 params: vec![
                     main(),
                     speed(),
                     range("width", "Width", 0.05, 1.0, 0.05),
                     range("angle", "Angle", 0.0, 360.0, 1.0),
-                    strength(),
-                    blend_choice(),
+                    toggle("bounce", "Bounce back"),
                 ],
             },
             PostInfo {
@@ -297,15 +454,8 @@ impl Post {
                 default: Post::BeatFlash {
                     color: WHITE,
                     sensitivity: 1.5,
-                    strength: 0.8,
-                    blend: Blend::Add,
                 },
-                params: vec![
-                    main(),
-                    range("sensitivity", "Sensitivity", 0.2, 5.0, 0.05),
-                    strength(),
-                    blend_choice(),
-                ],
+                params: vec![main(), range("sensitivity", "Sensitivity", 0.2, 5.0, 0.05)],
             },
         ]
     }
@@ -326,120 +476,147 @@ impl Post {
         matches!(self, Post::BeatFlash { .. })
     }
 
-    /// The base colour at `x`, `y` with this layer drawn over it.
-    pub fn apply(&self, base: Color, x: f32, y: f32, t: f32, inputs: &Inputs) -> Color {
+    /// The layer's colour at `x`, `y` and how much of it shows, 0..=1.
+    pub fn render(&self, x: f32, y: f32, t: f32, inputs: &Inputs) -> (Color, f32) {
         match *self {
-            Post::None => base,
+            Post::None => (Color::BLACK, 0.0),
             Post::PressRipple {
+                colors,
                 color,
-                rainbow,
+                second,
                 speed,
                 width,
+                rings,
                 fade,
-                strength,
-                blend,
+                curve,
             } => {
-                let (k, c) = strongest(inputs, |p| {
+                let rings = rings.clamp(1.0, 8.0).round();
+                let half = (width * 0.5).max(1e-3);
+                let hit = strongest(inputs, |p| {
                     let off = (x - p.x).hypot(y - p.y) - p.age * speed * 0.3;
-                    let ring = smooth((1.0 - off.abs() / (width * 0.5).max(1e-3)).clamp(0.0, 1.0));
-                    (ring * life(p, 0.0, fade), shade(color, rainbow, p, t))
+                    // Later rings trail the first, one ring width and a gap apart.
+                    let gap = width * 2.5;
+                    let n = (-off / gap).round().clamp(0.0, rings - 1.0);
+                    let ring = smooth((1.0 - (off + n * gap).abs() / half).clamp(0.0, 1.0));
+                    let left = life(p, 0.0, fade, Curve::Linear);
+                    (ring * shape(curve, left), left)
                 });
-                put(base, c, k * strength, blend)
+                match hit {
+                    Some((k, left, p)) => (shade(colors, color, second, p, t, left), k),
+                    None => (Color::BLACK, 0.0),
+                }
             }
             Post::PressGhost {
+                colors,
                 color,
-                rainbow,
+                second,
                 hold,
                 fade,
+                curve,
                 size,
-                strength,
-                blend,
             } => {
-                let (k, c) = strongest(inputs, |p| {
-                    (on_key(x, y, p, size) * life(p, hold, fade), shade(color, rainbow, p, t))
+                let hit = strongest(inputs, |p| {
+                    let left = life(p, hold, fade, Curve::Linear);
+                    (on_key(x, y, p, size) * shape(curve, left), left)
                 });
-                put(base, c, k * strength, blend)
+                match hit {
+                    Some((k, left, p)) => (shade(colors, color, second, p, t, left), k),
+                    None => (Color::BLACK, 0.0),
+                }
             }
             Post::PressSplash {
+                colors,
                 color,
-                rainbow,
+                second,
                 speed,
                 fade,
-                strength,
-                blend,
+                curve,
             } => {
-                let (k, c) = strongest(inputs, |p| {
+                let hit = strongest(inputs, |p| {
                     let reach = p.hw.max(p.hh) + p.age * speed * 0.3;
                     let edge = (x - p.x).hypot(y - p.y) / reach.max(1e-4);
                     let disc = smooth(((1.0 - edge) * 4.0).clamp(0.0, 1.0));
-                    (disc * life(p, 0.0, fade), shade(color, rainbow, p, t))
+                    let left = life(p, 0.0, fade, Curve::Linear);
+                    (disc * shape(curve, left), left)
                 });
-                put(base, c, k * strength, blend)
+                match hit {
+                    Some((k, left, p)) => (shade(colors, color, second, p, t, left), k),
+                    None => (Color::BLACK, 0.0),
+                }
             }
             Post::PressCross {
+                colors,
                 color,
-                rainbow,
+                second,
+                lines,
                 speed,
                 fade,
+                curve,
                 size,
-                strength,
-                blend,
             } => {
-                let (k, c) = strongest(inputs, |p| {
+                let hit = strongest(inputs, |p| {
                     let reach = p.age * speed * 0.5;
                     let (dx, dy) = ((x - p.x).abs(), (y - p.y).abs());
-                    let row = dy <= p.hh * size && dx <= p.hw + reach;
-                    let col = dx <= p.hw * size && dy <= p.hh + reach;
-                    let k = if row || col { 1.0 } else { 0.0 };
-                    (k * life(p, 0.0, fade), shade(color, rainbow, p, t))
+                    let row = lines != Lines::Column && dy <= p.hh * size && dx <= p.hw + reach;
+                    let col = lines != Lines::Row && dx <= p.hw * size && dy <= p.hh + reach;
+                    let left = life(p, 0.0, fade, Curve::Linear);
+                    let k = if row || col { shape(curve, left) } else { 0.0 };
+                    (k, left)
                 });
-                put(base, c, k * strength, blend)
+                match hit {
+                    Some((k, left, p)) => (shade(colors, color, second, p, t, left), k),
+                    None => (Color::BLACK, 0.0),
+                }
             }
             Post::Glitter {
+                colors,
                 color,
-                rainbow,
+                second,
                 speed,
                 density,
-                strength,
-                blend,
             } => {
                 let (cx, cy) = ((x * 256.0).floor() as i32, (y * 256.0).floor() as i32);
                 let time = t * speed * 2.0 + hash(cx, cy, -2);
                 let bucket = time.floor();
                 if hash(cx, cy, bucket as i32 ^ 0x5bd1) >= density {
-                    return base;
+                    return (Color::BLACK, 0.0);
                 }
-                let c = if rainbow {
-                    Color::hsv(hash(cx, cy, bucket as i32), 1.0, 1.0)
-                } else {
-                    color
-                };
                 let k = (std::f32::consts::PI * (time - bucket)).sin();
-                put(base, c, k * strength, blend)
+                let c = match colors {
+                    Colors::Single => color,
+                    Colors::FadeToSecond => second.lerp(color, k),
+                    Colors::Rainbow | Colors::Random => {
+                        Color::hsv(hash(cx, cy, bucket as i32), 1.0, 1.0)
+                    }
+                    Colors::ByPosition => Color::hsv(x, 1.0, 1.0),
+                };
+                (c, k)
             }
             Post::Scanline {
                 color,
                 speed,
                 width,
                 angle,
-                strength,
-                blend,
+                bounce,
             } => {
-                let k = band(along(x, y, angle) - t * speed * 0.2, width);
-                put(base, color, k * strength, blend)
+                let mut phase = t * speed * 0.2;
+                if bounce {
+                    // Back and forth across the canvas, the band fully off it at each end.
+                    phase = 1.0 - (phase.rem_euclid(2.0) - 1.0).abs();
+                    let d = along(x, y, angle) - (phase * (1.0 + width) - width * 0.5);
+                    let k = smooth((1.0 - d.abs() / (width * 0.5).max(1e-3)).clamp(0.0, 1.0));
+                    return (color, k);
+                }
+                let k = band(along(x, y, angle) - phase, width);
+                (color, k)
             }
             Post::Breathe { speed, depth } => {
                 let dip = 0.5 + 0.5 * (t * speed * 2.0).cos();
-                base.scale(1.0 - depth.clamp(0.0, 1.0) * (1.0 - dip))
+                (Color::BLACK, depth.clamp(0.0, 1.0) * (1.0 - dip))
             }
-            Post::BeatFlash {
-                color,
-                sensitivity,
-                strength,
-                blend,
-            } => {
+            Post::BeatFlash { color, sensitivity } => {
                 let level = (inputs.audio.level * sensitivity).clamp(0.0, 1.0);
-                put(base, color, level * level * strength, blend)
+                (color, level * level)
             }
         }
     }
@@ -459,6 +636,7 @@ mod tests {
             age,
             hw: 0.02,
             hh: 0.08,
+            seed: 1,
         }
     }
 
@@ -480,16 +658,31 @@ mod tests {
         }
     }
 
-    fn ghost(fade: f32) -> Post {
-        Post::PressGhost {
-            color: WHITE,
-            rainbow: false,
-            hold: 0.0,
-            fade,
-            size: 1.0,
-            strength: 1.0,
-            blend: Blend::Over,
+    trait On {
+        fn apply(&self, base: Color, x: f32, y: f32, t: f32, inputs: &Inputs) -> Color;
+    }
+
+    impl On for Post {
+        fn apply(&self, base: Color, x: f32, y: f32, t: f32, inputs: &Inputs) -> Color {
+            let (c, k) = self.render(x, y, t, inputs);
+            mix(base, c, k, Blend::Normal)
         }
+    }
+
+    fn ghost(colors: Colors, hold: f32, curve: Curve) -> Post {
+        Post::PressGhost {
+            colors,
+            color: WHITE,
+            second: Color(255, 0, 0),
+            hold,
+            fade: 1.0,
+            curve,
+            size: 1.0,
+        }
+    }
+
+    fn plain_ghost() -> Post {
+        ghost(Colors::Single, 0.0, Curve::Smooth)
     }
 
     #[test]
@@ -503,12 +696,27 @@ mod tests {
                 match &p.control {
                     Control::Range { min, max, step } => {
                         let v = value.as_f64().unwrap() as f32;
-                        assert!(min < max && *step > 0.0 && (*min..=*max).contains(&v), "{} {}", info.label, p.name);
+                        assert!(
+                            min < max && *step > 0.0 && (*min..=*max).contains(&v),
+                            "{} {}",
+                            info.label,
+                            p.name
+                        );
                     }
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
                     Control::Choice { options } => {
-                        assert!(options.contains(&value.as_str().unwrap()), "{} {}", info.label, p.name)
+                        assert!(
+                            options.contains(&value.as_str().unwrap()),
+                            "{} {}",
+                            info.label,
+                            p.name
+                        );
+                        for o in options {
+                            let mut v = json.clone();
+                            v[p.name] = serde_json::json!(o);
+                            serde_json::from_value::<Post>(v).unwrap();
+                        }
                     }
                 }
             }
@@ -521,10 +729,18 @@ mod tests {
     fn kinds_differ_from_base_effects() {
         let base: Vec<String> = crate::Effect::catalog()
             .iter()
-            .map(|i| serde_json::to_value(&i.default).unwrap()["kind"].as_str().unwrap().to_string())
+            .map(|i| {
+                serde_json::to_value(&i.default).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
             .collect();
-        for info in Post::catalog().iter().skip(1) {
-            let kind = serde_json::to_value(&info.default).unwrap()["kind"].as_str().unwrap().to_string();
+        for info in Post::catalog() {
+            let kind = serde_json::to_value(&info.default).unwrap()["kind"]
+                .as_str()
+                .unwrap()
+                .to_string();
             assert!(!base.contains(&kind), "{kind}");
         }
     }
@@ -551,7 +767,8 @@ mod tests {
                 (0..=40).any(|i| {
                     (0..=40).any(|j| {
                         let (x, y) = (i as f32 / 40.0, j as f32 / 40.0);
-                        e.apply(BASE, x, y, 2.5, inputs) != e.apply(BASE, x, y, 2.5, &Inputs::default())
+                        e.apply(BASE, x, y, 2.5, inputs)
+                            != e.apply(BASE, x, y, 2.5, &Inputs::default())
                     })
                 })
             };
@@ -562,9 +779,8 @@ mod tests {
 
     #[test]
     fn ghosting_lights_only_the_key_then_goes_out() {
-        let e = ghost(1.0);
+        let e = plain_ghost();
         assert_eq!(e.apply(BASE, 0.5, 0.5, 0.0, &keys(0.0)), WHITE);
-        // The next key over stays as it was.
         assert_eq!(e.apply(BASE, 0.54, 0.5, 0.0, &keys(0.0)), BASE);
         assert_eq!(e.apply(BASE, 0.5, 0.66, 0.0, &keys(0.0)), BASE);
         let half = e.apply(BASE, 0.5, 0.5, 0.0, &keys(0.5));
@@ -574,87 +790,143 @@ mod tests {
 
     #[test]
     fn ghosting_holds_before_fading() {
-        let e = Post::PressGhost {
-            color: WHITE,
-            rainbow: false,
-            hold: 0.5,
-            fade: 1.0,
-            size: 1.0,
-            strength: 1.0,
-            blend: Blend::Over,
-        };
+        let e = ghost(Colors::Single, 0.5, Curve::Smooth);
         assert_eq!(e.apply(BASE, 0.5, 0.5, 0.0, &keys(0.4)), WHITE);
     }
 
     #[test]
+    fn curves_shape_the_fade() {
+        let at = |curve| {
+            let c =
+                ghost(Colors::Single, 0.0, curve).apply(Color::BLACK, 0.5, 0.5, 0.0, &keys(0.5));
+            c.0
+        };
+        assert!(at(Curve::Quick) < at(Curve::Linear));
+        assert!(at(Curve::Linear) < at(Curve::Slow));
+    }
+
+    #[test]
+    fn fade_to_second_ends_on_the_second_colour() {
+        let e = ghost(Colors::FadeToSecond, 0.0, Curve::Linear);
+        let start = e.apply(Color::BLACK, 0.5, 0.5, 0.0, &keys(0.0));
+        let late = e.apply(Color::BLACK, 0.5, 0.5, 0.0, &keys(0.9));
+        assert_eq!(start, WHITE);
+        assert!(late.0 > late.1 && late.1 == late.2, "{late:?}");
+    }
+
+    #[test]
+    fn rainbow_and_random_presses_keep_their_colour() {
+        for colors in [Colors::Rainbow, Colors::Random] {
+            let e = ghost(colors, 2.0, Curve::Smooth);
+            let a = e.apply(BASE, 0.5, 0.5, 1.2, &keys(0.2));
+            let b = e.apply(BASE, 0.5, 0.5, 1.7, &keys(0.7));
+            assert_eq!(a, b);
+            assert_ne!(a, WHITE);
+        }
+        let random = ghost(Colors::Random, 2.0, Curve::Smooth);
+        let mut other = keys(0.2);
+        other.presses[0].seed = 2;
+        assert_ne!(
+            random.apply(BASE, 0.5, 0.5, 1.2, &keys(0.2)),
+            random.apply(BASE, 0.5, 0.5, 1.2, &other)
+        );
+    }
+
+    #[test]
     fn ripple_rings_spread_from_the_key_and_fade() {
-        let e = Post::PressRipple {
+        let ripple = |rings| Post::PressRipple {
+            colors: Colors::Single,
             color: WHITE,
-            rainbow: false,
+            second: WHITE,
             speed: 1.0,
             width: 0.05,
+            rings,
             fade: 1.0,
-            strength: 1.0,
-            blend: Blend::Over,
+            curve: Curve::Smooth,
         };
-        let early = e.apply(BASE, 0.5 + 0.15, 0.5, 0.0, &keys(0.5));
-        assert_ne!(early, BASE);
+        let e = ripple(1.0);
+        assert_ne!(e.apply(BASE, 0.65, 0.5, 0.0, &keys(0.5)), BASE);
         assert_eq!(e.apply(BASE, 0.5, 0.5, 0.0, &keys(0.5)), BASE);
         assert_eq!(e.apply(BASE, 0.65, 0.5, 0.0, &keys(1.2)), BASE);
+        // A second ring trails the first.
+        let inner = 0.65 - 0.05 * 2.5;
+        assert_eq!(e.apply(BASE, inner, 0.5, 0.0, &keys(0.5)), BASE);
+        assert_ne!(ripple(2.0).apply(BASE, inner, 0.5, 0.0, &keys(0.5)), BASE);
     }
 
     #[test]
-    fn rainbow_presses_keep_their_colour() {
-        let e = Post::PressGhost {
-            color: WHITE,
-            rainbow: true,
-            hold: 2.0,
-            fade: 1.0,
-            size: 1.0,
-            strength: 1.0,
-            blend: Blend::Over,
-        };
-        // Pressed at t = 1 both times.
-        let a = e.apply(BASE, 0.5, 0.5, 1.2, &keys(0.2));
-        let b = e.apply(BASE, 0.5, 0.5, 1.7, &keys(0.7));
-        assert_eq!(a, b);
-        assert_ne!(a, WHITE);
+    fn blends_mix_like_layers() {
+        let (b, w) = (BASE, WHITE);
+        assert_eq!(mix(b, w, 0.5, Blend::Normal), b.lerp(w, 0.5));
+        assert_eq!(mix(b, w, 0.5, Blend::Add), Color(138, 168, 218));
+        assert_eq!(mix(b, w, 1.0, Blend::Screen), w);
+        assert_eq!(mix(b, w, 1.0, Blend::Multiply), b);
+        assert_eq!(mix(Color::BLACK, w, 1.0, Blend::Tint), Color::BLACK);
+        assert_eq!(mix(b, Color::BLACK, 1.0, Blend::Screen), b);
     }
 
     #[test]
-    fn strength_and_blend_shape_the_mix() {
-        let half = |blend| Post::PressGhost {
-            color: WHITE,
-            rainbow: false,
-            hold: 1.0,
-            fade: 1.0,
-            size: 1.0,
-            strength: 0.5,
-            blend,
-        };
-        let over = half(Blend::Over).apply(BASE, 0.5, 0.5, 0.0, &keys(0.0));
-        assert_eq!(over, BASE.lerp(WHITE, 0.5));
-        let add = half(Blend::Add).apply(BASE, 0.5, 0.5, 0.0, &keys(0.0));
-        assert_eq!(add, Color(138, 168, 218));
-        let tint = half(Blend::Tint).apply(Color::BLACK, 0.5, 0.5, 0.0, &keys(0.0));
-        assert_eq!(tint, Color::BLACK);
+    fn a_layer_applies_its_opacity_and_blend() {
+        let mut layer = Layer::new(LayerEffect::Fill(Effect::Static { color: WHITE }));
+        assert_eq!(layer.apply(BASE, 0.5, 0.5, 0.0, &Inputs::default()), WHITE);
+        layer.opacity = 0.5;
+        assert_eq!(
+            layer.apply(BASE, 0.5, 0.5, 0.0, &Inputs::default()),
+            BASE.lerp(WHITE, 0.5)
+        );
+        layer.enabled = false;
+        assert!(!layer.uses_keys());
     }
 
     #[test]
-    fn crosshair_lights_the_row_and_column() {
-        let e = Post::PressCross {
+    fn layers_read_back_either_kind_of_effect() {
+        for layer in [
+            Layer::new(LayerEffect::Post(ghost(Colors::Single, 0.1, Curve::Smooth))),
+            Layer::new(LayerEffect::Fill(Effect::default())),
+        ] {
+            let json = serde_json::to_string(&layer).unwrap();
+            assert_eq!(
+                serde_json::from_str::<Layer>(&json).unwrap(),
+                layer,
+                "{json}"
+            );
+        }
+    }
+
+    #[test]
+    fn crosshair_lights_the_chosen_lines() {
+        let cross = |lines| Post::PressCross {
+            colors: Colors::Single,
             color: WHITE,
-            rainbow: false,
+            second: WHITE,
+            lines,
             speed: 2.0,
             fade: 2.0,
+            curve: Curve::Smooth,
             size: 1.0,
-            strength: 1.0,
-            blend: Blend::Over,
         };
         let i = keys(0.2);
-        assert_ne!(e.apply(BASE, 0.65, 0.5, 0.0, &i), BASE);
-        assert_ne!(e.apply(BASE, 0.5, 0.65, 0.0, &i), BASE);
-        assert_eq!(e.apply(BASE, 0.65, 0.65, 0.0, &i), BASE);
+        let both = cross(Lines::Both);
+        assert_ne!(both.apply(BASE, 0.65, 0.5, 0.0, &i), BASE);
+        assert_ne!(both.apply(BASE, 0.5, 0.65, 0.0, &i), BASE);
+        assert_eq!(both.apply(BASE, 0.65, 0.65, 0.0, &i), BASE);
+        assert_eq!(cross(Lines::Row).apply(BASE, 0.5, 0.65, 0.0, &i), BASE);
+        assert_eq!(cross(Lines::Column).apply(BASE, 0.65, 0.5, 0.0, &i), BASE);
+    }
+
+    #[test]
+    fn scanline_can_bounce() {
+        let line = Post::Scanline {
+            color: WHITE,
+            speed: 1.0,
+            width: 0.1,
+            angle: 0.0,
+            bounce: true,
+        };
+        // Halfway there at t = 2.5 and halfway back at t = 7.5.
+        assert_eq!(line.apply(BASE, 0.5, 0.5, 2.5, &Inputs::default()), WHITE);
+        assert_eq!(line.apply(BASE, 0.5, 0.5, 7.5, &Inputs::default()), WHITE);
+        assert_eq!(line.apply(BASE, 0.9, 0.5, 2.5, &Inputs::default()), BASE);
     }
 
     #[test]
@@ -665,7 +937,25 @@ mod tests {
         };
         assert_eq!(e.apply(BASE, 0.5, 0.5, 0.0, &Inputs::default()), BASE);
         let low = std::f32::consts::FRAC_PI_2;
-        assert_eq!(e.apply(BASE, 0.5, 0.5, low, &Inputs::default()), Color::BLACK);
+        assert_eq!(
+            e.apply(BASE, 0.5, 0.5, low, &Inputs::default()),
+            Color::BLACK
+        );
+    }
+
+    #[test]
+    fn layers_cover_their_scope() {
+        let board = Device::grid("kb", "Board", DeviceKind::Keyboard, [0.0; 4], 1, 1);
+        let ram = Device::grid("ram", "RAM", DeviceKind::Memory, [0.0; 4], 1, 1);
+        let mut layer = Layer::new(LayerEffect::Post(plain_ghost()));
+        assert!(layer.covers(&board) && layer.covers(&ram));
+        layer.scope = Scope::Keyboards;
+        assert!(layer.covers(&board) && !layer.covers(&ram));
+        layer.scope = Scope::Chosen;
+        layer.devices = vec!["ram".into()];
+        assert!(!layer.covers(&board) && layer.covers(&ram));
+        layer.enabled = false;
+        assert!(!layer.covers(&ram));
     }
 
     #[test]

@@ -25,8 +25,14 @@ try {
 let picker = null;
 let held = null;
 let pressed = 0;
-const pending = { effect: null, post: null };
-const lastPost = {};
+const pending = { effect: null, layers: null };
+const lastLayer = {};
+// The device whose background is being edited, or "" for the main one.
+let editDevice = "";
+// The selected row of the layer list: an index into the layers, or -1 for the background.
+let layerSel = -1;
+let dragFrom = -1;
+let layerFocus = "";
 let rowCount = 0;
 let asking = null;
 let refocus = "";
@@ -318,34 +324,58 @@ function colourField(param, id, target) {
   return el("div", { className: "field colour" }, el("label", { htmlFor: id, id: id + "-label", textContent: param.label }), button, panel);
 }
 
-// `target` is "effect" for the base effect or "post" for the layer over it.
+// The background being edited: the main one, or the device's own when it has one.
+function edited(snap = state.snap) {
+  return (editDevice && snap.overrides[editDevice]) || snap.effect;
+}
+
+function setEdited(effect) {
+  return editDevice ? call("set_override", { id: editDevice, effect }) : call("set_effect", { effect });
+}
+
+// `target` is "effect" for the background or "layer" for the selected layer.
 function queueEffect(name, value, target = "effect") {
   if (!state.snap) return;
-  if (!pending[target]) {
-    pending[target] = { ...state.snap[target] };
+  if (target === "layer") return queueLayers((layers) => layers[layerSel] && (layers[layerSel].effect[name] = value));
+  if (!pending.effect) {
+    pending.effect = { ...edited() };
     requestAnimationFrame(() => {
-      const value = pending[target];
-      pending[target] = null;
-      call(target === "post" ? "set_post" : "set_effect", { [target]: value });
+      const effect = pending.effect;
+      pending.effect = null;
+      setEdited(effect);
     });
   }
-  pending[target][name] = value;
+  pending.effect[name] = value;
+}
+
+// Changes the layer list. Changes made in the same frame go out together.
+function queueLayers(change) {
+  if (!state.snap) return;
+  if (!pending.layers) {
+    pending.layers = JSON.parse(JSON.stringify(state.snap.layers));
+    requestAnimationFrame(() => {
+      const layers = pending.layers;
+      pending.layers = null;
+      call("set_layers", { layers });
+    });
+  }
+  change(pending.layers);
 }
 
 function currentInfo() {
   const snap = state.snap;
-  return snap ? snap.catalog.find((c) => c.default.kind === snap.effect.kind) : undefined;
+  return snap ? snap.catalog.find((c) => c.default.kind === edited(snap).kind) : undefined;
 }
 
 function chooseEffect(kind) {
   const info = state.snap.catalog.find((c) => c.default.kind === kind);
-  if (info) call("set_effect", { effect: lastUsed[kind] || info.default });
+  if (info) setEdited(lastUsed[kind] || info.default);
 }
 
 function randomise() {
   const info = currentInfo();
   if (!info) return;
-  const effect = { ...state.snap.effect };
+  const effect = { ...edited() };
   for (const p of info.params) {
     const c = p.control;
     if (c.type === "range") {
@@ -355,13 +385,13 @@ function randomise() {
     else if (c.type === "toggle") effect[p.name] = Math.random() < 0.5;
     else if (c.options && c.options.length) effect[p.name] = c.options[Math.floor(Math.random() * c.options.length)];
   }
-  call("set_effect", { effect });
+  setEdited(effect);
 }
 
 // The effect in use stays listed and says so, so that the list always has a row to tab to.
 function filterEffects() {
   const q = $("effect-search").value.trim().toLowerCase();
-  const kind = state.snap && state.snap.effect.kind;
+  const kind = state.snap && edited().kind;
   let shown = 0;
   for (const pick of $("effect-list").children) {
     const { radio, label, tag } = pick.parts;
@@ -394,8 +424,8 @@ function searchKey(e) {
 
 function paramRow(param, target = "effect") {
   const control = param.control;
-  const id = (target === "post" ? "post-param-" : "param-") + param.name;
-  const problem = $(target === "post" ? "post-problem" : "params-problem");
+  const id = (target === "layer" ? "layer-param-" : "param-") + param.name;
+  const problem = $(target === "layer" ? "layer-problem" : "params-problem");
   if (control.type === "color") return colourField(param, id, target);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
@@ -418,6 +448,29 @@ function paramRow(param, target = "effect") {
 }
 
 function renderEffects(snap) {
+  if (editDevice && !snap.devices.some((d) => d.id === editDevice)) editDevice = "";
+  if (layerSel >= snap.layers.length) layerSel = snap.layers.length - 1;
+  renderLayers(snap);
+  $("base-edit").hidden = layerSel >= 0;
+  $("layer-edit").hidden = layerSel < 0;
+  if (layerSel >= 0) return renderLayer(snap, snap.layers[layerSel]);
+
+  const effect = edited(snap);
+  const pick = $("edit-device");
+  const devices = snap.devices.filter((d) => d.enabled);
+  const pickKey = devices.map((d) => d.id + (snap.overrides[d.id] ? "*" : "")).join("|");
+  if (pick.dataset.key !== pickKey) {
+    pick.dataset.key = pickKey;
+    pick.replaceChildren(
+      el("option", { value: "", textContent: "All devices" }),
+      ...devices.map((d) => el("option", { value: d.id, textContent: d.name + (snap.overrides[d.id] ? " (own)" : "") })),
+    );
+  }
+  pick.value = editDevice;
+  const own = Boolean(editDevice && snap.overrides[editDevice]);
+  $("device-follow").hidden = !editDevice || own;
+  $("device-reset").hidden = !own;
+
   const list = $("effect-list");
   const listKey = snap.catalog.map((c) => c.default.kind + "=" + c.label).join("|");
   if (list.dataset.key !== listKey) {
@@ -432,59 +485,271 @@ function renderEffects(snap) {
       }),
     );
   }
-  for (const radio of list.querySelectorAll("input")) radio.checked = radio.value === snap.effect.kind;
+  for (const radio of list.querySelectorAll("input")) radio.checked = radio.value === effect.kind;
   filterEffects();
 
   const box = $("params");
   const info = currentInfo();
   const params = info ? info.params : [];
-  const paramKey = snap.effect.kind + JSON.stringify(params);
+  const paramKey = effect.kind + JSON.stringify(params);
   if (box.dataset.key !== paramKey) {
     box.dataset.key = paramKey;
     if (picker) picker.close();
-    box.replaceChildren(...params.map(paramRow));
+    box.replaceChildren(...params.map((p) => paramRow(p)));
     $("params-problem").hidden = true;
   }
-  for (const input of box.querySelectorAll("[data-param]")) put(input, snap.effect[input.dataset.param]);
+  for (const input of box.querySelectorAll("[data-param]")) put(input, effect[input.dataset.param]);
   $("params-empty").hidden = params.length > 0;
 
-  renderPost(snap);
-
   // The list scrolls on its own, so keep the chosen effect in view.
-  if (!$("panel-effects").hidden && list.dataset.kind !== snap.effect.kind) {
-    list.dataset.kind = snap.effect.kind;
+  if (!$("panel-effects").hidden && list.dataset.kind !== effect.kind) {
+    list.dataset.kind = effect.kind;
     const checked = list.querySelector("input:checked");
     if (checked) checked.parentNode.scrollIntoView({ block: "nearest" });
   }
 }
 
-function renderPost(snap) {
-  const pick = $("post-kind");
-  const listKey = snap.post_catalog.map((c) => c.default.kind + "=" + c.label).join("|");
-  if (pick.dataset.key !== listKey) {
-    pick.dataset.key = listKey;
-    pick.replaceChildren(...snap.post_catalog.map((info) => el("option", { value: info.default.kind, textContent: info.label })));
-  }
-  if (!busy(pick)) pick.value = snap.post.kind;
-  lastPost[snap.post.kind] = snap.post;
+// What a layer draws: its catalogue entry and whether it is a key or overlay effect.
+function layerInfo(snap, effect) {
+  const post = snap.post_catalog.find((c) => c.default.kind === effect.kind);
+  return post ? { info: post, post: true } : { info: snap.catalog.find((c) => c.default.kind === effect.kind), post: false };
+}
 
-  const box = $("post-params");
-  const info = snap.post_catalog.find((c) => c.default.kind === snap.post.kind);
+const SCOPES = { all: "All devices", keyboards: "Keyboards", chosen: "Chosen devices" };
+
+function scopeWords(snap, layer) {
+  if (layer.scope !== "chosen") return SCOPES[layer.scope];
+  const n = layer.devices.filter((id) => snap.devices.some((d) => d.id === id)).length;
+  return n === 1 ? snap.devices.find((d) => layer.devices.includes(d.id)).name : plural(n, "device");
+}
+
+function eyeIcon(open) {
+  const path = open
+    ? "M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5zm7 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
+    : "M2 2l12 12M6.5 3.2A7 7 0 0 1 8 3c4.5 0 7 5 7 5a12 12 0 0 1-2 2.6M10 12.6A7 7 0 0 1 8 13c-4.5 0-7-5-7-5a12 12 0 0 1 2.4-3";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  shape.setAttribute("d", path);
+  shape.setAttribute("fill", open ? "currentColor" : "none");
+  shape.setAttribute("fill-rule", "evenodd");
+  if (!open) {
+    shape.setAttribute("stroke", "currentColor");
+    shape.setAttribute("stroke-width", "1.5");
+  }
+  svg.append(shape);
+  return svg;
+}
+
+// Moves layer `from` to `to` (array indices, 0 at the bottom) and keeps it selected.
+function moveLayer(from, to) {
+  const n = state.snap.layers.length;
+  to = Math.max(0, Math.min(n - 1, to));
+  if (from === to || from < 0 || from >= n) return;
+  queueLayers((layers) => layers.splice(to, 0, ...layers.splice(from, 1)));
+  layerSel = to;
+  layerFocus = "layer-" + to;
+}
+
+function selectLayer(i) {
+  layerSel = i;
+  layerFocus = i < 0 ? "layer-base" : "layer-" + i;
+  scheduleRender();
+}
+
+// The top layer is listed first, the background last, as in an image editor.
+function renderLayers(snap) {
+  const add = $("layer-add");
+  if (!add.options.length) add.replaceChildren(el("option", { value: "", textContent: "Add a layer" }), ...layerKinds(snap));
+  const list = $("layer-list");
+  const key = JSON.stringify([snap.layers.map((l) => [l.enabled, l.effect.kind, l.scope, l.devices, l.blend, Math.round(l.opacity * 100)]), edited(snap).kind, snap.effect.kind, Object.keys(snap.overrides), layerSel, snap.devices.length]);
+  if (list.dataset.key === key) return;
+  list.dataset.key = key;
+  const focused = list.contains(document.activeElement) ? document.activeElement.id : "";
+  const rows = snap.layers.map((layer, i) => {
+    const { info } = layerInfo(snap, layer.effect);
+    const name = info ? info.label : words(layer.effect.kind);
+    const eye = el("button", { type: "button", className: "eye", id: "layer-eye-" + i }, eyeIcon(layer.enabled));
+    eye.setAttribute("aria-pressed", String(layer.enabled));
+    eye.setAttribute("aria-label", (layer.enabled ? "Hide " : "Show ") + name);
+    eye.onclick = () => queueLayers((layers) => (layers[i].enabled = !layers[i].enabled));
+    const pick = el("button", { type: "button", className: "layer-name", id: "layer-" + i },
+      el("span", { className: "name", textContent: name }),
+      el("span", { className: "tag", textContent: [scopeWords(snap, layer), layer.opacity < 1 ? Math.round(layer.opacity * 100) + "%" : "", layer.blend !== "normal" ? words(layer.blend) : ""].filter(Boolean).join(" · ") }));
+    pick.setAttribute("aria-pressed", String(i === layerSel));
+    pick.title = "Alt+Up and Alt+Down move the layer";
+    pick.onclick = () => selectLayer(i);
+    pick.onkeydown = (e) => {
+      if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+      e.preventDefault();
+      moveLayer(i, i + (e.key === "ArrowUp" ? 1 : -1));
+    };
+    const grip = el("span", { className: "grip" });
+    grip.setAttribute("aria-hidden", "true");
+    const row = el("li", { className: "layer" + (layer.enabled ? "" : " off") + (i === layerSel ? " selected" : "") }, grip, eye, pick);
+    row.draggable = true;
+    row.ondragstart = (e) => {
+      dragFrom = i;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(i));
+      row.classList.add("dragging");
+    };
+    row.ondragend = () => {
+      dragFrom = -1;
+      for (const r of list.children) r.classList.remove("dragging", "drop-above", "drop-below");
+    };
+    row.ondragover = (e) => {
+      if (dragFrom < 0) return;
+      e.preventDefault();
+      const above = e.offsetY < row.offsetHeight / 2;
+      row.classList.toggle("drop-above", above);
+      row.classList.toggle("drop-below", !above);
+    };
+    row.ondragleave = () => row.classList.remove("drop-above", "drop-below");
+    row.ondrop = (e) => {
+      e.preventDefault();
+      const above = row.classList.contains("drop-above");
+      row.classList.remove("drop-above", "drop-below");
+      if (dragFrom < 0) return;
+      // Above a row in the list means higher in the stack.
+      let to = above ? i + 1 : i;
+      if (dragFrom < to) to--;
+      moveLayer(dragFrom, to);
+    };
+    return row;
+  });
+  const own = Object.keys(snap.overrides).length;
+  const baseInfo = snap.catalog.find((c) => c.default.kind === snap.effect.kind);
+  const base = el("button", { type: "button", className: "layer-name", id: "layer-base" },
+    el("span", { className: "name", textContent: "Background" }),
+    el("span", { className: "tag", textContent: (baseInfo ? baseInfo.label : words(snap.effect.kind)) + (own ? " · " + own + " own" : "") }));
+  base.setAttribute("aria-pressed", String(layerSel < 0));
+  base.onclick = () => selectLayer(-1);
+  const lock = el("span", { className: "grip none" });
+  lock.setAttribute("aria-hidden", "true");
+  const baseRow = el("li", { className: "layer base" + (layerSel < 0 ? " selected" : "") }, lock, base);
+  baseRow.ondragover = (e) => dragFrom >= 0 && (e.preventDefault(), baseRow.classList.add("drop-above"));
+  baseRow.ondragleave = () => baseRow.classList.remove("drop-above");
+  baseRow.ondrop = (e) => {
+    e.preventDefault();
+    baseRow.classList.remove("drop-above");
+    if (dragFrom >= 0) moveLayer(dragFrom, 0);
+  };
+  list.replaceChildren(...rows.reverse(), baseRow);
+  const again = layerFocus || focused;
+  if (again && $(again)) {
+    $(again).focus();
+    layerFocus = "";
+  }
+}
+
+function layerKinds(snap) {
+  const group = (label, entries, tag) =>
+    el("optgroup", { label }, ...entries.filter((c) => c.default.kind !== "none").map((c) => el("option", { value: tag + c.default.kind, textContent: c.label })));
+  return [group("Key and overlay effects", snap.post_catalog, "post:"), group("Effects", snap.catalog, "fill:")];
+}
+
+function entryFor(snap, value) {
+  const [tag, kind] = value.split(":");
+  return (tag === "post" ? snap.post_catalog : snap.catalog).find((c) => c.default.kind === kind);
+}
+
+function renderLayer(snap, layer) {
+  const { info } = layerInfo(snap, layer.effect);
+  lastLayer[layer.effect.kind] = layer.effect;
+  setText($("layer-title"), info ? info.label : "Layer");
+  const kind = $("layer-kind");
+  const kinds = JSON.stringify([snap.post_catalog.map((c) => c.label), snap.catalog.map((c) => c.label)]);
+  if (kind.dataset.key !== kinds) {
+    kind.dataset.key = kinds;
+    kind.replaceChildren(...layerKinds(snap));
+  }
+  if (!busy(kind)) kind.value = (snap.post_catalog.some((c) => c.default.kind === layer.effect.kind) ? "post:" : "fill:") + layer.effect.kind;
+  put($("layer-blend"), layer.blend);
+  put($("layer-opacity"), Math.round(layer.opacity * 100));
+  put($("layer-scope"), layer.scope);
+
+  const checks = $("layer-devices");
+  checks.hidden = layer.scope !== "chosen";
+  const checksKey = snap.devices.map((d) => d.id).join("|") + layerSel;
+  if (checks.dataset.key !== checksKey) {
+    checks.dataset.key = checksKey;
+    checks.replaceChildren(
+      ...snap.devices.map((d) => {
+        const box = el("input", { type: "checkbox", id: "layer-dev-" + d.id });
+        box.dataset.device = d.id;
+        box.oninput = () => queueLayers((layers) => {
+          const l = layers[layerSel];
+          l.devices = l.devices.filter((id) => id !== d.id);
+          if (box.checked) l.devices.push(d.id);
+        });
+        return el("label", { className: "check" }, box, el("span", { textContent: d.name }));
+      }),
+    );
+  }
+  for (const box of checks.querySelectorAll("input")) box.checked = layer.devices.includes(box.dataset.device);
+
+  const box = $("layer-params");
   const params = info ? info.params : [];
-  const key = snap.post.kind + JSON.stringify(params);
+  const key = layerSel + layer.effect.kind + JSON.stringify(params);
   if (box.dataset.key !== key) {
     box.dataset.key = key;
     if (picker) picker.close();
-    box.replaceChildren(...params.map((p) => paramRow(p, "post")));
-    $("post-problem").hidden = true;
+    box.replaceChildren(...params.map((p) => paramRow(p, "layer")));
+    $("layer-problem").hidden = true;
   }
-  for (const input of box.querySelectorAll("[data-param]")) put(input, snap.post[input.dataset.param]);
-  $("post-actions").hidden = params.length === 0;
+  for (const input of box.querySelectorAll("[data-param]")) put(input, layer.effect[input.dataset.param]);
+  // The second colour only matters when the colours fade to it.
+  const second = box.querySelector('[data-param="second"]');
+  if (second) second.closest(".field").hidden = layer.effect.colors !== "fade_to_second";
+  const main = box.querySelector('[data-param="color"]');
+  if (main && "colors" in layer.effect) main.closest(".field").hidden = !["single", "fade_to_second"].includes(layer.effect.colors);
 }
 
-function choosePost(kind) {
-  const info = state.snap.post_catalog.find((c) => c.default.kind === kind);
-  if (info) call("set_post", { post: lastPost[kind] || info.default });
+function addLayer(value) {
+  const entry = entryFor(state.snap, value);
+  if (!entry) return;
+  const effect = JSON.parse(JSON.stringify(entry.default));
+  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") ? "keyboards" : "all", devices: [], effect }));
+  layerSel = state.snap.layers.length;
+  layerFocus = "layer-" + layerSel;
+}
+
+function wireLayers() {
+  $("layer-add").oninput = () => {
+    const value = $("layer-add").value;
+    $("layer-add").value = "";
+    addLayer(value);
+  };
+  $("layer-kind").oninput = () => {
+    const entry = entryFor(state.snap, $("layer-kind").value);
+    if (entry) queueLayers((layers) => (layers[layerSel].effect = JSON.parse(JSON.stringify(lastLayer[entry.default.kind] || entry.default))));
+  };
+  $("layer-blend").oninput = () => queueLayers((layers) => (layers[layerSel].blend = $("layer-blend").value));
+  pair($("layer-opacity"), $("layer-opacity-exact"), 1, (v) => queueLayers((layers) => (layers[layerSel].opacity = v / 100)), $("layer-problem"));
+  $("layer-scope").oninput = () => queueLayers((layers) => (layers[layerSel].scope = $("layer-scope").value));
+  $("layer-reset").onclick = () => {
+    const entry = layerInfo(state.snap, state.snap.layers[layerSel].effect).info;
+    if (entry) queueLayers((layers) => (layers[layerSel].effect = JSON.parse(JSON.stringify(entry.default))));
+  };
+  $("layer-copy").onclick = () => {
+    const i = layerSel;
+    queueLayers((layers) => layers.splice(i + 1, 0, JSON.parse(JSON.stringify(layers[i]))));
+    layerSel = i + 1;
+    layerFocus = "layer-" + layerSel;
+  };
+  $("layer-remove").onclick = () => {
+    const i = layerSel;
+    queueLayers((layers) => layers.splice(i, 1));
+    layerSel = Math.min(i, state.snap.layers.length - 2);
+    layerFocus = layerSel < 0 ? "layer-base" : "layer-" + layerSel;
+  };
+  $("edit-device").oninput = () => {
+    editDevice = $("edit-device").value;
+    scheduleRender();
+  };
+  $("device-reset").onclick = () => call("set_override", { id: editDevice, effect: null });
 }
 
 // Only reset_layout knows the defaults, so reset everything and put the other devices back.
@@ -826,7 +1091,7 @@ function readEffect(text) {
 function openJson(hint) {
   const text = $("json-text");
   setText($("json-hint"), hint);
-  text.value = JSON.stringify(state.snap.effect, null, 2);
+  text.value = JSON.stringify(edited(), null, 2);
   flag(text, "");
   $("json-sheet").showModal();
   text.select();
@@ -834,7 +1099,7 @@ function openJson(hint) {
 
 async function copyEffect() {
   try {
-    await navigator.clipboard.writeText(JSON.stringify(state.snap.effect, null, 2));
+    await navigator.clipboard.writeText(JSON.stringify(edited(), null, 2));
     note("Effect copied as JSON");
   } catch {
     openJson("Copying was blocked. Press Ctrl+C to copy the selected text.");
@@ -1244,12 +1509,8 @@ function wirePanels() {
   const search = $("effect-search");
   search.oninput = filterEffects;
   search.onkeydown = searchKey;
-  $("post-kind").oninput = () => choosePost($("post-kind").value);
-  $("post-reset").onclick = () => {
-    const info = state.snap.post_catalog.find((c) => c.default.kind === state.snap.post.kind);
-    if (info) call("set_post", { post: info.default });
-  };
-  $("effect-reset").onclick = () => currentInfo() && call("set_effect", { effect: currentInfo().default });
+  wireLayers();
+  $("effect-reset").onclick = () => currentInfo() && setEdited(currentInfo().default);
   $("effect-random").onclick = randomise;
   $("effect-copy").onclick = copyEffect;
   $("effect-paste").onclick = () => openJson("Paste an effect over this one, or edit it, then choose Apply.");
@@ -1292,7 +1553,7 @@ function wirePanels() {
     const { effect, problem } = readEffect(json.value);
     flag(json, problem || "");
     if (problem) return e.preventDefault();
-    call("set_effect", { effect }).then((out) => out !== undefined && note("Effect applied"));
+    setEdited(effect).then((out) => out !== undefined && note("Effect applied"));
   };
 
   wireNetwork();

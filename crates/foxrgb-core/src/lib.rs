@@ -15,4 +15,4 @@ pub use effect::{Control, Effect, EffectInfo, ParamInfo};
 pub use engine::{Engine, Frame};
 pub use input::{AUDIO_BANDS, AudioFrame, Inputs, Press, ScreenFrame};
 pub use keys::{key_spot, presses_on};
-pub use post::{Blend, Post, PostInfo};
+pub use post::{Blend, Colors, Curve, Layer, LayerEffect, Lines, Post, PostInfo, Scope, mix};

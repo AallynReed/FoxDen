@@ -20,7 +20,18 @@
       </div>
 
       <section class="panel" id="panel-effects" role="tabpanel" aria-labelledby="tab-effects">
-        <h2 id="effect-heading">Effect</h2>
+        <h2 id="layers-heading">Layers</h2>
+        <ol class="layers" id="layer-list" aria-labelledby="layers-heading"></ol>
+        <select class="wide" id="layer-add" aria-label="Add a layer"></select>
+        <p class="hint">Drag a layer to move it. Layers higher in the list are drawn over the ones below.</p>
+
+        <div id="base-edit">
+        <h2 id="effect-heading">Background</h2>
+        <div class="fields">
+          <div class="field"><label for="edit-device">Editing</label><select id="edit-device"></select></div>
+        </div>
+        <p class="hint" id="device-follow" hidden>This device follows the main background. Choose an effect or change a setting to give it its own.</p>
+        <button type="button" id="device-reset" hidden>Follow the main background</button>
         <input type="text" class="wide" id="effect-search" placeholder="Search effects" aria-label="Search effects" autocomplete="off" spellcheck="false" />
         <div class="picks" id="effect-list" role="radiogroup" aria-labelledby="effect-heading"></div>
         <p class="hint" id="effect-none" hidden>No effects match. Clear the search to see them all.</p>
@@ -32,15 +43,25 @@
           <button type="button" id="effect-reset">Reset to defaults</button>
           <button type="button" id="effect-random">Randomise</button>
         </div>
-        <h2 id="post-heading">Post effect</h2>
-        <p class="hint">Drawn over the effect. Key effects follow your typing.</p>
-        <div class="fields">
-          <div class="field"><label for="post-kind">Layer</label><select id="post-kind"></select></div>
         </div>
-        <div class="fields" id="post-params"></div>
-        <p class="problem" id="post-problem" hidden></p>
-        <div class="actions" id="post-actions">
-          <button type="button" id="post-reset">Reset to defaults</button>
+
+        <div id="layer-edit" hidden>
+          <h2 id="layer-title">Layer</h2>
+          <div class="fields">
+            <div class="field"><label for="layer-kind">Effect</label><select id="layer-kind"></select></div>
+            <div class="field"><label for="layer-blend">Blend</label><select id="layer-blend"><option value="normal">Normal</option><option value="add">Add</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="tint">Tint</option></select></div>
+            <div class="field range"><label for="layer-opacity">Opacity</label><input type="range" id="layer-opacity" min="0" max="100" step="1" /><input type="number" class="exact" id="layer-opacity-exact" aria-label="Opacity" /></div>
+            <div class="field"><label for="layer-scope">Shows on</label><select id="layer-scope"><option value="all">All devices</option><option value="keyboards">Keyboards</option><option value="chosen">Chosen devices</option></select></div>
+          </div>
+          <div class="checks" id="layer-devices" hidden></div>
+          <h2>Settings</h2>
+          <div class="fields" id="layer-params"></div>
+          <p class="problem" id="layer-problem" hidden></p>
+          <div class="actions">
+            <button type="button" id="layer-reset">Reset to defaults</button>
+            <button type="button" id="layer-copy">Duplicate</button>
+            <button type="button" id="layer-remove">Remove</button>
+          </div>
         </div>
       </section>
 

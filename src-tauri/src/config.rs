@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use foxrgb_core::{Effect, Post};
+use foxrgb_core::{Effect, Layer, Post};
 use foxrgb_fan::FanConfig;
 use foxrgb_net::NetConfig;
 use serde::de::DeserializeOwned;
@@ -132,8 +132,10 @@ impl Default for DeviceConfig {
 pub struct Profile {
     #[serde(default, deserialize_with = "lenient")]
     pub effect: Effect,
-    #[serde(default, deserialize_with = "lenient")]
-    pub post: Post,
+    #[serde(default, deserialize_with = "lenient_list")]
+    pub layers: Vec<Layer>,
+    #[serde(default, deserialize_with = "lenient_map")]
+    pub overrides: BTreeMap<String, Effect>,
     #[serde(default = "full")]
     pub brightness: f32,
 }
@@ -143,8 +145,11 @@ pub struct Profile {
 pub struct Config {
     #[serde(deserialize_with = "lenient")]
     pub effect: Effect,
-    #[serde(deserialize_with = "lenient")]
-    pub post: Post,
+    #[serde(deserialize_with = "lenient_list")]
+    pub layers: Vec<Layer>,
+    /// Devices with an effect of their own.
+    #[serde(deserialize_with = "lenient_map")]
+    pub overrides: BTreeMap<String, Effect>,
     pub brightness: f32,
     pub settings: Settings,
     pub devices: BTreeMap<String, DeviceConfig>,
@@ -158,7 +163,8 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             effect: Effect::default(),
-            post: Post::None,
+            layers: Vec::new(),
+            overrides: BTreeMap::new(),
             brightness: 1.0,
             settings: Settings::default(),
             devices: BTreeMap::new(),
@@ -177,6 +183,22 @@ fn full() -> f32 {
 fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(d: D) -> Result<T, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
     Ok(serde_json::from_value(value).unwrap_or_default())
+}
+
+/// Keeps every entry that reads, dropping the rest.
+fn lenient_list<'de, D: Deserializer<'de>, T: DeserializeOwned>(d: D) -> Result<Vec<T>, D::Error> {
+    let values = Vec::<serde_json::Value>::deserialize(d).unwrap_or_default();
+    Ok(values.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
+}
+
+fn lenient_map<'de, D: Deserializer<'de>, T: DeserializeOwned>(
+    d: D,
+) -> Result<BTreeMap<String, T>, D::Error> {
+    let values = BTreeMap::<String, serde_json::Value>::deserialize(d).unwrap_or_default();
+    Ok(values
+        .into_iter()
+        .filter_map(|(k, v)| Some((k, serde_json::from_value(v).ok()?)))
+        .collect())
 }
 
 /// The app's identifier. The uninstaller's "delete application data" box removes the folder of that name.
@@ -218,25 +240,67 @@ pub fn load(dir: &Path) -> Config {
     config
 }
 
-/// Key ripple used to be a base effect: it becomes its background with the ripple drawn over it.
+/// Brings older settings forward. Key ripple used to be a base effect, and 0.6 had one post effect:
+/// both become layers. Layers missing newer fields get their kind's defaults.
 fn upgrade(config: &mut serde_json::Value) {
-    use serde_json::json;
-    let move_ripple = |holder: &mut serde_json::Value| {
-        let e = &holder["effect"];
-        if e["kind"] != "key_ripple" {
-            return;
+    use serde_json::{Value, json};
+    let layer = |mut effect: Value, opacity: Value, blend: Value| {
+        if effect["rainbow"] == true {
+            effect["colors"] = json!("rainbow");
         }
-        let post = json!({"kind": "press_ripple", "color": e["color"], "rainbow": false,
-            "speed": e["speed"], "width": e["width"], "fade": e["fade"], "strength": 1.0, "blend": "over"});
-        holder["effect"] = json!({"kind": "static", "color": e["background"]});
-        holder["post"] = post;
+        json!({"enabled": true, "opacity": opacity, "blend": blend, "scope": "all", "devices": [], "effect": effect})
+    };
+    let bring = |holder: &mut Value| {
+        let e = holder["effect"].clone();
+        if e["kind"] == "key_ripple" {
+            let ripple = json!({"kind": "press_ripple", "color": e["color"],
+                "speed": e["speed"], "width": e["width"], "fade": e["fade"]});
+            holder["effect"] = json!({"kind": "static", "color": e["background"]});
+            holder["layers"] = json!([layer(ripple, json!(1.0), json!("normal"))]);
+        }
+        if let Some(post) = holder.as_object_mut().and_then(|h| h.remove("post"))
+            && post.get("kind").is_some_and(|k| k != "none")
+            && holder.get("layers").is_none()
+        {
+                let opacity = post.get("strength").cloned().unwrap_or(json!(1.0));
+                let blend = match post.get("blend").and_then(Value::as_str) {
+                    Some("add") => "add",
+                    Some("tint") => "tint",
+                    _ => "normal",
+                };
+                holder["layers"] = json!([layer(post, opacity, json!(blend))]);
+        }
+        if let Some(layers) = holder.get_mut("layers").and_then(Value::as_array_mut) {
+            for l in layers {
+                complete(&mut l["effect"]);
+            }
+        }
     };
     if !config.is_object() {
         return;
     }
-    move_ripple(config);
+    bring(config);
     if let Some(profiles) = config.get_mut("profiles").and_then(|p| p.as_object_mut()) {
-        profiles.values_mut().filter(|p| p.is_object()).for_each(move_ripple);
+        profiles.values_mut().filter(|p| p.is_object()).for_each(bring);
+    }
+}
+
+/// Fills the fields a layer effect lacks from the defaults of its kind, dropping ones it no longer has.
+fn complete(effect: &mut serde_json::Value) {
+    let kind = effect.get("kind").cloned();
+    let Some(default) = Post::catalog()
+        .into_iter()
+        .filter_map(|i| serde_json::to_value(i.default).ok())
+        .find(|d| d.get("kind") == kind.as_ref())
+    else {
+        return;
+    };
+    let (Some(defaults), Some(fields)) = (default.as_object(), effect.as_object_mut()) else {
+        return;
+    };
+    fields.retain(|name, _| defaults.contains_key(name));
+    for (name, v) in defaults {
+        fields.entry(name.clone()).or_insert_with(|| v.clone());
     }
 }
 
@@ -253,6 +317,7 @@ pub fn save(dir: &Path, config: &Config) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use foxrgb_core::{Blend, Color, Colors, LayerEffect, Scope};
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::current_exe()
@@ -291,7 +356,8 @@ mod tests {
         };
         let profile = Profile {
             effect: Effect::Cycle { speed: 2.0 },
-            post: Post::None,
+            layers: Vec::new(),
+            overrides: BTreeMap::new(),
             brightness: 0.2,
         };
         let config = Config {
@@ -313,26 +379,34 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_key_ripple_becomes_a_post_effect() {
+    fn older_effects_become_layers() {
         let dir = scratch("ripple");
         let ripple = r#"{"kind":"key_ripple","color":[1,2,3],"background":[4,5,6],"speed":1.5,"width":0.05,"fade":1.0}"#;
-        let text = format!(r#"{{"effect":{ripple},"profiles":{{"p":{{"effect":{ripple}}}}}}}"#);
+        let ghost = r#"{"kind":"press_ghost","color":[9,9,9],"rainbow":true,"hold":0.2,"fade":1.0,"size":1.0,"strength":0.5,"blend":"add"}"#;
+        let text = format!(r#"{{"effect":{ripple},"profiles":{{"p":{{"effect":{{"kind":"cycle","speed":1}},"post":{ghost}}}}}}}"#);
         fs::write(dir.join(FILE), text).unwrap();
         let config = load(&dir);
-        let wanted = Post::PressRipple {
-            color: foxrgb_core::Color(1, 2, 3),
-            rainbow: false,
-            speed: 1.5,
-            width: 0.05,
-            fade: 1.0,
-            strength: 1.0,
-            blend: foxrgb_core::Blend::Over,
-        };
-        let background = Effect::Static {
-            color: foxrgb_core::Color(4, 5, 6),
-        };
-        assert_eq!((&config.effect, &config.post), (&background, &wanted));
-        assert_eq!((&config.profiles["p"].effect, &config.profiles["p"].post), (&background, &wanted));
+        assert_eq!(config.effect, Effect::Static { color: Color(4, 5, 6) });
+        let [layer] = config.layers.as_slice() else { panic!("{:?}", config.layers) };
+        let LayerEffect::Post(Post::PressRipple { color, speed, rings, .. }) = layer.effect else { panic!() };
+        assert_eq!((color, speed, rings), (Color(1, 2, 3), 1.5, 1.0));
+        let [layer] = config.profiles["p"].layers.as_slice() else { panic!() };
+        assert_eq!((layer.opacity, layer.blend), (0.5, Blend::Add));
+        let LayerEffect::Post(Post::PressGhost { color, colors, hold, .. }) = layer.effect else { panic!() };
+        assert_eq!((color, colors, hold), (Color(9, 9, 9), Colors::Rainbow, 0.2));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_layer_that_does_not_read_is_dropped_alone() {
+        let dir = scratch("layers");
+        let text = r#"{"layers":[{"kind":"what"},{"enabled":true,"opacity":1,"blend":"screen","scope":"keyboards","effect":{"kind":"rainbow","speed":1,"scale":1,"angle":0}}],
+            "overrides":{"a":{"kind":"gone"},"b":{"kind":"static","color":[1,1,1]}}}"#;
+        fs::write(dir.join(FILE), text).unwrap();
+        let config = load(&dir);
+        assert_eq!(config.layers.len(), 1);
+        assert_eq!(config.layers[0].scope, Scope::Keyboards);
+        assert_eq!(config.overrides.keys().collect::<Vec<_>>(), ["b"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -371,7 +445,8 @@ mod tests {
             config.profiles["p"],
             Profile {
                 effect: Effect::default(),
-                post: Post::None,
+                layers: Vec::new(),
+                overrides: BTreeMap::new(),
                 brightness: 1.0
             }
         );
