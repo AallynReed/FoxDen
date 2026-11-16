@@ -181,7 +181,7 @@ pub fn set_settings(
 #[tauri::command(async)]
 pub fn get_conflicts(shared: State<'_, Shared>) -> Vec<conflicts::Found> {
     let settings = lock(&shared).config.settings.clone();
-    conflicts::running(conflicts::scope(&settings))
+    conflicts::running(conflicts::scope(&settings), &settings.keep_running)
 }
 
 #[tauri::command]
@@ -192,7 +192,7 @@ pub fn last_conflicts() -> Option<conflicts::Report> {
 #[tauri::command(async)]
 pub fn close_conflicts_now(shared: State<'_, Shared>) -> conflicts::Report {
     let settings = lock(&shared).config.settings.clone();
-    let report = conflicts::sweep(conflicts::scope(&settings));
+    let report = conflicts::sweep(conflicts::scope(&settings), &settings.keep_running);
     conflicts::remember(report.clone());
     report.unwrap_or_else(|| conflicts::Report {
         text: "Nothing to close".into(),

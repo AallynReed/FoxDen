@@ -491,7 +491,7 @@ fn enabled(label: &str, settings: &Settings) -> bool {
 
 /// Closes conflicting software and tells the UI, and with the window hidden a toast too.
 fn close_conflicts(app: &AppHandle, settings: &Settings) {
-    let report = crate::conflicts::sweep(crate::conflicts::scope(settings));
+    let report = crate::conflicts::sweep(crate::conflicts::scope(settings), &settings.keep_running);
     if !crate::conflicts::remember(report.clone()) {
         return;
     }

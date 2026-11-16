@@ -37,6 +37,8 @@ pub struct Settings {
     pub fans_module: bool,
     /// Close other lighting and fan software that holds the same devices.
     pub close_conflicts: bool,
+    /// Executables of conflicting software the user keeps running, such as SteelSeriesSonar.exe.
+    pub keep_running: Vec<String>,
     /// Send anonymous error reports.
     pub send_reports: bool,
 }
@@ -61,6 +63,7 @@ impl Default for Settings {
             lighting_module: true,
             fans_module: true,
             close_conflicts: true,
+            keep_running: Vec::new(),
             send_reports: false,
         }
     }

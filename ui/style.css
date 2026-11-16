@@ -1326,3 +1326,8 @@ body.wide #panel-settings > .span {
   width: 100%;
   max-width: none;
 }
+
+.backends .exe {
+  padding-left: 16px;
+  color: var(--muted);
+}

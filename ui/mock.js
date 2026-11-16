@@ -183,6 +183,7 @@
       lighting_module: true,
       fans_module: true,
       close_conflicts: true,
+      keep_running: [],
       send_reports: false,
     },
   };
@@ -468,7 +469,14 @@
       if (changed) setTimeout(() => emit("modules", { ok: true, text: "Development build, so nothing was changed. Would: " + text }), 300);
     },
     get_conflicts() {
-      return [{ name: "SignalRGB", area: "both", closes: state.settings.close_conflicts }, { name: "Fan Control", area: "fans", closes: state.settings.fans_module }];
+      const keep = (state.settings.keep_running || []).map((n) => n.toLowerCase());
+      const exes = (names, on) => names.map((name) => ({ name, closes: on && !keep.includes(name.toLowerCase()) }));
+      const gg = exes(["SteelSeriesGG.exe", "SteelSeriesSonar.exe"], state.settings.close_conflicts);
+      return [
+        { name: "SignalRGB", area: "both", closes: state.settings.close_conflicts, exes: exes(["SignalRgb.exe"], state.settings.close_conflicts) },
+        { name: "SteelSeries GG", area: "lighting", closes: gg.some((e) => e.closes), exes: gg },
+        { name: "Fan Control", area: "fans", closes: state.settings.fans_module, exes: exes(["FanControl.exe"], state.settings.fans_module) },
+      ];
     },
     close_conflicts_now() {
       return { closed: ["SignalRGB"], left: [], text: "Closed SignalRGB", at: "09:14" };

@@ -21,10 +21,24 @@ use crate::config::Settings;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Found {
+    pub id: &'static str,
     pub name: &'static str,
     pub area: Area,
     /// Whether the switches in force would close it.
     pub closes: bool,
+    /// Its executables running now, and whether each is closed or kept.
+    pub exes: Vec<Exe>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Exe {
+    pub name: String,
+    pub closes: bool,
+}
+
+/// Whether the user keeps this executable running.
+fn kept(keep: &[String], exe: &str) -> bool {
+    keep.iter().any(|k| k.eq_ignore_ascii_case(exe))
 }
 
 /// The outcome of a pass, with the line the UI shows.
@@ -70,17 +84,17 @@ pub fn scope(settings: &Settings) -> Scope {
 }
 
 /// Listed software running now, from processes and services.
-pub fn running(scope: Scope) -> Vec<Found> {
+pub fn running(scope: Scope, keep: &[String]) -> Vec<Found> {
     let procs = processes();
     let live = running_services(Scope {
         lighting: true,
         fans: true,
         keep_openrgb: false,
     });
-    found(&procs, &live, scope)
+    found(&procs, &live, scope, keep)
 }
 
-fn found(procs: &[Process], services: &[&str], scope: Scope) -> Vec<Found> {
+fn found(procs: &[Process], services: &[&str], scope: Scope, keep: &[String]) -> Vec<Found> {
     APPS.iter()
         .filter(|app| {
             procs
@@ -88,18 +102,34 @@ fn found(procs: &[Process], services: &[&str], scope: Scope) -> Vec<Found> {
                 .any(|p| conflicts::app_of(&p.name) == Some(*app))
                 || app.services.iter().any(|s| services.contains(s))
         })
-        .map(|app| Found {
-            name: app.name,
-            area: app.area,
-            closes: scope.covers(app),
+        .map(|app| {
+            let mut exes: Vec<Exe> = Vec::new();
+            for p in procs.iter().filter(|p| conflicts::app_of(&p.name) == Some(app)) {
+                if !exes.iter().any(|e| e.name.eq_ignore_ascii_case(&p.name)) {
+                    exes.push(Exe {
+                        name: p.name.clone(),
+                        closes: scope.covers(app) && !kept(keep, &p.name),
+                    });
+                }
+            }
+            exes.sort_by_key(|e| e.name.to_lowercase());
+            let closes = scope.covers(app) && (exes.is_empty() || exes.iter().any(|e| e.closes));
+            Found {
+                id: app.id,
+                name: app.name,
+                area: app.area,
+                closes,
+                exes,
+            }
         })
         .collect()
 }
 
 /// Closes what `scope` covers: processes from here, the rest through the service. None when nothing ran.
-pub fn sweep(scope: Scope) -> Option<Report> {
+pub fn sweep(scope: Scope, keep: &[String]) -> Option<Report> {
     let procs = processes();
-    let targets = conflicts::targets(&procs, scope, std::process::id());
+    let mut targets = conflicts::targets(&procs, scope, std::process::id());
+    targets.retain(|(p, _)| !kept(keep, &p.name));
     let services = running_services(scope);
     if targets.is_empty() && services.is_empty() {
         return None;
@@ -254,7 +284,7 @@ mod tests {
             lighting: true,
             ..Scope::default()
         };
-        let list = found(&procs, &["CorsairService"], lighting);
+        let list = found(&procs, &["CorsairService"], lighting, &[]);
         let names: Vec<_> = list.iter().map(|f| (f.name, f.closes)).collect();
         assert_eq!(
             names,
@@ -264,6 +294,31 @@ mod tests {
                 ("Fan Control", false)
             ]
         );
+    }
+
+    #[test]
+    fn kept_executables_stay_and_the_rest_of_the_app_still_closes() {
+        let procs = procs(&["SteelSeriesGG.exe", "SteelSeriesSonar.exe", "SteelSeriesPrism.exe"]);
+        let lighting = Scope {
+            lighting: true,
+            ..Scope::default()
+        };
+        let keep = vec!["steelseriessonar.EXE".to_string()];
+        let list = found(&procs, &[], lighting, &keep);
+        let exes: Vec<_> = list[0].exes.iter().map(|e| (e.name.as_str(), e.closes)).collect();
+        assert_eq!(
+            exes,
+            [
+                ("SteelSeriesGG.exe", true),
+                ("SteelSeriesPrism.exe", true),
+                ("SteelSeriesSonar.exe", false)
+            ]
+        );
+        assert!(list[0].closes);
+        let all: Vec<String> = ["SteelSeriesGG.exe", "SteelSeriesPrism.exe", "SteelSeriesSonar.exe"]
+            .map(String::from)
+            .to_vec();
+        assert!(!found(&procs, &[], lighting, &all)[0].closes);
     }
 
     #[test]
