@@ -194,7 +194,7 @@ mod tests {
             let fan = super::fan_devices().iter().any(|f| (f.0, f.1) == (*v, *p));
             assert!(fan, "{v:04x}:{p:04x} ({why}) is no fan device");
         }
-        assert_eq!(combined.len(), 82);
+        assert_eq!(combined.len(), 83);
         for id in [
             (0x1B1C, 0x0C2E),
             (0x1B1C, 0x0C2F),
@@ -209,6 +209,7 @@ mod tests {
             (0x1E71, 0x170E),
             (0x1E71, 0x1714),
             (0x0B05, 0x1887),
+            (0x1B1C, 0x0C56),
         ] {
             assert!(combined.contains(&id), "{id:04x?} is lit by this crate");
         }

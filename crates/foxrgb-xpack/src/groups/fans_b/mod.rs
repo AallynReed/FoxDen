@@ -4,6 +4,7 @@
 
 mod bragi;
 mod bragi_models;
+mod commander_duo;
 mod commander_pro;
 mod coolit;
 mod modern;
@@ -21,6 +22,7 @@ pub fn detectors() -> Vec<&'static Detector> {
         .iter()
         .chain(platinum::DETECTORS.iter())
         .chain(bragi::DETECTORS.iter())
+        .chain(commander_duo::DETECTORS.iter())
         .collect()
 }
 

@@ -16,11 +16,13 @@ pub const CORE: u16 = 0x0C1C;
 pub const CORE2: u16 = 0x0C32;
 pub const XT: u16 = 0x0C2A;
 pub const LINK: u16 = 0x0C3F;
+pub const DUO: u16 = super::commander_duo::PID;
 pub const IDS: &[(u16, &str)] = &[
     (CORE, "Corsair Commander Core"),
     (CORE2, "Corsair Commander Core"),
     (XT, "Corsair Commander Core XT"),
     (LINK, "Corsair iCUE LINK Hub"),
+    (DUO, "Corsair iCUE Commander DUO"),
 ];
 const PAGE: u16 = 0xFF42;
 
@@ -76,7 +78,7 @@ impl Flavor {
     fn of(pid: u16) -> Option<Flavor> {
         match pid {
             CORE | CORE2 => Some(Flavor::Core),
-            XT => Some(Flavor::Xt),
+            XT | DUO => Some(Flavor::Xt),
             LINK => Some(Flavor::Link),
             _ => None,
         }
@@ -140,7 +142,7 @@ pub fn duty_table(entries: &[(u8, u8)]) -> Vec<u8> {
 /// Packet size before the firmware is known, as the devices declare it.
 fn first_size(pid: u16) -> usize {
     match pid {
-        CORE2 => 65,
+        CORE2 | DUO => 65,
         XT => 385,
         LINK => LINK_SIZE,
         _ => 97,
@@ -746,7 +748,8 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
                 });
             }
             let from = u8::from(core);
-            chans.extend((0..6).map(|i| Chan {
+            let fans = if info.pid == DUO { 2 } else { 6 };
+            chans.extend((0..fans).map(|i| Chan {
                 name: format!("Fan {}", i + 1),
                 pump: false,
                 slot: from + i,
@@ -1062,6 +1065,8 @@ mod tests {
     fn sizes() {
         assert_eq!(first_size(CORE2), 65);
         assert_eq!(first_size(XT), 385);
+        assert_eq!(first_size(DUO), 65);
+        assert_eq!(Flavor::of(DUO), Some(Flavor::Xt));
         assert_eq!(size_after(CORE, 97, 1), 1025);
         assert_eq!(size_after(CORE, 97, 2), 97);
         assert_eq!(Flavor::Core.default_pct(true), 60);
