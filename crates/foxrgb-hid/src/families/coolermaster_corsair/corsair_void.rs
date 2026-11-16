@@ -35,6 +35,25 @@ pub static DETECTORS: &[Detector] = &[
     ),
     det!("Corsair Void Pro USB", VID, 0x0A17, None, PAGE, USAGE, open),
     det!("Corsair Void Pro USB", VID, 0x0A1D, None, PAGE, USAGE, open),
+    det!("Corsair Void Pro USB", VID, 0x0A16, None, PAGE, USAGE, open),
+    det!("Corsair Void Pro", VID, 0x1B27, None, PAGE, USAGE, open),
+    det!(
+        "Corsair Void Pro Wireless",
+        VID,
+        0x1B2A,
+        None,
+        PAGE,
+        USAGE,
+        open
+    ),
+    det!("Corsair Void USB", VID, 0x1B23, None, PAGE, USAGE, open),
+    det!("Corsair Void", VID, 0x1B29, None, PAGE, USAGE, open),
+    det!("Corsair Void", VID, 0x0A2B, None, PAGE, USAGE, open),
+    det!("Corsair Void Elite", VID, 0x0A51, None, PAGE, USAGE, open),
+    det!("Corsair Void Elite", VID, 0x0A52, None, PAGE, USAGE, open),
+    det!("Corsair Void Elite", VID, 0x0A55, None, PAGE, USAGE, open),
+    det!("Corsair Void Elite", VID, 0x0A56, None, PAGE, USAGE, open),
+    det!("Corsair Void Elite", VID, 0x0A75, None, PAGE, USAGE, open),
 ];
 
 /// C8 01 hands lighting to the host, C8 00 gives it back to the headset.
@@ -97,6 +116,11 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn table() {
+        assert_eq!(DETECTORS.len(), 15);
+    }
 
     // CorsairVoidController::SetLightingControl
     #[test]

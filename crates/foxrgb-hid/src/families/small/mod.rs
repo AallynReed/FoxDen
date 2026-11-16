@@ -33,9 +33,11 @@ mod lg_monitor;
 mod lightsalt;
 mod luxafor;
 mod madcatz;
+mod marsgaming;
 mod mintaka;
 mod mnt;
 mod n5312a;
+mod nubwo;
 mod nvidia_esa;
 mod oks;
 mod patriot_viper;
@@ -87,9 +89,11 @@ pub fn detectors() -> Vec<&'static Detector> {
         lightsalt::DETECTORS,
         luxafor::DETECTORS,
         madcatz::DETECTORS,
+        marsgaming::DETECTORS,
         mintaka::DETECTORS,
         mnt::DETECTORS,
         n5312a::DETECTORS,
+        nubwo::DETECTORS,
         nvidia_esa::DETECTORS,
         oks::DETECTORS,
         patriot_viper::DETECTORS,

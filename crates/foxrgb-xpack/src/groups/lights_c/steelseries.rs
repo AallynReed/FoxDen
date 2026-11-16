@@ -243,7 +243,7 @@ fn kind(pid: u16) -> Option<Kind> {
         0x1A00 | 0x1A05 => Kind::Arena,
         0x1870 => Kind::Rival3Gen2,
         0x183E => Kind::Rival5Destiny,
-        0x182E => Kind::RivalPrime,
+        0x182E | 0x182A | 0x1856 | 0x182C => Kind::RivalPrime,
         _ => return None,
     })
 }
@@ -313,6 +313,14 @@ pub static DETECTORS: &[Detector] = &[
     det("SteelSeries Rival 3 Gen 2", 0x1870, 3, None),
     det("SteelSeries Rival 5 Destiny", 0x183E, 0, None),
     det("SteelSeries Rival Prime", 0x182E, 0, None),
+    det(
+        "SteelSeries Prime Rainbow 6 Siege Black Ice Edition",
+        0x182A,
+        0,
+        None,
+    ),
+    det("SteelSeries Prime CS:GO Neo Noir Edition", 0x1856, 0, None),
+    det("SteelSeries Prime+", 0x182C, 0, None),
 ];
 
 #[cfg(test)]
@@ -335,6 +343,7 @@ mod tests {
     fn layouts_match_their_tables() {
         assert_eq!(rows(&M750_ROWS).len(), M750_SLOTS.len());
         assert_eq!(mini_positions().len(), MINI_KEYS.len());
+        assert_eq!(DETECTORS.len(), 14);
         for d in DETECTORS {
             let k = kind(d.pid).unwrap();
             let (_, w, h, pos) = layout(k);

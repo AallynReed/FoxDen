@@ -13,6 +13,7 @@ enum Kind {
     Rival650,
     Rival700,
     Sensei,
+    SenseiRaw,
 }
 
 const fn det(name: &'static str, pid: u16) -> Detector {
@@ -27,13 +28,18 @@ const fn det(name: &'static str, pid: u16) -> Detector {
     }
 }
 
-static DETECTORS: [Detector; 25] = [
+static DETECTORS: [Detector; 37] = [
     det("SteelSeries Rival 100", 0x1702),
+    det("SteelSeries Rival 100 (Dell China)", 0x170A),
+    det("SteelSeries Rival 100 Dota 2 Edition", 0x170B),
     det("SteelSeries Rival 100 DotA 2 Edition", 0x170C),
     det("SteelSeries Rival 105", 0x1814),
     det("SteelSeries Rival 106", 0x1816),
     det("SteelSeries Rival 110", 0x1729),
+    det("SteelSeries Rival", 0x1384),
     det("SteelSeries Rival 300", 0x1710),
+    det("SteelSeries Rival 300 Fallout 4 Edition", 0x1712),
+    det("SteelSeries Rival 300 Evil Geniuses Edition", 0x171C),
     det("Acer Predator Gaming Mouse (Rival 300)", 0x1714),
     det("SteelSeries Rival 300 CS:GO Fade Edition", 0x1394),
     det("SteelSeries Rival 300 CS:GO Fade Edition (stm32)", 0x1716),
@@ -48,11 +54,21 @@ static DETECTORS: [Detector; 25] = [
     det("SteelSeries Rival 600 Dota 2 Edition", 0x172E),
     det("SteelSeries Rival 650", 0x172B),
     det("SteelSeries Rival 650 Wireless", 0x1726),
+    det("SteelSeries Rival 500", 0x170E),
     det("SteelSeries Rival 700", 0x1700),
     det("SteelSeries Rival 710", 0x1730),
     det("SteelSeries Sensei TEN", 0x1832),
     det("SteelSeries Sensei TEN CS:GO Neon Rider Edition", 0x1834),
     det("SteelSeries Sensei 310", 0x1722),
+    det("SteelSeries Sensei [RAW]", 0x1369),
+    det("SteelSeries Sensei [RAW] Diablo III Edition", 0x1362),
+    det("SteelSeries Sensei [RAW] Guild Wars 2 Edition", 0x136D),
+    det("SteelSeries Sensei [RAW] CoD Black Ops II Edition", 0x136F),
+    det("SteelSeries Sensei [RAW] World of Tanks Edition", 0x1380),
+    det(
+        "SteelSeries Sensei [RAW] Heroes of the Storm Edition",
+        0x1390,
+    ),
 ];
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -61,12 +77,15 @@ pub fn detectors() -> Vec<&'static Detector> {
 
 fn kind(pid: u16) -> Option<Kind> {
     Some(match pid {
-        0x1702 | 0x170C | 0x1814 | 0x1816 | 0x1729 => Kind::Rival100,
-        0x1710 | 0x1714 | 0x1394 | 0x1716 | 0x171A | 0x1392 | 0x1718 => Kind::Rival300,
+        0x1702 | 0x170A | 0x170B | 0x170C | 0x1814 | 0x1816 | 0x1729 => Kind::Rival100,
+        0x1384 | 0x1710 | 0x1712 | 0x171C | 0x1714 | 0x1394 | 0x1716 | 0x171A | 0x1392 | 0x1718 => {
+            Kind::Rival300
+        }
         0x1720 | 0x171E | 0x1736 | 0x1832 | 0x1834 | 0x1722 => Kind::Sensei,
         0x1724 | 0x172E => Kind::Rival600,
         0x172B | 0x1726 => Kind::Rival650,
-        0x1700 | 0x1730 => Kind::Rival700,
+        0x170E | 0x1700 | 0x1730 => Kind::Rival700,
+        0x1369 | 0x1362 | 0x136D | 0x136F | 0x1380 | 0x1390 => Kind::SenseiRaw,
         _ => return None,
     })
 }
@@ -74,7 +93,7 @@ fn kind(pid: u16) -> Option<Kind> {
 /// led.value of each LED, as RGBController_SteelSeriesRival::SetupZones sets them.
 fn leds(kind: Kind) -> &'static [u8] {
     match kind {
-        Kind::Rival100 => &[0],
+        Kind::Rival100 | Kind::SenseiRaw => &[0],
         Kind::Rival300 | Kind::Rival700 | Kind::Sensei => &[0, 1],
         Kind::Rival650 => &[0x11, 0x10, 0x12, 0x14, 0x16, 0x13, 0x15, 0x17],
         Kind::Rival600 => &[0x01, 0x00, 0x02, 0x04, 0x06, 0x03, 0x05, 0x07],
@@ -102,6 +121,7 @@ fn effect_direct(kind: Kind) -> Vec<Op> {
     };
     match kind {
         Kind::Rival100 => vec![effect(Some(0))],
+        Kind::SenseiRaw => vec![msg(&[0x07, 0x01, 0x01, 0, 0, 0, 0, 0, 0])],
         Kind::Rival300 => vec![effect(Some(1)), effect(Some(2))],
         Kind::Rival650 => (0x10..0x18).map(|_| effect(None)).collect(),
         _ => Vec::new(),
@@ -122,6 +142,7 @@ fn set_color(kind: Kind, zone: u8, c: Color) -> Vec<Op> {
             b[2..5].copy_from_slice(&[c.0, c.1, c.2]);
             vec![msg(&b)]
         }
+        Kind::SenseiRaw => vec![msg(&[0x05, 0x01, raw_level(c), 0, 0, 0, 0, 0, 0])],
         Kind::Rival600 => vec![Op::Write(vec![
             0x1C,
             0x27,
@@ -181,6 +202,16 @@ fn set_color(kind: Kind, zone: u8, c: Color) -> Vec<Op> {
             b[0x1F..0x22].copy_from_slice(&[c.0, c.1, c.2]);
             vec![msg(&b)]
         }
+    }
+}
+
+/// White LED levels: 1 off, then low, medium, high by the brightest channel.
+fn raw_level(c: Color) -> u8 {
+    match c.0.max(c.1).max(c.2) {
+        0 => 1,
+        1..=85 => 2,
+        86..=170 => 3,
+        _ => 4,
     }
 }
 
@@ -245,7 +276,7 @@ mod tests {
     #[test]
     fn every_detector_has_a_kind() {
         let real = detectors();
-        assert_eq!(real.len(), 25);
+        assert_eq!(real.len(), 37);
         assert!(
             real.iter()
                 .all(|d| kind(d.pid).is_some() && d.interface == Some(0))
@@ -280,6 +311,22 @@ mod tests {
         let ops = r.frame(&[Color(9, 8, 7)]);
         assert_eq!(bytes(&ops[0]), &[0, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
         assert_eq!(bytes(&ops[1]), &[0, 0x05, 0x00, 9, 8, 7, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn sensei_raw_steady_then_level() {
+        let mut r = Rival {
+            kind: Kind::SenseiRaw,
+            started: false,
+        };
+        let ops = r.frame(&[Color(200, 0, 0)]);
+        assert_eq!(bytes(&ops[0]), &[0, 0x07, 0x01, 0x01, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(bytes(&ops[1]), &[0, 0x05, 0x01, 0x04, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            r.frame(&[Color::BLACK]),
+            vec![msg(&[0x05, 0x01, 0x01, 0, 0, 0, 0, 0, 0])]
+        );
+        assert_eq!(raw_level(Color(0, 90, 10)), 3);
     }
 
     // SetRival600Color: 7-byte write with 0x1C in the report id slot.

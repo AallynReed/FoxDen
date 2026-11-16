@@ -92,4 +92,32 @@ mod tests {
             }
         }
     }
+
+    use std::collections::BTreeMap;
+
+    /// Ids two drivers already share, told apart by interface or usage.
+    const SHARED: [(u16, u16); 4] = [
+        (0x0483, 0x5750),
+        (0x05AC, 0x024F),
+        (0x0B05, 0x1866),
+        (0x1462, 0x3FA4),
+    ];
+
+    #[test]
+    fn no_device_is_detected_by_two_drivers() {
+        let mut by_id: BTreeMap<(u16, u16), Vec<usize>> = BTreeMap::new();
+        for d in super::detectors() {
+            let opens = by_id.entry((d.vid, d.pid)).or_default();
+            let f = d.open as usize;
+            if !opens.contains(&f) {
+                opens.push(f);
+            }
+        }
+        let twice: Vec<(u16, u16)> = by_id
+            .into_iter()
+            .filter(|(id, opens)| opens.len() > 1 && !SHARED.contains(id))
+            .map(|(id, _)| id)
+            .collect();
+        assert!(twice.is_empty(), "{twice:04x?}");
+    }
 }
