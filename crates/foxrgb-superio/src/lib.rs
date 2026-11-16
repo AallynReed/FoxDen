@@ -1,20 +1,40 @@
 //! Board fans and temperatures through the Super I/O chip, and the CPU temperature, via PawnIO.
 //! Also board and case lighting reached the same way.
 
+pub mod asus_ec;
+mod board_names;
+mod boards;
+mod chip;
 pub mod cpu;
+mod detect;
+mod f718xx;
 mod gigabyte_sio;
+mod it87;
 mod lights;
+mod monitor;
 mod msi_rgb;
 pub mod nct6687;
+mod nct677x;
+mod port;
+#[cfg(test)]
+mod testbus;
 mod valve;
+mod w836xx;
 
 pub use lights::lights;
 
 use std::sync::Arc;
 
 use foxrgb_fan::{Fan, FanBackend, Sensor};
+use foxrgb_pawnio::{LPC_IO, Module, SharedLock};
 
-/// Header names on MSI boards with the NCT6687D, as LibreHardwareMonitor and Fan Control show them.
+use crate::chip::Chip;
+use crate::detect::Found;
+use crate::lights::Pawn;
+use crate::monitor::{Layout, Monitor};
+use crate::nct6687::ISA_MUTEX;
+
+/// Header names on MSI boards with the NCT6687D, as other fan tools show them.
 const HEADERS: [&str; 8] = [
     "CPU fan",
     "Pump",
@@ -44,10 +64,66 @@ pub fn backends() -> Vec<Box<dyn FanBackend>> {
     if let Ok(cpu) = cpu::CpuTemp::open() {
         found.push(Box::new(CpuBackend(Arc::new(cpu))));
     }
-    if let Ok(chip) = nct6687::Chip::open() {
-        found.push(Box::new(BoardBackend(Arc::new(chip))));
-    }
+    found.extend(boards());
     found
+}
+
+/// Every Super I/O chip on the board that is positively identified, as a fan backend.
+fn boards() -> Vec<Box<dyn FanBackend>> {
+    let dmi = lights::dmi();
+    let board = chip::Board {
+        maker: boards::maker(&dmi.manufacturer),
+        model: boards::model(&dmi.mainboard),
+        product: dmi.mainboard,
+        amd: lights::cpu_is_amd(),
+    };
+    let open = || {
+        Module::open(LPC_IO)
+            .ok()
+            .map(|m| Box::new(m) as Box<dyn Pawn>)
+    };
+    let lock = SharedLock::new(ISA_MUTEX);
+    let found = lock.run(|| detect::detect(&open, &board));
+    let mut seen: Vec<Chip> = Vec::new();
+    let mut backends = Vec::new();
+    for f in found {
+        let index = seen.iter().filter(|&&c| c == f.chip).count();
+        seen.push(f.chip);
+        backends.extend(lock.run(|| backend(f, &board, index)));
+    }
+    backends
+}
+
+fn backend(f: Found, board: &chip::Board, index: usize) -> Option<Box<dyn FanBackend>> {
+    let Found {
+        chip,
+        lpc,
+        base,
+        version,
+        firmware,
+    } = f;
+    let port = lpc.port;
+    let monitor: Box<dyn Monitor> = match chip {
+        Chip::NCT6687D => {
+            let chip = nct6687::Chip::new(lpc, base, Some(SharedLock::new(ISA_MUTEX)));
+            return Some(Box::new(BoardBackend(Arc::new(chip))));
+        }
+        c if c.is_paged() => Box::new(nct6687::Paged::new(lpc, c, base)),
+        c if c.is_ite() => Box::new(it87::It87::new(lpc, c, base, version, firmware)?),
+        c if c.is_fintek() => Box::new(f718xx::F718xx::new(lpc, c, base)),
+        c if c.is_winbond() => Box::new(w836xx::W836xx::new(lpc, c, base)?),
+        c => Box::new(nct677x::Nct677x::new(lpc, c, base)?),
+    };
+    let layout = boards::layout(chip, board.maker, board.model, index)
+        .unwrap_or_else(|| Layout::generic(monitor.size()));
+    let name = chip.name();
+    Some(Box::new(monitor::Board::new(
+        name.clone(),
+        format!("board/{name}-{port:x}"),
+        monitor,
+        layout,
+        Some(SharedLock::new(ISA_MUTEX)),
+    )))
 }
 
 struct CpuBackend(Arc<cpu::CpuTemp>);
