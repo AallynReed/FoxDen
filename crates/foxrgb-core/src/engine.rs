@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::{Backend, Color, Device, Effect, Inputs, Layer};
+use crate::{Apps, Backend, Color, Device, Effect, Inputs, Layer};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
@@ -162,6 +162,8 @@ pub struct Engine {
     pub overrides: HashMap<String, Effect>,
     /// Drawn over the effect, bottom first.
     pub layers: Vec<Layer>,
+    /// What layers tied to apps check against.
+    pub apps: Apps,
     pub brightness: f32,
     /// Every LED is black while set.
     pub paused: bool,
@@ -177,6 +179,7 @@ impl Engine {
             effect: Effect::default(),
             overrides: HashMap::new(),
             layers: Vec::new(),
+            apps: Apps::default(),
             brightness: 1.0,
             paused: false,
         };
@@ -339,7 +342,7 @@ impl Engine {
     /// Whether anything shown reads audio, the screen, and key presses.
     pub fn wants(&self) -> (bool, bool, bool) {
         let effects = || std::iter::once(&self.effect).chain(self.overrides.values());
-        let layers = || self.layers.iter();
+        let layers = || self.layers.iter().filter(|l| l.live(&self.apps));
         (
             effects().any(Effect::uses_audio) || layers().any(Layer::uses_audio),
             effects().any(Effect::uses_screen) || layers().any(Layer::uses_screen),
@@ -363,8 +366,11 @@ impl Engine {
                 };
                 let colors: Vec<Color> = if k > 0.0 {
                     let effect = self.overrides.get(&device.id).unwrap_or(&self.effect);
-                    let layers: Vec<&Layer> =
-                        self.layers.iter().filter(|l| l.covers(device)).collect();
+                    let layers: Vec<&Layer> = self
+                        .layers
+                        .iter()
+                        .filter(|l| l.covers(device) && l.live(&self.apps))
+                        .collect();
                     device
                         .canvas_positions()
                         .map(|(x, y)| {

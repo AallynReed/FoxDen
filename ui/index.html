@@ -54,6 +54,18 @@
             <div class="field"><label for="layer-scope">Shows on</label><select id="layer-scope"><option value="all">All devices</option><option value="keyboards">Keyboards</option><option value="chosen">Chosen devices</option></select></div>
           </div>
           <div class="checks" id="layer-devices" hidden></div>
+          <div class="fields">
+            <div class="field"><label for="layer-when">Active</label><select id="layer-when"><option value="always">Always</option><option value="running">App is open</option><option value="front">App is in front</option></select></div>
+          </div>
+          <div id="layer-apps" hidden>
+            <ul class="apps" id="layer-app-list"></ul>
+            <form class="row" id="layer-app-form">
+              <input type="text" id="layer-app" list="layer-app-choices" placeholder="game.exe" aria-label="App to add" autocomplete="off" spellcheck="false" />
+              <datalist id="layer-app-choices"></datalist>
+              <button type="submit">Add app</button>
+            </form>
+            <p class="hint" id="layer-app-hint">Pick an app with a window open, or type its .exe name.</p>
+          </div>
           <h2>Settings</h2>
           <div class="fields" id="layer-params"></div>
           <p class="problem" id="layer-problem" hidden></p>

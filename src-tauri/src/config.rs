@@ -188,7 +188,10 @@ fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(d: D) -> Re
 /// Keeps every entry that reads, dropping the rest.
 fn lenient_list<'de, D: Deserializer<'de>, T: DeserializeOwned>(d: D) -> Result<Vec<T>, D::Error> {
     let values = Vec::<serde_json::Value>::deserialize(d).unwrap_or_default();
-    Ok(values.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
+    Ok(values
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect())
 }
 
 fn lenient_map<'de, D: Deserializer<'de>, T: DeserializeOwned>(
@@ -262,13 +265,13 @@ fn upgrade(config: &mut serde_json::Value) {
             && post.get("kind").is_some_and(|k| k != "none")
             && holder.get("layers").is_none()
         {
-                let opacity = post.get("strength").cloned().unwrap_or(json!(1.0));
-                let blend = match post.get("blend").and_then(Value::as_str) {
-                    Some("add") => "add",
-                    Some("tint") => "tint",
-                    _ => "normal",
-                };
-                holder["layers"] = json!([layer(post, opacity, json!(blend))]);
+            let opacity = post.get("strength").cloned().unwrap_or(json!(1.0));
+            let blend = match post.get("blend").and_then(Value::as_str) {
+                Some("add") => "add",
+                Some("tint") => "tint",
+                _ => "normal",
+            };
+            holder["layers"] = json!([layer(post, opacity, json!(blend))]);
         }
         if let Some(layers) = holder.get_mut("layers").and_then(Value::as_array_mut) {
             for l in layers {
@@ -281,7 +284,10 @@ fn upgrade(config: &mut serde_json::Value) {
     }
     bring(config);
     if let Some(profiles) = config.get_mut("profiles").and_then(|p| p.as_object_mut()) {
-        profiles.values_mut().filter(|p| p.is_object()).for_each(bring);
+        profiles
+            .values_mut()
+            .filter(|p| p.is_object())
+            .for_each(bring);
     }
 }
 
@@ -383,17 +389,47 @@ mod tests {
         let dir = scratch("ripple");
         let ripple = r#"{"kind":"key_ripple","color":[1,2,3],"background":[4,5,6],"speed":1.5,"width":0.05,"fade":1.0}"#;
         let ghost = r#"{"kind":"press_ghost","color":[9,9,9],"rainbow":true,"hold":0.2,"fade":1.0,"size":1.0,"strength":0.5,"blend":"add"}"#;
-        let text = format!(r#"{{"effect":{ripple},"profiles":{{"p":{{"effect":{{"kind":"cycle","speed":1}},"post":{ghost}}}}}}}"#);
+        let text = format!(
+            r#"{{"effect":{ripple},"profiles":{{"p":{{"effect":{{"kind":"cycle","speed":1}},"post":{ghost}}}}}}}"#
+        );
         fs::write(dir.join(FILE), text).unwrap();
         let config = load(&dir);
-        assert_eq!(config.effect, Effect::Static { color: Color(4, 5, 6) });
-        let [layer] = config.layers.as_slice() else { panic!("{:?}", config.layers) };
-        let LayerEffect::Post(Post::PressRipple { color, speed, rings, .. }) = layer.effect else { panic!() };
+        assert_eq!(
+            config.effect,
+            Effect::Static {
+                color: Color(4, 5, 6)
+            }
+        );
+        let [layer] = config.layers.as_slice() else {
+            panic!("{:?}", config.layers)
+        };
+        let LayerEffect::Post(Post::PressRipple {
+            color,
+            speed,
+            rings,
+            ..
+        }) = layer.effect
+        else {
+            panic!()
+        };
         assert_eq!((color, speed, rings), (Color(1, 2, 3), 1.5, 1.0));
-        let [layer] = config.profiles["p"].layers.as_slice() else { panic!() };
+        let [layer] = config.profiles["p"].layers.as_slice() else {
+            panic!()
+        };
         assert_eq!((layer.opacity, layer.blend), (0.5, Blend::Add));
-        let LayerEffect::Post(Post::PressGhost { color, colors, hold, .. }) = layer.effect else { panic!() };
-        assert_eq!((color, colors, hold), (Color(9, 9, 9), Colors::Rainbow, 0.2));
+        let LayerEffect::Post(Post::PressGhost {
+            color,
+            colors,
+            hold,
+            ..
+        }) = layer.effect
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (color, colors, hold),
+            (Color(9, 9, 9), Colors::Rainbow, 0.2)
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

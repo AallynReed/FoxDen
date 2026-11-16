@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod apps;
 mod autostart;
 mod commands;
 mod config;
@@ -68,6 +69,7 @@ fn main() {
             }
             app.manage(state::spawn_worker(handle.clone(), shared.clone()));
             state::spawn_render(handle.clone(), shared.clone());
+            apps::spawn(handle.clone(), shared.clone());
             updater::start(handle, shared.clone());
             state::spawn_saver(shared);
             fans::start(handle, settings.fans_module, fan_backup);
@@ -83,6 +85,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            apps::list_apps,
             commands::get_snapshot,
             commands::set_effect,
             commands::set_layers,

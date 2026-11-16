@@ -1,7 +1,7 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const state = { snap: null };
+const state = { snap: null, apps: { running: [], front: null } };
 // Undo history of the effect, brightness, devices and layout, read from the snapshots.
 const hist = { steps: [], at: -1, quiet: 0, sent: null, stamp: 0 };
 const $ = (id) => document.getElementById(id);

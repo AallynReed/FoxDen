@@ -96,10 +96,18 @@ pub enum Effect {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Control {
-    Range { min: f32, max: f32, step: f32 },
+    Range {
+        min: f32,
+        max: f32,
+        step: f32,
+    },
     Color,
     Toggle,
-    Choice { options: Vec<&'static str> },
+    Choice {
+        options: Vec<&'static str>,
+    },
+    /// A set of keyboard keys.
+    Keys,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -605,6 +613,7 @@ mod tests {
                     seed: 0,
                 },
             ],
+            keyboards: Vec::new(),
         }
     }
 
@@ -674,6 +683,7 @@ mod tests {
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
                     Control::Choice { .. } => assert!(value.is_string()),
+                    Control::Keys => assert!(value.is_array()),
                 }
             }
         }

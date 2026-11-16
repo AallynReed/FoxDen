@@ -49,6 +49,8 @@ pub struct Inputs {
     pub audio: AudioFrame,
     pub screen: ScreenFrame,
     pub presses: Vec<Press>,
+    /// Each lit keyboard on the canvas: its rect, and whether it has a number pad.
+    pub keyboards: Vec<([f32; 4], bool)>,
 }
 
 #[cfg(test)]

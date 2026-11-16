@@ -1,6 +1,7 @@
 use crate::effect::{along, band, color, hash, range, smooth, toggle};
-use crate::{Color, Control, Device, DeviceKind, Effect, Inputs, ParamInfo, Press};
+use crate::{Color, Control, Device, DeviceKind, Effect, Inputs, ParamInfo, Press, key_at};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// How a layer meets what is under it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +117,12 @@ pub enum Post {
         color: Color,
         sensitivity: f32,
     },
+    /// Chosen keys in one colour, as for a game's keybinds.
+    KeyLights {
+        color: Color,
+        /// Windows virtual-key codes.
+        keys: Vec<u32>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -133,6 +140,32 @@ pub enum Scope {
     All,
     Keyboards,
     Chosen,
+}
+
+/// When a layer shows: always, or only while one of its apps runs or is in front.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum When {
+    #[default]
+    Always,
+    Running,
+    Front,
+}
+
+/// The apps running now and the one in front, as `app_name` gives them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Apps {
+    pub running: HashSet<String>,
+    pub front: Option<String>,
+}
+
+/// `Game.EXE` and `game` both become `game`.
+pub fn app_name(name: &str) -> String {
+    let name = name.trim().to_lowercase();
+    match name.strip_suffix(".exe") {
+        Some(stem) => stem.to_string(),
+        None => name,
+    }
 }
 
 /// What a layer draws: a key or overlay effect, or any base effect filling it.
@@ -153,6 +186,11 @@ pub struct Layer {
     /// Device ids, for `Scope::Chosen`.
     #[serde(default)]
     pub devices: Vec<String>,
+    #[serde(default)]
+    pub when: When,
+    /// Executable names, for `When::Running` and `When::Front`.
+    #[serde(default)]
+    pub apps: Vec<String>,
     pub effect: LayerEffect,
 }
 
@@ -164,8 +202,21 @@ impl Layer {
             blend: Blend::Normal,
             scope: Scope::All,
             devices: Vec::new(),
+            when: When::Always,
+            apps: Vec::new(),
             effect,
         }
+    }
+
+    /// Whether the layer is on and its apps let it show.
+    pub fn live(&self, apps: &Apps) -> bool {
+        let named = |name: &str| self.apps.iter().any(|a| app_name(a) == name);
+        self.enabled
+            && match self.when {
+                When::Always => true,
+                When::Running => apps.running.iter().any(|r| named(r)),
+                When::Front => apps.front.as_deref().is_some_and(named),
+            }
     }
 
     /// `below` with this layer drawn over it.
@@ -457,6 +508,21 @@ impl Post {
                 },
                 params: vec![main(), range("sensitivity", "Sensitivity", 0.2, 5.0, 0.05)],
             },
+            PostInfo {
+                label: "Chosen keys",
+                default: Post::KeyLights {
+                    color: ORANGE,
+                    keys: vec![0x57, 0x41, 0x53, 0x44],
+                },
+                params: vec![
+                    main(),
+                    ParamInfo {
+                        name: "keys",
+                        label: "Keys",
+                        control: Control::Keys,
+                    },
+                ],
+            },
         ]
     }
 
@@ -618,6 +684,10 @@ impl Post {
                 let level = (inputs.audio.level * sensitivity).clamp(0.0, 1.0);
                 (color, level * level)
             }
+            Post::KeyLights { color, ref keys } => {
+                let lit = keys.iter().any(|&vk| key_at(vk, x, y, &inputs.keyboards));
+                (color, if lit { 1.0 } else { 0.0 })
+            }
         }
     }
 }
@@ -705,6 +775,7 @@ mod tests {
                     }
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
+                    Control::Keys => assert!(value.is_array()),
                     Control::Choice { options } => {
                         assert!(
                             options.contains(&value.as_str().unwrap()),
@@ -956,6 +1027,55 @@ mod tests {
         assert!(!layer.covers(&board) && layer.covers(&ram));
         layer.enabled = false;
         assert!(!layer.covers(&ram));
+    }
+
+    #[test]
+    fn chosen_keys_light_only_on_keyboards() {
+        let keys = Post::KeyLights {
+            color: WHITE,
+            keys: vec![0x41],
+        };
+        let board = Inputs {
+            keyboards: vec![([0.0, 0.0, 1.0, 1.0], false)],
+            ..Inputs::default()
+        };
+        let (ax, ay) = crate::key_spot(0x41, false).unwrap();
+        assert_eq!(keys.render(ax, ay, 0.0, &board), (WHITE, 1.0));
+        assert_eq!(keys.render(ax + 0.1, ay, 0.0, &board).1, 0.0);
+        assert_eq!(keys.render(ax, ay, 0.0, &Inputs::default()).1, 0.0);
+        assert!(!keys.uses_keys());
+    }
+
+    #[test]
+    fn layers_follow_their_apps() {
+        let mut layer = Layer::new(LayerEffect::Post(plain_ghost()));
+        let none = Apps::default();
+        let game = Apps {
+            running: ["game".into(), "discord".into()].into(),
+            front: Some("discord".into()),
+        };
+        assert!(layer.live(&none));
+        layer.when = When::Running;
+        assert!(!layer.live(&game));
+        layer.apps = vec!["Game.EXE".into()];
+        assert!(layer.live(&game) && !layer.live(&none));
+        layer.when = When::Front;
+        assert!(!layer.live(&game));
+        layer.apps.push("discord".into());
+        assert!(layer.live(&game));
+        layer.enabled = false;
+        assert!(!layer.live(&game));
+        assert_eq!(app_name(" Game.exe "), "game");
+    }
+
+    #[test]
+    fn older_layers_read_as_always() {
+        let mut v = serde_json::to_value(Layer::new(LayerEffect::Post(plain_ghost()))).unwrap();
+        v.as_object_mut()
+            .unwrap()
+            .retain(|k, _| k != "when" && k != "apps");
+        let layer: Layer = serde_json::from_value(v).unwrap();
+        assert_eq!((layer.when, layer.apps.len()), (When::Always, 0));
     }
 
     #[test]

@@ -152,8 +152,15 @@
       main, pspeed, range("width", "Width", 0.05, 1, 0.05), angle, toggle("bounce", "Bounce back")),
     entry("Breathe", { kind: "breathe", speed: 1, depth: 0.7 }, pspeed, range("depth", "Depth", 0, 1, 0.05)),
     entry("Beat flash", { kind: "beat_flash", color: WHITE, sensitivity: 1.5 }, main, sensitivity),
+    entry("Chosen keys", { kind: "key_lights", color: ORANGE, keys: [0x57, 0x41, 0x53, 0x44] }, main, { name: "keys", label: "Keys", control: { type: "keys" } }),
   ];
-  const layer = (effect, more) => ({ enabled: true, opacity: 1, blend: "normal", scope: "all", devices: [], effect: copy(effect), ...more });
+  // Same as key_layout in crates/foxrgb-core/src/keys.rs: vk, x, row, width.
+  const keyLayout = [[27, 0.5, 0, 1.0], [112, 2.5, 0, 1.0], [113, 3.5, 0, 1.0], [114, 4.5, 0, 1.0], [115, 5.5, 0, 1.0], [116, 7.25, 0, 1.0], [117, 8.25, 0, 1.0], [118, 9.25, 0, 1.0], [119, 10.25, 0, 1.0], [120, 11.75, 0, 1.0], [121, 12.75, 0, 1.0], [122, 13.75, 0, 1.0], [123, 14.75, 0, 1.0], [44, 15.75, 0, 1.0], [145, 16.75, 0, 1.0], [19, 17.75, 0, 1.0], [192, 0.5, 1, 1.0], [49, 1.5, 1, 1.0], [50, 2.5, 1, 1.0], [51, 3.5, 1, 1.0], [52, 4.5, 1, 1.0], [53, 5.5, 1, 1.0], [54, 6.5, 1, 1.0], [55, 7.5, 1, 1.0], [56, 8.5, 1, 1.0], [57, 9.5, 1, 1.0], [48, 10.5, 1, 1.0], [189, 11.5, 1, 1.0], [187, 12.5, 1, 1.0], [8, 14.0, 1, 2.0], [45, 15.75, 1, 1.0], [36, 16.75, 1, 1.0], [33, 17.75, 1, 1.0], [144, 19.25, 1, 1.0], [111, 20.25, 1, 1.0], [106, 21.25, 1, 1.0], [109, 22.25, 1, 1.0], [9, 0.75, 2, 1.5], [81, 2.0, 2, 1.0], [87, 3.0, 2, 1.0], [69, 4.0, 2, 1.0], [82, 5.0, 2, 1.0], [84, 6.0, 2, 1.0], [89, 7.0, 2, 1.0], [85, 8.0, 2, 1.0], [73, 9.0, 2, 1.0], [79, 10.0, 2, 1.0], [80, 11.0, 2, 1.0], [219, 12.0, 2, 1.0], [221, 13.0, 2, 1.0], [220, 14.25, 2, 1.5], [46, 15.75, 2, 1.0], [35, 16.75, 2, 1.0], [34, 17.75, 2, 1.0], [103, 19.25, 2, 1.0], [104, 20.25, 2, 1.0], [105, 21.25, 2, 1.0], [107, 22.25, 2, 1.0], [20, 0.875, 3, 1.75], [65, 2.25, 3, 1.0], [83, 3.25, 3, 1.0], [68, 4.25, 3, 1.0], [70, 5.25, 3, 1.0], [71, 6.25, 3, 1.0], [72, 7.25, 3, 1.0], [74, 8.25, 3, 1.0], [75, 9.25, 3, 1.0], [76, 10.25, 3, 1.0], [186, 11.25, 3, 1.0], [222, 12.25, 3, 1.0], [13, 13.875, 3, 2.25], [100, 19.25, 3, 1.0], [101, 20.25, 3, 1.0], [102, 21.25, 3, 1.0], [160, 1.125, 4, 2.25], [90, 2.75, 4, 1.0], [88, 3.75, 4, 1.0], [67, 4.75, 4, 1.0], [86, 5.75, 4, 1.0], [66, 6.75, 4, 1.0], [78, 7.75, 4, 1.0], [77, 8.75, 4, 1.0], [188, 9.75, 4, 1.0], [190, 10.75, 4, 1.0], [191, 11.75, 4, 1.0], [161, 13.625, 4, 2.75], [38, 16.75, 4, 1.0], [97, 19.25, 4, 1.0], [98, 20.25, 4, 1.0], [99, 21.25, 4, 1.0], [162, 0.625, 5, 1.25], [91, 1.875, 5, 1.25], [164, 3.125, 5, 1.25], [32, 6.875, 5, 6.25], [165, 10.625, 5, 1.25], [92, 11.875, 5, 1.25], [93, 13.125, 5, 1.25], [163, 14.375, 5, 1.25], [37, 15.75, 5, 1.0], [40, 16.75, 5, 1.0], [39, 17.75, 5, 1.0], [96, 19.75, 5, 2.0], [110, 21.25, 5, 1.0], [27, 0.2, 1, 1.0]].map(([vk, x, row, w]) => ({ vk, x, row, w }));
+
+  const layer = (effect, more) => ({ enabled: true, opacity: 1, blend: "normal", scope: "all", devices: [], when: "always", apps: [], effect: copy(effect), ...more });
+  // Pretend osu! is open and in front, and Discord open behind it.
+  const apps = { running: ["osu!", "discord"], front: "osu!" };
+  const appName = (n) => n.trim().toLowerCase().replace(/\.exe$/, "");
 
   const state = {
     // Per device: enabled, brightness and, once moved, rect.
@@ -426,6 +433,17 @@
       }
       case "breathe":
         return [[0, 0, 0], sat(p.depth) * (0.5 - 0.5 * Math.cos(t * p.speed * 2))];
+      case "key_lights": {
+        const lit = boards.some((d) => {
+          const [bx, by, w, h] = d.rect;
+          const width = d.grid[0] >= 21 ? 22.75 : 18.25;
+          return p.keys.some((vk) => {
+            const k = keyLayout.find((q) => q.vk === vk);
+            return k && k.x + k.w / 2 <= width && Math.abs(x - (bx + (k.x / width) * w)) <= (k.w / 2 / width) * w && Math.abs(y - (by + ((k.row + 0.5) / 6) * h)) <= h / 12;
+          });
+        });
+        return [p.color, lit ? 1 : 0];
+      }
       case "beat_flash": {
         const level = sat(sound.level * p.sensitivity);
         return [p.color, level * level];
@@ -439,6 +457,9 @@
 
   function covers(l, d) {
     if (!l.enabled) return false;
+    const named = (n) => l.apps.some((a) => appName(a) === n);
+    if (l.when === "running" && !apps.running.some(named)) return false;
+    if (l.when === "front" && !named(apps.front)) return false;
     if (l.scope === "keyboards") return d.kind === "keyboard";
     if (l.scope === "chosen") return l.devices.includes(d.id);
     return true;
@@ -484,6 +505,8 @@
         return rows({ id, name: s.name, kind: "strip", backend: "hid", rect: [0.06, 0.45 + i * 0.02, 0.6, 0.04] }, [s.leds]);
       });
   }
+
+  let boards = [];
 
   function devices() {
     const on = { openrgb: openrgb(), hid: state.settings.native_drivers };
@@ -543,6 +566,7 @@
       layers: state.layers,
       overrides: state.overrides,
       post_catalog: postCatalog,
+      key_layout: keyLayout,
       brightness: state.brightness,
       paused: state.paused,
       catalog,
@@ -569,6 +593,9 @@
       checkProfile();
     },
     key_event() {},
+    list_apps() {
+      return ["Code.exe", "Discord.exe", "explorer.exe", "osu!.exe", "steam.exe"];
+    },
     set_layers({ layers }) {
       for (const l of layers) if (!isPost(l.effect.kind) && !catalog.some((c) => c.default.kind === l.effect.kind)) throw `unknown layer ${l.effect.kind}`;
       state.layers = layers;
@@ -715,6 +742,7 @@
 
   function listen(event, handler) {
     (listeners[event] ||= new Set()).add(handler);
+    if (event === "apps") setTimeout(() => handler({ event, payload: { running: apps.running, front: apps.front } }));
     return Promise.resolve(() => listeners[event].delete(handler));
   }
 
@@ -724,6 +752,7 @@
   function tick() {
     const t = (performance.now() - began) / 1000;
     const sound = audio(t);
+    boards = devices().filter((d) => d.kind === "keyboard" && d.enabled);
     const frames = devices().map((d) => {
       const [x, y, w, h] = d.rect;
       const k = state.paused || !d.enabled ? 0 : state.brightness * d.brightness;

@@ -32,7 +32,12 @@ pub fn set_layers(app: AppHandle, shared: State<'_, Shared>, layers: Vec<Layer>)
 
 /// Gives a device its own effect, or with `None` has it follow the main one again.
 #[tauri::command]
-pub fn set_override(app: AppHandle, shared: State<'_, Shared>, id: String, effect: Option<Effect>) -> Reply {
+pub fn set_override(
+    app: AppHandle,
+    shared: State<'_, Shared>,
+    id: String,
+    effect: Option<Effect>,
+) -> Reply {
     update(&app, &shared, |s| {
         match effect {
             Some(effect) => s.engine.overrides.insert(id, effect),

@@ -1,4 +1,5 @@
 use crate::Press;
+use serde::Serialize;
 
 /// Key centres on a full-size ANSI board, in key widths: (Windows virtual-key code, x, row).
 const KEYS: &[(u32, f32, u8)] = &[
@@ -114,6 +115,57 @@ const KEYS: &[(u32, f32, u8)] = &[
 const FULL: f32 = 22.75;
 const TKL: f32 = 18.25;
 
+/// Keys wider than one key width.
+fn key_width(vk: u32) -> f32 {
+    match vk {
+        0x08 | 0x60 => 2.0,
+        0x09 | 0xDC => 1.5,
+        0x14 => 1.75,
+        0x0D | 0xA0 | 0x10 => 2.25,
+        0xA1 => 2.75,
+        0xA2 | 0x11 | 0x5B | 0xA4 | 0x12 | 0xA5 | 0x5C | 0x5D | 0xA3 => 1.25,
+        0x20 => 6.25,
+        _ => 1.0,
+    }
+}
+
+/// One key of the full-size board, for drawing it: centre and width in key widths.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct KeyInfo {
+    pub vk: u32,
+    pub x: f32,
+    pub row: u8,
+    pub w: f32,
+}
+
+/// Every key once, without the left-or-right-neutral codes or the ISO key that shares a spot.
+pub fn key_layout() -> Vec<KeyInfo> {
+    KEYS.iter()
+        .filter(|k| !matches!(k.0, 0x10 | 0x11 | 0x12 | 0xE2))
+        .map(|&(vk, x, row)| KeyInfo {
+            vk,
+            x,
+            row,
+            w: key_width(vk),
+        })
+        .collect()
+}
+
+/// Whether canvas point `x`, `y` falls on key `vk` of any keyboard.
+pub fn key_at(vk: u32, x: f32, y: f32, keyboards: &[([f32; 4], bool)]) -> bool {
+    keyboards.iter().any(|&([bx, by, w, h], full)| {
+        let width = if full { FULL } else { TKL };
+        KEYS.iter()
+            .find(|k| k.0 == vk)
+            .is_some_and(|&(_, kx, row)| {
+                let hw = key_width(vk) / 2.0;
+                kx + hw <= width
+                    && (x - (bx + kx / width * w)).abs() <= hw / width * w
+                    && (y - (by + (row as f32 + 0.5) / 6.0 * h)).abs() <= h / 12.0
+            })
+    })
+}
+
 /// Where a key sits on a keyboard, each 0..=1. `full` includes the number pad.
 pub fn key_spot(vk: u32, full: bool) -> Option<(f32, f32)> {
     let &(_, x, row) = KEYS.iter().find(|k| k.0 == vk)?;
@@ -160,6 +212,19 @@ mod tests {
         assert_eq!(p.len(), 2);
         assert!(p[0].x < 0.05 && p[1].x >= 0.5 && p[1].y >= 0.5);
         assert_eq!(p[0].age, 0.2);
+    }
+
+    #[test]
+    fn wide_keys_cover_their_width() {
+        let board = [([0.0, 0.0, 1.0, 1.0], false)];
+        let (sx, sy) = key_spot(0x20, false).unwrap();
+        assert!(key_at(0x20, sx + 2.5 / TKL, sy, &board));
+        assert!(!key_at(0x20, sx + 3.5 / TKL, sy, &board));
+        assert!(!key_at(0x20, sx, sy - 0.1, &board));
+        assert!(!key_at(0x41, sx, sy, &board));
+        assert!(!key_at(0x6B, 0.99, 0.4, &board));
+        let layout = key_layout();
+        assert!(layout.iter().all(|k| k.vk != 0x10) && layout.len() == KEYS.len() - 4);
     }
 
     #[test]

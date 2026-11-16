@@ -561,6 +561,116 @@ input.switch::after {
   text-decoration: line-through;
 }
 
+.field.keys {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.keyboard {
+  --unit: calc(100% / 18.25);
+  position: relative;
+  aspect-ratio: 18.25 / 6;
+  margin-top: 4px;
+  outline-offset: 3px;
+}
+
+.keyboard.full {
+  --unit: calc(100% / 22.75);
+  aspect-ratio: 22.75 / 6;
+}
+
+.keyboard:not(.full) .pad {
+  display: none;
+}
+
+.keyboard button {
+  position: absolute;
+  height: calc(100% / 6 - 2px);
+  min-height: 0;
+  margin: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--muted);
+  font: 10px/1 var(--mono);
+  white-space: nowrap;
+  box-sizing: border-box;
+  transform: translateX(-1px);
+}
+
+.keyboard button:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.keyboard button[aria-pressed="true"] {
+  border-color: var(--on);
+  background: var(--on);
+  color: var(--on-text);
+}
+
+.keyboard:focus-visible button[aria-pressed="false"] {
+  border-color: var(--stroke);
+}
+
+.field.keys .row {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.layer.waiting .name {
+  color: var(--muted);
+}
+
+.apps {
+  display: flex;
+  flex-direction: column;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apps:empty {
+  display: none;
+}
+
+.app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding-left: 10px;
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+}
+
+.app + .app {
+  border-top: 0;
+}
+
+.app .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app .remove {
+  min-height: 30px;
+  border: 0;
+  background: none;
+}
+
+#layer-app-form {
+  margin-top: 8px;
+}
+
+#layer-app-form input {
+  flex: 1;
+  min-width: 0;
+}
+
 .layer.base {
   border-top-width: 2px;
 }
@@ -635,9 +745,18 @@ input.switch::after {
 }
 
 .layer-name .name {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-name .tag {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

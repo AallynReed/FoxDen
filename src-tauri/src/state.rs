@@ -5,7 +5,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use foxrgb_audio::AudioCapture;
-use foxrgb_core::{Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, Layer, Post, PostInfo, presses_on};
+use foxrgb_core::{
+    Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, KeyInfo, Layer, Post, PostInfo,
+    key_layout, presses_on,
+};
 use foxrgb_openrgb::OpenRgbBackend;
 use foxrgb_screen::ScreenCapture;
 use serde::Serialize;
@@ -86,6 +89,7 @@ pub struct Snapshot {
     layers: Vec<Layer>,
     overrides: BTreeMap<String, Effect>,
     post_catalog: Vec<PostInfo>,
+    key_layout: Vec<KeyInfo>,
     brightness: f32,
     pub paused: bool,
     catalog: Vec<EffectInfo>,
@@ -216,6 +220,7 @@ impl AppState {
             layers: self.engine.layers.clone(),
             overrides: self.engine.overrides.clone().into_iter().collect(),
             post_catalog: Post::catalog(),
+            key_layout: key_layout(),
             brightness: self.engine.brightness,
             paused: self.engine.paused,
             catalog: Effect::catalog(),
@@ -467,10 +472,15 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                     reload(&shared, &mut watch, stale);
                 }
                 // At start the service may answer before its memory driver is ready: look again a few times.
-                let none_yet = !lock(&shared).engine.views().any(|(label, ..)| label == "board");
+                let none_yet = !lock(&shared)
+                    .engine
+                    .views()
+                    .any(|(label, ..)| label == "board");
                 if none_yet
                     && self::enabled("board", &settings)
-                    && BOARD_RETRIES.get(board_tries).is_some_and(|&at| started.elapsed() >= at)
+                    && BOARD_RETRIES
+                        .get(board_tries)
+                        .is_some_and(|&at| started.elapsed() >= at)
                 {
                     board_tries += 1;
                     let board = Kinds {
@@ -535,7 +545,10 @@ fn timed(
     let devices: usize = out.0.iter().map(|b| b.devices().len()).sum();
     crate::log::info(
         "devices",
-        format!("{label}: {devices} devices in {} ms", start.elapsed().as_millis()),
+        format!(
+            "{label}: {devices} devices in {} ms",
+            start.elapsed().as_millis()
+        ),
     );
     out
 }
@@ -577,7 +590,10 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
                 .filter_map(|s| s.strip())
                 .collect();
             let step = |what: &str, start: std::time::Instant| {
-                crate::log::info("devices", format!("{what}: {} ms", start.elapsed().as_millis()))
+                crate::log::info(
+                    "devices",
+                    format!("{what}: {} ms", start.elapsed().as_millis()),
+                )
             };
             let start = std::time::Instant::now();
             let mut backends = foxrgb_hid::led_strips(&strips);
@@ -655,9 +671,12 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
             .filter(|label| kinds.has(label))
             .map(|label| {
                 let settings = &settings;
-                (label, scope.spawn(move || {
-                    enabled(label, settings).then(|| timed(label, || connect(label, settings)))
-                }))
+                (
+                    label,
+                    scope.spawn(move || {
+                        enabled(label, settings).then(|| timed(label, || connect(label, settings)))
+                    }),
+                )
             })
             .collect();
         jobs.into_iter()
@@ -792,17 +811,13 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                 }
                 // f32 seconds turn coarse after days of uptime, so the clock wraps.
                 let t = (start.elapsed().as_secs_f64() % CLOCK_WRAP) as f32;
-                inputs.presses = if pressed.is_empty() {
-                    Vec::new()
-                } else {
-                    let boards: Vec<_> = state
-                        .engine
-                        .views()
-                        .filter(|(_, d, on, _)| *on && d.kind == DeviceKind::Keyboard)
-                        .map(|(_, d, _, _)| (d.rect, d.grid[0] >= 21))
-                        .collect();
-                    presses_on(&pressed, &boards)
-                };
+                inputs.keyboards = state
+                    .engine
+                    .views()
+                    .filter(|(_, d, on, _)| *on && d.kind == DeviceKind::Keyboard)
+                    .map(|(_, d, _, _)| (d.rect, d.grid[0] >= 21))
+                    .collect();
+                inputs.presses = presses_on(&pressed, &inputs.keyboards);
                 let frames = state.engine.render(t, &inputs);
                 (frames, state.engine.take_failed())
             };
@@ -902,6 +917,7 @@ mod tests {
                 "detected",
                 "devices",
                 "effect",
+                "key_layout",
                 "layers",
                 "overrides",
                 "paused",

@@ -422,11 +422,90 @@ function searchKey(e) {
   }
 }
 
+const KEY_NAMES = {
+  0x1b: "Esc", 0x2c: "PrtSc", 0x91: "ScrLk", 0x13: "Pause", 0xc0: "`", 0xbd: "-", 0xbb: "=", 0x08: "Backspace",
+  0x2d: "Ins", 0x24: "Home", 0x21: "PgUp", 0x90: "Num", 0x6f: "/", 0x6a: "*", 0x6d: "-", 0x09: "Tab",
+  0xdb: "[", 0xdd: "]", 0xdc: "\\", 0x2e: "Del", 0x23: "End", 0x22: "PgDn", 0x6b: "+", 0x14: "Caps",
+  0xba: ";", 0xde: "'", 0x0d: "Enter", 0xa0: "Shift", 0xbc: ",", 0xbe: ".", 0xbf: "/", 0xa1: "Shift",
+  0x26: "\u2191", 0xa2: "Ctrl", 0x5b: "Win", 0xa4: "Alt", 0x20: "Space", 0xa5: "Alt", 0x5c: "Win",
+  0x5d: "Menu", 0xa3: "Ctrl", 0x25: "\u2190", 0x28: "\u2193", 0x27: "\u2192", 0x6e: ".",
+};
+
+const KEY_SHORT = {
+  0x2c: "Prt", 0x91: "Scr", 0x13: "Brk", 0x08: "Bksp", 0x2d: "Ins", 0x24: "Hm", 0x21: "PgU", 0x22: "PgD",
+  0x90: "Num", 0x2e: "Del", 0xa0: "Shift", 0xa1: "Shift", 0x5b: "Win", 0x5c: "Win", 0x5d: "Mnu", 0xa2: "Ctl", 0xa3: "Ctl",
+};
+const onPad = (k) => k.x > 18.25;
+
+function keyName(vk) {
+  if (KEY_NAMES[vk]) return KEY_NAMES[vk];
+  if (vk >= 0x70 && vk <= 0x7b) return "F" + (vk - 0x6f);
+  if (vk >= 0x60 && vk <= 0x69) return String(vk - 0x60);
+  return String.fromCharCode(vk);
+}
+
+// Shift, Ctrl and Alt arrive without their side; the event's location tells it.
+function keyCode(e) {
+  const sided = { 16: 0xa0, 17: 0xa2, 18: 0xa4 }[e.keyCode];
+  return sided ? sided + (e.location === 2 ? 1 : 0) : e.keyCode;
+}
+
+let showPad = false;
+
+function keysField(param, id) {
+  const board = el("div", { className: "keyboard", id, tabIndex: 0 });
+  board.setAttribute("role", "group");
+  board.setAttribute("aria-label", param.label);
+  const toggle = (vk) =>
+    queueLayers((layers) => {
+      const keys = layers[layerSel].effect.keys;
+      const at = keys.indexOf(vk);
+      if (at < 0) keys.push(vk);
+      else keys.splice(at, 1);
+    });
+  for (const k of state.snap.key_layout) {
+    const key = el("button", { type: "button", textContent: KEY_SHORT[k.vk] || keyName(k.vk), tabIndex: -1 });
+    key.dataset.vk = k.vk;
+    key.title = (onPad(k) ? "Number pad " : "") + keyName(k.vk);
+    if (onPad(k)) key.classList.add("pad");
+    key.style.left = "calc(" + (k.x - k.w / 2) + " * var(--unit))";
+    key.style.width = "calc(" + k.w + " * var(--unit))";
+    key.style.top = (k.row / 6) * 100 + "%";
+    key.onclick = () => toggle(k.vk);
+    board.append(key);
+  }
+  // Tab still moves on, so the board never traps the keyboard.
+  board.onkeydown = (e) => {
+    if (e.key === "Tab" || e.repeat) return;
+    if (e.key === "Escape") return board.blur();
+    const vk = keyCode(e);
+    if (!state.snap.key_layout.some((k) => k.vk === vk)) return;
+    e.preventDefault();
+    toggle(vk);
+  };
+  const pad = el("input", { type: "checkbox", className: "switch", id: id + "-pad", checked: showPad });
+  pad.oninput = () => {
+    showPad = pad.checked;
+    board.classList.toggle("full", showPad);
+  };
+  board.classList.toggle("full", showPad);
+  const clear = el("button", { type: "button", textContent: "Clear keys" });
+  clear.onclick = () => queueLayers((layers) => (layers[layerSel].effect.keys = []));
+  const count = el("span", { className: "meta", id: id + "-count" });
+  return el("div", { className: "field keys" },
+    el("label", { htmlFor: id, textContent: param.label }),
+    board,
+    el("p", { className: "hint", textContent: "Click keys, or click the board and press them. Tab moves on." }),
+    el("div", { className: "field" }, el("label", { htmlFor: pad.id, textContent: "Show number pad" }), pad),
+    el("div", { className: "row" }, count, clear));
+}
+
 function paramRow(param, target = "effect") {
   const control = param.control;
   const id = (target === "layer" ? "layer-param-" : "param-") + param.name;
   const problem = $(target === "layer" ? "layer-problem" : "params-problem");
   if (control.type === "color") return colourField(param, id, target);
+  if (control.type === "keys") return keysField(param, id);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
   if (control.type === "range") {
@@ -523,6 +602,23 @@ function scopeWords(snap, layer) {
   return n === 1 ? snap.devices.find((d) => layer.devices.includes(d.id)).name : plural(n, "device");
 }
 
+const appName = (name) => name.trim().toLowerCase().replace(/\.exe$/, "");
+
+// Whether a layer tied to apps shows right now.
+function live(layer) {
+  const named = (n) => layer.apps.some((a) => appName(a) === n);
+  if (layer.when === "running") return state.apps.running.some(named);
+  if (layer.when === "front") return !!state.apps.front && named(state.apps.front);
+  return true;
+}
+
+function whenWords(layer) {
+  if (layer.when === "always") return "";
+  if (!layer.apps.length) return "no app yet";
+  const names = layer.apps[0] + (layer.apps.length > 1 ? " +" + (layer.apps.length - 1) : "");
+  return layer.when === "front" ? names + " in front" : "while " + names + " is open";
+}
+
 function eyeIcon(open) {
   const path = open
     ? "M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5zm7 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
@@ -563,7 +659,7 @@ function renderLayers(snap) {
   const add = $("layer-add");
   if (!add.options.length) add.replaceChildren(el("option", { value: "", textContent: "Add a layer" }), ...layerKinds(snap));
   const list = $("layer-list");
-  const key = JSON.stringify([snap.layers.map((l) => [l.enabled, l.effect.kind, l.scope, l.devices, l.blend, Math.round(l.opacity * 100)]), edited(snap).kind, snap.effect.kind, Object.keys(snap.overrides), layerSel, snap.devices.length]);
+  const key = JSON.stringify([snap.layers.map((l) => [l.enabled, l.effect.kind, l.scope, l.devices, l.blend, Math.round(l.opacity * 100), l.when, l.apps, live(l)]), edited(snap).kind, snap.effect.kind, Object.keys(snap.overrides), layerSel, snap.devices.length]);
   if (list.dataset.key === key) return;
   list.dataset.key = key;
   const focused = list.contains(document.activeElement) ? document.activeElement.id : "";
@@ -576,7 +672,7 @@ function renderLayers(snap) {
     eye.onclick = () => queueLayers((layers) => (layers[i].enabled = !layers[i].enabled));
     const pick = el("button", { type: "button", className: "layer-name", id: "layer-" + i },
       el("span", { className: "name", textContent: name }),
-      el("span", { className: "tag", textContent: [scopeWords(snap, layer), layer.opacity < 1 ? Math.round(layer.opacity * 100) + "%" : "", layer.blend !== "normal" ? words(layer.blend) : ""].filter(Boolean).join(" · ") }));
+      el("span", { className: "tag", textContent: [scopeWords(snap, layer), whenWords(layer), layer.opacity < 1 ? Math.round(layer.opacity * 100) + "%" : "", layer.blend !== "normal" ? words(layer.blend) : ""].filter(Boolean).join(" · ") }));
     pick.setAttribute("aria-pressed", String(i === layerSel));
     pick.title = "Alt+Up and Alt+Down move the layer";
     pick.onclick = () => selectLayer(i);
@@ -587,7 +683,7 @@ function renderLayers(snap) {
     };
     const grip = el("span", { className: "grip" });
     grip.setAttribute("aria-hidden", "true");
-    const row = el("li", { className: "layer" + (layer.enabled ? "" : " off") + (i === layerSel ? " selected" : "") }, grip, eye, pick);
+    const row = el("li", { className: "layer" + (layer.enabled ? "" : " off") + (layer.enabled && !live(layer) ? " waiting" : "") + (i === layerSel ? " selected" : "") }, grip, eye, pick);
     row.draggable = true;
     row.ondragstart = (e) => {
       dragFrom = i;
@@ -690,6 +786,26 @@ function renderLayer(snap, layer) {
   }
   for (const box of checks.querySelectorAll("input")) box.checked = layer.devices.includes(box.dataset.device);
 
+  put($("layer-when"), layer.when);
+  $("layer-apps").hidden = layer.when === "always";
+  const apps = $("layer-app-list");
+  const appsKey = layerSel + JSON.stringify(layer.apps);
+  if (apps.dataset.key !== appsKey) {
+    apps.dataset.key = appsKey;
+    apps.replaceChildren(
+      ...layer.apps.map((name, n) => {
+        const remove = el("button", { type: "button", className: "remove", textContent: "Remove", id: "layer-app-remove-" + n });
+        remove.setAttribute("aria-label", "Remove " + name);
+        remove.onclick = () => {
+          queueLayers((layers) => layers[layerSel].apps.splice(n, 1));
+          layerFocus = "layer-app";
+        };
+        return el("li", { className: "app" }, el("span", { className: "name", textContent: name }), remove);
+      }),
+    );
+  }
+  setText($("layer-app-hint"), layer.apps.length ? "Pick an app with a window open, or type its .exe name." : "Add an app. The layer stays hidden until one is " + (layer.when === "front" ? "in front." : "open."));
+
   const box = $("layer-params");
   const params = info ? info.params : [];
   const key = layerSel + layer.effect.kind + JSON.stringify(params);
@@ -700,6 +816,21 @@ function renderLayer(snap, layer) {
     $("layer-problem").hidden = true;
   }
   for (const input of box.querySelectorAll("[data-param]")) put(input, layer.effect[input.dataset.param]);
+  const board = box.querySelector(".keyboard");
+  if (board) {
+    const on = layer.effect.keys;
+    const [r, g, b] = layer.effect.color;
+    board.style.setProperty("--on", `rgb(${r}, ${g}, ${b})`);
+    board.style.setProperty("--on-text", 0.299 * r + 0.587 * g + 0.114 * b > 140 ? "#000" : "#fff");
+    for (const key of board.children) key.setAttribute("aria-pressed", String(on.includes(Number(key.dataset.vk))));
+    setText($(board.id + "-count"), on.length ? plural(on.length, "key") + ": " + on.map(keyName).join(" ") : "No keys chosen");
+    const padKey = (vk) => state.snap.key_layout.some((k) => k.vk === vk && onPad(k));
+    if (!showPad && on.some(padKey)) {
+      showPad = true;
+      board.classList.add("full");
+      $(board.id + "-pad").checked = true;
+    }
+  }
   // The second colour only matters when the colours fade to it.
   const second = box.querySelector('[data-param="second"]');
   if (second) second.closest(".field").hidden = layer.effect.colors !== "fade_to_second";
@@ -711,7 +842,7 @@ function addLayer(value) {
   const entry = entryFor(state.snap, value);
   if (!entry) return;
   const effect = JSON.parse(JSON.stringify(entry.default));
-  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") ? "keyboards" : "all", devices: [], effect }));
+  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") || entry.default.kind === "key_lights" ? "keyboards" : "all", devices: [], when: "always", apps: [], effect }));
   layerSel = state.snap.layers.length;
   layerFocus = "layer-" + layerSel;
 }
@@ -729,6 +860,23 @@ function wireLayers() {
   $("layer-blend").oninput = () => queueLayers((layers) => (layers[layerSel].blend = $("layer-blend").value));
   pair($("layer-opacity"), $("layer-opacity-exact"), 1, (v) => queueLayers((layers) => (layers[layerSel].opacity = v / 100)), $("layer-problem"));
   $("layer-scope").oninput = () => queueLayers((layers) => (layers[layerSel].scope = $("layer-scope").value));
+  $("layer-when").oninput = () => queueLayers((layers) => (layers[layerSel].when = $("layer-when").value));
+  // The list of open apps is read when the field is used, not kept up to date.
+  $("layer-app").onfocus = async () => {
+    const names = (await call("list_apps")) || [];
+    $("layer-app-choices").replaceChildren(...names.map((n) => el("option", { value: n })));
+  };
+  $("layer-app-form").onsubmit = (e) => {
+    e.preventDefault();
+    const input = $("layer-app");
+    const name = input.value.trim();
+    if (!name) return;
+    input.value = "";
+    queueLayers((layers) => {
+      const l = layers[layerSel];
+      if (!l.apps.some((a) => appName(a) === appName(name))) l.apps.push(name);
+    });
+  };
   $("layer-reset").onclick = () => {
     const entry = layerInfo(state.snap, state.snap.layers[layerSel].effect).info;
     if (entry) queueLayers((layers) => (layers[layerSel].effect = JSON.parse(JSON.stringify(entry.default))));
@@ -1675,6 +1823,10 @@ async function wireUpdates() {
     }
   };
   await listen("update", (e) => showUpdate(e.payload));
+  await listen("apps", (e) => {
+    state.apps = e.payload;
+    scheduleRender();
+  });
   await listen("update-progress", (e) => {
     const { done, total } = e.payload;
     const mb = (n) => (n / 1048576).toFixed(1) + " MB";

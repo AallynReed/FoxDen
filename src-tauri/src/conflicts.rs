@@ -104,7 +104,10 @@ fn found(procs: &[Process], services: &[&str], scope: Scope, keep: &[String]) ->
         })
         .map(|app| {
             let mut exes: Vec<Exe> = Vec::new();
-            for p in procs.iter().filter(|p| conflicts::app_of(&p.name) == Some(app)) {
+            for p in procs
+                .iter()
+                .filter(|p| conflicts::app_of(&p.name) == Some(app))
+            {
                 if !exes.iter().any(|e| e.name.eq_ignore_ascii_case(&p.name)) {
                     exes.push(Exe {
                         name: p.name.clone(),
@@ -191,7 +194,7 @@ fn running_services(scope: Scope) -> Vec<&'static str> {
         .collect()
 }
 
-fn processes() -> Vec<Process> {
+pub fn processes() -> Vec<Process> {
     let mut found = Vec::new();
     unsafe {
         let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -298,14 +301,22 @@ mod tests {
 
     #[test]
     fn kept_executables_stay_and_the_rest_of_the_app_still_closes() {
-        let procs = procs(&["SteelSeriesGG.exe", "SteelSeriesSonar.exe", "SteelSeriesPrism.exe"]);
+        let procs = procs(&[
+            "SteelSeriesGG.exe",
+            "SteelSeriesSonar.exe",
+            "SteelSeriesPrism.exe",
+        ]);
         let lighting = Scope {
             lighting: true,
             ..Scope::default()
         };
         let keep = vec!["steelseriessonar.EXE".to_string()];
         let list = found(&procs, &[], lighting, &keep);
-        let exes: Vec<_> = list[0].exes.iter().map(|e| (e.name.as_str(), e.closes)).collect();
+        let exes: Vec<_> = list[0]
+            .exes
+            .iter()
+            .map(|e| (e.name.as_str(), e.closes))
+            .collect();
         assert_eq!(
             exes,
             [
@@ -315,9 +326,13 @@ mod tests {
             ]
         );
         assert!(list[0].closes);
-        let all: Vec<String> = ["SteelSeriesGG.exe", "SteelSeriesPrism.exe", "SteelSeriesSonar.exe"]
-            .map(String::from)
-            .to_vec();
+        let all: Vec<String> = [
+            "SteelSeriesGG.exe",
+            "SteelSeriesPrism.exe",
+            "SteelSeriesSonar.exe",
+        ]
+        .map(String::from)
+        .to_vec();
         assert!(!found(&procs, &[], lighting, &all)[0].closes);
     }
 
