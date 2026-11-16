@@ -16,6 +16,7 @@ mod dreamcheeky;
 mod ducky;
 mod edifier;
 mod ek;
+mod fifine;
 mod gamesir;
 mod hp_omen30l;
 mod hyte;
@@ -33,13 +34,16 @@ mod lg_monitor;
 mod lightsalt;
 mod luxafor;
 mod madcatz;
+mod marsgaming;
 mod mintaka;
 mod mnt;
 mod n5312a;
+mod nubwo;
 mod nvidia_esa;
 mod oks;
 mod patriot_viper;
 mod robobloq;
+mod roccat_kone_emp;
 mod sayo;
 mod skydimo;
 mod skyloong;
@@ -71,6 +75,7 @@ pub fn detectors() -> Vec<&'static Detector> {
         ducky::DETECTORS,
         edifier::DETECTORS,
         ek::DETECTORS,
+        fifine::DETECTORS,
         gamesir::DETECTORS,
         hp_omen30l::DETECTORS,
         hyte::DETECTORS,
@@ -87,13 +92,16 @@ pub fn detectors() -> Vec<&'static Detector> {
         lightsalt::DETECTORS,
         luxafor::DETECTORS,
         madcatz::DETECTORS,
+        marsgaming::DETECTORS,
         mintaka::DETECTORS,
         mnt::DETECTORS,
         n5312a::DETECTORS,
+        nubwo::DETECTORS,
         nvidia_esa::DETECTORS,
         oks::DETECTORS,
         patriot_viper::DETECTORS,
         robobloq::DETECTORS,
+        roccat_kone_emp::DETECTORS,
         sayo::DETECTORS,
         skydimo::DETECTORS,
         skyloong::DETECTORS,

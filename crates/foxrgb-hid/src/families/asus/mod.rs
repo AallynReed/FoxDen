@@ -58,8 +58,8 @@ mod tests {
     #[test]
     fn detector_counts_match_openrgb() {
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
-        assert_eq!(counts, [11, 6, 3, 2, 3, 2, 41, 3, 29, 3, 2, 3]);
-        assert_eq!(detectors().len(), 109 - 1);
+        assert_eq!(counts, [11, 6, 3, 2, 3, 2, 43, 3, 29, 3, 2, 3]);
+        assert_eq!(detectors().len(), 109 - 1 + 2);
     }
 
     #[test]

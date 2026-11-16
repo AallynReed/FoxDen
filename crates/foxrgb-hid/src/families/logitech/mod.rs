@@ -1,9 +1,12 @@
 //! Ported from OpenRGB Controllers/LogitechController/LogitechControllerDetect.cpp (GPL-2.0-or-later).
 
+mod astro_a50;
 mod g203l;
 mod g213;
+mod g300;
 mod g600;
 mod g815;
+mod g9;
 mod g915;
 mod g933;
 mod keys;
@@ -154,7 +157,7 @@ const fn pu(name: &'static str, pid: u16, p: u16, u: u16, open: Open) -> Detecto
     det(name, VID, pid, None, Some(p), Some(u), open)
 }
 
-static DETECTORS: [Detector; 37] = [
+static DETECTORS: [Detector; 42] = [
     ipu("Logitech G213", VID, 0xC336, 1, 0xFF43, 0x0602, g213::open),
     ip(
         "Logitech G813 RGB Mechanical Gaming Keyboard",
@@ -444,6 +447,23 @@ static DETECTORS: [Detector; 37] = [
         514,
         lightspeed::open_wired,
     ),
+    pu("Logitech G9", 0xC048, 0xFF00, 0x0001, g9::open),
+    pu("Logitech G9x", 0xC066, 0xFF00, 0x0001, g9::open),
+    pu(
+        "Logitech G9x Call of Duty MW3 Edition",
+        0xC249,
+        0xFF00,
+        0x0001,
+        g9::open,
+    ),
+    det("Logitech G300", VID, 0xC246, None, None, None, g300::open),
+    pu(
+        "Logitech ASTRO A50",
+        0x0B1C,
+        0xFF32,
+        0x0074,
+        astro_a50::open,
+    ),
 ];
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -520,7 +540,7 @@ mod tests {
     #[test]
     fn detectors_match_openrgb_lines() {
         let d = detectors();
-        assert_eq!(d.len(), 37);
+        assert_eq!(d.len(), 37 + 5);
         let skipped = [0xC539, 0xC547, 0xC08D, 0xC355];
         assert!(d.iter().all(|d| !skipped.contains(&d.pid)));
         let g502 = d.iter().find(|d| d.pid == 0xC090).unwrap();
