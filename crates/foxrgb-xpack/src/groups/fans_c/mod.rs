@@ -6,6 +6,7 @@ mod unihub_hid;
 mod unihub_usb;
 mod usb;
 
+use super::usb_serial::aqua;
 use foxrgb_core::Backend;
 use foxrgb_fan::FanBackend;
 use foxrgb_hid::Pick;
@@ -34,6 +35,12 @@ pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
         .map(|m| (unihub_usb::ENE, m.pid, m.name))
         .collect();
     v.push((hydroshift::NUVOTON, hydroshift::PID, hydroshift::NAME));
+    v.extend(
+        aqua::MODELS
+            .iter()
+            .filter(|m| m.pid == aqua::WITH_FANS)
+            .map(|m| (aqua::VID, m.pid, m.name)),
+    );
     v
 }
 
@@ -41,6 +48,9 @@ pub fn probe_other(pick: Pick) -> Vec<Box<dyn Backend>> {
     let mut v = unihub_usb::lights(pick);
     if pick.wants(hydroshift::NUVOTON, hydroshift::PID) {
         v.extend(hydroshift::lights());
+    }
+    if pick.wants(aqua::VID, aqua::WITH_FANS) {
+        v.extend(aqua::probe(|p| p == aqua::WITH_FANS));
     }
     v
 }

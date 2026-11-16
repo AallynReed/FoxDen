@@ -70,8 +70,8 @@ fn probe(
     })
 }
 
-/// SinowealthController::SetMode(Static) over the configuration GetProfile read: brightness 4, R B G.
-pub fn mouse_config(read: &[u8], c: Color) -> Vec<u8> {
+/// SinowealthController::SetMode(Static) over the configuration GetProfile read: brightness 4, RBG or RGB.
+pub fn mouse_config(read: &[u8], c: Color, rgb: bool) -> Vec<u8> {
     let mut b = vec![0u8; 520];
     let n = read.len().min(167);
     b[..n].copy_from_slice(&read[..n]);
@@ -79,14 +79,41 @@ pub fn mouse_config(read: &[u8], c: Color) -> Vec<u8> {
     b[0x06] = 0x00;
     b[0x35] = 0x02;
     b[0x38] = 0x04 << 4;
-    b[0x39..0x3C].copy_from_slice(&[c.0, c.2, c.1]);
+    let raw = if rgb {
+        [c.0, c.1, c.2]
+    } else {
+        [c.0, c.2, c.1]
+    };
+    b[0x39..0x3C].copy_from_slice(&raw);
     b
 }
 
 pub const MOUSE_READ: [u8; 6] = [0x05, 0x11, 0x00, 0x00, 0x00, 0x00];
+pub const FIRMWARE_READ: [u8; 6] = [0x05, 0x01, 0x00, 0x00, 0x00, 0x00];
+
+/// Colour order by firmware: Some(true) RGB, Some(false) RBG, None for builds without LEDs.
+pub fn firmware_order(fw: &[u8]) -> Option<bool> {
+    match fw {
+        b"V161" => None,
+        b"3106" | b"3110" | b"2642" | b"V127" | b"V287" => Some(true),
+        _ => Some(false),
+    }
+}
+
+fn firmware(p: &Probe) -> Vec<u8> {
+    let dev = p.cmd.as_ref().unwrap_or(&p.data);
+    let mut buf = [0u8; 6];
+    buf[0] = 0x05;
+    if dev.send_feature_report(&FIRMWARE_READ).is_err() || dev.get_feature_report(&mut buf).is_err()
+    {
+        return Vec::new();
+    }
+    buf[2..6].to_vec()
+}
 
 struct GloriousMouse {
     cmd: Option<Box<dyn Io>>,
+    rgb: bool,
 }
 
 impl Driver for GloriousMouse {
@@ -101,7 +128,7 @@ impl Driver for GloriousMouse {
         if asked.is_err() || io.get_feature(&mut read).unwrap_or(0) < 131 {
             return Ok(());
         }
-        io.send_feature(&mouse_config(&read, colors[0]))?;
+        io.send_feature(&mouse_config(&read, colors[0], self.rgb))?;
         io.sleep(50);
         Ok(())
     }
@@ -109,6 +136,7 @@ impl Driver for GloriousMouse {
 
 fn open_mouse(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     let p = probe(api, info, 3, 0x04, 520, Some(&MOUSE_READ))?;
+    let rgb = firmware_order(&firmware(&p)).ok_or("this firmware has no LEDs")?;
     let dev = line(
         info.device_id("sinowealth"),
         d.name,
@@ -118,6 +146,7 @@ fn open_mouse(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend
     );
     let drv = GloriousMouse {
         cmd: p.cmd.map(|c| Box::new(c) as Box<dyn Io>),
+        rgb,
     };
     Ok(Hid::boxed("sinowealth mouse", p.data, drv, dev))
 }
@@ -296,7 +325,7 @@ fn open_kb10c(api: &HidApi, info: &Info, _: &Detector) -> Result<Box<dyn Backend
     Ok(Hid::boxed("sinowealth keyboard", p.data, Kb10c, dev))
 }
 
-pub static DETECTORS: [Detector; 6] = [
+pub static DETECTORS: [Detector; 9] = [
     Detector {
         name: "Glorious Model O / O-",
         vid: VID,
@@ -310,6 +339,33 @@ pub static DETECTORS: [Detector; 6] = [
         name: "Glorious Model D / D-",
         vid: VID,
         pid: 0x0033,
+        interface: None,
+        usage_page: Some(0xFF00),
+        usage: None,
+        open: open_mouse,
+    },
+    Detector {
+        name: "Glorious Model O Eternal",
+        vid: 0x3794,
+        pid: 0xA000,
+        interface: None,
+        usage_page: Some(0xFF00),
+        usage: None,
+        open: open_mouse,
+    },
+    Detector {
+        name: "SinoWealth Mouse (0027)",
+        vid: VID,
+        pid: 0x0027,
+        interface: None,
+        usage_page: Some(0xFF00),
+        usage: None,
+        open: open_mouse,
+    },
+    Detector {
+        name: "SinoWealth Mouse (0051)",
+        vid: VID,
+        pid: 0x0051,
         interface: None,
         usage_page: Some(0xFF00),
         usage: None,
@@ -368,7 +424,15 @@ mod tests {
         read[0] = 0x04;
         m.reply(read.clone());
         let dev = line("m".into(), "M", DeviceKind::Mouse, MOUSE, 1);
-        let mut b = Hid::new("t", Box::new(m.clone()), GloriousMouse { cmd: None }, dev);
+        let mut b = Hid::new(
+            "t",
+            Box::new(m.clone()),
+            GloriousMouse {
+                cmd: None,
+                rgb: false,
+            },
+            dev,
+        );
         b.push("m", &[C1]).unwrap();
         let ops = m.take();
         assert_eq!(ops[0], Op::Feature(MOUSE_READ.to_vec()));
@@ -383,6 +447,25 @@ mod tests {
         m.reply(vec![0x04; 100]);
         b.push("m", &[Color(1, 1, 1)]).unwrap();
         assert_eq!(m.take().len(), 2);
+    }
+
+    #[test]
+    fn colour_order_by_firmware() {
+        let read = vec![0u8; 520];
+        assert_eq!(
+            mouse_config(&read, C1, true)[0x39..0x3C],
+            [0x11, 0x22, 0x33]
+        );
+        assert_eq!(
+            mouse_config(&read, C1, false)[0x39..0x3C],
+            [0x11, 0x33, 0x22]
+        );
+        assert_eq!(firmware_order(b"3106"), Some(true));
+        assert_eq!(firmware_order(b"V102"), Some(false));
+        assert_eq!(firmware_order(b""), Some(false));
+        assert_eq!(firmware_order(b"V161"), None);
+        assert_eq!(FIRMWARE_READ, [0x05, 0x01, 0, 0, 0, 0]);
+        assert_eq!(DETECTORS.len(), 9);
     }
 
     // SinowealthController1007::SetLEDColors -> SendPacket.

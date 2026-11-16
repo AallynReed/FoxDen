@@ -264,6 +264,25 @@ mod tests {
     }
 
     #[test]
+    fn corsair_ids_have_one_driver() {
+        let lists = [
+            corsair_peripheral::DETECTORS,
+            corsair_k55_xt::DETECTORS,
+            corsair_v2::DETECTORS,
+            corsair_void::DETECTORS,
+        ];
+        for (i, a) in lists.iter().enumerate() {
+            for b in &lists[i + 1..] {
+                for d in a.iter() {
+                    assert!(!b.iter().any(|e| e.pid == d.pid), "{}", d.name);
+                }
+            }
+        }
+        assert_eq!(corsair_peripheral::DETECTORS.len(), 44);
+        assert_eq!(corsair_v2::DETECTORS.len(), 40);
+    }
+
+    #[test]
     fn matrix_places_spare_leds_below() {
         let (leds, grid) = matrix(&[&[0, u32::MAX], &[u32::MAX, 1]], 3);
         assert_eq!(grid, [2, 3]);

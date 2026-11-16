@@ -27,6 +27,8 @@ enum Kind {
     Aerox5,
     Wireless(Wireless),
     Rival5,
+    PrimeMini,
+    PrimeWired,
 }
 
 const fn det(name: &'static str, pid: u16, interface: i32, vendor_page: bool) -> Detector {
@@ -41,7 +43,7 @@ const fn det(name: &'static str, pid: u16, interface: i32, vendor_page: bool) ->
     }
 }
 
-static DETECTORS: [Detector; 21] = [
+static DETECTORS: [Detector; 24] = [
     det("SteelSeries Aerox 3 Wireless", 0x1838, 3, true),
     det("SteelSeries Aerox 3 Wireless Wired", 0x183A, 3, true),
     det(
@@ -98,6 +100,9 @@ static DETECTORS: [Detector; 21] = [
     det("SteelSeries Rival 3", 0x184C, 3, false),
     det("SteelSeries Rival 3 Wireless", 0x1830, 3, true),
     det("SteelSeries Rival 5", 0x183C, 0, true),
+    det("SteelSeries Prime Mini", 0x184D, 3, false),
+    det("SteelSeries Prime Wireless Wired", 0x1842, 3, false),
+    det("SteelSeries Prime Mini Wireless Wired", 0x184A, 3, false),
 ];
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -119,6 +124,8 @@ fn kind(pid: u16) -> Option<Kind> {
         0x1858 | 0x1876 => Kind::Wireless(Aerox9),
         0x185A => Kind::Wireless(Aerox9Wired),
         0x1830 => Kind::Wireless(Rival3),
+        0x184D => Kind::PrimeMini,
+        0x1842 | 0x184A => Kind::PrimeWired,
         _ => return None,
     })
 }
@@ -133,6 +140,7 @@ fn leds(kind: Kind) -> &'static [u8] {
         Kind::Wireless(Wireless::Rival3) => &[1],
         Kind::Wireless(_) => &[0, 1, 2],
         Kind::Rival5 => &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        Kind::PrimeMini | Kind::PrimeWired => &[0],
     }
 }
 
@@ -217,6 +225,11 @@ fn set_color(kind: Kind, zone: u8, c: Color) -> Vec<Op> {
             wireless_write(w, b)
         }
         Kind::Rival5 => Vec::new(),
+        Kind::PrimeMini => vec![Op::Write(padded(65, &[0x00, 0x21, 0x00, c.0, c.1, c.2]))],
+        Kind::PrimeWired => vec![Op::Write(padded(
+            64,
+            &[0x00, 0x21, 0x01, 0x00, c.0, c.1, c.2],
+        ))],
     }
 }
 
@@ -241,7 +254,7 @@ fn init(kind: Kind) -> Vec<Op> {
             Op::Feature(padded(64, &[0x00, 0x26])),
             Op::Feature(padded(64, &[0x00, 0x23, 0x64])),
         ],
-        Kind::Rival3 => Vec::new(),
+        Kind::Rival3 | Kind::PrimeMini | Kind::PrimeWired => Vec::new(),
     }
 }
 
@@ -405,6 +418,26 @@ mod tests {
         let wired = set_color(Kind::Wireless(Wireless::Aerox5Wired), 1, Color(1, 1, 1));
         assert_eq!(wired.len(), 1);
         assert_eq!(bytes(&wired[0])[..7], [0, 0x21, 0x01, 0x01, 1, 1, 1]);
+    }
+
+    #[test]
+    fn prime_colour_only() {
+        let mut m = Mouse {
+            kind: Kind::PrimeMini,
+            started: false,
+        };
+        let ops = m.frame(&[Color(1, 2, 3)]);
+        assert_eq!(ops, vec![Op::Write(padded(65, &[0, 0x21, 0x00, 1, 2, 3]))]);
+        let mut m = Mouse {
+            kind: Kind::PrimeWired,
+            started: false,
+        };
+        let ops = m.frame(&[Color(4, 5, 6)]);
+        assert_eq!(
+            ops,
+            vec![Op::Write(padded(64, &[0, 0x21, 0x01, 0x00, 4, 5, 6]))]
+        );
+        assert_eq!(DETECTORS.len(), 24);
     }
 
     // Rival 3 Wireless: 0x13 colour command, no flag, no effect packet.

@@ -30,9 +30,10 @@ struct Model {
     gen1: bool,
     hub: bool,
     lcd: bool,
+    ryuo: bool,
 }
 
-const MODELS: [Model; 4] = [
+const MODELS: [Model; 7] = [
     Model {
         pid: 0x18AE,
         name: "ASUS Ryujin I",
@@ -40,6 +41,7 @@ const MODELS: [Model; 4] = [
         gen1: true,
         hub: false,
         lcd: false,
+        ryuo: false,
     },
     Model {
         pid: 0x1988,
@@ -48,6 +50,7 @@ const MODELS: [Model; 4] = [
         gen1: false,
         hub: true,
         lcd: false,
+        ryuo: false,
     },
     Model {
         pid: 0x1AA2,
@@ -56,6 +59,7 @@ const MODELS: [Model; 4] = [
         gen1: false,
         hub: false,
         lcd: true,
+        ryuo: false,
     },
     Model {
         pid: 0x1ADA,
@@ -64,6 +68,34 @@ const MODELS: [Model; 4] = [
         gen1: false,
         hub: false,
         lcd: true,
+        ryuo: false,
+    },
+    Model {
+        pid: 0x1BCB,
+        name: "ASUS Ryujin III Extreme",
+        interface: 1,
+        gen1: false,
+        hub: false,
+        lcd: true,
+        ryuo: false,
+    },
+    Model {
+        pid: 0x1ADE,
+        name: "ASUS Ryujin III EVA",
+        interface: 1,
+        gen1: false,
+        hub: false,
+        lcd: true,
+        ryuo: false,
+    },
+    Model {
+        pid: 0x1887,
+        name: "ASUS ROG Ryuo",
+        interface: 0,
+        gen1: false,
+        hub: false,
+        lcd: false,
+        ryuo: true,
     },
 ];
 
@@ -76,12 +108,18 @@ pub fn reply_to(cmd: u8) -> [u8; 2] {
     [REPORT, cmd & 0x7F]
 }
 
-pub fn pump_packet(gen1: bool, pump: u8, fan: u8) -> Vec<u8> {
+/// The third generation addresses its cooler as channel 1.
+pub fn pump_packet(gen1: bool, lcd: bool, pump: u8, fan: u8) -> Vec<u8> {
     if gen1 {
         vec![REPORT, GEN1_SET, pump, fan]
     } else {
-        vec![REPORT, SET_PUMP, 0x00, pump, fan]
+        vec![REPORT, SET_PUMP, u8::from(lcd), pump, fan]
     }
+}
+
+/// Ryuo: one duty for its radiator fans.
+pub fn ryuo_packet(pct: u8) -> Vec<u8> {
+    vec![REPORT, GEN1_SET, pct]
 }
 
 pub fn hub_packet(duty: f32) -> Vec<u8> {
@@ -142,7 +180,7 @@ impl Hub {
         .ok()
     }
     fn refresh(&mut self) {
-        if !self.poll.due() {
+        if self.model.ryuo || !self.poll.due() {
             return;
         }
         if self.model.gen1 {
@@ -163,6 +201,7 @@ impl Hub {
     /// Seeds the shared pump packet with what the cooler runs now.
     fn seed(&mut self) {
         if !self.model.gen1
+            && !self.model.ryuo
             && let Some(r) = self.ask(DUTY)
             && r[4] > 0
         {
@@ -171,13 +210,18 @@ impl Hub {
         }
     }
     fn send(&mut self, ch: usize, pct: u8) -> Result<(), String> {
+        if self.model.ryuo {
+            return self.io.write(&ryuo_packet(pct), LEN);
+        }
         match ch {
             0 => self.pump = pct,
             1 => self.fan = pct,
             _ => return self.io.write(&hub_packet(pct as f32 / 100.0), LEN),
         }
-        self.io
-            .write(&pump_packet(self.model.gen1, self.pump, self.fan), LEN)
+        self.io.write(
+            &pump_packet(self.model.gen1, self.model.lcd, self.pump, self.fan),
+            LEN,
+        )
     }
 }
 
@@ -189,6 +233,9 @@ impl FanHub for Hub {
         self.model.name.into()
     }
     fn channels(&self) -> Vec<Channel> {
+        if self.model.ryuo {
+            return vec![Channel::fan("Fans")];
+        }
         let mut c = vec![Channel::pump("Pump"), Channel::fan("Pump Fan")];
         if self.model.hub {
             c.push(Channel::fan("Fans"));
@@ -196,7 +243,7 @@ impl FanHub for Hub {
         c
     }
     fn sensors(&self) -> Vec<String> {
-        if self.model.gen1 {
+        if self.model.gen1 || self.model.ryuo {
             Vec::new()
         } else {
             vec!["Liquid".into()]
@@ -204,6 +251,9 @@ impl FanHub for Hub {
     }
     fn rpm(&mut self, ch: usize) -> Option<u32> {
         self.refresh();
+        if self.model.ryuo {
+            return None;
+        }
         match ch {
             0 => self.status.pump,
             1 => spun(&mut self.seen[1], self.status.fan),
@@ -230,7 +280,7 @@ fn model_of(info: &Info) -> Option<Model> {
     MODELS.iter().copied().find(|m| {
         info.vid == VID
             && info.pid == m.pid
-            && iface(info, m.interface)
+            && (m.ryuo || iface(info, m.interface))
             && info.usage_page == PAGE
             && info.usage == USAGE
     })
@@ -266,8 +316,10 @@ mod tests {
     fn packets() {
         assert_eq!(reply_to(STATUS), [0xEC, 0x19]);
         assert_eq!(reply_to(GEN1_STATUS), [0xEC, 0x2A]);
-        assert_eq!(pump_packet(false, 80, 40), [0xEC, 0x1A, 0, 80, 40]);
-        assert_eq!(pump_packet(true, 80, 40), [0xEC, 0x2A, 80, 40]);
+        assert_eq!(pump_packet(false, false, 80, 40), [0xEC, 0x1A, 0, 80, 40]);
+        assert_eq!(pump_packet(false, true, 80, 40), [0xEC, 0x1A, 1, 80, 40]);
+        assert_eq!(pump_packet(true, false, 80, 40), [0xEC, 0x2A, 80, 40]);
+        assert_eq!(ryuo_packet(45), [0xEC, 0x2A, 45]);
         assert_eq!(hub_packet(1.0), [0xEC, 0x21, 0, 0, 255]);
     }
 
@@ -290,6 +342,31 @@ mod tests {
         h[3] = 1;
         h[5] = 2;
         assert_eq!(hub_rpms(&h), [2, 0, 0, 1]);
+    }
+
+    #[test]
+    fn ryuo_has_one_fan_channel_and_releases_to_full() {
+        let rec = super::super::util::mock::Rec::default();
+        let mut hub = Hub {
+            io: Box::new(rec.clone()),
+            id: String::new(),
+            model: MODELS[6],
+            pump: SAFE,
+            fan: SAFE,
+            status: Status::default(),
+            hub_rpm: [0; 4],
+            seen: [false; 3],
+            poll: Every::ms(1500),
+        };
+        assert_eq!(hub.channels().len(), 1);
+        assert!(hub.sensors().is_empty());
+        assert_eq!(hub.rpm(0), None);
+        hub.set_duty(0, 0.45).unwrap();
+        hub.release(0).unwrap();
+        let sent = rec.sent.lock().unwrap();
+        assert_eq!(sent[0], crate::hid::padded(&[0xEC, 0x2A, 45], LEN));
+        assert_eq!(sent[1], crate::hid::padded(&[0xEC, 0x2A, 100], LEN));
+        assert_eq!(sent.len(), 2);
     }
 
     #[test]

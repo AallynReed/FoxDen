@@ -16,11 +16,13 @@ pub const CORE: u16 = 0x0C1C;
 pub const CORE2: u16 = 0x0C32;
 pub const XT: u16 = 0x0C2A;
 pub const LINK: u16 = 0x0C3F;
+pub const DUO: u16 = super::commander_duo::PID;
 pub const IDS: &[(u16, &str)] = &[
     (CORE, "Corsair Commander Core"),
     (CORE2, "Corsair Commander Core"),
     (XT, "Corsair Commander Core XT"),
     (LINK, "Corsair iCUE LINK Hub"),
+    (DUO, "Corsair iCUE Commander DUO"),
 ];
 const PAGE: u16 = 0xFF42;
 
@@ -57,6 +59,8 @@ const LINK_DEFAULT: u8 = 0x35;
 /// Below 60% the Capellix pump goes into failsafe until power cycled.
 const CORE_PUMP_MIN: u8 = 60;
 const LINK_SIZE: usize = 513;
+/// Header bytes before the data of a continued LINK read.
+const LINK_MORE: usize = 4;
 const REPLY_MS: u64 = 500;
 const POLL_MS: u64 = 1500;
 const STATE_MS: u64 = 10_000;
@@ -74,7 +78,7 @@ impl Flavor {
     fn of(pid: u16) -> Option<Flavor> {
         match pid {
             CORE | CORE2 => Some(Flavor::Core),
-            XT => Some(Flavor::Xt),
+            XT | DUO => Some(Flavor::Xt),
             LINK => Some(Flavor::Link),
             _ => None,
         }
@@ -138,7 +142,7 @@ pub fn duty_table(entries: &[(u8, u8)]) -> Vec<u8> {
 /// Packet size before the firmware is known, as the devices declare it.
 fn first_size(pid: u16) -> usize {
     match pid {
-        CORE2 => 65,
+        CORE2 | DUO => 65,
         XT => 385,
         LINK => LINK_SIZE,
         _ => 97,
@@ -223,6 +227,7 @@ pub fn parse_children(data: &[u8]) -> Vec<(u8, u8)> {
 
 struct Kind {
     kind: u8,
+    model: Option<u8>,
     name: &'static str,
     rpm: bool,
     probe: bool,
@@ -232,6 +237,7 @@ struct Kind {
 const fn k(kind: u8, name: &'static str, rpm: bool, probe: bool, pump: bool) -> Kind {
     Kind {
         kind,
+        model: None,
         name,
         rpm,
         probe,
@@ -254,7 +260,102 @@ const KINDS: &[Kind] = &[
     k(14, "LINK XD5 Elite", true, true, true),
     k(25, "LINK XD6 Elite", true, true, true),
     k(16, "LINK VRM Fan", true, false, false),
+    k(27, "Commander DUO Channel", true, true, false),
+    k(9, "LINK XC7 Elite", false, true, false),
+    k(11, "LINK PSU", false, true, false),
+    Kind {
+        model: Some(0),
+        ..k(26, "LINK Fan", true, false, false)
+    },
+    Kind {
+        model: Some(1),
+        ..k(26, "LINK AIO Pump", true, true, true)
+    },
 ];
+
+fn kind_of(kind: u8, model: u8) -> Option<&'static Kind> {
+    KINDS
+        .iter()
+        .find(|k| k.kind == kind && k.model.is_none_or(|m| m == model))
+}
+
+/// The child list read record by record: (channel, type, model) of every occupied channel.
+/// A record is eight bytes, the device id's length in its last, then the id.
+const MAX_ID: usize = 64;
+
+pub fn parse_link(data: &[u8]) -> Option<Vec<(u8, u8, u8)>> {
+    let n = *data.get(6)?;
+    let mut at = 7;
+    let mut out = Vec::new();
+    for ch in 1..=n {
+        let rec = data.get(at..at + 8)?;
+        let len = usize::from(rec[7]);
+        if len > 0 {
+            let id = data.get(at + 8..at + 8 + len)?;
+            let sane =
+                rec[..2] == [0, 0] && len <= MAX_ID && id.iter().all(|b| (0x20..0x7F).contains(b));
+            if !sane {
+                return None;
+            }
+            out.push((ch, rec[2], rec[3]));
+        }
+        at += 8 + len;
+    }
+    Some(out)
+}
+
+/// Channels and probes by the record walk; anything it cannot place falls back to the scan.
+pub fn link_channels(
+    children: &[u8],
+    rpms: &[u32],
+    temps: &[Option<f32>],
+) -> (Vec<Chan>, Vec<(String, usize)>) {
+    let exact = parse_link(children).filter(|e| e.iter().all(|c| usize::from(c.0) < rpms.len()));
+    let chans = exact
+        .as_ref()
+        .and_then(|e| map_link_exact(e, rpms))
+        .filter(|c| !c.is_empty());
+    let sensors = exact
+        .as_ref()
+        .and_then(|e| map_link_sensors_exact(e, temps));
+    let kids = parse_children(children);
+    (
+        chans.unwrap_or_else(|| map_link(&kids, rpms)),
+        sensors.unwrap_or_else(|| map_link_sensors(&kids, temps)),
+    )
+}
+
+/// Every RPM-reporting child on its own channel's slot; `None` when a slot was not read.
+pub fn map_link_exact(children: &[(u8, u8, u8)], rpms: &[u32]) -> Option<Vec<Chan>> {
+    children
+        .iter()
+        .filter_map(|&(slot, kind, model)| Some((slot, kind_of(kind, model).filter(|k| k.rpm)?)))
+        .enumerate()
+        .map(|(i, (slot, k))| {
+            (usize::from(slot) < rpms.len()).then(|| Chan {
+                name: format!("{} {}", k.name, i + 1),
+                pump: k.pump,
+                slot,
+            })
+        })
+        .collect()
+}
+
+/// Probe-reporting children read their own channel's temperature slot.
+pub fn map_link_sensors_exact(
+    children: &[(u8, u8, u8)],
+    temps: &[Option<f32>],
+) -> Option<Vec<(String, usize)>> {
+    children
+        .iter()
+        .filter_map(|&(slot, kind, model)| Some((slot, kind_of(kind, model).filter(|k| k.probe)?)))
+        .enumerate()
+        .map(|(i, (slot, k))| {
+            let slot = usize::from(slot);
+            (slot < temps.len()).then(|| (format!("{} {}", k.name, i + 1), slot))
+        })
+        .collect()
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chan {
@@ -400,7 +501,7 @@ impl Bus {
         self.close();
         let mut data = first?;
         if let Some(s) = second {
-            data.extend(s.get(3..).unwrap_or(&[]));
+            data.extend(s.get(LINK_MORE..).unwrap_or(&[]));
         }
         Some(data)
     }
@@ -633,6 +734,27 @@ impl FanHub for Hub {
     }
 }
 
+/// The Core's pump on slot 0 then six fans; the XT's six fans and the DUO's two from slot 0.
+fn core_chans(pid: u16) -> Vec<Chan> {
+    let core = Flavor::of(pid) == Some(Flavor::Core);
+    let mut chans = Vec::new();
+    if core {
+        chans.push(Chan {
+            name: "Pump".into(),
+            pump: true,
+            slot: 0,
+        });
+    }
+    let from = u8::from(core);
+    let fans = if pid == DUO { 2 } else { 6 };
+    chans.extend((0..fans).map(|i| Chan {
+        name: format!("Fan {}", i + 1),
+        pump: false,
+        slot: from + i,
+    }));
+    chans
+}
+
 fn open_bus(api: &HidApi, info: &Info, flavor: Flavor) -> Option<Bus> {
     let io = open_io(api, info).ok()?;
     let first = first_size(info.pid);
@@ -667,21 +789,7 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
                     _ => (format!("Temperature Probe {}", i + 1), i),
                 })
                 .collect();
-            let mut chans = Vec::new();
-            if core {
-                chans.push(Chan {
-                    name: "Pump".into(),
-                    pump: true,
-                    slot: 0,
-                });
-            }
-            let from = u8::from(core);
-            chans.extend((0..6).map(|i| Chan {
-                name: format!("Fan {}", i + 1),
-                pump: false,
-                slot: from + i,
-            }));
-            (chans, sensors)
+            (core_chans(info.pid), sensors)
         }
         Flavor::Link => {
             let (children, rpms, temps) = bus.with_access(|b| {
@@ -699,8 +807,7 @@ pub fn hub(api: &HidApi, info: &Info) -> Option<Box<dyn FanBackend>> {
                     .unwrap_or_default();
                 Some((children, rpms, temps))
             })?;
-            let kids = parse_children(&children);
-            (map_link(&kids, &rpms), map_link_sensors(&kids, &temps))
+            link_channels(&children, &rpms, &temps)
         }
     };
     if chans.is_empty() {
@@ -826,6 +933,66 @@ mod tests {
         assert_eq!(sensors[0].1, 0);
     }
 
+    fn record(kind: u8, model: u8, id: &[u8]) -> Vec<u8> {
+        let mut r = vec![0, 0, kind, model, 0, 0, 0, id.len() as u8];
+        r.extend_from_slice(id);
+        r
+    }
+
+    #[test]
+    fn link_children_map_to_their_own_channel() {
+        let mut d = vec![0, 0, 0, 0, 0x21, 0, 6];
+        d.extend(record(1, 0, b"QX0000000000000000000001"));
+        d.extend([0u8; 8]);
+        d.extend(record(7, 2, b"AIO000000000000000000002"));
+        d.extend(record(9, 0, b"XC7000000000000000000003"));
+        d.extend(record(26, 1, b"PUMP0000000000000000004"));
+        d.extend(record(26, 8, b"LCD00000000000000000005"));
+        let kids = parse_link(&d).unwrap();
+        assert_eq!(
+            kids,
+            [(1, 1, 0), (3, 7, 2), (4, 9, 0), (5, 26, 1), (6, 26, 8)]
+        );
+        let chans = map_link_exact(&kids, &[0, 0, 1500, 0, 0, 2800, 0]).unwrap();
+        let got: Vec<(&str, bool, u8)> = chans
+            .iter()
+            .map(|c| (c.name.as_str(), c.pump, c.slot))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("QX Fan 1", false, 1),
+                ("LINK AIO Pump 2", true, 3),
+                ("LINK AIO Pump 3", true, 5)
+            ]
+        );
+        assert_eq!(map_link_exact(&kids, &[0, 0, 0]), None);
+        let sensors = map_link_sensors_exact(&kids, &[None; 7]).unwrap();
+        let slots: Vec<usize> = sensors.iter().map(|s| s.1).collect();
+        assert_eq!(slots, [1, 3, 4, 5]);
+        assert_eq!(parse_link(&d[..20]), None);
+        let (chans, _) = link_channels(&d, &[0, 0, 1500, 0, 0, 2800, 0], &[None; 7]);
+        assert_eq!(chans.len(), 3);
+    }
+
+    // A record that does not parse leaves every slot pump-safe.
+    #[test]
+    fn a_broken_link_record_falls_back_to_pump_safe_slots() {
+        let mut d = vec![0, 0, 0, 0, 0x21, 0, 2];
+        d.extend(record(1, 0, b"QX0000000000000000000001"));
+        d.extend(record(19, 0, b"RX0000000000000000000002"));
+        d[7 + 7] = 0xF0;
+        assert_eq!(parse_link(&d), None);
+        let (chans, _) = link_channels(&d, &[0, 900, 0], &[]);
+        assert_eq!(chans.len(), 3);
+        assert!(chans.iter().all(|c| c.pump));
+        let mut short = d.clone();
+        short[7 + 7] = 24;
+        assert!(parse_link(&short).is_some());
+        let (chans, _) = link_channels(&short, &[0, 900], &[]);
+        assert!(chans.iter().all(|c| c.pump));
+    }
+
     /// Answers each Core command once with success, and records what was written.
     #[derive(Clone, Default)]
     struct Echo {
@@ -941,6 +1108,14 @@ mod tests {
     fn sizes() {
         assert_eq!(first_size(CORE2), 65);
         assert_eq!(first_size(XT), 385);
+        assert_eq!(first_size(DUO), 65);
+        let duo: Vec<(bool, u8)> = core_chans(DUO).iter().map(|c| (c.pump, c.slot)).collect();
+        assert_eq!(duo, [(false, 0), (false, 1)]);
+        assert_eq!(core_chans(XT).len(), 6);
+        assert_eq!(core_chans(CORE)[0].slot, 0);
+        assert!(core_chans(CORE)[0].pump);
+        assert_eq!(core_chans(CORE).len(), 7);
+        assert_eq!(Flavor::of(DUO), Some(Flavor::Xt));
         assert_eq!(size_after(CORE, 97, 1), 1025);
         assert_eq!(size_after(CORE, 97, 2), 97);
         assert_eq!(Flavor::Core.default_pct(true), 60);

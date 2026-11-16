@@ -12,6 +12,7 @@ mod msi_optix;
 mod msi_vigor;
 mod ss_apex;
 mod ss_audio_mat;
+mod ss_headset;
 mod ss_rival;
 mod ss_rival3;
 
@@ -27,6 +28,7 @@ pub fn detectors() -> Vec<&'static Detector> {
         ss_rival3::detectors(),
         ss_audio_mat::detectors(),
         ss_apex::detectors(),
+        ss_headset::detectors(),
     ]
     .concat()
 }
@@ -36,6 +38,6 @@ mod tests {
     // One detector per REGISTER_HID_DETECTOR* line ported, plus the ids added from SignalRGB.
     #[test]
     fn detector_count() {
-        assert_eq!(super::detectors().len(), 194 + 28);
+        assert_eq!(super::detectors().len(), 194 + 28 + 19);
     }
 }

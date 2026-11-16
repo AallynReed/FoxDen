@@ -94,6 +94,8 @@ pub static MICE: &[Mouse] = &[
     m(0x1910, L, 4),
     m(0x1A9B, L, 100),
     m(0x1898, L, 4),
+    m(0x1C56, L, 100),
+    m(0x1C57, L, 100),
     m(DOCK, &[ZONE_DOCK], 100),
 ];
 
@@ -503,6 +505,24 @@ pub static DETECTORS: &[Detector] = &[
         open,
     ),
     det("ASUS TUF Gaming M5", VID, 0x1898, 2, 0xFF01, ANY, open),
+    det(
+        "ASUS TUF Gaming Mini WL Miku USB",
+        VID,
+        0x1C56,
+        ANY,
+        0xFF01,
+        ANY,
+        open,
+    ),
+    det(
+        "ASUS TUF Gaming Mini WL Miku 2.4Ghz",
+        VID,
+        0x1C57,
+        ANY,
+        0xFF01,
+        ANY,
+        open,
+    ),
 ];
 
 #[cfg(test)]
@@ -548,9 +568,19 @@ mod tests {
     }
 
     #[test]
+    fn miku_logo_at_full_brightness() {
+        let m = mouse(0x1C57).unwrap();
+        assert_eq!(
+            update(m.pid, m.zones[0], Color(7, 8, 9), m.brightness),
+            pad(&[0, 0x51, 0x28, 0, 0, 0, 100, 7, 8, 9], 65)[..]
+        );
+    }
+
+    #[test]
     fn every_detector_has_a_device() {
         assert!(DETECTORS.iter().all(|d| mouse(d.pid).is_some()));
         let direct = MICE.iter().filter(|m| m.map.is_some()).count();
         assert_eq!(direct, 9);
+        assert_eq!((MICE.len(), DETECTORS.len()), (43, 43));
     }
 }
