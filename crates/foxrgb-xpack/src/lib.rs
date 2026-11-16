@@ -36,6 +36,19 @@ pub const NOT_OWNED: &[(u16, u16, &str)] = &[
     (0x0B05, 0x1ADE, "no lighting driver"),
     (0x0DB0, 0xB130, "no lighting driver"),
     (0x1B1C, 0x0C04, "no lighting driver"),
+    (0x0C70, 0xF011, "no lighting driver"),
+    (0x0C70, 0xF00D, "no lighting driver"),
+    (0x0C70, 0xF00A, "no lighting driver"),
+    (
+        0x0C70,
+        0xF00E,
+        "lit over its raw-USB LED interface, apart from the HID fan side",
+    ),
+    (
+        0x0C70,
+        0xF010,
+        "lit over its raw-USB LED interface, apart from the HID fan side",
+    ),
     (0x1B1C, 0x0C42, "a coolant probe, no fan or pump to drive"),
     (
         0x0416,

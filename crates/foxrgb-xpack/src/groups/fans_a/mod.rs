@@ -1,5 +1,6 @@
 //! Group fans_a: USB fan controllers and AIO coolers.
 
+mod aquacomputer;
 mod arctic;
 mod msi_coreliquid;
 mod nuvoton;
@@ -37,6 +38,7 @@ pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
     v.extend(nzxt_x2::ids());
     v.extend(nzxt_grid::ids());
     v.extend(msi_coreliquid::ids());
+    v.extend(aquacomputer::ids());
     v
 }
 
@@ -60,5 +62,6 @@ pub fn fan_backends(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     v.extend(nzxt_x2::backends(api, &mut seen));
     v.extend(nzxt_grid::backends(api, &mut seen));
     v.extend(msi_coreliquid::backends(api, &mut seen));
+    v.extend(aquacomputer::backends(api, &mut seen));
     v
 }
