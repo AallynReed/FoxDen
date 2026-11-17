@@ -143,6 +143,16 @@ const MEMORY: &[(&str, &str)] = &[
     ("crucial", "Crucial"),
     ("kingston", "Kingston"),
     ("patriot", "Patriot"),
+    ("g.skill", "G.Skill"),
+    ("g skill", "G.Skill"),
+    ("teamgroup", "TeamGroup"),
+    ("team group", "TeamGroup"),
+    ("adata", "ADATA XPG"),
+    ("xpg", "ADATA XPG"),
+    ("biwin", "Acer Predator"),
+    ("predator", "Acer Predator"),
+    ("acer", "Acer Predator"),
+    ("lexar", "Lexar"),
 ];
 
 /// PCI subsystem vendors of the card makers in OpenRGB's pci_ids.h.
@@ -624,6 +634,10 @@ fn drives(found: &Found, native: &str, device: &Device) -> bool {
         || (native == PORTED
             && device.id.starts_with(PORTED)
             && usb.is_some_and(|ids| device.id.contains(&ids)))
+        // Memory sticks are probed on the bus, so any stick a native driver lights counts.
+        || (found.bus == Bus::Memory
+            && device.kind == DeviceKind::Memory
+            && !device.id.starts_with("openrgb"))
         // The board row goes by its lighting controller, a USB device of its own.
         || (native == PORTED
             && found.bus == Bus::Board
@@ -633,13 +647,14 @@ fn drives(found: &Found, native: &str, device: &Device) -> bool {
 
 fn status(found: &Found, live: &Live) -> (Route, State, String) {
     let settings = live.settings;
-    if found
-        .native
-        .is_some_and(|id| live.driven.iter().any(|(_, device)| drives(found, id, device)))
-        || live
-            .driven
+    if found.native.is_some_and(|id| {
+        live.driven
             .iter()
-            .any(|(_, device)| drives(found, PORTED, device))
+            .any(|(_, device)| drives(found, id, device))
+    }) || live
+        .driven
+        .iter()
+        .any(|(_, device)| drives(found, PORTED, device))
     {
         return (
             Route::Native,
@@ -1285,6 +1300,28 @@ mod tests {
         assert!(line("gpu:1002:7550").note.contains("does not list"));
         assert_eq!(line("network:openrgb").state, State::Active);
         assert!(line("network:openrgb").note.contains("device list"));
+    }
+
+    #[test]
+    fn a_stick_a_native_driver_lights_is_active() {
+        let stick = part("memory:x", "memory", Bus::Memory, Some("Acer Predator"));
+        let light = Device::grid(
+            "smbus:ene-dram-0-71",
+            "ENE DRAM",
+            DeviceKind::Memory,
+            [0.0; 4],
+            8,
+            1,
+        );
+        let both = settings(true, true);
+        let live = Live {
+            settings: &both,
+            driven: vec![("smbus", &light)],
+            openrgb_up: false,
+            openrgb_on: false,
+        };
+        let row = &resolve(&[stick], &live)[0];
+        assert_eq!((row.route, row.state), (Route::Native, State::Active));
     }
 
     #[test]
