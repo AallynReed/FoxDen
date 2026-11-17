@@ -1,4 +1,4 @@
-//! New releases from GitHub: checks a minute after start, then every six hours, and tells the user.
+//! New releases from GitHub: checks a minute after start, then every hour, and tells the user.
 //! With `auto_update` on it installs by itself once the app is in the tray or a minute has passed.
 
 use std::sync::Mutex;
@@ -12,7 +12,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use crate::state::{Shared, lock};
 
 const FIRST: Duration = Duration::from_secs(60);
-const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+const EVERY: Duration = Duration::from_secs(60 * 60);
 const GRACE: Duration = Duration::from_secs(60);
 const DEV: &str = "development builds do not install updates";
 

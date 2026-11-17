@@ -99,7 +99,7 @@ cargo run -p foxrgb
 
 FoxRGB only connects to:
 
-- GitHub, a minute after start and then every six hours, to check for a new release. Nothing
+- GitHub, a minute after start and then every hour, to check for a new release. Nothing
   is sent beyond the request itself.
 - `reports.foxhearth.com`, only if you switch on anonymous error reports (off by default). A
   report holds the error, the FoxRGB version and the hardware ids of your devices, never names,
