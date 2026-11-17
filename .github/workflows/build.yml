@@ -42,10 +42,13 @@ jobs:
           key: cargo-${{ steps.rustc.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ steps.rustc.outputs.version }}-
 
+      # Releases are tested and linted on the release PC before tagging.
       - name: Test
+        if: github.ref_type != 'tag'
         run: cargo test --workspace --locked
 
       - name: Lint
+        if: github.ref_type != 'tag'
         run: cargo clippy --workspace --all-targets
 
       - name: Download PawnIO
