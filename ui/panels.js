@@ -1608,6 +1608,7 @@ function renderBar(snap) {
   put($("view-snap"), view.snap);
   put($("view-grid"), view.grid);
   put($("view-labels"), view.labels);
+  put($("view-shapes"), view.shapes);
   put($("view-keys"), view.keys);
   put($("view-zoom"), view.zoom);
   const device = findDevice(preview.selected);
@@ -1635,6 +1636,7 @@ function wirePanels() {
   $("view-snap").onchange = () => setView({ snap: $("view-snap").checked });
   $("view-grid").onchange = () => setView({ grid: Number($("view-grid").value), snap: true });
   $("view-labels").onchange = () => setView({ labels: $("view-labels").checked });
+  $("view-shapes").onchange = () => setView({ shapes: $("view-shapes").checked });
   $("view-keys").onchange = () => setView({ keys: $("view-keys").checked });
   $("view-zoom").onchange = () => setView({ zoom: Number($("view-zoom").value) });
   $("reset-layout").onclick = () => call("reset_layout").then((out) => out !== undefined && note("Layout reset"));

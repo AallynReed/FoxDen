@@ -17,7 +17,7 @@ const preview = {
 };
 
 // View options. Kept in the browser's storage, not in the app's settings.
-const view = { snap: false, grid: 0.05, labels: true, keys: true, zoom: 1 };
+const view = { snap: false, grid: 0.05, labels: true, shapes: true, keys: true, zoom: 1 };
 const ZOOMS = [0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
@@ -100,32 +100,276 @@ function drawGrid(ctx) {
   ctx.stroke();
 }
 
+// Device bodies by kind. Each draws inside the device's rect and says how its LEDs look.
+const rings = new WeakMap();
+
+// LEDs spread evenly round a centre, as on a fan.
+function isRing(leds) {
+  if (rings.has(leds)) return rings.get(leds);
+  let ring = false;
+  if (leds.length >= 8) {
+    const cx = leds.reduce((s, l) => s + l[0], 0) / leds.length;
+    const cy = leds.reduce((s, l) => s + l[1], 0) / leds.length;
+    const d = leds.map((l) => Math.hypot(l[0] - cx, l[1] - cy));
+    const mean = d.reduce((s, v) => s + v, 0) / d.length;
+    const spread = Math.sqrt(d.reduce((s, v) => s + (v - mean) ** 2, 0) / d.length);
+    ring = mean > 0.2 && spread / mean < 0.15;
+  }
+  rings.set(leds, ring);
+  return ring;
+}
+
+function shapeOf(device, w, h) {
+  if (isRing(device.leds)) return "fan";
+  const long = Math.max(w, h) / Math.max(1, Math.min(w, h));
+  switch (device.kind) {
+    case "keyboard":
+      return "keyboard";
+    case "mouse":
+      return "mouse";
+    case "memory":
+      return "memory";
+    case "gpu":
+      return long > 16 ? "strip" : "gpu";
+    case "motherboard":
+      return long > 3 ? "strip" : "board";
+    case "strip":
+      return "strip";
+    default:
+      return long > 6 ? "strip" : "plate";
+  }
+}
+
+// The app's cut corner: the top right is clipped.
+function cutPath(ctx, x, y, w, h, cut) {
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + w - cut, y);
+  ctx.lineTo(x + w, y + cut);
+  ctx.lineTo(x + w, y + h);
+  ctx.lineTo(x, y + h);
+  ctx.closePath();
+}
+
+function mousePath(ctx, x, y, w, h) {
+  ctx.beginPath();
+  ctx.moveTo(x, y + h * 0.42);
+  ctx.bezierCurveTo(x, y + h * 0.08, x + w * 0.2, y, x + w / 2, y);
+  ctx.bezierCurveTo(x + w * 0.8, y, x + w, y + h * 0.08, x + w, y + h * 0.42);
+  ctx.lineTo(x + w * 0.96, y + h * 0.78);
+  ctx.bezierCurveTo(x + w * 0.92, y + h, x + w * 0.08, y + h, x + w * 0.04, y + h * 0.78);
+  ctx.closePath();
+}
+
+function line(ctx, x1, y1, x2, y2) {
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+}
+
+// Fills and outlines the body, draws its details, and leaves the outline path for clipping.
+function drawBody(ctx, shape, x, y, w, h, edge) {
+  const s = Math.min(w, h);
+  ctx.fillStyle = PAINT.plate;
+  ctx.strokeStyle = PAINT.line;
+  switch (shape) {
+    case "mouse": {
+      mousePath(ctx, x, y, w, h);
+      ctx.fill();
+      line(ctx, x + w / 2, y + 1, x + w / 2, y + h * 0.4);
+      line(ctx, x + w * 0.02, y + h * 0.4, x + w * 0.98, y + h * 0.4);
+      ctx.fillStyle = PAINT.line;
+      ctx.fillRect(x + w / 2 - w * 0.07, y + h * 0.1, w * 0.14, h * 0.2);
+      mousePath(ctx, x, y, w, h);
+      break;
+    }
+    case "memory": {
+      const tall = h > w;
+      cutPath(ctx, x, y, w, h, Math.min(6, s * 0.3));
+      ctx.fill();
+      ctx.fillStyle = PAINT.stroke;
+      // Gold fingers on the edge away from the light bar, broken by the key notch.
+      if (tall) {
+        const fw = Math.max(2, w * 0.14);
+        ctx.fillRect(x + w - fw, y + h * 0.06, fw, h * 0.4);
+        ctx.fillRect(x + w - fw, y + h * 0.52, fw, h * 0.42);
+      } else {
+        const fh = Math.max(2, h * 0.14);
+        ctx.fillRect(x + w * 0.06, y + h - fh, w * 0.4, fh);
+        ctx.fillRect(x + w * 0.52, y + h - fh, w * 0.42, fh);
+      }
+      cutPath(ctx, x, y, w, h, Math.min(6, s * 0.3));
+      break;
+    }
+    case "gpu": {
+      cutPath(ctx, x, y, w, h, Math.min(8, s * 0.25));
+      ctx.fill();
+      // The bracket at the left and the PCIe fingers along the bottom.
+      ctx.fillStyle = PAINT.line;
+      ctx.fillRect(x, y, Math.max(2, w * 0.03), h);
+      ctx.fillStyle = PAINT.stroke;
+      ctx.fillRect(x + w * 0.12, y + h - Math.max(2, h * 0.08), w * 0.3, Math.max(2, h * 0.08));
+      const fans = w / h > 3.2 ? 3 : 2;
+      const r = Math.min(h * 0.3, (w * 0.8) / fans / 2.3);
+      for (let i = 0; i < fans; i++) {
+        const cx = x + w * 0.1 + ((i + 0.5) * w * 0.86) / fans;
+        const cy = y + h * 0.6;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.25, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      cutPath(ctx, x, y, w, h, Math.min(8, s * 0.25));
+      break;
+    }
+    case "board": {
+      cutPath(ctx, x, y, w, h, Math.min(10, s * 0.08));
+      ctx.fill();
+      ctx.strokeRect(x + w * 0.38, y + h * 0.12, w * 0.22, h * 0.24);
+      for (let i = 0; i < 4; i++) ctx.strokeRect(x + w * (0.68 + i * 0.06), y + h * 0.08, w * 0.03, h * 0.42);
+      for (let i = 0; i < 2; i++) ctx.strokeRect(x + w * 0.08, y + h * (0.56 + i * 0.18), w * 0.6, h * 0.05);
+      ctx.strokeRect(x + w * 0.04, y + h * 0.06, w * 0.12, h * 0.36);
+      cutPath(ctx, x, y, w, h, Math.min(10, s * 0.08));
+      break;
+    }
+    case "fan": {
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      const r = s / 2;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.78, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * r * 0.22, cy + Math.sin(a) * r * 0.22);
+        ctx.quadraticCurveTo(cx + Math.cos(a + 0.5) * r * 0.55, cy + Math.sin(a + 0.5) * r * 0.55, cx + Math.cos(a + 0.9) * r * 0.72, cy + Math.sin(a + 0.9) * r * 0.72);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.rect(cx - r, cy - r, r * 2, r * 2);
+      break;
+    }
+    case "keyboard":
+      cutPath(ctx, x, y, w, h, Math.min(10, s * 0.08));
+      ctx.fill();
+      cutPath(ctx, x, y, w, h, Math.min(10, s * 0.08));
+      break;
+    case "strip": {
+      const c = Math.min(4, s * 0.4);
+      cutPath(ctx, x, y, w, h, c);
+      ctx.fill();
+      cutPath(ctx, x, y, w, h, c);
+      break;
+    }
+    default:
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+  }
+  ctx.strokeStyle = edge;
+  ctx.stroke();
+}
+
+const css = (c) => (c && c[0] + c[1] + c[2] > 24 ? "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")" : PAINT.unlit);
+
+// LEDs in the look of the body: keycaps, a light bar, a ring, dots or plain cells.
+function drawLeds(ctx, shape, device, colors, x, y, w, h) {
+  const leds = device.leds;
+  const [cols, rows] = device.grid;
+  const cw = w / Math.max(1, cols);
+  const ch = h / Math.max(1, rows);
+  const at = (i) => [x + leds[i][0] * w, y + leds[i][1] * h];
+  if (shape === "memory" || (shape === "gpu" && rows === 1)) {
+    // One light bar, split into the stick's or card's LEDs.
+    const tall = h > w;
+    const n = leds.length;
+    for (let i = 0; i < n; i++) {
+      ctx.fillStyle = css(colors && colors[i]);
+      if (shape === "memory" && tall) ctx.fillRect(x + w * 0.1, y + h * 0.04 + (i * h * 0.92) / n, w * 0.45, (h * 0.92) / n + 0.5);
+      else if (shape === "memory") ctx.fillRect(x + w * 0.04 + (i * w * 0.92) / n, y + h * 0.1, (w * 0.92) / n + 0.5, h * 0.45);
+      else ctx.fillRect(x + w * 0.06 + (i * w * 0.9) / n, y + h * 0.08, (w * 0.9) / n + 0.5, Math.max(2, h * 0.14));
+    }
+    return;
+  }
+  if (shape === "fan") {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const r = Math.min(w, h) / 2;
+    const n = leds.length;
+    ctx.lineWidth = Math.max(2, r * 0.16);
+    for (let i = 0; i < n; i++) {
+      const [lx, ly] = at(i);
+      const a = Math.atan2(ly - cy, lx - cx);
+      ctx.strokeStyle = css(colors && colors[i]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.88, a - Math.PI / n - 0.01, a + Math.PI / n + 0.01);
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    return;
+  }
+  if (shape === "mouse" || shape === "strip" || shape === "board") {
+    const r = shape === "mouse" ? Math.min(w, h) * 0.16 : Math.max(1, Math.min(cw, ch, shape === "board" ? Math.min(w, h) * 0.08 : Infinity) * 0.36);
+    for (let i = 0; i < leds.length; i++) {
+      const [lx, ly] = at(i);
+      ctx.fillStyle = css(colors && colors[i]);
+      ctx.beginPath();
+      ctx.arc(lx, ly, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return;
+  }
+  // Keycaps and plain cells: a square per LED, keycaps with a darker rim.
+  const gap = shape === "keyboard" ? Math.max(1, Math.min(cw, ch) * 0.12) : Math.min(1.5, Math.min(cw, ch) * 0.12);
+  const lw = Math.max(1, cw - gap * 2);
+  const lh = Math.max(1, ch - gap * 2);
+  let last = "";
+  for (let i = 0; i < leds.length; i++) {
+    const c = css(colors && colors[i]);
+    if (c !== last) ctx.fillStyle = last = c;
+    const [lx, ly] = at(i);
+    ctx.fillRect(lx - lw / 2, ly - lh / 2, lw, lh);
+  }
+  if (shape === "keyboard" && lw > 6) {
+    ctx.strokeStyle = PAINT.plate;
+    for (let i = 0; i < leds.length; i++) {
+      const [lx, ly] = at(i);
+      ctx.strokeRect(lx - lw / 2 + 1.5, ly - lh / 2 + 1.5, lw - 3, lh - 3);
+    }
+  }
+}
+
 function drawDevice(ctx, device) {
   const [x, y, w, h] = toPx(rectOf(device));
   const selected = device.id === preview.selected;
   const hovered = device.id === preview.hover;
   const colors = preview.frames.get(device.id);
-  const cw = w / Math.max(1, device.grid[0]);
-  const ch = h / Math.max(1, device.grid[1]);
-  const gap = Math.min(1.5, Math.min(cw, ch) * 0.12);
-  const lw = Math.max(1, cw - gap * 2);
-  const lh = Math.max(1, ch - gap * 2);
+  const shape = view.shapes ? shapeOf(device, w, h) : "plate";
+  const edge = selected ? PAINT.accent : hovered ? PAINT.text : PAINT.stroke;
 
   ctx.globalAlpha = device.enabled ? 1 : 0.35;
-  ctx.fillStyle = PAINT.plate;
-  ctx.fillRect(x, y, w, h);
-  let last = "";
-  for (let i = 0; i < device.leds.length; i++) {
-    const c = colors && colors[i];
-    const css = c && c[0] + c[1] + c[2] > 24 ? "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")" : PAINT.unlit;
-    if (css !== last) ctx.fillStyle = last = css;
-    const led = device.leds[i];
-    ctx.fillRect(x + led[0] * w - lw / 2, y + led[1] * h - lh / 2, lw, lh);
-  }
+  ctx.save();
+  drawBody(ctx, shape, x + 0.5, y + 0.5, w - 1, h - 1, edge);
+  if (shape === "mouse") ctx.clip();
+  drawLeds(ctx, shape, device, colors, x, y, w, h);
+  ctx.restore();
   ctx.globalAlpha = 1;
 
-  ctx.strokeStyle = selected ? PAINT.accent : hovered ? PAINT.text : PAINT.stroke;
-  ctx.strokeRect(x - 0.5, y - 0.5, w + 1, h + 1);
+  if (selected) {
+    ctx.strokeStyle = PAINT.accent;
+    ctx.strokeRect(x - 2.5, y - 2.5, w + 5, h + 5);
+  }
   const label = device.name + (device.enabled ? "" : " (off)");
   if (selected || hovered || (view.labels && labelWidth(ctx, label) <= w)) {
     ctx.fillStyle = selected || hovered ? PAINT.text : PAINT.muted;

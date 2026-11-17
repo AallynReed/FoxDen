@@ -20,6 +20,11 @@
     return { id, name, kind, backend, rect, grid: [cols, rows], leds };
   }
 
+  function ring(id, name, rect, n) {
+    const leds = Array.from({ length: n }, (_, i) => [0.5 + 0.4 * Math.cos((i / n) * Math.PI * 2), 0.5 + 0.4 * Math.sin((i / n) * Math.PI * 2)]);
+    return { id, name, kind: "other", backend: "hid", rect, grid: [n, 1], leds };
+  }
+
   // What the native drivers and an OpenRGB server would show.
   const hardware = [
     grid("hid:board", "Motherboard ARGB header", "motherboard", "hid", [0.06, 0.12, 0.52, 0.05], 24, 1),
@@ -34,6 +39,7 @@
     grid("hid:1462:7d99", "MSI B760M Gaming Plus WiFi", "motherboard", "hid", [0.06, 0.2, 0.3, 0.05], 10, 1),
     grid("hid:046d:c539", "Logitech G502 Lightspeed", "mouse", "hid", [0.8, 0.62, 0.06, 0.22], 1, 2),
     grid("hid:046d:c547", "Logitech G515 Lightspeed TKL", "keyboard", "hid", [0.06, 0.4, 0.4, 0.13], 17, 6),
+    ring("hid:fan", "Case fan", [0.62, 0.62, 0.07, 0.12], 16),
   ];
 
   const ORANGE = [255, 106, 0];
