@@ -8,6 +8,7 @@ mod rk;
 mod roccat;
 mod sinowealth;
 mod sonix;
+mod sonix_cfg;
 mod speedlink;
 mod steelseries;
 mod thermaltake;
@@ -27,6 +28,7 @@ pub fn detectors() -> Vec<&'static Detector> {
         roccat::DETECTORS,
         sinowealth::DETECTORS,
         sonix::DETECTORS,
+        sonix_cfg::DETECTORS,
         speedlink::DETECTORS,
         steelseries::DETECTORS,
         thermaltake::DETECTORS,
