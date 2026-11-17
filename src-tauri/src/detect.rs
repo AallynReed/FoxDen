@@ -205,6 +205,15 @@ fn usb_kind(name: &str, parts: &[&HidInfo]) -> &'static str {
     }
 }
 
+/// Ported controllers that light the motherboard itself.
+const BOARD_CONTROLLERS: &[&str] = &[
+    "MSI Mystic Light",
+    "ASUS Aura Motherboard",
+    "ASUS Aura Addressable",
+    "ASRock Polychrome USB",
+    "Gigabyte RGB Fusion 2 USB",
+];
+
 /// Vendor and product id of every USB HID device, sorted, one per device.
 fn usb_ids(hid: &[HidInfo]) -> Vec<(u16, u16)> {
     let mut ids: Vec<(u16, u16)> = hid
@@ -268,7 +277,13 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
         found.push(Found {
             id: format!("usb:{vendor:04x}:{product:04x}"),
             name,
-            kind: known.map_or_else(|| usb_kind(label, &parts), |n| n.3),
+            kind: match (known, family) {
+                (Some(n), _) => n.3,
+                (None, Some(f)) if BOARD_CONTROLLERS.iter().any(|b| f.starts_with(b)) => {
+                    "motherboard"
+                }
+                _ => usb_kind(label, &parts),
+            },
             bus: Bus::Usb,
             native: known.map(|n| n.4).or(family.map(|_| PORTED)),
             brand,
@@ -609,6 +624,11 @@ fn drives(found: &Found, native: &str, device: &Device) -> bool {
         || (native == PORTED
             && device.id.starts_with(PORTED)
             && usb.is_some_and(|ids| device.id.contains(&ids)))
+        // The board row goes by its lighting controller, a USB device of its own.
+        || (native == PORTED
+            && found.bus == Bus::Board
+            && device.kind == DeviceKind::Motherboard
+            && device.id.starts_with(PORTED))
 }
 
 fn status(found: &Found, live: &Live) -> (Route, State, String) {
@@ -1019,6 +1039,13 @@ mod tests {
     }
 
     #[test]
+    fn a_ported_board_controller_lights_the_board() {
+        let found = usb(&[hid(0x1462, 0x7D75, 0x0001, 0x0000, "MYSTIC LIGHT ", true)]);
+        assert_eq!(found[0].kind, "motherboard");
+        assert_eq!(found[0].native, Some(PORTED));
+    }
+
+    #[test]
     fn wmi_rows_become_parts() {
         let b = BaseBoard {
             manufacturer: Some("Micro-Star International Co., Ltd.".into()),
@@ -1258,6 +1285,31 @@ mod tests {
         assert!(line("gpu:1002:7550").note.contains("does not list"));
         assert_eq!(line("network:openrgb").state, State::Active);
         assert!(line("network:openrgb").note.contains("device list"));
+    }
+
+    #[test]
+    fn a_board_lit_by_a_ported_controller_is_active() {
+        let board = Found {
+            native: Some(PORTED),
+            ..part("board:MS-7D75", "motherboard", Bus::Board, Some("MSI"))
+        };
+        let light = Device::grid(
+            "hid:msi-board-1462-7d75-0",
+            "MSI Mystic Light MS_7D75",
+            DeviceKind::Motherboard,
+            [0.0; 4],
+            1,
+            1,
+        );
+        let both = settings(true, true);
+        let live = Live {
+            settings: &both,
+            driven: vec![("hid", &light)],
+            openrgb_up: false,
+            openrgb_on: false,
+        };
+        let row = &resolve(&[board], &live)[0];
+        assert_eq!((row.route, row.state), (Route::Native, State::Active));
     }
 
     #[test]
