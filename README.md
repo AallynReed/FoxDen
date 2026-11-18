@@ -73,7 +73,7 @@ OpenRGB can optionally drive anything else through its server.
 - Effects, including audio, screen and key-press reactive ones
 - Layers over the background with blend modes and opacity, dragged into order
 - Chosen keys in your own colours, and layers that show only while a game or app is open or in front
-- Layout editor, per-device backgrounds and profiles
+- Layout editor that draws keyboards, mice, RAM, fans and boards as their real shapes, plus per-device backgrounds and profiles
 - Fan curves for motherboard headers, coolers, fan hubs and AMD graphics cards, with zero RPM
 - LED strips and network lights
 - Lighting and Fans modules you can switch off
