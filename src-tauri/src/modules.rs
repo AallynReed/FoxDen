@@ -1,4 +1,4 @@
-//! Installs or removes PawnIO and the FoxRGB service as the Lighting and Fans modules need them.
+//! Installs or removes PawnIO and the FoxDen service as the Lighting and Fans modules need them.
 
 use std::path::Path;
 use std::thread;
@@ -12,7 +12,7 @@ use windows_sys::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitFo
 use windows_sys::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
-const SERVICE: &str = "foxrgb-service";
+const SERVICE: &str = "foxden-service";
 const PAWNIO: &str = "PawnIO";
 const ERROR_CANCELLED: u32 = 1223;
 
@@ -29,15 +29,15 @@ impl Step {
     fn words(self) -> &'static str {
         match self {
             Step::InstallPawnio => "install PawnIO",
-            Step::InstallService => "install the FoxRGB service",
-            Step::StartService => "start the FoxRGB service",
-            Step::UninstallService => "remove the FoxRGB service",
+            Step::InstallService => "install the FoxDen service",
+            Step::StartService => "start the FoxDen service",
+            Step::UninstallService => "remove the FoxDen service",
             Step::UninstallPawnio => "remove PawnIO",
         }
     }
 
     fn command(self, dir: &Path) -> String {
-        let service = dir.join("foxrgb-service.exe");
+        let service = dir.join("foxden-service.exe");
         let pawnio = dir.join("PawnIO_setup.exe");
         let (exe, args) = match self {
             Step::InstallPawnio => (pawnio, "-install -silent"),
@@ -248,11 +248,11 @@ mod tests {
 
     #[test]
     fn the_command_keeps_paths_with_spaces_whole() {
-        let dir = Path::new(r"C:\Program Files\FoxRGB");
+        let dir = Path::new(r"C:\Program Files\FoxDen");
         let args = cmd_args(&[Step::UninstallService, Step::UninstallPawnio], dir);
         assert_eq!(
             args,
-            r#"/d /s /c ""C:\Program Files\FoxRGB\foxrgb-service.exe" uninstall && "C:\Program Files\FoxRGB\PawnIO_setup.exe" -uninstall -silent""#
+            r#"/d /s /c ""C:\Program Files\FoxDen\foxden-service.exe" uninstall && "C:\Program Files\FoxDen\PawnIO_setup.exe" -uninstall -silent""#
         );
     }
 
@@ -260,7 +260,7 @@ mod tests {
     fn the_steps_read_as_a_sentence() {
         assert_eq!(
             describe(&[Step::UninstallService, Step::UninstallPawnio]),
-            "Remove the FoxRGB service, then remove PawnIO"
+            "Remove the FoxDen service, then remove PawnIO"
         );
     }
 }

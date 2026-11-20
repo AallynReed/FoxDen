@@ -85,9 +85,9 @@ pub fn start(app: &AppHandle, shared: Shared) {
     });
 }
 
-/// Test-only path for development builds: `FOXRGB_FAKE_UPDATE=<version>` shows the UI for a release that is not there.
+/// Test-only path for development builds: `FOXDEN_FAKE_UPDATE=<version>` shows the UI for a release that is not there.
 fn fake(app: &AppHandle) {
-    let Ok(version) = std::env::var("FOXRGB_FAKE_UPDATE") else {
+    let Ok(version) = std::env::var("FOXDEN_FAKE_UPDATE") else {
         return;
     };
     let app = app.clone();
@@ -107,7 +107,7 @@ fn announce(app: &AppHandle, info: &Info) {
     let _ = app
         .notification()
         .builder()
-        .title("FoxRGB update")
+        .title("FoxDen update")
         .body(toast_text(&info.version, info.auto))
         .show();
 }

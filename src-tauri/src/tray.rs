@@ -44,7 +44,7 @@ fn menu(app: &AppHandle, (paused, profiles, active): &Shown) -> tauri::Result<Me
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let first = shown(&lock(&app.state::<Shared>()).snapshot());
     let mut tray = TrayIconBuilder::with_id(ID)
-        .tooltip("FoxRGB")
+        .tooltip("FoxDen")
         .menu(&menu(app, &first)?)
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {

@@ -8,7 +8,7 @@ let least = "info";
 function sample() {
   const now = Date.now();
   return [
-    { at: now - 9000, level: "info", source: "app", text: "FoxRGB 0.3.0 started" },
+    { at: now - 9000, level: "info", source: "app", text: "FoxDen 0.3.0 started" },
     { at: now - 8000, level: "info", source: "devices", text: "Connected Logitech G515 (hid)" },
     { at: now - 4000, level: "warn", source: "devices", text: "Unknown board: no driver yet" },
     { at: now - 1000, level: "error", source: "hid", text: "MSI Mystic Light: write failed" },

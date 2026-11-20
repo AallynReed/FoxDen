@@ -145,9 +145,9 @@ mod tests {
 
     #[test]
     fn names() {
-        assert!(validate_name("FOXRGB").is_ok());
+        assert!(validate_name("FOXDEN").is_ok());
         assert!(validate_name("MY-GAME_2").is_ok());
-        assert!(validate_name("foxrgb").is_err());
+        assert!(validate_name("foxden").is_err());
         assert!(validate_name("").is_err());
         assert!(validate_name("A B").is_err());
     }

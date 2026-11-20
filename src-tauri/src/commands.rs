@@ -1,4 +1,4 @@
-use foxrgb_core::{Effect, Layer};
+use foxden_core::{Effect, Layer};
 use tauri::{AppHandle, State};
 
 use crate::config::{DeviceConfig, Profile, Settings};
@@ -246,11 +246,11 @@ pub fn detect(jobs: State<'_, Jobs>) -> Reply {
 
 /// Searches the local network for lights. Sends nothing while network lights are off.
 #[tauri::command(async)]
-pub fn scan_network(shared: State<'_, Shared>) -> Result<Vec<foxrgb_net::Found>, String> {
+pub fn scan_network(shared: State<'_, Shared>) -> Result<Vec<foxden_net::Found>, String> {
     if !lock(&shared).config.settings.network_enabled {
         return Err("network lights are off".into());
     }
-    Ok(foxrgb_net::discover())
+    Ok(foxden_net::discover())
 }
 
 const NET: Kinds = Kinds {
@@ -268,7 +268,7 @@ pub fn pair_hue(
     jobs: State<'_, Jobs>,
     ip: String,
 ) -> Reply {
-    let bridge = foxrgb_net::pair_hue(ip.trim())?;
+    let bridge = foxden_net::pair_hue(ip.trim())?;
     update(&app, &shared, |s| {
         let list = &mut s.config.settings.network.hue;
         list.retain(|b| b.ip != bridge.ip);
@@ -287,7 +287,7 @@ pub fn pair_nanoleaf(
     ip: String,
     port: u16,
 ) -> Reply {
-    let panel = foxrgb_net::pair_nanoleaf(ip.trim(), port)?;
+    let panel = foxden_net::pair_nanoleaf(ip.trim(), port)?;
     update(&app, &shared, |s| {
         let list = &mut s.config.settings.network.nanoleaf;
         list.retain(|n| n.ip != panel.ip);
@@ -300,7 +300,7 @@ pub fn pair_nanoleaf(
 /// COM ports of USB devices, for an LED strip.
 #[tauri::command(async)]
 pub fn serial_ports() -> Vec<String> {
-    foxrgb_hid::serial_ports()
+    foxden_hid::serial_ports()
 }
 
 /// Hands the work to the hardware thread; a "snapshot" follows when it is done.

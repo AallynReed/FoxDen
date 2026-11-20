@@ -5,7 +5,7 @@ Files and asks for administrator rights once. `installer-hooks.nsh` then:
 
 - runs PawnIO's official setup silently (`PawnIO_setup.exe -install -silent`) and keeps it in the
   install folder, so the app can remove or reinstall PawnIO when its modules are switched
-- registers and starts `foxrgb-service.exe` as a Windows service
+- registers and starts `foxden-service.exe` as a Windows service
 - stops the service before an update and removes it on uninstall
 
 ## Releases

@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use foxrgb_client::{Client, HubFrame, PIPE};
-use foxrgb_core::{Backend, Color, Device};
+use foxden_client::{Client, HubFrame, PIPE};
+use foxden_core::{Backend, Color, Device};
 
 pub struct ServiceLights {
     client: Client,
@@ -62,7 +62,7 @@ pub struct ServiceHubs {
 /// An unchanged frame is sent again after this long, for hubs that fall back to their own effect.
 const RESEND: Duration = Duration::from_secs(1);
 
-static HUB_ZONES: Mutex<Vec<foxrgb_hid::Zone>> = Mutex::new(Vec::new());
+static HUB_ZONES: Mutex<Vec<foxden_hid::Zone>> = Mutex::new(Vec::new());
 /// Whether a service answered when the hubs were last opened; `None` before that.
 static SERVICE_UP: Mutex<Option<bool>> = Mutex::new(None);
 
@@ -80,7 +80,7 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
     *lock(&HUB_ZONES) = found
         .zones
         .into_iter()
-        .map(|z| foxrgb_hid::Zone {
+        .map(|z| foxden_hid::Zone {
             device: z.device,
             index: z.index,
             name: z.name,
@@ -101,7 +101,7 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
 }
 
 /// The resizable zones of the hubs the last `hubs` call found.
-pub fn hub_zones() -> Vec<foxrgb_hid::Zone> {
+pub fn hub_zones() -> Vec<foxden_hid::Zone> {
     std::mem::take(&mut *lock(&HUB_ZONES))
 }
 
@@ -114,8 +114,8 @@ pub fn service_changed(up: bool) -> bool {
 
 /// Whether any hub the service would own is plugged in.
 pub fn hubs_present() -> bool {
-    let owned = foxrgb_xpack::combined();
-    foxrgb_hid::enumerate()
+    let owned = foxden_xpack::combined();
+    foxden_hid::enumerate()
         .iter()
         .any(|d| owned.contains(&(d.vendor, d.product)))
 }
@@ -123,7 +123,7 @@ pub fn hubs_present() -> bool {
 /// The ids the app's own probe leaves to the service: all combined hubs once it answered.
 pub fn left_to_service(answered: bool) -> Vec<(u16, u16)> {
     if answered {
-        foxrgb_xpack::combined()
+        foxden_xpack::combined()
     } else {
         Vec::new()
     }
@@ -139,7 +139,7 @@ impl Backend for ServiceHubs {
     }
 
     fn push(&mut self, device_id: &str, colors: &[Color]) -> Result<(), String> {
-        let colors = foxrgb_core::to_hex(colors);
+        let colors = foxden_core::to_hex(colors);
         let fresh = self
             .sent
             .get(device_id)
@@ -192,12 +192,12 @@ impl Drop for ServiceHubs {
 
 #[cfg(test)]
 mod tests {
-    use foxrgb_hid::Pick;
+    use foxden_hid::Pick;
 
     #[test]
     fn the_app_skips_the_combined_hubs_only_when_the_service_answered() {
         let skip = super::left_to_service(true);
-        assert_eq!(skip, foxrgb_xpack::combined());
+        assert_eq!(skip, foxden_xpack::combined());
         assert!(skip.iter().all(|&(v, p)| !Pick::Skip(&skip).wants(v, p)));
         let kept = super::left_to_service(false);
         assert!(skip.iter().all(|&(v, p)| Pick::Skip(&kept).wants(v, p)));

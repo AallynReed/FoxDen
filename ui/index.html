@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
-    <title>FoxRGB</title>
+    <title>FoxDen</title>
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="fans.css" />
     <link rel="stylesheet" href="audio.css" />
   </head>
   <body>
-    <h1 class="sr-only">FoxRGB</h1>
+    <h1 class="sr-only">FoxDen</h1>
     <aside class="side" aria-label="Controls">
       <div class="tabs" role="tablist" aria-label="Sections">
         <button type="button" role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
@@ -143,7 +143,7 @@
             <label for="set-fans">Fans</label>
             <input type="checkbox" class="switch" id="set-fans" data-setting="fans_module" aria-describedby="modules-hint" />
           </div>
-          <p class="hint" id="modules-hint">With both off, FoxRGB removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time.</p>
+          <p class="hint" id="modules-hint">With both off, FoxDen removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time.</p>
           <p class="hint" id="modules-outcome" role="status" hidden></p>
         </section>
 
@@ -163,7 +163,7 @@
             <label for="set-native">Native drivers</label>
             <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" aria-describedby="native-hint" />
           </div>
-          <p class="hint" id="native-hint">FoxRGB's own drivers. On by default.</p>
+          <p class="hint" id="native-hint">FoxDen's own drivers. On by default.</p>
           <div class="field">
             <label for="set-steelseries">SteelSeries GG</label>
             <input type="checkbox" class="switch" id="set-steelseries" data-setting="steelseries_gg" aria-describedby="steelseries-hint" />
@@ -177,7 +177,7 @@
             <label for="set-net">Lights on this network</label>
             <input type="checkbox" class="switch" id="set-net" data-setting="network_enabled" aria-describedby="net-hint" />
           </div>
-          <p class="hint" id="net-hint">Philips Hue, Wiz, Nanoleaf, LIFX, Govee, Yeelight, Kasa, Elgato, E1.31, DDP and Espurna lights, and DMX on a serial port. FoxRGB only talks to addresses on your own network. Off by default.</p>
+          <p class="hint" id="net-hint">Philips Hue, Wiz, Nanoleaf, LIFX, Govee, Yeelight, Kasa, Elgato, E1.31, DDP and Espurna lights, and DMX on a serial port. FoxDen only talks to addresses on your own network. Off by default.</p>
           <div class="fields" id="net-body">
             <div class="field">
               <label for="set-net-discover">Also drive LIFX, Govee, Yeelight, Wiz and Kasa lights it finds</label>
@@ -215,7 +215,7 @@
             <label for="set-openrgb">Use an OpenRGB server</label>
             <input type="checkbox" class="switch" id="set-openrgb" data-setting="openrgb_enabled" aria-describedby="openrgb-hint" />
           </div>
-          <p class="hint" id="openrgb-hint">Optional. Drives devices FoxRGB has no driver for, through a running OpenRGB server.</p>
+          <p class="hint" id="openrgb-hint">Optional. Drives devices FoxDen has no driver for, through a running OpenRGB server.</p>
           <div class="fields" id="openrgb-server">
             <div class="field">
               <label for="set-host">Host</label>
@@ -286,7 +286,7 @@
             <label for="set-conflicts">Close conflicting software</label>
             <input type="checkbox" class="switch" id="set-conflicts" data-setting="close_conflicts" aria-describedby="conflicts-hint" />
           </div>
-          <p class="hint" id="conflicts-hint">Other lighting and fan apps hold the same devices. FoxRGB closes them at start and whenever it looks for hardware.</p>
+          <p class="hint" id="conflicts-hint">Other lighting and fan apps hold the same devices. FoxDen closes them at start and whenever it looks for hardware.</p>
           <ul class="list backends" id="conflict-list" aria-labelledby="conflicts-heading"></ul>
           <p class="hint" id="conflicts-empty" hidden>None found.</p>
           <p class="hint" id="conflicts-last" hidden></p>
@@ -302,7 +302,7 @@
             <label for="set-reports">Send anonymous error reports</label>
             <input type="checkbox" class="switch" id="set-reports" data-setting="send_reports" aria-describedby="reports-hint" />
           </div>
-          <p class="hint" id="reports-hint">Sends the error, the FoxRGB version and the hardware ids of your devices. Never names, serial numbers, paths or addresses.</p>
+          <p class="hint" id="reports-hint">Sends the error, the FoxDen version and the hardware ids of your devices. Never names, serial numbers, paths or addresses.</p>
           <div class="actions">
             <button type="button" id="logs-open-settings">Open logs</button>
           </div>
@@ -365,7 +365,7 @@
 
     <dialog class="sheet" id="support-sheet" aria-labelledby="support-title">
       <h2 id="support-title">Support the project</h2>
-      <p class="hint">FoxRGB is free and has no ads. If it is useful to you, a tip keeps it going.</p>
+      <p class="hint">FoxDen is free and has no ads. If it is useful to you, a tip keeps it going.</p>
       <div class="actions">
         <button type="button" class="primary" id="support-kofi">Ko-fi</button>
         <button type="button" id="support-paypal">PayPal</button>
@@ -476,7 +476,7 @@
     <dialog class="sheet" id="gg-fw-sheet" aria-labelledby="gg-fw-title">
       <h2 id="gg-fw-title">Update firmware</h2>
       <p class="notes" id="gg-fw-text"></p>
-      <p class="notes">Keep the device connected and leave it alone until the update ends. Wireless headsets need more than 15% battery; FoxRGB checks this first, like GG does.</p>
+      <p class="notes">Keep the device connected and leave it alone until the update ends. Wireless headsets need more than 15% battery; FoxDen checks this first, like GG does.</p>
       <p class="hint" id="gg-fw-status" role="status" hidden></p>
       <div class="actions">
         <button type="button" class="primary" id="gg-fw-go">Update firmware</button>

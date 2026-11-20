@@ -17,7 +17,7 @@ fn bytes(data: &[u8]) -> String {
         .join(" ")
 }
 
-fn build(vendor: u16, product: u16, shown: &str, collections: &[foxrgb_hid::Collection]) -> Value {
+fn build(vendor: u16, product: u16, shown: &str, collections: &[foxden_hid::Collection]) -> Value {
     let first = collections.iter().find(|c| !c.name.is_empty());
     json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -47,7 +47,7 @@ fn build(vendor: u16, product: u16, shown: &str, collections: &[foxrgb_hid::Coll
 pub async fn device_info(id: String, name: String) -> Result<String, String> {
     let (vendor, product) = ids(&id).ok_or("Only USB devices can be reported.")?;
     let collections = tauri::async_runtime::spawn_blocking(move || {
-        foxrgb_hid::describe(vendor, product)
+        foxden_hid::describe(vendor, product)
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn the_report_has_no_dropped_keys_or_long_hex() {
-        let c = foxrgb_hid::Collection {
+        let c = foxden_hid::Collection {
             interface: 1,
             usage_page: 0xFF43,
             usage: 0x0602,

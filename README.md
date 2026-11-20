@@ -1,16 +1,16 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon.png" width="128" alt="FoxRGB icon">
+<img src="src-tauri/icons/icon.png" width="128" alt="FoxDen icon">
 
-# FoxRGB
+# FoxDen
 
 <!-- Project status -->
-[![GitHub Release](https://img.shields.io/github/v/release/AallynReed/FoxRGB?style=for-the-badge&color=blue&cacheSeconds=21600)](https://github.com/AallynReed/FoxRGB/releases/latest)
-![GitHub Repo stars](https://img.shields.io/github/stars/AallynReed/FoxRGB?style=for-the-badge&color=gold&cacheSeconds=21600)
-[![GitHub Downloads](https://img.shields.io/github/downloads/AallynReed/FoxRGB/total?style=for-the-badge&cacheSeconds=21600)](https://github.com/AallynReed/FoxRGB/releases)
-![GitHub last commit](https://img.shields.io/github/last-commit/AallynReed/FoxRGB?style=for-the-badge&color=green&cacheSeconds=21600)
-![GitHub issues](https://img.shields.io/github/issues/AallynReed/FoxRGB?style=for-the-badge&cacheSeconds=21600)
-[![Build](https://img.shields.io/github/actions/workflow/status/AallynReed/FoxRGB/release.yml?style=for-the-badge&label=build&cacheSeconds=21600)](https://github.com/AallynReed/FoxRGB/actions)
+[![GitHub Release](https://img.shields.io/github/v/release/AallynReed/FoxDen?style=for-the-badge&color=blue&cacheSeconds=21600)](https://github.com/AallynReed/FoxDen/releases/latest)
+![GitHub Repo stars](https://img.shields.io/github/stars/AallynReed/FoxDen?style=for-the-badge&color=gold&cacheSeconds=21600)
+[![GitHub Downloads](https://img.shields.io/github/downloads/AallynReed/FoxDen/total?style=for-the-badge&cacheSeconds=21600)](https://github.com/AallynReed/FoxDen/releases)
+![GitHub last commit](https://img.shields.io/github/last-commit/AallynReed/FoxDen?style=for-the-badge&color=green&cacheSeconds=21600)
+![GitHub issues](https://img.shields.io/github/issues/AallynReed/FoxDen?style=for-the-badge&cacheSeconds=21600)
+[![Build](https://img.shields.io/github/actions/workflow/status/AallynReed/FoxDen/release.yml?style=for-the-badge&label=build&cacheSeconds=21600)](https://github.com/AallynReed/FoxDen/actions)
 
 <!-- Platforms -->
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)
@@ -22,7 +22,7 @@
 <!-- Project meta -->
 ![License](https://img.shields.io/badge/License-GPL--2.0--or--later-8A2BE2?style=for-the-badge)
 [![Discord](https://img.shields.io/badge/Discord-Foxhearth-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/VGTaqW3vwn)
-[![foxhearth.com](https://img.shields.io/badge/foxhearth.com-project_page-E8702A?style=for-the-badge)](https://foxhearth.com/projects/foxrgb)
+[![foxhearth.com](https://img.shields.io/badge/foxhearth.com-project_page-E8702A?style=for-the-badge)](https://foxhearth.com/projects/foxden)
 
 </div>
 
@@ -83,7 +83,7 @@ OpenRGB can optionally drive anything else through its server.
 
 ## Install
 
-Download the setup program from [releases](../../releases) and run it. It installs FoxRGB, the
+Download the setup program from [releases](../../releases) and run it. It installs FoxDen, the
 [PawnIO](https://pawnio.eu) driver and a small service for RAM and fans.
 
 Windows SmartScreen warns about it because it is not code signed.
@@ -92,17 +92,17 @@ Windows SmartScreen warns about it because it is not code signed.
 
 ```powershell
 cargo build --workspace
-cargo run -p foxrgb
+cargo run -p foxden
 ```
 
 ## Privacy
 
-FoxRGB only connects to:
+FoxDen only connects to:
 
 - GitHub, a minute after start and then every hour, to check for a new release. Nothing
   is sent beyond the request itself.
 - `reports.foxhearth.com`, only if you switch on anonymous error reports (off by default). A
-  report holds the error, the FoxRGB version and the hardware ids of your devices, never names,
+  report holds the error, the FoxDen version and the hardware ids of your devices, never names,
   serial numbers, paths or addresses.
 - The OpenRGB server you set, `127.0.0.1` unless you change it, to see whether it is running.
 - Network lights (Hue, Wiz, Nanoleaf, LIFX, Govee and the rest), only if you switch them on (off by

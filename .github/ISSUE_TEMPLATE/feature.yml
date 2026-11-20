@@ -1,5 +1,5 @@
 name: Feature request
-description: Something FoxRGB should do
+description: Something FoxDen should do
 labels: [enhancement]
 body:
   - type: textarea

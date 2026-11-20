@@ -9,15 +9,15 @@ use std::sync::{LazyLock, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use foxrgb_client::{Client, PIPE, Service, server_pid};
-use foxrgb_fan::FanConfig;
+use foxden_client::{Client, PIPE, Service, server_pid};
+use foxden_fan::FanConfig;
 use tauri::plugin::Builder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
 
 use crate::config;
 use crate::state::{Job, Jobs, Kinds, Shared, lock as lock_state};
 
-pub use foxrgb_client::FanState;
+pub use foxden_client::FanState;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Listing the hardware can keep the service busy for a few seconds.
@@ -244,11 +244,11 @@ pub fn stop_service() -> Result<(), String> {
     stop_child();
     match poll(true).service {
         Service::Stopped => Ok(()),
-        _ => Err("this service was not started by FoxRGB, so FoxRGB leaves it running".into()),
+        _ => Err("this service was not started by FoxDen, so FoxDen leaves it running".into()),
     }
 }
 
-/// Starts foxrgb-service in this user session unless one already answers.
+/// Starts foxden-service in this user session unless one already answers.
 fn start_child() -> Result<(), String> {
     let mut child = lock(&LINK.child);
     let state = LINK.client.state();
@@ -264,11 +264,11 @@ fn start_child() -> Result<(), String> {
 
     let exe = std::env::current_exe()
         .map_err(|e| e.to_string())?
-        .with_file_name("foxrgb-service.exe");
+        .with_file_name("foxden-service.exe");
     // Told who started it, the service hands the fans back and exits even when the app is killed.
     let mut service = Command::new(&exe)
         .args(["run", "--parent", &std::process::id().to_string()])
-        .env("FOXRGB_DATA_DIR", config::dir().join("service"))
+        .env("FOXDEN_DATA_DIR", config::dir().join("service"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -350,12 +350,12 @@ fn finish(child: &mut Child) {
 
 /// Applies the service's duty for the graphics card fan, or gives the card back to its driver.
 fn gpu_fan(duty: Option<f32>) {
-    static CARD: Mutex<Option<Box<dyn foxrgb_fan::Fan>>> = Mutex::new(None);
+    static CARD: Mutex<Option<Box<dyn foxden_fan::Fan>>> = Mutex::new(None);
     let mut card = lock(&CARD);
     match duty {
         Some(duty) => {
             if card.is_none() {
-                *card = foxrgb_adlx::fan().ok();
+                *card = foxden_adlx::fan().ok();
             }
             if let Some(fan) = card.as_mut() {
                 let _ = fan.set_duty(duty);

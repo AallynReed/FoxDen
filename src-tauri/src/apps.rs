@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::thread;
 use std::time::Duration;
 
-use foxrgb_core::{Apps, When, app_name};
+use foxden_core::{Apps, When, app_name};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use windows_sys::Win32::Foundation::{HWND, LPARAM};

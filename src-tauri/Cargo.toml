@@ -1,5 +1,5 @@
 [package]
-name = "foxrgb"
+name = "foxden"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,21 +8,21 @@ license.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-foxrgb-core.workspace = true
-foxrgb-openrgb = { path = "../crates/foxrgb-openrgb" }
-foxrgb-hid = { path = "../crates/foxrgb-hid" }
-foxrgb-smbus = { path = "../crates/foxrgb-smbus" }
-foxrgb-superio = { path = "../crates/foxrgb-superio" }
-foxrgb-wmi = { path = "../crates/foxrgb-wmi" }
-foxrgb-adlx = { path = "../crates/foxrgb-adlx" }
-foxrgb-gpu = { path = "../crates/foxrgb-gpu" }
-foxrgb-audio = { path = "../crates/foxrgb-audio" }
-foxrgb-screen = { path = "../crates/foxrgb-screen" }
-foxrgb-fan = { path = "../crates/foxrgb-fan" }
-foxrgb-client = { path = "../crates/foxrgb-client" }
-foxrgb-net = { path = "../crates/foxrgb-net" }
-foxrgb-xpack = { path = "../crates/foxrgb-xpack" }
-foxrgb-battery = { path = "../crates/foxrgb-battery" }
+foxden-core.workspace = true
+foxden-openrgb = { path = "../crates/foxden-openrgb" }
+foxden-hid = { path = "../crates/foxden-hid" }
+foxden-smbus = { path = "../crates/foxden-smbus" }
+foxden-superio = { path = "../crates/foxden-superio" }
+foxden-wmi = { path = "../crates/foxden-wmi" }
+foxden-adlx = { path = "../crates/foxden-adlx" }
+foxden-gpu = { path = "../crates/foxden-gpu" }
+foxden-audio = { path = "../crates/foxden-audio" }
+foxden-screen = { path = "../crates/foxden-screen" }
+foxden-fan = { path = "../crates/foxden-fan" }
+foxden-client = { path = "../crates/foxden-client" }
+foxden-net = { path = "../crates/foxden-net" }
+foxden-xpack = { path = "../crates/foxden-xpack" }
+foxden-battery = { path = "../crates/foxden-battery" }
 steelseries-gg = { path = "../crates/steelseries-gg", features = ["audio"] }
 serde.workspace = true
 serde_json.workspace = true

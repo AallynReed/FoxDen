@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-const URL: &str = "https://reports.foxhearth.com/v1/foxrgb";
+const URL: &str = "https://reports.foxhearth.com/v1/foxden";
 const MOST: usize = 20;
 const LONGEST: usize = 2000;
 const CRASH: &str = "crash.txt";
@@ -119,7 +119,7 @@ pub fn send_last_crash() {
         return;
     };
     let _ = std::fs::remove_file(&path);
-    crate::log::warn("app", format!("FoxRGB crashed last time: {text}"));
+    crate::log::warn("app", format!("FoxDen crashed last time: {text}"));
     send("crash", "app", &text);
 }
 

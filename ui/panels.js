@@ -20,7 +20,7 @@ const PRESETS = [
 const lastUsed = {};
 const recent = [];
 try {
-  recent.push(...JSON.parse(localStorage.getItem("foxrgb.colours")).filter((c) => /^#[0-9A-F]{6}$/.test(c)).slice(0, 8));
+  recent.push(...JSON.parse(localStorage.getItem("foxden.colours")).filter((c) => /^#[0-9A-F]{6}$/.test(c)).slice(0, 8));
 } catch {}
 let picker = null;
 let held = null;
@@ -200,7 +200,7 @@ function remember(rgb) {
   if (PRESETS.some(([, preset]) => preset === hex)) return;
   recent.splice(0, recent.length, hex, ...recent.filter((c) => c !== hex).slice(0, 7));
   try {
-    localStorage.setItem("foxrgb.colours", JSON.stringify(recent));
+    localStorage.setItem("foxden.colours", JSON.stringify(recent));
   } catch {}
 }
 
@@ -1259,13 +1259,13 @@ const IP = ["ip", "Address", "ip"];
 const NET_KINDS = {
   hue: {
     name: "Philips Hue bridge",
-    pair: "Press the link button on the bridge. FoxRGB waits 35 seconds for it.",
+    pair: "Press the link button on the bridge. FoxDen waits 35 seconds for it.",
     blank: { ip: "", username: "", clientkey: "" },
     fields: [IP],
   },
   nanoleaf: {
     name: "Nanoleaf",
-    pair: "Hold the power button on the controller for 5 to 7 seconds, until its lights flash. FoxRGB waits 30 seconds.",
+    pair: "Hold the power button on the controller for 5 to 7 seconds, until its lights flash. FoxDen waits 30 seconds.",
     blank: { ip: "", port: 16021, auth_token: "" },
     fields: [IP, ["port", "Port", 1, 65535]],
   },
@@ -1768,7 +1768,7 @@ async function refreshConflicts() {
   );
 }
 
-// One executable of a conflicting app, running or seen before, with whether FoxRGB closes it.
+// One executable of a conflicting app, running or seen before, with whether FoxDen closes it.
 function exeRow(exe, keptFor) {
   const id = "close-" + exe.name.toLowerCase().replace(/[^a-z0-9]/g, "-");
   const box = el("input", { type: "checkbox", className: "switch", id, checked: exe.closes, disabled: !!keptFor });
@@ -1790,7 +1790,7 @@ function showUpdate(info) {
   setText(button, "Update to " + info.version);
   button.hidden = false;
   setText($("update-status"), "Version " + info.version + " available");
-  setText($("update-title"), "FoxRGB " + info.version);
+  setText($("update-title"), "FoxDen " + info.version);
   setText($("update-notes"), info.notes || "No release notes.");
   if (info.auto) note("Updating to " + info.version + " soon. Open the update to put it off.");
 }

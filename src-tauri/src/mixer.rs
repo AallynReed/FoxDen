@@ -60,7 +60,7 @@ pub struct AudioConfig {
     pub master: f32,
     pub master_muted: bool,
     pub chat_mix: f32,
-    /// Running when FoxRGB last closed, so it starts again with FoxRGB.
+    /// Running when FoxDen last closed, so it starts again with FoxDen.
     pub running: bool,
 }
 
@@ -237,7 +237,7 @@ fn audio_thread(rx: Receiver<Job>, controls: Controls) {
 }
 
 impl Mixer {
-    /// Starts the audio thread, and the routes too if they were playing when FoxRGB closed.
+    /// Starts the audio thread, and the routes too if they were playing when FoxDen closed.
     pub fn start(shared: Shared) -> Mixer {
         let config = lock(&shared).config.audio.clone().tidy();
         let controls: Controls = Arc::new(Mutex::new(config.state()));

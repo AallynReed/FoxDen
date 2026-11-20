@@ -96,7 +96,7 @@ pub async fn open_logs(app: AppHandle) -> Result<(), String> {
         return window.set_focus().map_err(|e| e.to_string());
     }
     WebviewWindowBuilder::new(&app, WINDOW, WebviewUrl::App("logs.html".into()))
-        .title("FoxRGB logs")
+        .title("FoxDen logs")
         .inner_size(760.0, 480.0)
         .min_inner_size(420.0, 260.0)
         .data_directory(crate::config::webview_dir())

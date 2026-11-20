@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use foxrgb_battery::Battery;
+use foxden_battery::Battery;
 use tauri::AppHandle;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
@@ -55,11 +55,11 @@ pub fn spawn(app: AppHandle, shared: Shared) {
         let mut known: HashMap<String, (Battery, Instant)> = HashMap::new();
         let mut shown: HashMap<String, Shown> = HashMap::new();
         let mut last: Option<Instant> = None;
-        let mut plugged = foxrgb_battery::hid::fingerprint();
+        let mut plugged = foxden_battery::hid::fingerprint();
         loop {
             let on = lock(&shared).config.settings.battery_tray;
             // A cable plugged in or pulled out shows up as a changed HID list: look again right away.
-            let now_plugged = foxrgb_battery::hid::fingerprint();
+            let now_plugged = foxden_battery::hid::fingerprint();
             let replugged = std::mem::replace(&mut plugged, now_plugged) != plugged;
             if !on {
                 known.clear();
@@ -67,7 +67,7 @@ pub fn spawn(app: AppHandle, shared: Shared) {
                 sync(&app, &mut shown, HashMap::new());
             } else if replugged || last.is_none_or(|t| t.elapsed() >= EVERY) {
                 let now = Instant::now();
-                let mut polled = foxrgb_battery::poll();
+                let mut polled = foxden_battery::poll();
                 // SteelSeries GG fills in what the native drivers could not read, under the same keys.
                 polled.extend(crate::ggengine::batteries(&polled));
                 merge(&mut known, polled, now);

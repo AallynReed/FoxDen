@@ -4,7 +4,7 @@ use std::os::windows::process::CommandExt;
 use std::process::Command;
 
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-const TASK: &str = "FoxRGB";
+const TASK: &str = "FoxDen";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Given when Windows starts the app at sign-in, which then stays in the tray.
 pub const TRAY_ARG: &str = "--tray";
@@ -47,7 +47,10 @@ fn user() -> String {
 
 /// Adds or removes the sign-in task. The Run value older versions used is always removed.
 pub fn set(enabled: bool) -> Result<(), String> {
+    let _ = run("reg", &["delete", RUN_KEY, "/v", "FoxDen", "/f"]);
+    // Left by versions released as FoxRGB.
     let _ = run("reg", &["delete", RUN_KEY, "/v", "FoxRGB", "/f"]);
+    let _ = run("schtasks", &["/Delete", "/TN", "FoxRGB", "/F"]);
     if !enabled {
         let _ = run("schtasks", &["/Delete", "/TN", TASK, "/F"]);
         return Ok(());
@@ -58,7 +61,7 @@ pub fn set(enabled: bool) -> Result<(), String> {
 
 fn create(name: &str, exe: &str) -> Result<(), String> {
     let xml = task_xml(&user(), exe);
-    let file = std::env::temp_dir().join("foxrgb-task.xml");
+    let file = std::env::temp_dir().join("foxden-task.xml");
     let wide: Vec<u8> = std::iter::once(0xFEFFu16)
         .chain(xml.encode_utf16())
         .flat_map(u16::to_le_bytes)
@@ -83,7 +86,7 @@ mod tests {
     #[test]
     #[ignore]
     fn a_real_task_is_created() {
-        let name = "FoxRGB-selftest";
+        let name = "FoxDen-selftest";
         super::create(name, r"C:\Windows\System32\cmd.exe").unwrap();
         let shown = super::run("schtasks", &["/Query", "/TN", name, "/XML"]).unwrap();
         let _ = super::run("schtasks", &["/Delete", "/TN", name, "/F"]);
@@ -93,8 +96,8 @@ mod tests {
 
     #[test]
     fn the_task_starts_the_app_in_the_tray_and_escapes_the_path() {
-        let xml = super::task_xml(r"PC\me", r"C:\A & B\foxrgb.exe");
-        assert!(xml.contains(r"<Command>C:\A &amp; B\foxrgb.exe</Command>"));
+        let xml = super::task_xml(r"PC\me", r"C:\A & B\foxden.exe");
+        assert!(xml.contains(r"<Command>C:\A &amp; B\foxden.exe</Command>"));
         assert!(xml.contains("<Arguments>--tray</Arguments>"));
         assert!(xml.contains(r"<UserId>PC\me</UserId>"));
         assert!(xml.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));

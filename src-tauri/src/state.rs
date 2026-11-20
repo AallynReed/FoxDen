@@ -4,13 +4,13 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use foxrgb_audio::AudioCapture;
-use foxrgb_core::{
+use foxden_audio::AudioCapture;
+use foxden_core::{
     Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, KeyInfo, Layer, Post, PostInfo,
     key_layout, presses_on,
 };
-use foxrgb_openrgb::OpenRgbBackend;
-use foxrgb_screen::ScreenCapture;
+use foxden_openrgb::OpenRgbBackend;
+use foxden_screen::ScreenCapture;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
@@ -70,10 +70,10 @@ pub struct ZoneView {
     max: usize,
 }
 
-impl From<foxrgb_hid::Zone> for ZoneView {
-    fn from(z: foxrgb_hid::Zone) -> Self {
+impl From<foxden_hid::Zone> for ZoneView {
+    fn from(z: foxden_hid::Zone) -> Self {
         ZoneView {
-            key: foxrgb_hid::length_key(&z.device, z.index),
+            key: foxden_hid::length_key(&z.device, z.index),
             name: z.name,
             leds: z.leds,
             min: z.min,
@@ -534,7 +534,7 @@ fn close_conflicts(app: &AppHandle, settings: &Settings) {
         let _ = app
             .notification()
             .builder()
-            .title("FoxRGB")
+            .title("FoxDen")
             .body(&report.text)
             .show();
     }
@@ -566,18 +566,18 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             Err(e) => (Vec::new(), Some(e)),
         },
         "net" => {
-            let mut backends = foxrgb_net::probe(&settings.network);
-            backends.extend(foxrgb_xpack::probe_network(&settings.network));
+            let mut backends = foxden_net::probe(&settings.network);
+            backends.extend(foxden_xpack::probe_network(&settings.network));
             (backends, None)
         }
         "board" => {
-            let mut backends = foxrgb_gpu::probe();
+            let mut backends = foxden_gpu::probe();
             // Memory needs PawnIO and administrator rights, or the installed service that has them.
-            match foxrgb_smbus::probe() {
+            match foxden_smbus::probe() {
                 Ok(more) => {
                     backends.extend(more);
-                    backends.extend(foxrgb_superio::lights());
-                    backends.extend(foxrgb_wmi::lights());
+                    backends.extend(foxden_superio::lights());
+                    backends.extend(foxden_wmi::lights());
                 }
                 Err(_) => {
                     if let Some(service) = crate::service_lights::probe() {
@@ -601,25 +601,25 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
                 )
             };
             let start = std::time::Instant::now();
-            let mut backends = foxrgb_hid::led_strips(&strips);
+            let mut backends = foxden_hid::led_strips(&strips);
             step("LED strips", start);
             // Hubs whose fans the service drives get their lighting from it too, admin or not.
             let start = std::time::Instant::now();
             let hubs = crate::service_lights::hubs(&settings.zone_leds);
             step("fan hub lighting from the service", start);
             let skip = crate::service_lights::left_to_service(hubs.is_some());
-            foxrgb_hid::set_lengths(settings.zone_leds.clone());
-            let pick = foxrgb_hid::Pick::Skip(&skip);
+            foxden_hid::set_lengths(settings.zone_leds.clone());
+            let pick = foxden_hid::Pick::Skip(&skip);
             let start = std::time::Instant::now();
-            backends.extend(foxrgb_hid::probe_picked(&foxrgb_xpack::detectors(), pick));
+            backends.extend(foxden_hid::probe_picked(&foxden_xpack::detectors(), pick));
             step("USB HID devices", start);
             let start = std::time::Instant::now();
-            backends.extend(foxrgb_xpack::probe_other_picked(pick));
+            backends.extend(foxden_xpack::probe_other_picked(pick));
             step("other USB devices", start);
             if let Some(hubs) = hubs {
                 backends.push(Box::new(hubs));
             }
-            for (what, ms) in foxrgb_hid::slow_opens() {
+            for (what, ms) in foxden_hid::slow_opens() {
                 crate::log::info("devices", format!("{what} took {ms} ms to open"));
             }
             (backends, None)
@@ -627,7 +627,7 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
     }
 }
 
-fn group_zones(zones: Vec<foxrgb_hid::Zone>) -> HashMap<String, Vec<ZoneView>> {
+fn group_zones(zones: Vec<foxden_hid::Zone>) -> HashMap<String, Vec<ZoneView>> {
     let mut by_device: HashMap<String, Vec<ZoneView>> = HashMap::new();
     for z in zones {
         by_device
@@ -697,7 +697,7 @@ fn reload(shared: &Shared, watch: &mut Watch, kinds: Kinds) {
         fresh.push((label, outcome));
     }
     let zones = kinds.hid.then(|| {
-        let mut zones = foxrgb_hid::resizable();
+        let mut zones = foxden_hid::resizable();
         zones.extend(crate::service_lights::hub_zones());
         zones
     });
@@ -882,7 +882,7 @@ fn save(config: &Config) {
 mod tests {
     use super::*;
     use crate::detect::Bus;
-    use foxrgb_core::{Color, Device, VirtualBackend};
+    use foxden_core::{Color, Device, VirtualBackend};
     use serde_json::{Value, json};
     use std::net::TcpListener;
 
@@ -988,7 +988,7 @@ mod tests {
             ]
         );
         assert_eq!(gpu["zones"], json!([]));
-        state.zones = group_zones(vec![foxrgb_hid::Zone {
+        state.zones = group_zones(vec![foxden_hid::Zone {
             device: "virtual:gpu".into(),
             index: 1,
             name: "Header 1".into(),

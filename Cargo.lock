@@ -1219,24 +1219,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "foxrgb"
+name = "foxden"
 version = "0.10.1"
 dependencies = [
- "foxrgb-adlx",
- "foxrgb-audio",
- "foxrgb-battery",
- "foxrgb-client",
- "foxrgb-core",
- "foxrgb-fan",
- "foxrgb-gpu",
- "foxrgb-hid",
- "foxrgb-net",
- "foxrgb-openrgb",
- "foxrgb-screen",
- "foxrgb-smbus",
- "foxrgb-superio",
- "foxrgb-wmi",
- "foxrgb-xpack",
+ "foxden-adlx",
+ "foxden-audio",
+ "foxden-battery",
+ "foxden-client",
+ "foxden-core",
+ "foxden-fan",
+ "foxden-gpu",
+ "foxden-hid",
+ "foxden-net",
+ "foxden-openrgb",
+ "foxden-screen",
+ "foxden-smbus",
+ "foxden-superio",
+ "foxden-wmi",
+ "foxden-xpack",
  "reqwest",
  "serde",
  "serde_json",
@@ -1253,26 +1253,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "foxrgb-adlx"
+name = "foxden-adlx"
 version = "0.10.1"
 dependencies = [
- "foxrgb-fan",
+ "foxden-fan",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "foxrgb-audio"
+name = "foxden-audio"
 version = "0.10.1"
 dependencies = [
  "cpal",
- "foxrgb-core",
+ "foxden-core",
 ]
 
 [[package]]
-name = "foxrgb-battery"
+name = "foxden-battery"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
+ "foxden-core",
  "hidapi",
  "serde_json",
  "windows 0.62.2",
@@ -1280,18 +1280,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "foxrgb-client"
+name = "foxden-client"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
- "foxrgb-fan",
+ "foxden-core",
+ "foxden-fan",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "foxrgb-core"
+name = "foxden-core"
 version = "0.10.1"
 dependencies = [
  "serde",
@@ -1299,7 +1299,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "foxrgb-fan"
+name = "foxden-fan"
 version = "0.10.1"
 dependencies = [
  "serde",
@@ -1307,75 +1307,75 @@ dependencies = [
 ]
 
 [[package]]
-name = "foxrgb-gpu"
+name = "foxden-gpu"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
- "foxrgb-smbus",
+ "foxden-core",
+ "foxden-smbus",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "foxrgb-hid"
+name = "foxden-hid"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
+ "foxden-core",
  "hidapi",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "foxrgb-hwmon"
+name = "foxden-hwmon"
 version = "0.10.1"
 dependencies = [
- "foxrgb-fan",
+ "foxden-fan",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "foxrgb-net"
+name = "foxden-net"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
+ "foxden-core",
  "serde",
  "serde_json",
  "serialport",
 ]
 
 [[package]]
-name = "foxrgb-openrgb"
+name = "foxden-openrgb"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
+ "foxden-core",
 ]
 
 [[package]]
-name = "foxrgb-pawnio"
+name = "foxden-pawnio"
 version = "0.10.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "foxrgb-screen"
+name = "foxden-screen"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
+ "foxden-core",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "foxrgb-service"
+name = "foxden-service"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
- "foxrgb-fan",
- "foxrgb-hid",
- "foxrgb-hwmon",
- "foxrgb-smbus",
- "foxrgb-superio",
- "foxrgb-wmi",
- "foxrgb-xpack",
+ "foxden-core",
+ "foxden-fan",
+ "foxden-hid",
+ "foxden-hwmon",
+ "foxden-smbus",
+ "foxden-superio",
+ "foxden-wmi",
+ "foxden-xpack",
  "serde",
  "serde_json",
  "windows-service",
@@ -1383,38 +1383,38 @@ dependencies = [
 ]
 
 [[package]]
-name = "foxrgb-smbus"
+name = "foxden-smbus"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
- "foxrgb-pawnio",
+ "foxden-core",
+ "foxden-pawnio",
 ]
 
 [[package]]
-name = "foxrgb-superio"
+name = "foxden-superio"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
- "foxrgb-fan",
- "foxrgb-pawnio",
+ "foxden-core",
+ "foxden-fan",
+ "foxden-pawnio",
 ]
 
 [[package]]
-name = "foxrgb-wmi"
+name = "foxden-wmi"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
+ "foxden-core",
  "wmi",
 ]
 
 [[package]]
-name = "foxrgb-xpack"
+name = "foxden-xpack"
 version = "0.10.1"
 dependencies = [
- "foxrgb-core",
- "foxrgb-fan",
- "foxrgb-hid",
- "foxrgb-net",
+ "foxden-core",
+ "foxden-fan",
+ "foxden-hid",
+ "foxden-net",
  "hidapi",
  "serde_json",
  "serialport",

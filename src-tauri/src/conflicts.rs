@@ -1,11 +1,11 @@
-//! Finds and closes other lighting and fan software. The list itself is in `foxrgb_core::conflicts`.
+//! Finds and closes other lighting and fan software. The list itself is in `foxden_core::conflicts`.
 
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use foxrgb_client::{Client, PIPE};
-use foxrgb_core::conflicts::{self, APPS, Area, Closed, Process, Scope};
+use foxden_client::{Client, PIPE};
+use foxden_core::conflicts::{self, APPS, Area, Closed, Process, Scope};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use windows_service::service::{ServiceAccess, ServiceState};
@@ -30,7 +30,7 @@ pub struct Found {
     pub area: Area,
     /// Whether the switches in force would close it.
     pub closes: bool,
-    /// The FoxRGB feature that keeps it running, such as "SteelSeries GG".
+    /// The FoxDen feature that keeps it running, such as "SteelSeries GG".
     pub kept_for: Option<&'static str>,
     pub running: bool,
     /// Its executables running now or seen before, and whether each is closed or kept.
@@ -45,7 +45,7 @@ pub struct Exe {
     pub path: Option<String>,
 }
 
-/// A conflicting executable FoxRGB has seen, kept in the config.
+/// A conflicting executable FoxDen has seen, kept in the config.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Known {
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(list[0].kept_for, Some("SteelSeries GG"));
         assert!(!list[0].closes && list[0].exes.iter().all(|e| !e.closes));
         assert!(
-            foxrgb_core::conflicts::targets(&procs, scope(&settings), 1).is_empty()
+            foxden_core::conflicts::targets(&procs, scope(&settings), 1).is_empty()
         );
     }
 

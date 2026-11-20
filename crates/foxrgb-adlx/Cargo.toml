@@ -1,9 +1,0 @@
-[package]
-name = "foxrgb-adlx"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-foxrgb-fan = { path = "../foxrgb-fan" }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }

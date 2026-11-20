@@ -4,8 +4,8 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use foxrgb_core::{Device, DeviceKind};
-use foxrgb_hid::HidInfo;
+use foxden_core::{Device, DeviceKind};
+use foxden_hid::HidInfo;
 use serde::{Deserialize, Serialize};
 use wmi::WMIConnection;
 
@@ -61,13 +61,13 @@ pub struct Found {
     pub name: String,
     pub kind: &'static str,
     pub bus: Bus,
-    /// Engine id of the device FoxRGB's own driver offers for it, or [`GPU`] for a graphics card.
+    /// Engine id of the device FoxDen's own driver offers for it, or [`GPU`] for a graphics card.
     pub native: Option<&'static str>,
     /// Brand OpenRGB has drivers for.
     pub brand: Option<&'static str>,
 }
 
-/// USB devices with a driver in foxrgb-hid: ids, name, kind, engine device id.
+/// USB devices with a driver in foxden-hid: ids, name, kind, engine device id.
 const NATIVE: &[(u16, u16, &str, &str, &str)] = &[
     (
         0x046D,
@@ -239,13 +239,13 @@ fn usb_ids(hid: &[HidInfo]) -> Vec<(u16, u16)> {
 /// Devices whose lighting no software can reach: they expose only standard keyboard and mouse interfaces.
 const ONBOARD_ONLY: &[&str] = &["usb:0951:172d"];
 
-/// Devices of FoxRGB's ported families, matched on vendor and product id.
+/// Devices of FoxDen's ported families, matched on vendor and product id.
 const PORTED: &str = "hid:";
 
-/// The OpenRGB ports' HID devices, then foxrgb-xpack's.
+/// The OpenRGB ports' HID devices, then foxden-xpack's.
 fn devices() -> Vec<(u16, u16, &'static str)> {
-    let mut list = foxrgb_hid::family_devices();
-    for d in foxrgb_xpack::detectors() {
+    let mut list = foxden_hid::family_devices();
+    for d in foxden_xpack::detectors() {
         list.push((d.vid, d.pid, d.name));
     }
     list
@@ -385,7 +385,7 @@ fn module(m: &PhysicalMemory) -> Option<Found> {
     })
 }
 
-/// Prefix of every graphics card device foxrgb-gpu offers; their ids are only known once probed.
+/// Prefix of every graphics card device foxden-gpu offers; their ids are only known once probed.
 const GPU: &str = "gpu:";
 
 /// Vendor, device, subsystem vendor and device from a path like `PCI\VEN_1002&DEV_7550&SUBSYS_061A1043&REV_C0\..`.
@@ -424,7 +424,7 @@ fn card(v: &VideoController) -> Option<Found> {
         name: brand.map_or_else(|| name.to_string(), |brand| titled(brand, model)),
         kind: "gpu",
         bus: Bus::Gpu,
-        native: foxrgb_gpu::known(ids).then_some(GPU),
+        native: foxden_gpu::known(ids).then_some(GPU),
         brand,
     })
 }
@@ -475,7 +475,7 @@ pub struct Fingerprint {
 
 /// One pass over the hardware. A working OpenRGB connection spares its server the probe.
 pub fn scan(system: &[Found], settings: &Settings, openrgb_on: bool) -> (Vec<Found>, Fingerprint) {
-    let hid = foxrgb_hid::enumerate();
+    let hid = foxden_hid::enumerate();
     let mut found = usb(&hid);
     // The board's lighting is its USB controller when we have a driver for that.
     let controller = found
@@ -623,7 +623,7 @@ fn same(found: &Found, device: &Device) -> bool {
     branded && fits
 }
 
-/// Probed graphics cards carry no PCI ids, so any card FoxRGB lights counts for a known one.
+/// Probed graphics cards carry no PCI ids, so any card FoxDen lights counts for a known one.
 fn drives(found: &Found, native: &str, device: &Device) -> bool {
     let usb = found
         .id
@@ -659,7 +659,7 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         return (
             Route::Native,
             State::Active,
-            "Driven by FoxRGB's own driver.".into(),
+            "Driven by FoxDen's own driver.".into(),
         );
     }
     if live
@@ -677,7 +677,7 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         let note = if settings.native_drivers {
             "The native driver could not open it. Close other lighting software, then rescan."
         } else {
-            "FoxRGB has its own driver for this, still experimental. Switch on native drivers in Settings."
+            "FoxDen has its own driver for this, still experimental. Switch on native drivers in Settings."
         };
         return (Route::Native, State::Available, note.into());
     }
@@ -693,7 +693,7 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         }
         (Bus::Gpu, Some(brand)) => {
             let note = format!(
-                "FoxRGB has no driver for this card yet. OpenRGB drives some {brand} cards and may list this one."
+                "FoxDen has no driver for this card yet. OpenRGB drives some {brand} cards and may list this one."
             );
             return (Route::None, State::Unsupported, note);
         }
@@ -701,14 +701,14 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
             return (
                 Route::None,
                 State::Unsupported,
-                "FoxRGB has no driver for it yet.".into(),
+                "FoxDen has no driver for it yet.".into(),
             );
         }
         (_, Some(_)) if live.openrgb_on => {
             "OpenRGB is connected but lists no devices yet.".to_string()
         }
         (_, Some(_)) if settings.openrgb_enabled => {
-            "OpenRGB is switched on, but FoxRGB is not connected to it.".into()
+            "OpenRGB is switched on, but FoxDen is not connected to it.".into()
         }
         // The vendor is all we know, so the note does not promise that this device has lighting.
         (_, Some(brand)) => {

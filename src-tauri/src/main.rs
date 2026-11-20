@@ -64,7 +64,7 @@ fn main() {
             report::send_last_crash();
             log::info(
                 "app",
-                format!("FoxRGB {} started", env!("CARGO_PKG_VERSION")),
+                format!("FoxDen {} started", env!("CARGO_PKG_VERSION")),
             );
             tray::create(handle)?;
             let at_sign_in = std::env::args().any(|arg| arg == autostart::TRAY_ARG);
@@ -145,7 +145,7 @@ fn main() {
             mixer::get_mixer_levels,
         ])
         .build(tauri::generate_context!())
-        .expect("failed to start FoxRGB");
+        .expect("failed to start FoxDen");
 
     app.run(move |_, event| {
         if let RunEvent::Exit = event {

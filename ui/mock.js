@@ -58,7 +58,7 @@
   const main = colour("color", "Colour");
   const background = colour("background", "Background");
 
-  // Same entries, in the same order, as Effect::catalog in crates/foxrgb-core/src/effect.rs.
+  // Same entries, in the same order, as Effect::catalog in crates/foxden-core/src/effect.rs.
   const catalog = [
     entry("None", { kind: "none" }),
     entry("Rainbow wave", { kind: "rainbow", speed: 1, scale: 1, angle: 0 }, speed, scale, angle),
@@ -134,7 +134,7 @@
   ];
 
 
-  // Same entries, in the same order, as Post::catalog in crates/foxrgb-core/src/post.rs.
+  // Same entries, in the same order, as Post::catalog in crates/foxden-core/src/post.rs.
   const choice = (name, label, options) => ({ name, label, control: { type: "choice", options } });
   const colours = choice("colors", "Colours", ["single", "fade_to_second", "rainbow", "random", "by_position"]);
   const second = colour("second", "Second colour");
@@ -160,7 +160,7 @@
     entry("Beat flash", { kind: "beat_flash", color: WHITE, sensitivity: 1.5 }, main, sensitivity),
     entry("Chosen keys", { kind: "key_lights", color: ORANGE, keys: [0x57, 0x41, 0x53, 0x44] }, main, { name: "keys", label: "Keys", control: { type: "keys" } }),
   ];
-  // Same as key_layout in crates/foxrgb-core/src/keys.rs: vk, x, row, width.
+  // Same as key_layout in crates/foxden-core/src/keys.rs: vk, x, row, width.
   const keyLayout = [[27, 0.5, 0, 1.0], [112, 2.5, 0, 1.0], [113, 3.5, 0, 1.0], [114, 4.5, 0, 1.0], [115, 5.5, 0, 1.0], [116, 7.25, 0, 1.0], [117, 8.25, 0, 1.0], [118, 9.25, 0, 1.0], [119, 10.25, 0, 1.0], [120, 11.75, 0, 1.0], [121, 12.75, 0, 1.0], [122, 13.75, 0, 1.0], [123, 14.75, 0, 1.0], [44, 15.75, 0, 1.0], [145, 16.75, 0, 1.0], [19, 17.75, 0, 1.0], [192, 0.5, 1, 1.0], [49, 1.5, 1, 1.0], [50, 2.5, 1, 1.0], [51, 3.5, 1, 1.0], [52, 4.5, 1, 1.0], [53, 5.5, 1, 1.0], [54, 6.5, 1, 1.0], [55, 7.5, 1, 1.0], [56, 8.5, 1, 1.0], [57, 9.5, 1, 1.0], [48, 10.5, 1, 1.0], [189, 11.5, 1, 1.0], [187, 12.5, 1, 1.0], [8, 14.0, 1, 2.0], [45, 15.75, 1, 1.0], [36, 16.75, 1, 1.0], [33, 17.75, 1, 1.0], [144, 19.25, 1, 1.0], [111, 20.25, 1, 1.0], [106, 21.25, 1, 1.0], [109, 22.25, 1, 1.0], [9, 0.75, 2, 1.5], [81, 2.0, 2, 1.0], [87, 3.0, 2, 1.0], [69, 4.0, 2, 1.0], [82, 5.0, 2, 1.0], [84, 6.0, 2, 1.0], [89, 7.0, 2, 1.0], [85, 8.0, 2, 1.0], [73, 9.0, 2, 1.0], [79, 10.0, 2, 1.0], [80, 11.0, 2, 1.0], [219, 12.0, 2, 1.0], [221, 13.0, 2, 1.0], [220, 14.25, 2, 1.5], [46, 15.75, 2, 1.0], [35, 16.75, 2, 1.0], [34, 17.75, 2, 1.0], [103, 19.25, 2, 1.0], [104, 20.25, 2, 1.0], [105, 21.25, 2, 1.0], [107, 22.25, 2, 1.0], [20, 0.875, 3, 1.75], [65, 2.25, 3, 1.0], [83, 3.25, 3, 1.0], [68, 4.25, 3, 1.0], [70, 5.25, 3, 1.0], [71, 6.25, 3, 1.0], [72, 7.25, 3, 1.0], [74, 8.25, 3, 1.0], [75, 9.25, 3, 1.0], [76, 10.25, 3, 1.0], [186, 11.25, 3, 1.0], [222, 12.25, 3, 1.0], [13, 13.875, 3, 2.25], [100, 19.25, 3, 1.0], [101, 20.25, 3, 1.0], [102, 21.25, 3, 1.0], [160, 1.125, 4, 2.25], [90, 2.75, 4, 1.0], [88, 3.75, 4, 1.0], [67, 4.75, 4, 1.0], [86, 5.75, 4, 1.0], [66, 6.75, 4, 1.0], [78, 7.75, 4, 1.0], [77, 8.75, 4, 1.0], [188, 9.75, 4, 1.0], [190, 10.75, 4, 1.0], [191, 11.75, 4, 1.0], [161, 13.625, 4, 2.75], [38, 16.75, 4, 1.0], [97, 19.25, 4, 1.0], [98, 20.25, 4, 1.0], [99, 21.25, 4, 1.0], [162, 0.625, 5, 1.25], [91, 1.875, 5, 1.25], [164, 3.125, 5, 1.25], [32, 6.875, 5, 6.25], [165, 10.625, 5, 1.25], [92, 11.875, 5, 1.25], [93, 13.125, 5, 1.25], [163, 14.375, 5, 1.25], [37, 15.75, 5, 1.0], [40, 16.75, 5, 1.0], [39, 17.75, 5, 1.0], [96, 19.75, 5, 2.0], [110, 21.25, 5, 1.0], [27, 0.2, 1, 1.0]].map(([vk, x, row, w]) => ({ vk, x, row, w }));
 
   const layer = (effect, more) => ({ enabled: true, opacity: 1, blend: "normal", scope: "all", devices: [], when: "always", apps: [], effect: copy(effect), ...more });
@@ -652,7 +652,7 @@
       const changed = on(settings) !== on(state.settings);
       state.settings = { ...settings, fps: clamp(settings.fps, 10, 60) };
       start();
-      const text = on(settings) ? "install PawnIO, then install the FoxRGB service" : "remove the FoxRGB service, then remove PawnIO";
+      const text = on(settings) ? "install PawnIO, then install the FoxDen service" : "remove the FoxDen service, then remove PawnIO";
       if (changed) setTimeout(() => emit("modules", { ok: true, text: "Development build, so nothing was changed. Would: " + text }), 300);
     },
     get_conflicts() {

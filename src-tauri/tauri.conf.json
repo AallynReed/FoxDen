@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FoxRGB",
+  "productName": "FoxDen",
   "version": "0.10.1",
-  "identifier": "com.foxrgb.desktop",
+  "identifier": "com.foxden.desktop",
   "build": {
     "frontendDist": "../ui"
   },
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "FoxRGB",
+        "title": "FoxDen",
         "width": 1180,
         "height": 720,
         "minWidth": 820,
@@ -29,7 +29,7 @@
     "targets": [
       "nsis"
     ],
-    "publisher": "FoxRGB",
+    "publisher": "FoxDen",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -49,7 +49,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2OUExOEQ0OTdDRTBEMDEKUldRQkRjNlgxQmlhdHNRcDlJR2xIcVh4R1dobE1tU0JCMW0yall4U3BoRVdJcW9jTXh1WmVldVQK",
       "endpoints": [
-        "https://github.com/AallynReed/FoxRGB/releases/latest/download/latest.json"
+        "https://github.com/AallynReed/FoxDen/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

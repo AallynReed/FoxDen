@@ -27,7 +27,7 @@ const snapped = (v) => Math.round(v / view.grid) * view.grid;
 function setView(change) {
   Object.assign(view, change);
   try {
-    localStorage.setItem("foxrgb.view", JSON.stringify(view));
+    localStorage.setItem("foxden.view", JSON.stringify(view));
   } catch {}
   if ("zoom" in change) applyZoom();
   preview.dirty = true;
@@ -515,7 +515,7 @@ function previewInit(canvas) {
   preview.canvas = canvas;
   preview.ctx = canvas.getContext("2d");
   try {
-    const saved = JSON.parse(localStorage.getItem("foxrgb.view"));
+    const saved = JSON.parse(localStorage.getItem("foxden.view"));
     if (saved && saved.grid > 0) Object.assign(view, saved);
   } catch {}
   if (!ZOOMS.includes(view.zoom)) view.zoom = 1;

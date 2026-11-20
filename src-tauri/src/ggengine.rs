@@ -6,7 +6,7 @@ use std::sync::{LazyLock, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-use foxrgb_battery::{Battery, Kind};
+use foxden_battery::{Battery, Kind};
 use serde::Serialize;
 use serde_json::{Value, json};
 use steelseries_gg::engine::{EngineDevice, FirmwareConsent, STEELSERIES_VID};

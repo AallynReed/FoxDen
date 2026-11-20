@@ -14,7 +14,7 @@
   const WORDS = { running: "Running", stopped: "Stopped", error: "Error", start: "Starting", stop: "Stopping" };
   const MARKS = { running: "mark on", stopped: "mark", error: "mark warn" };
   const NOTICE =
-    "FoxRGB cannot drive this PC's fan headers yet, because the hardware helper is not built. " +
+    "FoxDen cannot drive this PC's fan headers yet, because the hardware helper is not built. " +
     "Temperatures are real where the service can read them.";
   const OFFLINE = "Start the service to see the sensors and fans and to edit curves.";
   // Sensor id prefixes, in the order their groups are shown.
@@ -956,7 +956,7 @@
     setText(ui.word, WORDS[pending] || WORDS[state] || "Checking");
     setText(ui.version, live.version ? "version " + live.version : "");
     let detail = "";
-    if (state === "stopped") detail = "Fan control runs in the FoxRGB background service, which is not running.";
+    if (state === "stopped") detail = "Fan control runs in the FoxDen background service, which is not running.";
     else if (state === "error") detail = live.detail ? sentence(live.detail) : "The service did not answer as expected.";
     say(ui.detail, detail);
     ui.start.hidden = !state || running;

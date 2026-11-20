@@ -1,12 +1,12 @@
 {
   "build": {
-    "beforeBuildCommand": "cargo build --release -p foxrgb-service"
+    "beforeBuildCommand": "cargo build --release -p foxden-service"
   },
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
     "resources": {
-      "../target/release/foxrgb-service.exe": "foxrgb-service.exe",
+      "../target/release/foxden-service.exe": "foxden-service.exe",
       "../packaging/PawnIO_setup.exe": "PawnIO_setup.exe",
       "../LICENSE": "LICENSE.txt"
     },

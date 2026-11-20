@@ -116,7 +116,7 @@
     mock.emit("fans", state());
   }
 
-  // The same rules and wording as FanConfig::validate in foxrgb-fan.
+  // The same rules and wording as FanConfig::validate in foxden-fan.
   function validate(config) {
     const names = new Set();
     for (const curve of config.curves) {

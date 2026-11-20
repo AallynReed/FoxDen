@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use foxrgb_core::{Effect, Layer, Post};
-use foxrgb_fan::FanConfig;
-use foxrgb_net::NetConfig;
+use foxden_core::{Effect, Layer, Post};
+use foxden_fan::FanConfig;
+use foxden_net::NetConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -99,18 +99,18 @@ impl Default for LedStripConfig {
 }
 
 impl LedStripConfig {
-    /// The strip for foxrgb-hid, if every field is usable.
-    pub fn strip(&self) -> Option<foxrgb_hid::LedStrip> {
+    /// The strip for foxden-hid, if every field is usable.
+    pub fn strip(&self) -> Option<foxden_hid::LedStrip> {
         let port = self.port.trim();
         if port.is_empty() || self.baud == 0 || self.leds == 0 {
             return None;
         }
-        Some(foxrgb_hid::LedStrip {
+        Some(foxden_hid::LedStrip {
             name: self.name.trim().to_string(),
             port: port.to_string(),
             baud: self.baud,
             leds: self.leds,
-            protocol: foxrgb_hid::LedProtocol::from_name(&self.protocol)?,
+            protocol: foxden_hid::LedProtocol::from_name(&self.protocol)?,
         })
     }
 }
@@ -219,17 +219,50 @@ fn lenient_map<'de, D: Deserializer<'de>, T: DeserializeOwned>(
 }
 
 /// The app's identifier. The uninstaller's "delete application data" box removes the folder of that name.
-const FOLDER: &str = "com.foxrgb.desktop";
+const FOLDER: &str = "com.foxden.desktop";
 
-/// Where everything the app keeps goes: `FOXRGB_CONFIG_DIR` if set, otherwise `%APPDATA%\com.foxrgb.desktop`.
+/// Where everything the app keeps goes: `FOXDEN_CONFIG_DIR` if set, otherwise `%APPDATA%\com.foxden.desktop`.
 pub fn dir() -> PathBuf {
-    match std::env::var_os("FOXRGB_CONFIG_DIR") {
+    match std::env::var_os("FOXDEN_CONFIG_DIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join(FOLDER),
+        _ => {
+            let appdata = PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default());
+            let dir = appdata.join(FOLDER);
+            adopt(&appdata.join(OLD_FOLDER), &dir);
+            dir
+        }
     }
 }
 
-/// The web view's own data. Left to itself it would go to a second folder that `FOXRGB_CONFIG_DIR` does not move.
+/// The folder the app used while it was called FoxRGB.
+const OLD_FOLDER: &str = "com.foxrgb.desktop";
+
+/// Copies an older install's folder over once, the first time the new one is missing.
+fn adopt(old: &Path, new: &Path) {
+    if new.exists() || !old.is_dir() {
+        return;
+    }
+    if copy_tree(old, new).is_err() {
+        let _ = fs::remove_dir_all(new);
+    }
+}
+
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
+
+/// The web view's own data. Left to itself it would go to a second folder that `FOXDEN_CONFIG_DIR` does not move.
 pub fn webview_dir() -> PathBuf {
     dir().join("webview")
 }
@@ -337,12 +370,12 @@ pub fn save(dir: &Path, config: &Config) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use foxrgb_core::{Blend, Color, Colors, LayerEffect, Scope};
+    use foxden_core::{Blend, Color, Colors, LayerEffect, Scope};
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::current_exe()
             .unwrap()
-            .with_file_name(format!("foxrgb-test-{name}"));
+            .with_file_name(format!("foxden-test-{name}"));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -565,7 +598,7 @@ mod tests {
         );
         let desk = s.led_strips[1].strip().unwrap();
         assert_eq!((desk.baud, desk.leds), (9600, 30));
-        assert_eq!(desk.protocol, foxrgb_hid::LedProtocol::Tpm2);
+        assert_eq!(desk.protocol, foxden_hid::LedProtocol::Tpm2);
         assert_eq!(s.zone_leds["hid:asus-aura-usb-x#1"], 24);
         save(&dir, &config).unwrap();
         assert_eq!(load(&dir), config);

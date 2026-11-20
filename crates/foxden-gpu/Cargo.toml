@@ -1,0 +1,10 @@
+[package]
+name = "foxden-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+foxden-core.workspace = true
+foxden-smbus = { path = "../foxden-smbus" }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_Memory"] }

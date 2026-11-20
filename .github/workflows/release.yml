@@ -48,7 +48,7 @@ jobs:
       - name: Download installer
         uses: actions/download-artifact@v8
         with:
-          name: FoxRGB-setup
+          name: FoxDen-setup
 
       - name: Draft release
         env:
@@ -67,4 +67,4 @@ jobs:
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{version: $v, pub_date: $date, platforms: {"windows-x86_64": {signature: $sig, url: $url}}}' > latest.json
           gh release create "$GITHUB_REF_NAME" "$file" "$file.sig" latest.json SHA256SUMS.txt \
-            --draft --verify-tag --generate-notes --title "FoxRGB ${GITHUB_REF_NAME#v}"
+            --draft --verify-tag --generate-notes --title "FoxDen ${GITHUB_REF_NAME#v}"

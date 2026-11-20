@@ -1,9 +1,0 @@
-[package]
-name = "foxrgb-smbus"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-foxrgb-core.workspace = true
-foxrgb-pawnio = { path = "../foxrgb-pawnio" }
