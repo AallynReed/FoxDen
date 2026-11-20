@@ -716,6 +716,8 @@ struct V2 {
 
 impl V2 {
     fn send(&self, report: &[u8]) -> Result<(), String> {
+        let _turn = foxrgb_core::hid_turn::take();
+        drain(&self.hid);
         write(&self.hid, report)?;
         if !self.skip_reads {
             read(&self.hid, TIMEOUT)?;
@@ -726,6 +728,8 @@ impl V2 {
     fn set_leds(&self, data: &[u8]) -> Result<(), String> {
         self.send(&start_tx(self.cmd, 1, self.light_ctrl, self.pkt))?;
         let packets = blocks(self.cmd, data, self.pkt);
+        let turn = foxrgb_core::hid_turn::take();
+        drain(&self.hid);
         write(&self.hid, &packets[0])?;
         if !self.skip_reads && read(&self.hid, TIMEOUT_SHORT)?.is_empty() {
             sleep(WRITE_PACE);
@@ -734,6 +738,7 @@ impl V2 {
             write(&self.hid, p)?;
             sleep(WRITE_PACE);
         }
+        drop(turn);
         self.send(&stop_tx(self.cmd, 0, self.pkt))
     }
 }
@@ -765,7 +770,15 @@ impl Drop for V2 {
     }
 }
 
+/// Drops input reports left over from other readers of this device, such as battery queries.
+fn drain(hid: &HidDevice) {
+    let mut buf = [0u8; 1025];
+    while matches!(hid.read_timeout(&mut buf, 0), Ok(n) if n > 0) {}
+}
+
 fn get_address(hid: &HidDevice, cmd: u8, address: u8, pkt: usize) -> Result<u32, String> {
+    let _turn = foxrgb_core::hid_turn::take();
+    drain(hid);
     write(hid, &get(cmd, address, pkt))?;
     Ok(address_value(&read(hid, TIMEOUT)?))
 }
@@ -829,12 +842,15 @@ fn open(api: &HidApi, info: &Info, det: &Detector, hw: bool) -> Result<Box<dyn B
         driver.light_ctrl = LIGHT_MONO;
     } else if light_ctrl == LIGHT_CTRL2 && !PINNED.contains(&spec.pid) {
         let request = start_tx(cmd, 0, driver.light_ctrl, pkt);
+        let turn = foxrgb_core::hid_turn::take();
+        drain(&driver.hid);
         write(&driver.hid, &request)?;
         let answer = if skip_reads {
             Vec::new()
         } else {
             read(&driver.hid, TIMEOUT)?
         };
+        drop(turn);
         if start_result(&request, &answer) > 0 {
             driver.light_ctrl = LIGHT_CTRL1;
             driver.send(&start_tx(cmd, 0, driver.light_ctrl, pkt))?;

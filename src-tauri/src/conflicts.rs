@@ -1,11 +1,13 @@
 //! Finds and closes other lighting and fan software. The list itself is in `foxrgb_core::conflicts`.
 
+use std::path::Path;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use foxrgb_client::{Client, PIPE};
 use foxrgb_core::conflicts::{self, APPS, Area, Closed, Process, Scope};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager};
 use windows_service::service::{ServiceAccess, ServiceState};
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, SYSTEMTIME};
@@ -14,10 +16,12 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 };
 use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
+    OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
+    QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
 };
 
 use crate::config::Settings;
+use crate::state::{Shared, lock};
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Found {
@@ -26,7 +30,8 @@ pub struct Found {
     pub area: Area,
     /// Whether the switches in force would close it.
     pub closes: bool,
-    /// Its executables running now, and whether each is closed or kept.
+    pub running: bool,
+    /// Its executables running now or seen before, and whether each is closed or kept.
     pub exes: Vec<Exe>,
 }
 
@@ -34,6 +39,19 @@ pub struct Found {
 pub struct Exe {
     pub name: String,
     pub closes: bool,
+    pub running: bool,
+    pub path: Option<String>,
+}
+
+/// A conflicting executable FoxRGB has seen, kept in the config.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Known {
+    pub app: String,
+    pub name: String,
+    pub exe: String,
+    /// None when the process could not be read, such as one running elevated.
+    pub path: Option<String>,
 }
 
 /// Whether the user keeps this executable running.
@@ -83,54 +101,162 @@ pub fn scope(settings: &Settings) -> Scope {
     }
 }
 
-/// Listed software running now, from processes and services.
-pub fn running(scope: Scope, keep: &[String]) -> Vec<Found> {
+/// Listed software running now, from processes and services, and what was seen before.
+pub fn running(app: &AppHandle, scope: Scope, keep: &[String]) -> Vec<Found> {
     let procs = processes();
+    let known = record(app, observed(&procs, image_path));
     let live = running_services(Scope {
         lighting: true,
         fans: true,
         keep_openrgb: false,
     });
-    found(&procs, &live, scope, keep)
+    found(&procs, &live, scope, keep, &known)
 }
 
-fn found(procs: &[Process], services: &[&str], scope: Scope, keep: &[String]) -> Vec<Found> {
+fn found(
+    procs: &[Process],
+    services: &[&str],
+    scope: Scope,
+    keep: &[String],
+    known: &[Known],
+) -> Vec<Found> {
     APPS.iter()
-        .filter(|app| {
-            procs
+        .filter_map(|app| {
+            let live = procs
                 .iter()
-                .any(|p| conflicts::app_of(&p.name) == Some(*app))
-                || app.services.iter().any(|s| services.contains(s))
-        })
-        .map(|app| {
+                .any(|p| conflicts::app_of(&p.name) == Some(app))
+                || app.services.iter().any(|s| services.contains(s));
+            let exe = |name: &str, running: bool, path: Option<String>| Exe {
+                name: name.to_string(),
+                closes: scope.covers(app) && !kept(keep, name),
+                running,
+                path,
+            };
+            let path_of = |name: &str| {
+                known
+                    .iter()
+                    .find(|k| k.exe.eq_ignore_ascii_case(name))
+                    .and_then(|k| k.path.clone())
+            };
             let mut exes: Vec<Exe> = Vec::new();
             for p in procs
                 .iter()
                 .filter(|p| conflicts::app_of(&p.name) == Some(app))
             {
                 if !exes.iter().any(|e| e.name.eq_ignore_ascii_case(&p.name)) {
-                    exes.push(Exe {
-                        name: p.name.clone(),
-                        closes: scope.covers(app) && !kept(keep, &p.name),
-                    });
+                    exes.push(exe(&p.name, true, path_of(&p.name)));
                 }
+            }
+            for k in known.iter().filter(|k| k.app == app.id) {
+                if !exes.iter().any(|e| e.name.eq_ignore_ascii_case(&k.exe)) {
+                    exes.push(exe(&k.exe, false, k.path.clone()));
+                }
+            }
+            if !live && exes.is_empty() {
+                return None;
             }
             exes.sort_by_key(|e| e.name.to_lowercase());
             let closes = scope.covers(app) && (exes.is_empty() || exes.iter().any(|e| e.closes));
-            Found {
+            Some(Found {
                 id: app.id,
                 name: app.name,
                 area: app.area,
                 closes,
+                running: live,
                 exes,
-            }
+            })
         })
         .collect()
 }
 
+/// The conflicting executables among `procs`, kept or not, with the paths `path_of` can read.
+fn observed(procs: &[Process], path_of: impl Fn(u32) -> Option<String>) -> Vec<Known> {
+    let own = std::process::id();
+    let mut seen: Vec<Known> = Vec::new();
+    for p in procs.iter().filter(|p| p.pid != own && p.pid > 4) {
+        let Some(app) = conflicts::app_of(&p.name) else {
+            continue;
+        };
+        let path = path_of(p.pid);
+        match seen
+            .iter_mut()
+            .find(|k| k.exe.eq_ignore_ascii_case(&p.name))
+        {
+            Some(k) => {
+                if k.path.is_none() {
+                    k.path = path;
+                }
+            }
+            None => seen.push(Known {
+                app: app.id.into(),
+                name: app.name.into(),
+                exe: p.name.clone(),
+                path,
+            }),
+        }
+    }
+    seen
+}
+
+/// Adds what was seen to `known`, one entry per executable; true when anything changed.
+fn merge(known: &mut Vec<Known>, seen: Vec<Known>) -> bool {
+    let mut changed = false;
+    for s in seen {
+        match known
+            .iter_mut()
+            .find(|k| k.exe.eq_ignore_ascii_case(&s.exe))
+        {
+            Some(k) => {
+                let next = Known {
+                    exe: k.exe.clone(),
+                    path: s.path.or_else(|| k.path.clone()),
+                    ..s
+                };
+                if *k != next {
+                    *k = next;
+                    changed = true;
+                }
+            }
+            None => {
+                known.push(s);
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// Drops what was uninstalled or is no longer listed; entries without a path stay.
+fn prune(known: &mut Vec<Known>, exists: impl Fn(&Path) -> bool) -> bool {
+    let before = known.len();
+    known.retain(|k| {
+        APPS.iter().any(|a| a.id == k.app) && k.path.as_ref().is_none_or(|p| exists(Path::new(p)))
+    });
+    known.len() != before
+}
+
+/// Keeps what was seen in the config and gives back the whole list.
+fn record(app: &AppHandle, seen: Vec<Known>) -> Vec<Known> {
+    let shared = app.state::<Shared>();
+    let mut state = lock(&shared);
+    if merge(&mut state.config.known_conflicts, seen) {
+        state.changed = Some(Instant::now());
+    }
+    state.config.known_conflicts.clone()
+}
+
+/// Forgets software uninstalled since the last start.
+pub fn forget_removed(shared: &Shared) {
+    let mut state = lock(shared);
+    if prune(&mut state.config.known_conflicts, Path::exists) {
+        state.changed = Some(Instant::now());
+    }
+}
+
 /// Closes what `scope` covers: processes from here, the rest through the service. None when nothing ran.
-pub fn sweep(scope: Scope, keep: &[String]) -> Option<Report> {
+pub fn sweep(app: &AppHandle, scope: Scope, keep: &[String]) -> Option<Report> {
     let procs = processes();
+    record(app, observed(&procs, image_path));
     let mut targets = conflicts::targets(&procs, scope, std::process::id());
     targets.retain(|(p, _)| !kept(keep, &p.name));
     let services = running_services(scope);
@@ -217,6 +343,20 @@ pub fn processes() -> Vec<Process> {
     found
 }
 
+fn image_path(pid: u32) -> Option<String> {
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(handle);
+        (ok && len > 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
+    }
+}
+
 /// Never ends anything under `cargo test`.
 fn kill(pid: u32) -> bool {
     if cfg!(test) {
@@ -287,7 +427,7 @@ mod tests {
             lighting: true,
             ..Scope::default()
         };
-        let list = found(&procs, &["CorsairService"], lighting, &[]);
+        let list = found(&procs, &["CorsairService"], lighting, &[], &[]);
         let names: Vec<_> = list.iter().map(|f| (f.name, f.closes)).collect();
         assert_eq!(
             names,
@@ -311,7 +451,7 @@ mod tests {
             ..Scope::default()
         };
         let keep = vec!["steelseriessonar.EXE".to_string()];
-        let list = found(&procs, &[], lighting, &keep);
+        let list = found(&procs, &[], lighting, &keep, &[]);
         let exes: Vec<_> = list[0]
             .exes
             .iter()
@@ -333,7 +473,7 @@ mod tests {
         ]
         .map(String::from)
         .to_vec();
-        assert!(!found(&procs, &[], lighting, &all)[0].closes);
+        assert!(!found(&procs, &[], lighting, &all, &[])[0].closes);
     }
 
     #[test]
@@ -367,5 +507,132 @@ mod tests {
         assert!(is_news(Some(&left(&["Corsair iCUE"])), Some(&left(&[]))));
         assert!(is_news(Some(&closed), Some(&closed)));
         assert!(!is_news(Some(&closed), None));
+    }
+
+    fn known(app: &str, exe: &str, path: Option<&str>) -> Known {
+        Known {
+            app: app.into(),
+            name: String::new(),
+            exe: exe.into(),
+            path: path.map(String::from),
+        }
+    }
+
+    #[test]
+    fn seen_executables_are_recorded_with_their_paths() {
+        let procs = procs(&["lghub.exe", "lghub.exe", "notepad.exe", "lghub_agent.exe"]);
+        let seen = observed(&procs, |pid| {
+            (pid != 100).then(|| format!("C:\\G\\{pid}.exe"))
+        });
+        let got: Vec<_> = seen
+            .iter()
+            .map(|k| {
+                (
+                    k.app.as_str(),
+                    k.name.as_str(),
+                    k.exe.as_str(),
+                    k.path.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (
+                    "ghub",
+                    "Logitech G HUB",
+                    "lghub.exe",
+                    Some("C:\\G\\104.exe")
+                ),
+                (
+                    "ghub",
+                    "Logitech G HUB",
+                    "lghub_agent.exe",
+                    Some("C:\\G\\112.exe")
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn merging_keeps_one_entry_per_executable_and_never_loses_a_path() {
+        let mut list = vec![known("ghub", "lghub.exe", Some("C:\\G\\lghub.exe"))];
+        assert!(!merge(&mut list, vec![known("ghub", "LGHUB.exe", None)]));
+        assert_eq!(list[0].path.as_deref(), Some("C:\\G\\lghub.exe"));
+        assert!(merge(
+            &mut list,
+            vec![
+                known("ghub", "lghub.exe", Some("D:\\G\\lghub.exe")),
+                known("fancontrol", "FanControl.exe", None),
+            ]
+        ));
+        assert_eq!(
+            list,
+            [
+                known("ghub", "lghub.exe", Some("D:\\G\\lghub.exe")),
+                known("fancontrol", "FanControl.exe", None),
+            ]
+        );
+        assert!(merge(
+            &mut list,
+            vec![known(
+                "fancontrol",
+                "FanControl.exe",
+                Some("C:\\F\\FanControl.exe")
+            )]
+        ));
+        assert_eq!(list[1].path.as_deref(), Some("C:\\F\\FanControl.exe"));
+    }
+
+    #[test]
+    fn uninstalled_software_is_forgotten_and_unreadable_entries_stay() {
+        let mut list = vec![
+            known("ghub", "lghub.exe", Some("C:\\G\\lghub.exe")),
+            known("icue", "iCUE.exe", Some("C:\\Gone\\iCUE.exe")),
+            known("razer", "RzSynapse.exe", None),
+            known("gone", "Old.exe", None),
+        ];
+        assert!(prune(&mut list, |p| !p.starts_with("C:\\Gone")));
+        assert_eq!(
+            list,
+            [
+                known("ghub", "lghub.exe", Some("C:\\G\\lghub.exe")),
+                known("razer", "RzSynapse.exe", None),
+            ]
+        );
+        assert!(!prune(&mut list, |_| true));
+    }
+
+    #[test]
+    fn remembered_software_is_listed_while_it_is_not_running() {
+        let lighting = Scope {
+            lighting: true,
+            ..Scope::default()
+        };
+        let list_of = |procs: &[Process]| {
+            let known = [
+                known("steelseries", "SteelSeriesGG.exe", Some("C:\\S\\GG.exe")),
+                known("steelseries", "SteelSeriesSonar.exe", None),
+                known("ghub", "lghub.exe", None),
+            ];
+            let keep = ["SteelSeriesSonar.exe".to_string()];
+            found(procs, &[], lighting, &keep, &known)
+        };
+        let list = list_of(&procs(&["SteelSeriesGG.exe"]));
+        let apps: Vec<_> = list.iter().map(|f| (f.id, f.running, f.closes)).collect();
+        assert_eq!(apps, [("ghub", false, true), ("steelseries", true, true)]);
+        let exes: Vec<_> = list[1]
+            .exes
+            .iter()
+            .map(|e| (e.name.as_str(), e.running, e.closes, e.path.as_deref()))
+            .collect();
+        assert_eq!(
+            exes,
+            [
+                ("SteelSeriesGG.exe", true, true, Some("C:\\S\\GG.exe")),
+                ("SteelSeriesSonar.exe", false, false, None),
+            ]
+        );
+        assert!(list_of(&[]).iter().all(|f| !f.running));
     }
 }

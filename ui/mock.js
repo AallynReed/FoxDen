@@ -220,6 +220,7 @@
       close_conflicts: true,
       keep_running: [],
       send_reports: false,
+      battery_tray: true,
     },
   };
 
@@ -655,12 +656,14 @@
     },
     get_conflicts() {
       const keep = (state.settings.keep_running || []).map((n) => n.toLowerCase());
-      const exes = (names, on) => names.map((name) => ({ name, closes: on && !keep.includes(name.toLowerCase()) }));
+      const exes = (names, on, running = true) =>
+        names.map((name) => ({ name, closes: on && !keep.includes(name.toLowerCase()), running, path: "C:\\Program Files\\" + name }));
       const gg = exes(["SteelSeriesGG.exe", "SteelSeriesSonar.exe"], state.settings.close_conflicts);
       return [
-        { name: "SignalRGB", area: "both", closes: state.settings.close_conflicts, exes: exes(["SignalRgb.exe"], state.settings.close_conflicts) },
-        { name: "SteelSeries GG", area: "lighting", closes: gg.some((e) => e.closes), exes: gg },
-        { name: "Fan Control", area: "fans", closes: state.settings.fans_module, exes: exes(["FanControl.exe"], state.settings.fans_module) },
+        { name: "Logitech G HUB", area: "lighting", running: false, closes: state.settings.close_conflicts, exes: exes(["lghub.exe"], state.settings.close_conflicts, false) },
+        { name: "SignalRGB", area: "both", running: true, closes: state.settings.close_conflicts, exes: exes(["SignalRgb.exe"], state.settings.close_conflicts) },
+        { name: "SteelSeries GG", area: "lighting", running: true, closes: gg.some((e) => e.closes), exes: gg },
+        { name: "Fan Control", area: "fans", running: true, closes: state.settings.fans_module, exes: exes(["FanControl.exe"], state.settings.fans_module) },
       ];
     },
     close_conflicts_now() {

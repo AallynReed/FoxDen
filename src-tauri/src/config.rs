@@ -41,6 +41,8 @@ pub struct Settings {
     pub keep_running: Vec<String>,
     /// Send anonymous error reports.
     pub send_reports: bool,
+    /// A tray icon with the battery level of each wireless device.
+    pub battery_tray: bool,
 }
 
 impl Default for Settings {
@@ -65,6 +67,7 @@ impl Default for Settings {
             close_conflicts: true,
             keep_running: Vec::new(),
             send_reports: false,
+            battery_tray: true,
         }
     }
 }
@@ -157,6 +160,9 @@ pub struct Config {
     pub active_profile: Option<String>,
     /// The user's fan config, kept while the Fans module is off.
     pub fan_backup: Option<FanConfig>,
+    /// Conflicting executables seen so far, so they can be kept running when they are not.
+    #[serde(deserialize_with = "lenient_list")]
+    pub known_conflicts: Vec<crate::conflicts::Known>,
 }
 
 impl Default for Config {
@@ -171,6 +177,7 @@ impl Default for Config {
             profiles: BTreeMap::new(),
             active_profile: None,
             fan_backup: None,
+            known_conflicts: Vec::new(),
         }
     }
 }

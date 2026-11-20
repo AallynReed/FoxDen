@@ -1,6 +1,7 @@
 mod backend;
 mod color;
 pub mod conflicts;
+pub mod hid_turn;
 mod device;
 mod effect;
 mod engine;

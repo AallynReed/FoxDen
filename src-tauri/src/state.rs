@@ -407,6 +407,7 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
     let (jobs, inbox) = mpsc::channel();
     thread::spawn(move || {
         let mut watch = Watch::default();
+        crate::conflicts::forget_removed(&shared);
         let first = lock(&shared).config.settings.clone();
         // Closed before the devices are opened, so they are free to take.
         if first.close_conflicts {
@@ -515,7 +516,11 @@ fn enabled(label: &str, settings: &Settings) -> bool {
 
 /// Closes conflicting software and tells the UI, and with the window hidden a toast too.
 fn close_conflicts(app: &AppHandle, settings: &Settings) {
-    let report = crate::conflicts::sweep(crate::conflicts::scope(settings), &settings.keep_running);
+    let report = crate::conflicts::sweep(
+        app,
+        crate::conflicts::scope(settings),
+        &settings.keep_running,
+    );
     if !crate::conflicts::remember(report.clone()) {
         return;
     }
@@ -933,6 +938,7 @@ mod tests {
                 "auto_detect",
                 "auto_update",
                 "autostart",
+                "battery_tray",
                 "close_conflicts",
                 "close_to_tray",
                 "fans_module",

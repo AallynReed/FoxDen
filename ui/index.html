@@ -219,6 +219,10 @@
             <input type="checkbox" class="switch" id="set-tray" data-setting="close_to_tray" />
           </div>
           <div class="field">
+            <label for="set-battery">Battery levels in the tray</label>
+            <input type="checkbox" class="switch" id="set-battery" data-setting="battery_tray" />
+          </div>
+          <div class="field">
             <label for="set-minimised">Start minimised</label>
             <input type="checkbox" class="switch" id="set-minimised" data-setting="start_minimized" />
           </div>
@@ -266,7 +270,7 @@
           </div>
           <p class="hint" id="conflicts-hint">Other lighting and fan apps hold the same devices. FoxRGB closes them at start and whenever it looks for hardware.</p>
           <ul class="list backends" id="conflict-list" aria-labelledby="conflicts-heading"></ul>
-          <p class="hint" id="conflicts-empty" hidden>None running.</p>
+          <p class="hint" id="conflicts-empty" hidden>None found.</p>
           <p class="hint" id="conflicts-last" hidden></p>
           <div class="actions">
             <button type="button" id="conflicts-close">Close now</button>
