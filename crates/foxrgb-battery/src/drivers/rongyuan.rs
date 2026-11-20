@@ -71,14 +71,15 @@ fn parse(r: &[u8]) -> Option<Slots> {
     })
 }
 
-/// The product string without link words: "AJAZZ 2.4G 8K" gives "AJAZZ".
+/// The product string without generic words: "MonsGeek 2.4G Wireless Keyboard" gives "MonsGeek".
 fn brand(product: &str) -> String {
-    const LINK: [&str; 10] = [
+    const GENERIC: [&str; 13] = [
         "2.4G", "2.4GHZ", "8K", "4K", "2K", "1K", "RECEIVER", "WIRELESS", "DONGLE", "USB",
+        "KEYBOARD", "MOUSE", "GAMING",
     ];
     product
         .split_whitespace()
-        .filter(|w| !LINK.contains(&w.to_uppercase().as_str()))
+        .filter(|w| !GENERIC.contains(&w.to_uppercase().as_str()))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -90,8 +91,7 @@ fn name(vid: u16, pid: u16, product: &str, keyboard: bool) -> String {
     let what = if keyboard { "keyboard" } else { "mouse" };
     match (vid, pid) {
         (0x3151, 0x402D) if !keyboard && !other_brand => "Attack Shark R3".into(),
-        (0x3151, 0x5038) if keyboard => "MonsGeek keyboard".into(),
-        _ if generic && !brand.is_empty() => format!("{brand} wireless {what}"),
+        _ if generic && !brand.is_empty() => format!("{brand} {what}"),
         (0x3151, 0x5006) if keyboard && product.contains("Akko") => "Akko Air 01".into(),
         _ if generic => format!("Wireless {what}"),
         _ => product.to_string(),
@@ -147,11 +147,8 @@ pub fn poll_rongyuan(ctx: &mut Ctx) {
                         Kind::Mouse
                     },
                     percent: (1..=100).contains(&level).then_some(level),
-                    grace_secs: if keyboard && (vid, pid) == (0x3151, 0x5038) {
-                        1800
-                    } else {
-                        0
-                    },
+                    // A sleeping keyboard drops off the receiver's list; keep its last level.
+                    grace_secs: if keyboard { 1800 } else { 0 },
                     vid,
                     ..Default::default()
                 };
@@ -202,9 +199,10 @@ mod tests {
             name(0x3151, 0x402D, "2.4G Wireless Receiver", false),
             "Attack Shark R3"
         );
+        assert_eq!(name(0x3151, 0x402D, "AJAZZ 2.4G 8K", false), "AJAZZ mouse");
         assert_eq!(
-            name(0x3151, 0x402D, "AJAZZ 2.4G 8K", false),
-            "AJAZZ wireless mouse"
+            name(0x3151, 0x5038, "MonsGeek 2.4G Wireless Keyboard", true),
+            "MonsGeek keyboard"
         );
         assert_eq!(name(0x3151, 0x4011, "", true), "Wireless keyboard");
     }

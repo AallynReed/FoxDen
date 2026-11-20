@@ -79,25 +79,28 @@ pub fn parse_status15(r: &[u8]) -> Option<Status15> {
     })
 }
 
-/// Up to four tries; stops early once the mouse is reachable (always, on the cable).
+/// Up to three tries; stops early once the mouse is reachable (always, on the cable).
 pub fn query_status15(dev: &Dev, cable: bool) -> Option<Status15> {
     let mut req = [0u8; 32];
     req[0] = 0x05;
     req[1] = 0x15;
     req[4] = 0x01;
     let mut last = None;
-    for attempt in 0..4 {
+    for attempt in 0..3 {
         if attempt > 0 {
             sleep(Duration::from_millis(90));
         }
         if !dev.set_feature(&req) {
             break;
         }
-        sleep(Duration::from_millis(15));
-        if let Some(s) = dev.get_feature(0x05).as_deref().and_then(parse_status15) {
-            last = Some(s);
-            if cable || s.online {
-                break;
+        // Some receivers need about 90 ms before the answer replaces the echoed request.
+        for wait in [15, 75] {
+            sleep(Duration::from_millis(wait));
+            if let Some(s) = dev.get_feature(0x05).as_deref().and_then(parse_status15) {
+                last = Some(s);
+                if cable || s.online {
+                    return last;
+                }
             }
         }
     }

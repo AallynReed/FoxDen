@@ -55,6 +55,38 @@ fn query(dev: &Dev) -> Option<u8> {
     dev.read_until(Duration::from_millis(500), parse)
 }
 
+/// Device-info read: `AA 10 18 [addr LE] 00 [last]`, answered by `55 10 18 [addr LE]` with 24 data bytes at 8.
+fn info_request(addr: u16, last: bool) -> Vec<u8> {
+    let mut req = vec![0u8; 1 + PAYLOAD];
+    req[1..4].copy_from_slice(&[0xAA, 0x10, 0x18]);
+    req[4..6].copy_from_slice(&addr.to_le_bytes());
+    req[7] = last as u8;
+    req
+}
+
+fn info_chunk(addr: u16, r: &[u8]) -> Option<Vec<u8>> {
+    let a = addr.to_le_bytes();
+    (r.len() >= 32 && r[..5] == [0x55, 0x10, 0x18, a[0], a[1]]).then(|| r[8..32].to_vec())
+}
+
+/// Work mode at 16, level at 17, charging at 18 of the 48 info bytes.
+fn parse_info(data: &[u8]) -> Option<(u8, bool)> {
+    let (mode, level, charge) = (*data.get(16)?, *data.get(17)?, *data.get(18)?);
+    (mode <= 3 && (1..=100).contains(&level)).then_some((level, charge != 0))
+}
+
+fn query_info(dev: &Dev) -> Option<(u8, bool)> {
+    let mut data = Vec::with_capacity(48);
+    for (addr, last) in [(0u16, false), (24, true)] {
+        dev.flush();
+        if !dev.write(&info_request(addr, last)) {
+            return None;
+        }
+        data.extend(dev.read_until(Duration::from_millis(500), |r| info_chunk(addr, r))?);
+    }
+    parse_info(&data)
+}
+
 fn display_name(product: &str) -> String {
     let n = product
         .strip_suffix(" 2.4G")
@@ -82,8 +114,15 @@ pub fn poll_sonix(ctx: &mut Ctx) {
         for c in colls {
             let Some(dev) = Dev::open(&c) else { continue };
             // The first request can be missed while the link wakes up.
-            let Some(level) = query(&dev).or_else(|| query(&dev)) else {
-                continue;
+            let level = query(&dev).or_else(|| query(&dev));
+            // This dongle can answer 0 here while its device-info block holds the real level.
+            let info = (pid == 0xFEFE && matches!(level, None | Some(0)))
+                .then(|| query_info(&dev))
+                .flatten();
+            let (level, charging) = match (info, level) {
+                (Some((l, c)), _) => (l, c),
+                (None, Some(l)) => (l, false),
+                (None, None) => continue,
             };
             let connected = (1..=100).contains(&level);
             let b = Battery {
@@ -92,6 +131,7 @@ pub fn poll_sonix(ctx: &mut Ctx) {
                 via: "2.4 GHz receiver".into(),
                 kind: Kind::Keyboard,
                 percent: connected.then_some(level),
+                charging: connected && charging,
                 connected,
                 grace_secs: 1800,
                 ..Default::default()
@@ -119,6 +159,28 @@ mod tests {
         assert_eq!(parse(&[0x20, 0x01, 0x00, 64, 0, 0]), Some(64));
         assert_eq!(parse(&[0x21, 0x01, 0x00, 64]), None);
         assert_eq!(parse(&[0x20, 0x01]), None);
+    }
+
+    #[test]
+    fn device_info_fallback() {
+        let q = info_request(24, true);
+        assert_eq!(
+            q[..9],
+            [0x00, 0xAA, 0x10, 0x18, 0x18, 0x00, 0x00, 0x01, 0x00]
+        );
+        let rx1 = [
+            0x55, 0x10, 0x18, 0, 0, 0, 0, 0, 0x00, 0x00, 0x00, 0x92, 0x45, 0x0C, 0x44, 0x80, 0x49,
+            0x01, 0x00, 0x00, 0x66, 0x01, 0x04, 0x10, 0x02, 0x63, 0x00, 0x00, 0x05, 0x00, 0x00,
+            0x00,
+        ];
+        let mut rx2 = [0u8; 32];
+        rx2[..7].copy_from_slice(&[0x55, 0x10, 0x18, 0x18, 0x00, 0x00, 0x01]);
+        assert_eq!(info_chunk(24, &rx1), None);
+        let mut data = info_chunk(0, &rx1).unwrap();
+        data.extend(info_chunk(24, &rx2).unwrap());
+        assert_eq!(parse_info(&data), Some((99, false)));
+        data[17] = 0;
+        assert_eq!(parse_info(&data), None);
     }
 
     #[test]

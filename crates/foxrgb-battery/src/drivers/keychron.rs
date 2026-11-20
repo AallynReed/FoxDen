@@ -7,9 +7,8 @@ use crate::{Battery, Ctx, Kind};
 
 const VID: u16 = 0x3434;
 const LINK_KM: u16 = 0xD026;
-const NAPE_CABLE: u16 = 0x0440;
-/// What the Link-KM lists in a slot for a paired Nape Pro.
-const NAPE_IN_SLOT: u16 = 0x4004;
+/// The Nape Pro's own product id, on its cable and in a Link-KM slot.
+const NAPE: u16 = 0x0440;
 const LEGACY_RECEIVERS: [u16; 2] = [0xD030, 0xD031];
 const ULTRA_LINK_8K: u16 = 0xD028;
 
@@ -61,14 +60,18 @@ fn raw_query(dev: &Dev, cmd: &[u8], min_len: usize, wait: Duration) -> Option<Ve
     })
 }
 
-/// Link-KM B2 reply: three slots at 2/7/12 of `[vid BE][pid BE][status]`.
-fn nape_linked(r: &[u8]) -> bool {
-    r.len() >= 17
-        && [2, 7, 12]
-            .iter()
-            .rev()
-            .find(|&&o| u16::from_be_bytes([r[o + 2], r[o + 3]]) == NAPE_IN_SLOT)
-            .is_some_and(|&o| r[o + 4] == 1)
+/// Link-KM B2 reply: three slots at 2/7/12 of `[vid LE][pid LE][status]`; the connected ones.
+fn km_linked(r: &[u8]) -> Vec<(u16, u16)> {
+    [2, 7, 12]
+        .into_iter()
+        .filter(|&o| r.len() > o + 4 && r[o + 4] == 1)
+        .map(|o| {
+            (
+                u16::from_le_bytes([r[o], r[o + 1]]),
+                u16::from_le_bytes([r[o + 2], r[o + 3]]),
+            )
+        })
+        .collect()
 }
 
 /// A7 31 reply: `[A7][31][percent][charging]`.
@@ -77,11 +80,12 @@ fn parse_nape(r: &[u8]) -> Option<(u8, bool)> {
 }
 
 fn nape(ctx: &mut Ctx) {
-    for pid in [LINK_KM, NAPE_CABLE] {
+    for pid in [LINK_KM, NAPE] {
         for c in ctx.find(VID, pid, is_raw) {
             let Some(dev) = Dev::open(&c) else { continue };
             if pid == LINK_KM
-                && !raw_query(&dev, &[0xB2], 3, READ_WAIT).is_some_and(|r| nape_linked(&r))
+                && !raw_query(&dev, &[0xB2], 3, READ_WAIT)
+                    .is_some_and(|r| km_linked(&r).contains(&(VID, NAPE)))
             {
                 continue;
             }
@@ -197,7 +201,7 @@ fn ultra_link(ctx: &mut Ctx) {
 }
 
 /// 64-byte unnumbered `[cmd][00][81][sub]...[sum]` where byte 63 = 0xA1 - sum of bytes 0..63.
-fn launcher_request(cmd: u8, sub: u8) -> [u8; 65] {
+pub(super) fn launcher_request(cmd: u8, sub: u8) -> [u8; 65] {
     let mut r = [0u8; 65];
     r[1] = cmd;
     r[3] = 0x81;
@@ -352,7 +356,7 @@ fn parse_keyboard(r: &[u8]) -> Option<KeyboardPower> {
 
 /// Keyboards behind a Keychron Link, or on the cable; stock firmware never answers A4.
 fn link_keyboard(ctx: &mut Ctx, vid: u16, pid: u16) {
-    if pid == LINK_KM || pid == NAPE_CABLE {
+    if pid == LINK_KM || pid == NAPE {
         return;
     }
     let a4 = |dev: &Dev| raw_query(dev, &[0xA4], 8, Duration::from_millis(400));
@@ -462,9 +466,13 @@ mod tests {
         assert_eq!(linked_keyboard(&b2), None);
 
         let mut km = [0u8; 32];
-        km[0] = 0xB2;
+        km[..2].copy_from_slice(&[0xB2, 0x01]);
+        km[12..17].copy_from_slice(&[0x34, 0x34, 0x64, 0xD0, 0x01]);
+        assert_eq!(km_linked(&km), [(VID, 0xD064)]);
         km[7..12].copy_from_slice(&[0x34, 0x34, 0x40, 0x04, 0x01]);
-        assert!(nape_linked(&km));
+        assert!(km_linked(&km).contains(&(VID, NAPE)));
+        km[11] = 0;
+        assert!(!km_linked(&km).contains(&(VID, NAPE)));
         assert_eq!(parse_nape(&[0xA7, 0x31, 81, 1]), Some((81, true)));
 
         let mut ultra = [0u8; 64];

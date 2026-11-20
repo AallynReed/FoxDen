@@ -93,6 +93,7 @@ mod vaxee;
 mod vendor_frames;
 mod vgn;
 mod via_dongle;
+mod waizowl;
 mod wlmouse;
 mod xinput;
 mod zenith;
@@ -129,6 +130,7 @@ pub const ORDER: &[fn(&mut Ctx)] = &[
     finalmouse::poll_finalmouse,
     scyrox::poll_scyrox,
     ninjutso::poll_ninjutso,
+    waizowl::poll_waizowl,
     sprime::poll_sprime,
     rawm::poll_rawm,
     akko::poll_akko,

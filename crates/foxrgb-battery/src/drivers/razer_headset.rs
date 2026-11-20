@@ -413,7 +413,8 @@ fn poll_v2_pro_2023(ctx: &mut Ctx) {
     }
 }
 
-// Barracuda X (2022, 0550): Airoha RACE through a USB bridge, `02 80 len crc payload` out, `02 len stream` in.
+// Barracuda X: Airoha RACE through a USB bridge. 0550 frames `02 80 len crc payload` out and `02 len stream` in;
+// 0552 has a different bridge with `01 80 len payload` both ways and no CRC or acknowledgement.
 
 fn crc16(data: &[u8]) -> u16 {
     data.iter().fold(0u16, |mut crc, &b| {
@@ -439,14 +440,27 @@ fn bridge_report(payload: &[u8]) -> [u8; 64] {
     f
 }
 
+fn plain_report(payload: &[u8]) -> [u8; 64] {
+    let mut f = [0u8; 64];
+    let n = payload.len().min(61);
+    f[..3].copy_from_slice(&[0x01, 0x80, n as u8]);
+    f[3..3 + n].copy_from_slice(&payload[..n]);
+    f
+}
+
 /// Collects input reports into a byte stream and cuts complete `50 49` frames out of it.
 #[derive(Default)]
 struct Stream(Vec<u8>);
 
 impl Stream {
     fn push(&mut self, r: &[u8]) {
-        if r.len() >= 2 && r[0] == 0x02 && r[1] as usize + 2 <= r.len() {
-            self.0.extend_from_slice(&r[2..2 + r[1] as usize]);
+        let (start, len) = match r {
+            [0x02, len, ..] => (2, *len as usize),
+            [0x01, 0x80, len, ..] => (3, *len as usize),
+            _ => return,
+        };
+        if let Some(bytes) = r.get(start..start + len) {
+            self.0.extend_from_slice(bytes);
         }
     }
 
@@ -478,14 +492,18 @@ struct Bridge {
     dev: Dev,
     stream: Stream,
     seq: u8,
+    plain: bool,
 }
 
 impl Bridge {
-    /// Sends `50 41 group seq body`; the bridge answers a get-input-report 02 with 'O' (taken) or 'F' (busy).
+    /// Sends `50 41 group seq body`; the 0550 bridge answers a get-input-report 02 with 'O' (taken) or 'F' (busy).
     fn command(&mut self, group: u8, body: &[u8]) -> bool {
         self.seq = self.seq % 127 + 1;
         let mut payload = vec![0x50, 0x41, group, self.seq];
         payload.extend_from_slice(body);
+        if self.plain {
+            return self.dev.write(&plain_report(&payload));
+        }
         let f = bridge_report(&payload);
         for attempt in 0..5 {
             if attempt > 0 {
@@ -526,7 +544,9 @@ impl Bridge {
             return false;
         }
         let seq = self.seq;
-        self.await_frame(Duration::from_millis(800), |f| remote_ack(seq, f)) == Some(true)
+        // The 0552 bridge does not always acknowledge; the following read proves the switch.
+        let wait = Duration::from_millis(if self.plain { 400 } else { 800 });
+        self.await_frame(wait, |f| remote_ack(seq, f)) == Some(true) || self.plain
     }
 
     fn get(&mut self, cmd: u8) -> Option<u8> {
@@ -538,19 +558,40 @@ impl Bridge {
     }
 }
 
+/// The 0552 bridge answers `01 40` with `01 40 01 01` once it accepts commands.
+fn plain_handshake(dev: &Dev) -> bool {
+    dev.flush();
+    dev.write(&[0x01, 0x40])
+        && dev
+            .read_until(Duration::from_millis(500), |r| {
+                r.starts_with(&[0x01, 0x40, 0x01, 0x01]).then_some(())
+            })
+            .is_some()
+}
+
 fn poll_barracuda_x(ctx: &mut Ctx) {
-    const PID: u16 = 0x0550;
-    if ctx.is_claimed(VID, PID) {
-        return;
+    for pid in [0x0550, 0x0552] {
+        if !ctx.is_claimed(VID, pid) {
+            barracuda_x(ctx, pid);
+        }
     }
-    let accept =
-        |c: &Coll| c.page == 0xFF00 && c.usage == 0x0001 && c.out_len >= 64 && c.in_len >= 64;
-    for c in ctx.find(VID, PID, accept) {
+}
+
+fn barracuda_x(ctx: &mut Ctx, pid: u16) {
+    let plain = pid == 0x0552;
+    let accept = |c: &Coll| {
+        c.page == 0xFF00 && (plain || c.usage == 0x0001) && c.out_len >= 64 && c.in_len >= 64
+    };
+    for c in ctx.find(VID, pid, accept) {
         let Some(dev) = Dev::open(&c) else { continue };
+        if plain && !plain_handshake(&dev) {
+            continue;
+        }
         let mut link = Bridge {
             dev,
             stream: Stream::default(),
             seq: 0,
+            plain,
         };
         if !link.remote(true) {
             continue;
@@ -561,16 +602,15 @@ fn poll_barracuda_x(ctx: &mut Ctx) {
         let Some(level @ 0..=100) = level else {
             continue;
         };
+        let name = if plain {
+            "Razer Barracuda X"
+        } else {
+            "Razer Barracuda X (2022)"
+        };
         add(
             ctx,
-            PID,
-            headset(
-                PID,
-                "Razer Barracuda X (2022)",
-                "2.4 GHz receiver",
-                Some(level),
-                cable == Some(1),
-            ),
+            pid,
+            headset(pid, name, "2.4 GHz receiver", Some(level), cable == Some(1)),
         );
         return;
     }
@@ -692,5 +732,25 @@ mod tests {
         let ack = [0x50, 0x49, 0x0E, 0, 0, 0, 0, 0, 0x03, 0, 0x0E, 0x85, 0x00];
         assert_eq!(remote_ack(5, &ack), Some(true));
         assert_eq!(remote_ack(6, &ack), None);
+    }
+
+    #[test]
+    fn plain_bridge_framing() {
+        let f = plain_report(&[0x50, 0x41, 0x08, 0x02, 0x03, 0x2A, 0x00, 0x00]);
+        assert_eq!(
+            f[..11],
+            [0x01, 0x80, 0x08, 0x50, 0x41, 0x08, 0x02, 0x03, 0x2A, 0, 0]
+        );
+        let frame = [
+            0x50, 0x49, 0x08, 0x81, 0, 0, 0, 0, 0x04, 0x00, 0x21, 0x01, 0x01, 0x25,
+        ];
+        let mut r = vec![0x01, 0x80, frame.len() as u8];
+        r.extend_from_slice(&frame);
+        r.resize(64, 0);
+        let mut s = Stream::default();
+        s.push(&r);
+        assert_eq!(get_reply(LEVEL, &s.next().unwrap()), Some(Some(37)));
+        s.push(&[0x01, 0x40, 0x01, 0x01]);
+        assert_eq!(s.next(), None);
     }
 }
