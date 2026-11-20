@@ -23,6 +23,7 @@ foxrgb-client = { path = "../crates/foxrgb-client" }
 foxrgb-net = { path = "../crates/foxrgb-net" }
 foxrgb-xpack = { path = "../crates/foxrgb-xpack" }
 foxrgb-battery = { path = "../crates/foxrgb-battery" }
+steelseries-gg = { path = "../crates/steelseries-gg", features = ["audio"] }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }

@@ -30,6 +30,8 @@ pub struct Found {
     pub area: Area,
     /// Whether the switches in force would close it.
     pub closes: bool,
+    /// The FoxRGB feature that keeps it running, such as "SteelSeries GG".
+    pub kept_for: Option<&'static str>,
     pub running: bool,
     /// Its executables running now or seen before, and whether each is closed or kept.
     pub exes: Vec<Exe>,
@@ -98,6 +100,7 @@ pub fn scope(settings: &Settings) -> Scope {
         lighting: settings.lighting_module,
         fans: settings.fans_module,
         keep_openrgb: settings.openrgb_enabled,
+        keep_steelseries: settings.steelseries_gg,
     }
 }
 
@@ -108,7 +111,7 @@ pub fn running(app: &AppHandle, scope: Scope, keep: &[String]) -> Vec<Found> {
     let live = running_services(Scope {
         lighting: true,
         fans: true,
-        keep_openrgb: false,
+        ..Scope::default()
     });
     found(&procs, &live, scope, keep, &known)
 }
@@ -162,6 +165,7 @@ fn found(
                 name: app.name,
                 area: app.area,
                 closes,
+                kept_for: scope.kept_for(app),
                 running: live,
                 exes,
             })
@@ -400,18 +404,41 @@ mod tests {
             Scope {
                 lighting: true,
                 fans: true,
-                keep_openrgb: false
+                ..Scope::default()
             }
         );
         settings.fans_module = false;
         settings.openrgb_enabled = true;
+        settings.steelseries_gg = true;
         assert_eq!(
             scope(&settings),
             Scope {
                 lighting: true,
                 fans: false,
-                keep_openrgb: true
+                keep_openrgb: true,
+                keep_steelseries: true
             }
+        );
+    }
+
+    #[test]
+    fn steelseries_gg_is_kept_running_while_its_setting_is_on() {
+        let procs = procs(&[
+            "SteelSeriesGG.exe",
+            "SteelSeriesGGClient.exe",
+            "SteelSeriesEngine.exe",
+            "SteelSeriesSonar.exe",
+        ]);
+        let mut settings = Settings::default();
+        let list = found(&procs, &[], scope(&settings), &[], &[]);
+        assert!(list[0].closes && list[0].exes.iter().all(|e| e.closes));
+        assert_eq!(list[0].kept_for, None);
+        settings.steelseries_gg = true;
+        let list = found(&procs, &[], scope(&settings), &[], &[]);
+        assert_eq!(list[0].kept_for, Some("SteelSeries GG"));
+        assert!(!list[0].closes && list[0].exes.iter().all(|e| !e.closes));
+        assert!(
+            foxrgb_core::conflicts::targets(&procs, scope(&settings), 1).is_empty()
         );
     }
 

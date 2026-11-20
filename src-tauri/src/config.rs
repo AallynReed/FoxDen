@@ -43,6 +43,8 @@ pub struct Settings {
     pub send_reports: bool,
     /// A tray icon with the battery level of each wireless device.
     pub battery_tray: bool,
+    /// Sonar, Engine and GameSense through SteelSeries GG, off until the user turns it on.
+    pub steelseries_gg: bool,
 }
 
 impl Default for Settings {
@@ -68,6 +70,7 @@ impl Default for Settings {
             keep_running: Vec::new(),
             send_reports: false,
             battery_tray: true,
+            steelseries_gg: false,
         }
     }
 }
@@ -163,6 +166,9 @@ pub struct Config {
     /// Conflicting executables seen so far, so they can be kept running when they are not.
     #[serde(deserialize_with = "lenient_list")]
     pub known_conflicts: Vec<crate::conflicts::Known>,
+    /// The standalone audio mixer's routes, volumes and EQ.
+    #[serde(deserialize_with = "lenient")]
+    pub audio: crate::mixer::AudioConfig,
 }
 
 impl Default for Config {
@@ -178,6 +184,7 @@ impl Default for Config {
             active_profile: None,
             fan_backup: None,
             known_conflicts: Vec::new(),
+            audio: Default::default(),
         }
     }
 }
@@ -595,6 +602,23 @@ mod tests {
             assert!(!dir.join(FILE).exists());
             assert_eq!(fs::read(dir.join(CORRUPT)).unwrap(), bad);
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_audio_mixer_survives_a_restart_and_a_bad_block() {
+        let dir = scratch("audio");
+        let mut config = Config::default();
+        config.audio.output = "Speakers".into();
+        config.audio.chat_mix = -0.4;
+        config.audio.running = true;
+        config.audio.channels[0].eq[2].gain_db = 4.5;
+        save(&dir, &config).unwrap();
+        assert_eq!(load(&dir), config);
+        fs::write(dir.join(FILE), r#"{"brightness":0.5,"audio":{"channels":"nope"}}"#).unwrap();
+        let read = load(&dir);
+        assert_eq!((read.brightness, read.audio), (0.5, Default::default()));
+        assert!(!dir.join(CORRUPT).exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -206,13 +206,14 @@ fn close_conflicts_sends_the_scope_and_no_names() {
         lighting: true,
         fans: false,
         keep_openrgb: true,
+        keep_steelseries: false,
     };
     let closed = client.close_conflicts(scope).unwrap();
     assert_eq!(closed.closed, ["Fan Control"]);
     assert_eq!(closed.left, ["Corsair iCUE"]);
     assert_eq!(
         *asked.lock().unwrap(),
-        [json!({"cmd": "close_conflicts", "lighting": true, "fans": false, "keep_openrgb": true})]
+        [json!({"cmd": "close_conflicts", "lighting": true, "fans": false, "keep_openrgb": true, "keep_steelseries": false})]
     );
 }
 

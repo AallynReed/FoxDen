@@ -1,0 +1,287 @@
+/* Audio tab. */
+
+#panel-audio {
+  container-type: inline-size;
+}
+
+/* Sonar and the mixer side by side, stacked on narrow windows. */
+.aud-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+@container (min-width: 1100px) {
+  .aud-page {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+
+.aud-page .box > h2:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aud-page h2 .state {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.aud-body,
+.aud-off,
+.aud-eq {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aud-off {
+  align-items: flex-start;
+}
+
+.aud-note {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--stroke);
+  font-size: 12px;
+  line-height: 16px;
+  user-select: text;
+}
+
+.aud-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.aud-bar .aud-device {
+  flex: 1 1 200px;
+}
+
+.aud-label,
+.aud-col {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.aud-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.aud-num {
+  min-width: 4ch;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.aud-wide {
+  min-width: 8ch;
+}
+
+#panel-audio select.aud-device {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+/* Rows of name, device, slider, readout, mute and level that share their columns. */
+.aud-grid {
+  display: grid;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.aud-classic {
+  grid-template-columns: auto minmax(0, 1.2fr) minmax(80px, 1fr) auto auto;
+}
+
+.aud-stream {
+  grid-template-columns: auto repeat(2, minmax(70px, 1fr) auto auto);
+}
+
+.aud-span3 {
+  grid-column: span 3;
+}
+
+.aud-mix {
+  grid-template-columns: auto minmax(0, 1.3fr) minmax(80px, 1fr) auto auto minmax(48px, 0.6fr);
+}
+
+.aud-mix .check {
+  min-height: 32px;
+}
+
+.aud-mute {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.aud-mute[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  clip-path: var(--cut);
+}
+
+.aud-meter {
+  display: block;
+  height: 8px;
+  border: 1px solid var(--line);
+  background: var(--field);
+}
+
+.aud-meter span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.aud-chat {
+  display: grid;
+  grid-template-columns: auto auto minmax(80px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.aud-end {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.aud-seg {
+  display: inline-flex;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.aud-seg button {
+  height: 28px;
+  margin-left: -1px;
+  padding: 0 10px;
+  color: var(--muted);
+}
+
+.aud-seg button:first-child {
+  margin-left: 0;
+}
+
+.aud-seg button:hover {
+  color: var(--text);
+}
+
+.aud-seg button[aria-pressed="true"] {
+  position: relative;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  clip-path: var(--cut);
+}
+
+.aud-eq {
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.aud-eq .aud-bar .check {
+  margin-left: auto;
+}
+
+.aud-plot {
+  display: block;
+  width: 100%;
+  height: 112px;
+  border: 1px solid var(--line);
+  background: var(--field);
+}
+
+.aud-plot line {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.aud-plot line.zero {
+  stroke: var(--stroke);
+}
+
+.aud-plot .curve {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.aud-plot.off .curve {
+  stroke: var(--stroke);
+}
+
+/* Ten band columns, five to a row when narrow. */
+.aud-bands {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(68px, calc((100% - 72px) / 10)), 1fr));
+  gap: 8px;
+}
+
+.aud-band {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+
+.aud-band .aud-num {
+  text-align: center;
+}
+
+.aud-hz {
+  color: var(--muted);
+}
+
+#panel-audio .aud-band select,
+#panel-audio .aud-band input[type="number"] {
+  width: 100%;
+  max-width: none;
+  height: 26px;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+input[type="range"].aud-vert {
+  align-self: center;
+  width: 24px;
+  height: 96px;
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
+input[type="range"].aud-vert::-webkit-slider-runnable-track {
+  width: 2px;
+  height: 100%;
+}
+
+input[type="range"].aud-vert::-webkit-slider-thumb {
+  width: 16px;
+  height: 8px;
+  margin-top: 0;
+  margin-left: -7px;
+}
+
+#panel-audio input[type="range"]:disabled {
+  opacity: 0.4;
+}

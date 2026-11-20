@@ -7,6 +7,7 @@
     <title>FoxRGB</title>
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="fans.css" />
+    <link rel="stylesheet" href="audio.css" />
   </head>
   <body>
     <h1 class="sr-only">FoxRGB</h1>
@@ -15,6 +16,7 @@
         <button type="button" role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
         <button type="button" role="tab" id="tab-devices" aria-controls="panel-devices" aria-selected="false" tabindex="-1">Devices</button>
         <button type="button" role="tab" id="tab-fans" aria-controls="panel-fans" aria-selected="false" tabindex="-1">Fans</button>
+        <button type="button" role="tab" id="tab-audio" aria-controls="panel-audio" aria-selected="false" tabindex="-1">Audio</button>
         <button type="button" role="tab" id="tab-profiles" aria-controls="panel-profiles" aria-selected="false" tabindex="-1">Profiles</button>
         <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
       </div>
@@ -94,9 +96,20 @@
         </div>
         <ul class="list" id="detected-list" aria-labelledby="detected-heading"></ul>
         <p class="hint" id="detected-empty" hidden>No lighting hardware detected yet.</p>
+
+        <div id="gg-box" hidden>
+          <h2 id="gg-heading">SteelSeries GG</h2>
+          <p class="hint" id="gg-status" role="status"></p>
+          <ul class="list" id="gg-list" aria-labelledby="gg-heading"></ul>
+          <div class="actions">
+            <button type="button" id="gg-refresh">Refresh</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel" id="panel-fans" role="tabpanel" aria-labelledby="tab-fans" hidden></section>
+
+      <section class="panel" id="panel-audio" role="tabpanel" aria-labelledby="tab-audio" hidden></section>
 
       <section class="panel" id="panel-profiles" role="tabpanel" aria-labelledby="tab-profiles" hidden>
         <h2>New profile</h2>
@@ -151,6 +164,11 @@
             <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" aria-describedby="native-hint" />
           </div>
           <p class="hint" id="native-hint">FoxRGB's own drivers. On by default.</p>
+          <div class="field">
+            <label for="set-steelseries">SteelSeries GG</label>
+            <input type="checkbox" class="switch" id="set-steelseries" data-setting="steelseries_gg" aria-describedby="steelseries-hint" />
+          </div>
+          <p class="hint" id="steelseries-hint">Keeps SteelSeries GG running and uses it for Sonar, battery levels and firmware. Off by default.</p>
         </section>
 
         <section class="box span" id="net-box">
@@ -455,6 +473,17 @@
       </form>
     </dialog>
 
+    <dialog class="sheet" id="gg-fw-sheet" aria-labelledby="gg-fw-title">
+      <h2 id="gg-fw-title">Update firmware</h2>
+      <p class="notes" id="gg-fw-text"></p>
+      <p class="notes">Keep the device connected and leave it alone until the update ends. Wireless headsets need more than 15% battery; FoxRGB checks this first, like GG does.</p>
+      <p class="hint" id="gg-fw-status" role="status" hidden></p>
+      <div class="actions">
+        <button type="button" class="primary" id="gg-fw-go">Update firmware</button>
+        <button type="button" id="gg-fw-cancel">Cancel</button>
+      </div>
+    </dialog>
+
     <dialog class="sheet" id="info-sheet" aria-labelledby="info-title">
       <h2 id="info-title">Device info</h2>
       <p class="hint">This is everything that will be sent: the device's ids and how it describes itself, nothing about you or this PC. It helps add a driver for it.</p>
@@ -469,9 +498,13 @@
 
     <script src="mock.js"></script>
     <script src="fans-mock.js"></script>
+    <script src="audio-mock.js"></script>
+    <script src="gg-mock.js"></script>
     <script src="canvas.js"></script>
     <script src="panels.js"></script>
     <script src="main.js"></script>
     <script src="fans.js"></script>
+    <script src="audio.js"></script>
+    <script src="gg.js"></script>
   </body>
 </html>

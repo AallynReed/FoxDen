@@ -230,17 +230,28 @@ pub struct Scope {
     pub fans: bool,
     /// FoxRGB is using an OpenRGB server, so OpenRGB stays.
     pub keep_openrgb: bool,
+    /// FoxRGB talks to SteelSeries GG, so GG, Engine and Sonar stay.
+    pub keep_steelseries: bool,
 }
 
 impl Scope {
     pub fn covers(self, app: &App) -> bool {
-        if app.id == "openrgb" && self.keep_openrgb {
+        if self.kept_for(app).is_some() {
             return false;
         }
         match app.area {
             Area::Lighting => self.lighting,
             Area::Fans => self.fans,
             Area::Both => self.lighting || self.fans,
+        }
+    }
+
+    /// The FoxRGB feature that keeps this app running, if any.
+    pub fn kept_for(self, app: &App) -> Option<&'static str> {
+        match app.id {
+            "openrgb" if self.keep_openrgb => Some("OpenRGB"),
+            "steelseries" if self.keep_steelseries => Some("SteelSeries GG"),
+            _ => None,
         }
     }
 }
@@ -316,6 +327,7 @@ mod tests {
         lighting: true,
         fans: true,
         keep_openrgb: false,
+        keep_steelseries: false,
     };
 
     fn procs(names: &[&str]) -> Vec<Process> {
@@ -408,6 +420,27 @@ mod tests {
             ..ALL
         };
         assert!(targets(&running, keep, 1).is_empty());
+    }
+
+    #[test]
+    fn steelseries_gg_stays_while_foxrgb_uses_it() {
+        let running = procs(&[
+            "SteelSeriesGG.exe",
+            "SteelSeriesGGClient.exe",
+            "SteelSeriesEngine.exe",
+            "SteelSeriesSonar.exe",
+            "lghub.exe",
+        ]);
+        assert_eq!(targets(&running, ALL, 1).len(), 5);
+        let keep = Scope {
+            keep_steelseries: true,
+            ..ALL
+        };
+        assert_eq!(ids(&targets(&running, keep, 1)), ["ghub"]);
+        assert!(!services(keep).any(|(_, app)| app.id == "steelseries"));
+        let gg = APPS.iter().find(|a| a.id == "steelseries").unwrap();
+        assert_eq!(keep.kept_for(gg), Some("SteelSeries GG"));
+        assert_eq!(ALL.kept_for(gg), None);
     }
 
     #[test]

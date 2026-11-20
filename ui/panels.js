@@ -1758,19 +1758,20 @@ async function refreshConflicts() {
   $("conflict-list").replaceChildren(
     ...found.flatMap((app) => {
       const status = el("span", { className: "state" });
-      if (app.running === false) setState(status, "off", "Not running");
+      if (app.kept_for) setState(status, "on", "Kept running for " + app.kept_for);
+      else if (app.running === false) setState(status, "off", "Not running");
       else if (app.closes) setState(status, "warn", "Running");
       else setState(status, "off", "Left alone");
       const row = el("li", { className: "backend" }, el("span", { textContent: app.name }), status);
-      return [row, ...(app.exes || []).map(exeRow)];
+      return [row, ...(app.exes || []).map((exe) => exeRow(exe, app.kept_for))];
     }),
   );
 }
 
 // One executable of a conflicting app, running or seen before, with whether FoxRGB closes it.
-function exeRow(exe) {
+function exeRow(exe, keptFor) {
   const id = "close-" + exe.name.toLowerCase().replace(/[^a-z0-9]/g, "-");
-  const box = el("input", { type: "checkbox", className: "switch", id, checked: exe.closes });
+  const box = el("input", { type: "checkbox", className: "switch", id, checked: exe.closes, disabled: !!keptFor });
   box.onchange = async () => {
     const keep = (state.snap.settings.keep_running || []).filter((n) => n.toLowerCase() !== exe.name.toLowerCase());
     if (!box.checked) keep.push(exe.name);
