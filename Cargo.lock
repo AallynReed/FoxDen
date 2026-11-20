@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-adlx",
  "foxrgb-audio",
@@ -1247,7 +1247,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-adlx"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-fan",
  "windows-sys 0.61.2",
@@ -1255,7 +1255,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-audio"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "cpal",
  "foxrgb-core",
@@ -1263,7 +1263,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-battery"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "hidapi",
@@ -1274,7 +1274,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-client"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "foxrgb-fan",
@@ -1285,7 +1285,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-fan"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-gpu"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "foxrgb-smbus",
@@ -1310,7 +1310,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-hid"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "hidapi",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-hwmon"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-fan",
  "windows-sys 0.61.2",
@@ -1327,7 +1327,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-net"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "serde",
@@ -1337,21 +1337,21 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-openrgb"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
 ]
 
 [[package]]
 name = "foxrgb-pawnio"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "foxrgb-screen"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "windows-sys 0.61.2",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-service"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "foxrgb-fan",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-smbus"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "foxrgb-pawnio",
@@ -1385,7 +1385,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-superio"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "foxrgb-fan",
@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-wmi"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "wmi",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "foxrgb-xpack"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "foxrgb-core",
  "foxrgb-fan",
