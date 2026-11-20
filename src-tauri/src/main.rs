@@ -25,6 +25,9 @@ use tauri::{Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 
 use state::{AppState, Shared, lock};
 
+/// WebView2 flags: wry's defaults, which this replaces, plus no Edge background traffic.
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,AutofillServerCommunication,OptimizationHints,MediaRouter      --disable-background-networking --disable-component-update --disable-domain-reliability      --disable-client-side-phishing-detection --disable-sync --no-pings --metrics-recording-only";
+
 fn main() {
     report::catch_crashes();
     let shared: Shared = Arc::new(Mutex::new(AppState::new(config::load(&config::dir()))));
@@ -43,6 +46,7 @@ fn main() {
             for window in &app.config().app.windows {
                 WebviewWindowBuilder::from_config(handle, window)?
                     .data_directory(config::webview_dir())
+                    .additional_browser_args(BROWSER_ARGS)
                     .build()?;
             }
             let shared = app.state::<Shared>().inner().clone();
