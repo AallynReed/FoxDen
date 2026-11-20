@@ -299,3 +299,44 @@ impl Dev {
             .then_some(buf)
     }
 }
+
+/// A cheap hash of the present HID interfaces: it changes when something is plugged in or out.
+pub fn fingerprint() -> u64 {
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW,
+        CM_Get_Device_Interface_ListW, CR_SUCCESS,
+    };
+    use windows_sys::core::GUID;
+    const HID: GUID = GUID::from_u128(0x4d1e55b2_f16f_11cf_88cb_001111000030);
+    let mut len = 0u32;
+    let mut list = Vec::new();
+    unsafe {
+        if CM_Get_Device_Interface_List_SizeW(
+            &mut len,
+            &HID,
+            std::ptr::null(),
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+        ) != CR_SUCCESS
+        {
+            return 0;
+        }
+        list.resize(len as usize, 0u16);
+        if CM_Get_Device_Interface_ListW(
+            &HID,
+            std::ptr::null(),
+            list.as_mut_ptr(),
+            len,
+            CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
+        ) != CR_SUCCESS
+        {
+            return 0;
+        }
+    }
+    let mut paths: Vec<&[u16]> = list.split(|&c| c == 0).filter(|p| !p.is_empty()).collect();
+    paths.sort();
+    let mut h = 0xcbf29ce484222325u64;
+    for c in paths.iter().flat_map(|p| p.iter().chain([&0])) {
+        h = (h ^ *c as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}

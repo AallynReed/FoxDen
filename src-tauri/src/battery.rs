@@ -1,19 +1,25 @@
 //! A tray icon per wireless device, showing its battery percentage.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use foxrgb_battery::Battery;
 use tauri::AppHandle;
-use tauri::image::Image;
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::state::{Shared, lock};
 
-const EVERY: Duration = Duration::from_secs(60);
+const EVERY: Duration = Duration::from_secs(20);
 const TICK: Duration = Duration::from_secs(2);
 const PREFIX: &str = "battery:";
+
+thread_local! {
+    /// The battery icons, owned by the main thread.
+    static ICONS: RefCell<HashMap<String, TrayIcon>> = RefCell::new(HashMap::new());
+}
 
 /// What a tray icon currently shows.
 #[derive(Clone, PartialEq)]
@@ -33,17 +39,33 @@ enum Tint {
 }
 
 pub fn spawn(app: AppHandle, shared: Shared) {
+    app.on_tray_icon_event(|app, event| {
+        if let TrayIconEvent::Click {
+            id,
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } = event
+            && id.as_ref().starts_with(PREFIX)
+        {
+            crate::tray::show_window(app);
+        }
+    });
     thread::spawn(move || {
         let mut known: HashMap<String, (Battery, Instant)> = HashMap::new();
         let mut shown: HashMap<String, Shown> = HashMap::new();
         let mut last: Option<Instant> = None;
+        let mut plugged = foxrgb_battery::hid::fingerprint();
         loop {
             let on = lock(&shared).config.settings.battery_tray;
+            // A cable plugged in or pulled out shows up as a changed HID list: look again right away.
+            let now_plugged = foxrgb_battery::hid::fingerprint();
+            let replugged = std::mem::replace(&mut plugged, now_plugged) != plugged;
             if !on {
                 known.clear();
                 last = None;
                 sync(&app, &mut shown, HashMap::new());
-            } else if last.is_none_or(|t| t.elapsed() >= EVERY) {
+            } else if replugged || last.is_none_or(|t| t.elapsed() >= EVERY) {
                 let now = Instant::now();
                 merge(&mut known, foxrgb_battery::poll(), now);
                 let wanted = known
@@ -141,40 +163,56 @@ fn sync(app: &AppHandle, shown: &mut HashMap<String, Shown>, wanted: HashMap<Str
     for (k, s) in &changed {
         shown.insert(k.clone(), s.clone());
     }
-    let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
-        for k in gone {
-            handle.remove_tray_by_id(&format!("{PREFIX}{k}"));
-        }
-        let light = icon::light_taskbar();
-        for (k, s) in changed {
-            let (rgba, size) = icon::render(&s.text, s.bar, s.tint, light);
-            let image = Image::new_owned(rgba, size, size);
-            let id = format!("{PREFIX}{k}");
-            if let Some(tray) = handle.tray_by_id(&id) {
-                let _ = tray.set_icon(Some(image));
-                let _ = tray.set_tooltip(Some(&s.tip));
-                continue;
+        ICONS.with_borrow_mut(|icons| {
+            for k in gone {
+                icons.remove(&k);
             }
-            let built = TrayIconBuilder::with_id(&id)
-                .icon(image)
-                .tooltip(&s.tip)
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        crate::tray::show_window(tray.app_handle());
+            let light = icon::light_taskbar();
+            for (k, s) in changed {
+                let (rgba, size) = icon::render(&s.text, s.bar, s.tint, light);
+                let Ok(image) = Icon::from_rgba(rgba, size, size) else {
+                    continue;
+                };
+                if let Some(tray) = icons.get(&k) {
+                    let _ = tray.set_icon(Some(image));
+                    let _ = tray.set_tooltip(Some(&s.tip));
+                    continue;
+                }
+                let built = TrayIconBuilder::new()
+                    .with_id(format!("{PREFIX}{k}"))
+                    .with_icon(image)
+                    .with_tooltip(&s.tip)
+                    .with_guid(guid(&k))
+                    .build();
+                match built {
+                    Ok(tray) => {
+                        icons.insert(k, tray);
                     }
-                })
-                .build(&handle);
-            if let Err(e) = built {
-                crate::log::warn("battery", e.to_string());
+                    Err(e) => crate::log::warn("battery", e.to_string()),
+                }
             }
-        }
+        });
     });
+}
+
+/// A fixed identity per device, so Windows remembers whether its icon sits on the taskbar.
+/// Windows ties an unsigned app's icon identities to its path, so the path is part of it too.
+fn guid(key: &str) -> u128 {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let mut h: u128 = 0x6c62272e07bb014262b821756295c58d;
+    for b in exe
+        .to_string_lossy()
+        .to_lowercase()
+        .bytes()
+        .chain([0])
+        .chain(key.bytes())
+    {
+        h ^= b as u128;
+        h = h.wrapping_mul(0x0000000001000000000000000000013B);
+    }
+    // Version 8 (custom) and the RFC variant, so it is a well-formed GUID.
+    (h & !(0xF << 76) & !(0x3 << 62)) | (0x8 << 76) | (0x2 << 62)
 }
 
 mod icon {
@@ -413,6 +451,12 @@ mod tests {
             Instant::now(),
         );
         assert!(known.is_empty());
+    }
+
+    #[test]
+    fn each_device_keeps_one_tray_identity() {
+        assert_eq!(guid("logitech-1"), guid("logitech-1"));
+        assert_ne!(guid("logitech-1"), guid("logitech-2"));
     }
 
     #[test]
