@@ -671,8 +671,7 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
 }
 
 .aud-prio-row.chosen {
-  border-left: 3px solid var(--accent);
-  padding-left: 4px;
+  border-color: var(--accent);
 }
 
 .aud-prio-row.chosen .aud-tag {
