@@ -16,6 +16,7 @@ use foxden_mixer::system;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::profiles::{self, Gate, Kind, Profile};
 use crate::state::{Shared, lock};
 
 const CURVE_POINTS: usize = 96;
@@ -25,6 +26,9 @@ const TICK: Duration = Duration::from_secs(1);
 const JOURNAL: &str = "audio-parked.json";
 const VMIC_RETRY: Duration = Duration::from_secs(5);
 const GATE_DB: f32 = -50.0;
+const FOLLOW_RETRY: Duration = Duration::from_secs(10);
+const AUTO_EVERY: Duration = Duration::from_secs(2);
+const STOP_WAIT: Duration = Duration::from_secs(8);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -80,6 +84,15 @@ pub struct AudioConfig {
     pub virtual_mic: bool,
     pub gate_on: bool,
     pub gate_db: f32,
+    pub priority: crate::priority::PriorityConfig,
+    /// Apps that start playing go to their preset channel.
+    pub auto_assign: bool,
+    /// Lowercase executables placed by auto-assign, not by hand.
+    pub auto: Vec<String>,
+    /// Lowercase executables auto-assign leaves alone.
+    pub no_auto: Vec<String>,
+    /// Saved and imported sound profiles; the built-in ones are not stored.
+    pub profiles: Vec<Profile>,
 }
 
 impl Default for AudioConfig {
@@ -95,6 +108,11 @@ impl Default for AudioConfig {
             virtual_mic: false,
             gate_on: false,
             gate_db: GATE_DB,
+            priority: Default::default(),
+            auto_assign: true,
+            auto: Vec::new(),
+            no_auto: Vec::new(),
+            profiles: Vec::new(),
         }
     }
 }
@@ -106,6 +124,8 @@ struct Spec {
     routes: Vec<DeviceRoute>,
     park: String,
     apps: BTreeMap<String, Channel>,
+    /// Outputs never to park on: the output priority list, by name and id.
+    avoid: Vec<String>,
 }
 
 impl AudioConfig {
@@ -141,7 +161,25 @@ impl AudioConfig {
         self.master = finite(self.master, 1.0).clamp(0.0, 1.0);
         self.chat_mix = finite(self.chat_mix, 0.0).clamp(-1.0, 1.0);
         self.gate_db = finite(self.gate_db, GATE_DB).clamp(-90.0, 0.0);
+        self.priority = std::mem::take(&mut self.priority).tidy();
+        let placed = self.apps_anywhere();
+        for list in [&mut self.auto, &mut self.no_auto] {
+            for a in list.iter_mut() {
+                *a = park::lower(a);
+            }
+            list.sort();
+            list.dedup();
+        }
+        self.auto.retain(|a| placed.contains(a));
         self
+    }
+
+    /// Every assigned app, lowercase, on or off.
+    fn apps_anywhere(&self) -> Vec<String> {
+        self.channels
+            .iter()
+            .flat_map(|c| c.apps.iter().map(|a| park::lower(a)))
+            .collect()
     }
 
     /// The mic source the virtual mic plays, while it is on.
@@ -200,6 +238,12 @@ impl AudioConfig {
             routes,
             park: self.park.clone(),
             apps,
+            avoid: self
+                .priority
+                .outputs
+                .iter()
+                .flat_map(|e| [e.id.clone(), e.name.clone()])
+                .collect(),
         })
     }
 
@@ -275,6 +319,56 @@ pub enum Change {
         on: bool,
         threshold_db: f32,
     },
+    AutoAssign {
+        on: bool,
+    },
+    /// Lets auto-assign place this app again.
+    AllowAuto {
+        exe: String,
+    },
+    ApplyProfile {
+        channel: Channel,
+        profile: Profile,
+    },
+    SaveProfile {
+        channel: Channel,
+        name: String,
+    },
+    AddProfile {
+        profile: Profile,
+    },
+    RenameProfile {
+        from: String,
+        to: String,
+    },
+    DeleteProfile {
+        name: String,
+    },
+}
+
+fn kind_of(c: Channel) -> Kind {
+    if c.is_capture() {
+        Kind::Mic
+    } else {
+        Kind::Output
+    }
+}
+
+/// Adds or replaces a stored profile by name.
+fn store(list: &mut Vec<Profile>, p: Profile) -> Result<(), String> {
+    if profiles::builtins().iter().any(|b| b.name == p.name) {
+        return Err(format!(
+            "{} is a built-in profile; pick another name",
+            p.name
+        ));
+    }
+    let full = list.len() >= profiles::MAX_PROFILES;
+    match list.iter_mut().find(|x| x.name == p.name) {
+        Some(x) => *x = p,
+        None if full => return Err("Too many profiles; delete one first".into()),
+        None => list.push(p),
+    }
+    Ok(())
 }
 
 /// What the audio thread last saw of the apps.
@@ -365,10 +459,13 @@ enum Job {
     Vmic(Option<(String, bool)>),
     Devices(SyncSender<Result<DeviceList, String>>),
     Apps(SyncSender<Vec<RunningApp>>),
+    /// Executable name and path of each app playing sound now.
+    Sounding(SyncSender<Vec<(String, String)>>),
     Start(Spec, SyncSender<Result<(), String>>),
     /// New app assignments or parking output while playing.
     Plan(Spec),
-    Stop,
+    /// Answers once the apps are put back.
+    Stop(Option<SyncSender<()>>),
     Shutdown(SyncSender<()>),
 }
 
@@ -378,6 +475,27 @@ struct Inner {
     error: Option<String>,
     devices: Option<DeviceList>,
     apps: Vec<RunningApp>,
+    /// The output the priority picked, in place of the configured one.
+    follow: Option<String>,
+    playing_on: Option<String>,
+    tried: Option<Instant>,
+}
+
+impl Inner {
+    fn output(&self) -> &str {
+        self.follow.as_deref().unwrap_or(&self.config.output)
+    }
+
+    fn spec(&self) -> Result<Spec, String> {
+        match &self.follow {
+            None => self.config.spec(),
+            Some(o) => AudioConfig {
+                output: o.clone(),
+                ..self.config.clone()
+            }
+            .spec(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -410,14 +528,15 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
             let hide = hidden();
             let mut endpoints = system::endpoints().unwrap_or_default();
             endpoints.retain(|e| !hide.iter().any(|h| h.id == e.id));
-            let recorded: Vec<&str> = p
+            let avoid: Vec<&str> = p
                 .spec
                 .routes
                 .iter()
                 .filter(|r| r.source_is_output)
                 .map(|r| r.source.as_str())
+                .chain(p.spec.avoid.iter().map(String::as_str))
                 .collect();
-            match park::choose_sink(&endpoints, &p.spec.park, &p.spec.output, &recorded) {
+            match park::choose_sink(&endpoints, &p.spec.park, &p.spec.output, &avoid) {
                 Ok(sink) => {
                     out.sink = Some(sink.name.clone());
                     let plan = Plan {
@@ -448,6 +567,32 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
     *parked.lock().unwrap_or_else(|e| e.into_inner()) = out;
 }
 
+fn sounding() -> Vec<(String, String)> {
+    let procs = system::processes();
+    let own = std::process::id();
+    let mut out: Vec<(String, String)> = Vec::new();
+    for s in system::sessions().unwrap_or_default() {
+        if !s.active || s.pid == own {
+            continue;
+        }
+        let Some(p) = procs.iter().find(|p| p.pid == s.pid) else {
+            continue;
+        };
+        if !out.iter().any(|(e, _)| e.eq_ignore_ascii_case(&p.exe)) {
+            out.push((p.exe.clone(), system::exe_path(s.pid).unwrap_or_default()));
+        }
+    }
+    out
+}
+
+/// Puts back parked apps and the parking output's mute from the journal, on this thread. Used
+/// when the audio thread cannot do it.
+fn unpark_here(journal: std::path::PathBuf) {
+    system::com_init();
+    let mut parker = Parker::new(journal);
+    parker.tick(None);
+}
+
 /// cpal's streams and the COM objects stay on this thread.
 fn audio_thread(
     rx: Receiver<Job>,
@@ -461,6 +606,7 @@ fn audio_thread(
     let mut playing: Option<Playing> = None;
     let mut vmic = Vmic::default();
     let mut last_vmic = Instant::now();
+    let mut last_park = Instant::now();
     loop {
         match rx.recv_timeout(TICK) {
             Ok(Job::Vmic(want)) => {
@@ -484,13 +630,16 @@ fn audio_thread(
                 let sessions = system::sessions().unwrap_or_default();
                 let _ = reply.send(park::running_apps(&sessions, &system::processes()));
             }
+            Ok(Job::Sounding(reply)) => {
+                let _ = reply.send(sounding());
+            }
             Ok(Job::Start(spec, reply)) => {
                 playing = None;
+                last_park = Instant::now();
                 let out = Router::start(&spec.output, &spec.routes, controls.clone())
                     .map(|router| playing = Some(Playing { router, spec }));
-                if out.is_ok() {
-                    park_apps(&mut parker, playing.as_mut(), &parked);
-                }
+                // Right away either way: a new output may be the old parking output, still muted.
+                park_apps(&mut parker, playing.as_mut(), &parked);
                 let _ = reply.send(out);
             }
             Ok(Job::Plan(spec)) => {
@@ -499,9 +648,13 @@ fn audio_thread(
                     park_apps(&mut parker, Some(p), &parked);
                 }
             }
-            Ok(Job::Stop) => {
+            Ok(Job::Stop(reply)) => {
                 playing = None;
                 park_apps(&mut parker, None, &parked);
+                last_park = Instant::now();
+                if let Some(r) = reply {
+                    let _ = r.send(());
+                }
             }
             Ok(Job::Shutdown(reply)) => {
                 playing = None;
@@ -509,12 +662,15 @@ fn audio_thread(
                 park_apps(&mut parker, None, &parked);
                 let _ = reply.send(());
             }
-            Err(RecvTimeoutError::Timeout) => {
-                if playing.is_some() || parker.dirty() {
-                    park_apps(&mut parker, playing.as_mut(), &parked);
-                }
-            }
+            Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
+        }
+        // By the clock, so a steady stream of requests never holds off parking.
+        if last_park.elapsed() >= TICK {
+            if playing.is_some() || parker.dirty() {
+                park_apps(&mut parker, playing.as_mut(), &parked);
+            }
+            last_park = Instant::now();
         }
         if last_vmic.elapsed() >= TICK {
             vmic.tick(&controls, &vmic_view);
@@ -546,6 +702,9 @@ impl Mixer {
                 error: None,
                 devices: None,
                 apps: Vec::new(),
+                follow: None,
+                playing_on: None,
+                tried: None,
             })),
             controls,
             parked,
@@ -557,6 +716,13 @@ impl Mixer {
             let m = mixer.clone();
             thread::spawn(move || m.resume());
         }
+        let m = mixer.clone();
+        thread::spawn(move || {
+            loop {
+                thread::sleep(AUTO_EVERY);
+                m.auto_assign();
+            }
+        });
         mixer
     }
 
@@ -576,8 +742,12 @@ impl Mixer {
     /// Stops playing and puts parked apps and the parking output back. Called on exit.
     pub fn shutdown(&self) {
         let (tx, rx) = sync_channel(1);
-        if self.send(Job::Shutdown(tx)) {
-            let _ = rx.recv_timeout(Duration::from_secs(5));
+        if !self.send(Job::Shutdown(tx)) || rx.recv_timeout(Duration::from_secs(5)).is_err() {
+            crate::log::warn(
+                "audio",
+                "audio thread did not stop; putting apps back from here",
+            );
+            unpark_here(crate::config::dir().join(JOURNAL));
         }
     }
 
@@ -619,22 +789,31 @@ impl Mixer {
 
     /// Starts or restarts the routes, keeping the error for the panel.
     fn play(&self) -> Result<(), String> {
-        let spec = self.guard().config.spec();
+        let spec = self.guard().spec();
+        let output = spec.as_ref().ok().map(|s| s.output.clone());
         let out = match spec {
             Ok(spec) => self.ask(|tx| Job::Start(spec, tx)).and_then(|r| r),
             Err(e) => {
-                self.send(Job::Stop);
+                self.send(Job::Stop(None));
                 Err(e)
             }
         };
         let mut inner = self.guard();
+        inner.playing_on = output.filter(|_| out.is_ok());
         inner.running = out.is_ok();
         inner.error = out.as_ref().err().cloned();
         out
     }
 
     fn stop(&self) {
-        self.send(Job::Stop);
+        let (tx, rx) = sync_channel(1);
+        if !self.send(Job::Stop(Some(tx))) || rx.recv_timeout(STOP_WAIT).is_err() {
+            crate::log::warn(
+                "audio",
+                "audio thread did not answer; putting apps back from here",
+            );
+            unpark_here(crate::config::dir().join(JOURNAL));
+        }
         let mut inner = self.guard();
         inner.running = false;
         inner.error = None;
@@ -699,9 +878,22 @@ impl Mixer {
                         return Err("The mic takes an input, not apps".into());
                     }
                     let taken: Vec<String> = apps.iter().map(|a| park::lower(a)).collect();
+                    let before: Vec<String> = cfg
+                        .channel(channel)
+                        .apps
+                        .iter()
+                        .map(|a| park::lower(a))
+                        .collect();
                     for c in cfg.channels.iter_mut().filter(|c| c.channel != channel) {
                         c.apps.retain(|a| !taken.contains(&park::lower(a)));
                     }
+                    // A hand-placed app is no longer automatic; a removed one is not placed again.
+                    let moved_here: Vec<&String> =
+                        taken.iter().filter(|a| !before.contains(a)).collect();
+                    cfg.auto.retain(|a| !moved_here.contains(&a));
+                    cfg.no_auto.retain(|a| !moved_here.contains(&a));
+                    cfg.no_auto
+                        .extend(before.iter().filter(|a| !taken.contains(a)).cloned());
                     let ch = cfg.channel(channel);
                     if !apps.is_empty() && ch.apps.is_empty() && ch.source.is_empty() {
                         ch.on = true;
@@ -758,6 +950,89 @@ impl Mixer {
                     self.controls().gate = cfg.gate();
                     false
                 }
+                Change::AutoAssign { on } => {
+                    cfg.auto_assign = on;
+                    false
+                }
+                Change::AllowAuto { exe } => {
+                    let key = park::lower(&exe);
+                    cfg.no_auto.retain(|a| *a != key);
+                    false
+                }
+                Change::ApplyProfile { channel, profile } => {
+                    let p = profile.clean();
+                    if p.kind != kind_of(channel) {
+                        return Err(match p.kind {
+                            Kind::Mic => "That is a mic profile; apply it to the mic".into(),
+                            Kind::Output => {
+                                "That profile is for an output channel, not the mic".into()
+                            }
+                        });
+                    }
+                    let ch = cfg.channel(channel);
+                    if let Some(eq) = p.eq {
+                        (ch.eq_on, ch.eq) = (eq.on, eq.bands.clone());
+                        self.controls().set_eq(channel, eq.on, eq.bands);
+                    }
+                    if let Some(v) = p.volume {
+                        ch.volume = v;
+                        self.controls().set_volume(channel, v);
+                    }
+                    if let Some(g) = p.gate {
+                        (cfg.gate_on, cfg.gate_db) = (g.on, g.db);
+                        self.controls().gate = cfg.gate();
+                    }
+                    false
+                }
+                Change::SaveProfile { channel, name } => {
+                    let (gate_on, gate_db) = (cfg.gate_on, cfg.gate_db);
+                    let ch = cfg.channel(channel).clone();
+                    let kind = kind_of(channel);
+                    let p = Profile {
+                        name,
+                        kind,
+                        builtin: false,
+                        eq: Some(profiles::Eq {
+                            on: ch.eq_on,
+                            bands: ch.eq,
+                        }),
+                        volume: Some(ch.volume),
+                        gate: (kind == Kind::Mic).then_some(Gate {
+                            on: gate_on,
+                            db: gate_db,
+                        }),
+                    }
+                    .clean();
+                    store(&mut cfg.profiles, p)?;
+                    false
+                }
+                Change::AddProfile { profile } => {
+                    store(&mut cfg.profiles, profile.clean())?;
+                    false
+                }
+                Change::RenameProfile { from, to } => {
+                    let to = profiles::clean_name(&to);
+                    if to.is_empty() {
+                        return Err("Give the profile a name".into());
+                    }
+                    if to != from
+                        && (cfg.profiles.iter().any(|p| p.name == to)
+                            || profiles::builtins().iter().any(|b| b.name == to))
+                    {
+                        return Err(format!("There is already a profile called {to}"));
+                    }
+                    let p = cfg
+                        .profiles
+                        .iter_mut()
+                        .find(|p| p.name == from)
+                        .ok_or("That profile is gone")?;
+                    p.name = to;
+                    false
+                }
+                Change::DeleteProfile { name } => {
+                    cfg.profiles.retain(|p| p.name != name);
+                    false
+                }
                 Change::Run { on } => {
                     cfg.running = on;
                     if !on {
@@ -776,7 +1051,7 @@ impl Mixer {
             self.send(Job::Vmic(want));
         }
         if replan {
-            match self.guard().config.spec() {
+            match self.guard().spec() {
                 Ok(spec) if !spec.routes.is_empty() || !spec.apps.is_empty() => {
                     self.send(Job::Plan(spec));
                 }
@@ -801,6 +1076,93 @@ impl Mixer {
         Ok(())
     }
 
+    /// Plays on the priority's pick, or on the configured output with `None`. A failed start is
+    /// tried again on a later call while the mixer is meant to run.
+    pub fn follow(&self, output: Option<String>) {
+        let restart = {
+            let mut inner = self.guard();
+            inner.follow = output;
+            let want = inner.config.running;
+            let moved = inner.running && inner.playing_on.as_deref() != Some(inner.output());
+            let retry = !inner.running && inner.tried.is_none_or(|t| t.elapsed() >= FOLLOW_RETRY);
+            if want && (moved || retry && inner.follow.is_some()) {
+                inner.tried = Some(Instant::now());
+                Some(inner.output().to_string())
+            } else {
+                None
+            }
+        };
+        let Some(name) = restart else { return };
+        match self.play() {
+            Ok(()) => crate::log::info("audio", format!("mixer output: {name}")),
+            Err(e) => crate::log::warn("audio", format!("mixer did not move to {name}: {e}")),
+        }
+    }
+
+    /// Outputs the priority must not pick: the chosen parking output and recorded outputs.
+    pub fn avoid(&self) -> Vec<String> {
+        let cfg = &self.guard().config;
+        cfg.channels
+            .iter()
+            .filter(|c| c.on && c.loopback && !c.source.is_empty())
+            .map(|c| c.source.clone())
+            .chain((!cfg.park.is_empty()).then(|| cfg.park.clone()))
+            .collect()
+    }
+
+    /// Sends apps that just started playing to their preset channel, while the mixer runs.
+    fn auto_assign(&self) {
+        {
+            let inner = self.guard();
+            if !inner.running || !inner.config.auto_assign {
+                return;
+            }
+        }
+        let Ok(now) = self.ask(Job::Sounding) else {
+            return;
+        };
+        let replan = {
+            let mut inner = self.guard();
+            let cfg = &mut inner.config;
+            let placed = cfg.apps_anywhere();
+            let mut added = false;
+            for (exe, path) in now {
+                let key = park::lower(&exe);
+                if placed.contains(&key) || cfg.no_auto.contains(&key) {
+                    continue;
+                }
+                let Some(channel) = foxden_mixer::presets::preset(&exe, &path) else {
+                    continue;
+                };
+                crate::log::info(
+                    "audio",
+                    format!("{exe} auto-assigned to {}", channel.label()),
+                );
+                let ch = cfg.channel(channel);
+                ch.apps.push(exe);
+                ch.on = true;
+                cfg.auto.push(key);
+                added = true;
+            }
+            added
+        };
+        if replan {
+            self.save();
+            if let Ok(spec) = self.guard().spec() {
+                self.send(Job::Plan(spec));
+            }
+        }
+    }
+
+    pub fn priority(&self) -> crate::priority::PriorityConfig {
+        self.guard().config.priority.clone()
+    }
+
+    pub fn set_priority(&self, p: crate::priority::PriorityConfig) {
+        self.guard().config.priority = p;
+        self.save();
+    }
+
     /// Hands the settings to the config saver.
     fn save(&self) {
         let config = self.guard().config.clone();
@@ -821,6 +1183,12 @@ impl Mixer {
             curves: inner.config.channels.iter().map(curve).collect(),
             vmic: self.vmic.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             config: inner.config.clone(),
+            profiles: profiles::builtins()
+                .into_iter()
+                .chain(inner.config.profiles.iter().cloned())
+                .collect(),
+            playing_on: inner.playing_on.clone().filter(|_| inner.running),
+            following: inner.follow.is_some(),
             running: inner.running,
             error: inner.error.clone(),
             outputs: devices.outputs,
@@ -868,6 +1236,10 @@ pub struct Filter {
 #[derive(Serialize)]
 pub struct View {
     config: AudioConfig,
+    /// The output it plays on, which the priority may have picked.
+    playing_on: Option<String>,
+    following: bool,
+    profiles: Vec<Profile>,
     running: bool,
     error: Option<String>,
     outputs: Vec<String>,

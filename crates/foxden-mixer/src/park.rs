@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,14 @@ use crate::system::{self, AppOutputs, Endpoint, Process, Session};
 
 /// Apps never offered or moved: the shell and FoxDen itself.
 const NEVER: [&str; 2] = ["explorer.exe", "foxden.exe"];
+
+/// Apps known to pick an output in their own settings, whatever Windows' default is.
+const OWN_PICKERS: [&str; 4] = [
+    "discord.exe",
+    "discordptb.exe",
+    "discordcanary.exe",
+    "vesktop.exe",
+];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -55,8 +64,12 @@ pub enum AppState {
     /// Not running, or has not played anything yet.
     Idle,
     Playing,
-    /// It still has sound open on another output and needs a restart to move.
+    /// It plays on the default output and has not taken the route yet; a restart moves it.
     Elsewhere {
+        output: String,
+    },
+    /// It picked an output in its own settings, which Windows' per-app routing never overrides.
+    OwnOutput {
         output: String,
     },
     /// It started another assigned app, whose sound it would double.
@@ -80,15 +93,20 @@ pub fn lower(exe: &str) -> String {
 }
 
 /// The spare output apps are parked on: the chosen one, or the first that is neither the
-/// default, the mixer's output nor a recorded output.
+/// default, the mixer's output nor one in `avoid` (recorded outputs and the output priority
+/// list, by name or id). It is muted, so it must never be anything meant to be heard.
 pub fn choose_sink(
     endpoints: &[Endpoint],
     chosen: &str,
     output: &str,
-    recorded: &[&str],
+    avoid: &[&str],
 ) -> Result<Endpoint, String> {
-    let free =
-        |e: &&Endpoint| !e.default && e.name != output && !recorded.contains(&e.name.as_str());
+    let free = |e: &&Endpoint| {
+        !e.default
+            && e.name != output
+            && !avoid.contains(&e.name.as_str())
+            && !avoid.contains(&e.id.as_str())
+    };
     if !chosen.is_empty() {
         let e = endpoints.iter().find(|e| e.name == chosen).ok_or_else(|| {
             format!("{chosen} is not connected; pick another output to park apps on")
@@ -100,7 +118,7 @@ pub fn choose_sink(
         }
         if !free(&e) {
             return Err(format!(
-                "{chosen} is already used by the mixer; pick another output to park apps on"
+                "{chosen} is played on or in the output priority; pick another output to park apps on"
             ));
         }
         return Ok(e.clone());
@@ -109,7 +127,7 @@ pub fn choose_sink(
         .iter()
         .find(free)
         .cloned()
-        .ok_or_else(|| "Apps need a spare output to be parked on, besides the default and the one the mixer plays on".into())
+        .ok_or_else(|| "Apps are not moved: no spare output to park them on, besides the default, the mixer's output and the output priority".into())
 }
 
 /// Running apps that have audio sessions, for picking.
@@ -178,11 +196,15 @@ pub fn captures(
         match (elsewhere, assigned) {
             (Some(s), Some((name, _))) => {
                 away.push(pid);
-                let output = endpoints
-                    .iter()
-                    .find(|e| e.id == s.endpoint)
-                    .map_or_else(|| "another output".to_string(), |e| e.name.clone());
-                states.insert(name.clone(), AppState::Elsewhere { output });
+                let on = endpoints.iter().find(|e| e.id == s.endpoint);
+                let output = on.map_or_else(|| "another output".to_string(), |e| e.name.clone());
+                let state =
+                    if on.is_some_and(|e| e.default) && !OWN_PICKERS.contains(&name.as_str()) {
+                        AppState::Elsewhere { output }
+                    } else {
+                        AppState::OwnOutput { output }
+                    };
+                states.insert(name.clone(), state);
             }
             (Some(_), None) => away.push(pid),
             (None, Some((name, channel))) => targets.push((channel, pid, name.clone())),
@@ -231,7 +253,12 @@ pub struct Parker {
     path: PathBuf,
     journal: Journal,
     outputs: Option<AppOutputs>,
+    /// When each app was last sent to the sink; it may take a moment to move.
+    moved: HashMap<String, Instant>,
 }
+
+/// How long a freshly routed app may keep playing elsewhere before it is reported.
+const MOVING: Duration = Duration::from_secs(4);
 
 impl Parker {
     pub fn new(path: PathBuf) -> Parker {
@@ -243,6 +270,7 @@ impl Parker {
             path,
             journal,
             outputs: None,
+            moved: HashMap::new(),
         }
     }
 
@@ -377,8 +405,13 @@ impl Parker {
                 },
             );
             self.save();
-            if let Err(e) = self.outputs().and_then(|o| o.set(pid, &plan.sink.id)) {
-                errors.insert(name.clone(), e);
+            match self.outputs().and_then(|o| o.set(pid, &plan.sink.id)) {
+                Ok(()) => {
+                    self.moved.insert(name.clone(), Instant::now());
+                }
+                Err(e) => {
+                    errors.insert(name.clone(), e);
+                }
             }
         }
 
@@ -386,6 +419,17 @@ impl Parker {
         let sessions = system::sessions().unwrap_or_default();
         let endpoints = system::endpoints().unwrap_or_default();
         let (caps, mut states) = captures(plan, &sessions, &procs, &endpoints);
+        self.moved.retain(|_, at| at.elapsed() < MOVING);
+        for (name, state) in states.iter_mut() {
+            if self.moved.contains_key(name)
+                && matches!(
+                    state,
+                    AppState::Elsewhere { .. } | AppState::OwnOutput { .. }
+                )
+            {
+                *state = AppState::Idle;
+            }
+        }
         for (name, message) in errors {
             states.insert(name, AppState::Error { message });
         }
@@ -434,6 +478,9 @@ mod tests {
         assert!(choose_sink(&eps, "b out", "b out", &[]).is_err());
         assert_eq!(choose_sink(&eps, "c out", "b out", &[]).unwrap().id, "c");
         assert!(choose_sink(&eps[..2], "", "b out", &[]).is_err());
+        // Nothing in the output priority is ever muted, by name or by id.
+        assert_eq!(choose_sink(&eps, "", "b out", &["c out", "d"]).ok(), None);
+        assert!(choose_sink(&eps, "c out", "b out", &["c"]).is_err());
     }
 
     #[test]
@@ -463,6 +510,13 @@ mod tests {
         ];
         let eps = [ep("speakers", true), ep("sink", false)];
         let (caps, states) = captures(&plan, &sessions, &procs, &eps);
+        let own = [ep("speakers", false), ep("sink", false), ep("other", true)];
+        assert_eq!(
+            captures(&plan, &sessions, &procs, &own).1["chat.exe"],
+            AppState::OwnOutput {
+                output: "speakers out".into()
+            }
+        );
         assert_eq!(caps, [(Channel::Game, 11)]);
         assert_eq!(states["game.exe"], AppState::Playing);
         assert_eq!(

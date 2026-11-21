@@ -218,13 +218,152 @@
       sendMix({ kind: "run", on: !(mix && mix.running) }).finally(() => mx.run.removeAttribute("aria-disabled"));
     };
     mx.problem = el("p", { className: "problem", role: "alert", hidden: true });
+    mx.prioBtn = el("button", { type: "button", className: "aud-small aud-priobtn", textContent: "Priority" });
+    mx.prioBtn.setAttribute("aria-expanded", "false");
+    mx.prioBtn.setAttribute("aria-controls", "aud-prio");
+    mx.prioBtn.onclick = () => {
+      pr.box.hidden = !pr.box.hidden;
+      mx.prioBtn.setAttribute("aria-expanded", String(!pr.box.hidden));
+      if (!pr.box.hidden) loadPriority();
+    };
     return el(
       "div",
       { className: "aud-top" },
       el("label", { className: "aud-label", htmlFor: "aud-output", textContent: "Output" }),
       mx.output,
       mx.rescan,
+      mx.prioBtn,
       el("span", { className: "aud-run-box" }, mx.state, mx.run),
+    );
+  }
+
+  // ---- Device priority ----
+
+  const pr = { list: "outputs", view: null };
+  const STATUS = { available: "Available", off: "Off", unplugged: "Unplugged" };
+
+  function buildPriority() {
+    pr.on = el("input", { type: "checkbox", className: "switch", id: "aud-prio-on" });
+    pr.mixer = el("input", { type: "checkbox" });
+    pr.windows = el("input", { type: "checkbox" });
+    pr.on.onchange = pr.mixer.onchange = pr.windows.onchange = () => sendPriority((c) => Object.assign(c, { on: pr.on.checked, mixer: pr.mixer.checked, windows: pr.windows.checked }));
+    pr.seg = seg([["outputs", "Outputs"], ["inputs", "Inputs"]], (id) => {
+      pr.list = id;
+      renderPriority();
+    }, "Device list");
+    pr.rows = el("ol", { className: "aud-prio-list" });
+    pr.rows.setAttribute("aria-label", "Devices in priority order");
+    pr.add = el("select", { className: "aud-add" });
+    pr.add.setAttribute("aria-label", "Add a device");
+    pr.add.onchange = () => {
+      const choices = pr.list === "outputs" ? pr.view.choices_out : pr.view.choices_in;
+      const e = choices.find((c) => c.id === pr.add.value);
+      pr.add.value = "";
+      if (e) sendPriority((c) => c[pr.list].push({ id: e.id, name: e.name }));
+    };
+    pr.note = el("p", { className: "hint aud-prio-note" });
+    pr.box = el(
+      "div",
+      { className: "aud-prio", id: "aud-prio", hidden: true },
+      el(
+        "div",
+        { className: "aud-prio-head" },
+        el("label", { className: "aud-name", htmlFor: "aud-prio-on", textContent: "Follow priority" }),
+        pr.on,
+        el("label", { className: "check" }, pr.mixer, "Mixer output"),
+        el("label", { className: "check" }, pr.windows, "Windows default"),
+        pr.seg,
+      ),
+      pr.rows,
+      pr.add,
+      pr.note,
+    );
+    return pr.box;
+  }
+
+  async function loadPriority() {
+    try {
+      takePriority(await invoke("get_priority"));
+    } catch (e) {
+      say(mx.problem, message(e));
+    }
+  }
+
+  async function sendPriority(edit) {
+    if (!pr.view) return;
+    const cfg = JSON.parse(JSON.stringify(pr.view.config));
+    edit(cfg);
+    try {
+      takePriority(await invoke("set_priority", { priority: cfg }));
+      loadMixer(false);
+    } catch (e) {
+      say(mx.problem, message(e));
+    }
+  }
+
+  function takePriority(view) {
+    pr.view = view;
+    renderPriority();
+  }
+
+  function move(i, to) {
+    sendPriority((c) => {
+      const list = c[pr.list];
+      if (to < 0 || to >= list.length) return;
+      list.splice(to, 0, list.splice(i, 1)[0]);
+    });
+  }
+
+  function priorityRow(r, i, count) {
+    const btn = (text, label, onClick, off) => {
+      const b = el("button", { type: "button", className: "aud-x", textContent: text, disabled: !!off });
+      b.setAttribute("aria-label", label);
+      b.title = label;
+      b.onclick = onClick;
+      return b;
+    };
+    const li = el(
+      "li",
+      { className: "aud-prio-row " + r.status + (r.chosen ? " chosen" : ""), draggable: true },
+      el("span", { className: "aud-grip", "aria-hidden": "true" }),
+      el("span", { className: "aud-num", textContent: i + 1 }),
+      el("span", { className: "aud-chipname", textContent: r.name, title: r.name }),
+      el("span", { className: "aud-tag", textContent: r.chosen ? "In use" : STATUS[r.status] }),
+      btn("↑", "Move " + r.name + " up", () => move(i, i - 1), i === 0),
+      btn("↓", "Move " + r.name + " down", () => move(i, i + 1), i === count - 1),
+      removeButton("Remove " + r.name, () => sendPriority((c) => c[pr.list].splice(i, 1))),
+    );
+    li.ondragstart = (e) => e.dataTransfer.setData("text/plain", String(i));
+    li.ondragover = (e) => e.preventDefault();
+    li.ondrop = (e) => {
+      e.preventDefault();
+      const from = +e.dataTransfer.getData("text/plain");
+      if (Number.isInteger(from) && from !== i) move(from, i);
+    };
+    return li;
+  }
+
+  function renderPriority() {
+    const v = pr.view;
+    if (!v) return;
+    const c = v.config;
+    mx.prioBtn.setAttribute("aria-pressed", String(!!c.on));
+    pr.on.checked = c.on;
+    pr.mixer.checked = c.mixer;
+    pr.windows.checked = c.windows;
+    pr.mixer.disabled = pr.windows.disabled = !c.on;
+    pr.seg.pick(pr.list);
+    const rows = pr.list === "outputs" ? v.outputs : v.inputs;
+    pr.rows.replaceChildren(...rows.map((r, i) => priorityRow(r, i, rows.length)));
+    const listed = (pr.list === "outputs" ? c.outputs : c.inputs).map((e) => e.id);
+    const choices = (pr.list === "outputs" ? v.choices_out : v.choices_in).filter((e) => !listed.includes(e.id));
+    options(pr.add, [["", "Add a device"], ...choices.map((e) => [e.id, e.name])], "", "");
+    pr.add.hidden = !choices.length;
+    setText(
+      pr.note,
+      pr.list === "inputs"
+        ? "Inputs set Windows' default recording device. The mixer's mic stays as picked."
+        : "FoxDen uses the first device that is really there. A wireless headset counts as off while its receiver is plugged in but the headset is switched off.",
     );
   }
 
@@ -288,6 +427,7 @@
       sendMix({ kind: "route", channel: id, source: rest.join(":"), loopback: kind === "out", on: !!s.source.value });
     };
     s.empty = el("p", { className: "aud-empty", textContent: "Pick a microphone to mix it in." });
+    s.profile = profileSelect((name) => applyProfile(id, name), "Apply a mic profile");
     return (s.node = el(
       "section",
       { className: "aud-strip" },
@@ -296,6 +436,7 @@
       s.source,
       s.empty,
       buildVmic(),
+      s.profile,
       stripFoot(id, "Mic"),
     ));
   }
@@ -390,7 +531,12 @@
     return "Apps can pick " + (v.name || "FoxDen VB-Cable (Microphone)") + ".";
   }
 
+  function renderMicProfiles() {
+    options(mx.strips.chatCapture.profile, [["", "Mic profile"], ...profilesFor("mic").map((p) => [p.name, p.name])], "", "");
+  }
+
   function renderVmic() {
+    renderMicProfiles();
     if (!mix) return;
     const cfg = mix.config;
     const v = mix.vmic || {};
@@ -430,9 +576,20 @@
     const st = (mix.app_states || {})[lower(exe)];
     if (!st || st.state === "idle") return ["", "Not playing", ""];
     if (st.state === "playing") return ["on", "Mixed", ""];
-    if (st.state === "elsewhere") return ["warn", "Restart it", "Still playing on " + st.output + ". Restart it to move it here."];
+    if (st.state === "elsewhere") return ["warn", "Restart it", "Still on " + st.output + ". Restart it to move it here."];
+    if (st.state === "own_output") return ["warn", "Own output", ownOutputHint(exe, st.output)];
     if (st.state === "contains") return ["warn", "Not mixed", "It started " + shortName(st.app) + ", which is in another channel."];
     return ["warn", "Failed", st.message];
+  }
+
+  // Apps that pick a device in their own settings ignore Windows' per-app routing.
+  const OWN_SETTINGS = {
+    "discord.exe": "Discord: User Settings → Voice & Video → Output Device → Default",
+  };
+
+  function ownOutputHint(exe, output) {
+    const name = shortName(exe);
+    return name + " picks its own output (" + output + "). Set it to Default in " + (OWN_SETTINGS[lower(exe)] || name + "'s settings") + ".";
   }
 
   function removeButton(text, onClick) {
@@ -453,6 +610,7 @@
       el("span", { className: "aud-chipname", textContent: name, title: exe + (word ? ": " + word : "") }),
     );
     if (mark === "warn") item.append(el("span", { className: "aud-tag", textContent: word }));
+    else if ((mix.config.auto || []).includes(lower(exe))) item.append(el("span", { className: "aud-tag aud-auto", textContent: "Auto", title: "Placed by auto-assign" }));
     item.append(removeButton("Remove " + name + " from " + label, () => sendMix({ kind: "apps", channel: id, apps: apps.filter((a) => a !== exe) })));
     if (note) item.append(el("span", { className: "aud-chipnote", textContent: note }));
     return item;
@@ -571,6 +729,7 @@
           { className: "aud-eqside" },
           el("span", { className: "aud-label", textContent: "Preset" }),
           mx.presets,
+          buildProfiles(),
           mx.plot,
           el("label", { className: "check aud-advtoggle" }, mx.adv, "Advanced: filter types, frequency and Q"),
         ),
@@ -578,6 +737,122 @@
       ),
     );
     mx.eqBox.setAttribute("aria-labelledby", "aud-eq-title");
+  }
+
+  // ---- Sound profiles ----
+
+  const pf = {};
+  const kindOf = (id) => (id === "chatCapture" ? "mic" : "output");
+  const profilesFor = (kind) => ((mix && mix.profiles) || []).filter((p) => p.kind === kind);
+
+  function profileSelect(onPick, label) {
+    const select = el("select", { className: "aud-device" });
+    select.setAttribute("aria-label", label);
+    select.onchange = () => {
+      const name = select.value;
+      select.value = "";
+      if (name) onPick(name);
+    };
+    return select;
+  }
+
+  function applyProfile(channel, name) {
+    const p = profilesFor(kindOf(channel)).find((x) => x.name === name);
+    if (p) sendMix({ kind: "apply_profile", channel, profile: p });
+  }
+
+  function buildProfiles() {
+    pf.pick = profileSelect((name) => {
+      pf.current = name;
+      applyProfile(eqChannel, name);
+    }, "Apply a sound profile");
+    pf.name = el("input", { type: "text", className: "aud-pfname", maxLength: 40, placeholder: "Profile name" });
+    pf.name.setAttribute("aria-label", "Profile name");
+    const small = (text, onClick, label) => {
+      const b = el("button", { type: "button", className: "aud-small", textContent: text });
+      if (label) b.setAttribute("aria-label", label);
+      b.onclick = onClick;
+      return b;
+    };
+    pf.save = small("Save", () => pf.name.value.trim() && sendMix({ kind: "save_profile", channel: eqChannel, name: pf.name.value.trim() }), "Save current settings as a profile");
+    pf.rename = small("Rename", () => pf.current && pf.name.value.trim() && sendMix({ kind: "rename_profile", from: pf.current, to: pf.name.value.trim() }).then(() => (pf.current = pf.name.value.trim())));
+    pf.del = small("Delete", () => pf.current && sendMix({ kind: "delete_profile", name: pf.current }).then(() => (pf.current = null)));
+    pf.copy = small("Copy share code", copyCode);
+    pf.export = small("Export", exportFile, "Export the profile as a .foxsound file");
+    pf.file = el("input", { type: "file", accept: ".foxsound,text/plain", hidden: true });
+    pf.file.onchange = async () => {
+      const f = pf.file.files[0];
+      pf.file.value = "";
+      if (f && f.size < 4096) importCode(await f.text());
+    };
+    pf.import = small("Import", () => pf.file.click(), "Import a .foxsound file");
+    pf.code = el("input", { type: "text", className: "aud-pfname", placeholder: "Paste share code" });
+    pf.code.setAttribute("aria-label", "Share code");
+    pf.paste = small("Add", () => importCode(pf.code.value), "Add the pasted profile");
+    pf.note = el("p", { className: "aud-empty", role: "status", hidden: true });
+    return el(
+      "div",
+      { className: "aud-pf" },
+      el("span", { className: "aud-label", textContent: "Sound profile" }),
+      pf.pick,
+      el("div", { className: "aud-pfrow" }, pf.name, pf.save, pf.rename, pf.del),
+      el("div", { className: "aud-pfrow" }, pf.copy, pf.export, pf.import, pf.file),
+      el("div", { className: "aud-pfrow" }, pf.code, pf.paste),
+      pf.note,
+    );
+  }
+
+  // The profile sharing works on: the one last applied or saved, else the current settings.
+  function shareable() {
+    const kind = kindOf(eqChannel);
+    const p = profilesFor(kind).find((x) => x.name === pf.current);
+    if (p) return p;
+    const c = chan(eqChannel);
+    const cfg = mix.config;
+    return { name: pf.name.value.trim() || LABEL[eqChannel] + " sound", kind, eq: { on: c.eq_on, bands: c.eq }, volume: c.volume, gate: kind === "mic" ? { on: cfg.gate_on, db: cfg.gate_db } : null };
+  }
+
+  async function copyCode() {
+    try {
+      const code = await invoke("sound_code", { profile: shareable() });
+      pf.code.value = code;
+      try {
+        await navigator.clipboard.writeText(code);
+        say(pf.note, "Share code copied.");
+      } catch {
+        pf.code.select();
+        say(pf.note, "Copy the code from the box.");
+      }
+    } catch (e) {
+      say(pf.note, message(e));
+    }
+  }
+
+  async function exportFile() {
+    const p = shareable();
+    const code = await invoke("sound_code", { profile: p });
+    const a = el("a", { href: URL.createObjectURL(new Blob([code + "\n"], { type: "text/plain" })), download: p.name.replace(/[^\w -]+/g, "") + ".foxsound" });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function importCode(text) {
+    try {
+      const profile = await invoke("sound_decode", { code: text.trim() });
+      await sendMix({ kind: "add_profile", profile });
+      pf.code.value = "";
+      pf.current = profile.name;
+      say(pf.note, "Added " + profile.name + " (" + (profile.kind === "mic" ? "mic" : "output") + ").");
+    } catch (e) {
+      say(pf.note, message(e));
+    }
+  }
+
+  function renderProfiles() {
+    const list = profilesFor(kindOf(eqChannel));
+    options(pf.pick, [["", "Apply a profile"], ...list.map((p) => [p.name, p.name + (p.builtin ? "" : " (yours)")])], "", "");
+    const mine = list.some((p) => p.name === pf.current && !p.builtin);
+    pf.rename.disabled = pf.del.disabled = !mine;
   }
 
   const signed = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1);
@@ -637,6 +912,7 @@
     mx.eqSwitch.setAttribute("aria-label", LABEL[eqChannel] + " EQ on");
     mx.eqSwitch.checked = c.eq_on;
     mx.presets.pick(presetOf(c.eq));
+    renderProfiles();
     const filters = mix.filters || [];
     mx.bandUi.forEach((ui, n) => {
       const b = c.eq[n];
@@ -672,6 +948,10 @@
       sendMix({ kind: "park", name: mx.park.value });
     };
     mx.parked = el("p", { className: "hint", hidden: true });
+    mx.auto = el("input", { type: "checkbox", className: "switch", id: "aud-auto" });
+    mx.auto.onchange = () => sendMix({ kind: "auto_assign", on: mx.auto.checked });
+    mx.noAuto = el("ul", { className: "aud-chips" });
+    mx.noAuto.setAttribute("aria-label", "Apps auto-assign leaves alone");
     mx.sources = {};
     const rows = APP_CHANNELS.map(([id, label]) => {
       const select = el("select", { className: "aud-device", id: "aud-src-" + id });
@@ -702,6 +982,13 @@
         el(
           "div",
           { className: "aud-moreitem" },
+          el("div", { className: "aud-vrow" }, el("label", { className: "aud-name", htmlFor: "aud-auto", textContent: "Auto-assign apps" }), mx.auto),
+          el("p", { className: "hint", textContent: "Apps that start playing go to their usual channel: chat apps to Chat, players and browsers to Media, games to Game. Your own choice always wins." }),
+          mx.noAuto,
+        ),
+        el(
+          "div",
+          { className: "aud-moreitem" },
           el("span", { className: "aud-name", textContent: "Record from a device" }),
           el("p", { className: "hint", textContent: "Mixes a device into a channel as well as its apps, for sound that does not come from an app, such as a line in." }),
           el("div", { className: "aud-srcgrid" }, ...rows.flat()),
@@ -712,6 +999,15 @@
 
   function renderAdvanced() {
     const cfg = mix.config;
+    mx.auto.checked = cfg.auto_assign;
+    mx.noAuto.replaceChildren(
+      ...(cfg.no_auto || []).map((exe) => {
+        const b = el("button", { type: "button", className: "aud-small", textContent: "Allow" });
+        b.setAttribute("aria-label", "Let auto-assign place " + exe + " again");
+        b.onclick = () => sendMix({ kind: "allow_auto", exe });
+        return el("li", { className: "aud-chip aud-devchip" }, el("span", { className: "aud-tag", textContent: "Skipped" }), el("span", { className: "aud-chipname", textContent: shortName(exe) }), b);
+      }),
+    );
     if (!held("park")) {
       const spare = mix.outputs.filter((o) => o !== cfg.output).map((o) => [o, o]);
       options(mx.park, [["", "Pick one for me"], ...spare], cfg.park || "", (cfg.park || "") + " (missing)");
@@ -776,7 +1072,10 @@
     setText(mx.run, mix.running ? "Stop" : "Start");
     mx.run.classList.toggle("primary", !mix.running);
     mx.run.setAttribute("aria-label", mix.running ? "Stop the mixer" : "Start the mixer");
-    if (!held("output")) options(mx.output, mix.outputs.map((o) => [o, o]), cfg.output, cfg.output + " (missing)");
+    const shownOut = (mix.following && mix.playing_on) || cfg.output;
+    if (!held("output")) options(mx.output, mix.outputs.map((o) => [o, o]), shownOut, shownOut + " (missing)");
+    mx.output.disabled = !!mix.following;
+    mx.output.title = mix.following ? "Picked by the output priority" : "";
     mx.chat.show(cfg.chat_mix);
     renderStrips();
     renderVmic();
@@ -825,7 +1124,12 @@
   const strips = el("div", { className: "aud-strips" }, pair, appStrip("media", "Media"), appStrip("aux", "Aux"), micStrip(), masterStrip());
   for (const node of strips.querySelectorAll(".aud-strip")) node.setAttribute("aria-labelledby", node.querySelector("h3").id);
   buildEq();
-  const mixer = el("section", { className: "box aud-mixer" }, el("h2", { textContent: "Mixer" }), top, mx.problem, strips);
+  const mixer = el("section", { className: "box aud-mixer" }, el("h2", { textContent: "Mixer" }), top, buildPriority(), mx.problem, strips);
+  listen("audio-priority", (e) => {
+    takePriority(e.payload);
+    if (mix) loadMixer(false);
+  });
+  loadPriority();
   root.replaceChildren(el("div", { className: "aud-page" }, mixer, mx.eqBox, buildAdvanced()));
 
   buildSheet();

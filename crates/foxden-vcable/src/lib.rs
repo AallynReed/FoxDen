@@ -341,9 +341,6 @@ pub fn hide_extras() -> Result<usize> {
 pub fn restore(before: &Defaults) -> Result<usize> {
     let ours: Vec<String> = endpoints()?.into_iter().map(|e| e.id).collect();
     let now = defaults();
-    let policy: PolicyConfig =
-        unsafe { CoCreateInstance(&POLICY_CLIENT, None, CLSCTX_ALL) }.map_err(err)?;
-    let vt = unsafe { &**(policy.as_raw() as *const *const PolicyVtbl) };
     let mut done = 0;
     for (flow, role, id) in &before.0 {
         let taken = now
@@ -353,13 +350,28 @@ pub fn restore(before: &Defaults) -> Result<usize> {
         if !taken || ours.contains(id) {
             continue;
         }
-        let wide: Vec<u16> = id.encode_utf16().chain([0]).collect();
-        unsafe { (vt.set_default)(policy.as_raw(), PCWSTR(wide.as_ptr()), *role) }
-            .ok()
-            .map_err(err)?;
+        set_default_for(id, &[*role])?;
         done += 1;
     }
     Ok(done)
+}
+
+/// Makes an endpoint Windows' default for every role of its flow.
+pub fn set_default(id: &str) -> Result<()> {
+    set_default_for(id, &ROLES)
+}
+
+fn set_default_for(id: &str, roles: &[ERole]) -> Result<()> {
+    let policy: PolicyConfig =
+        unsafe { CoCreateInstance(&POLICY_CLIENT, None, CLSCTX_ALL) }.map_err(err)?;
+    let vt = unsafe { &**(policy.as_raw() as *const *const PolicyVtbl) };
+    let wide: Vec<u16> = id.encode_utf16().chain([0]).collect();
+    for role in roles {
+        unsafe { (vt.set_default)(policy.as_raw(), PCWSTR(wide.as_ptr()), *role) }
+            .ok()
+            .map_err(err)?;
+    }
+    Ok(())
 }
 
 /// Where VB-Audio's files sit: `vbcable` next to the program, or the fetched copy in a dev build.

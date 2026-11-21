@@ -42,6 +42,10 @@
     virtual_mic: false,
     gate_on: false,
     gate_db: -50,
+    auto_assign: true,
+    auto: ["spotify.exe"],
+    no_auto: ["chrome.exe"],
+    profiles: [],
   };
   mix.channels[0] = { ...mix.channels[0], apps: ["cs2.exe", "RocketLeague.exe"], on: true };
   mix.channels[1] = { ...mix.channels[1], apps: ["Discord.exe"], on: true };
@@ -71,6 +75,20 @@
   }
 
   const lower = (s) => s.toLowerCase();
+  const gains = (g) => [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((frequency, i) => ({ enabled: true, filter: "PeakingEQ", frequency, gain_db: g[i], q: 1.414 }));
+  const band = (filter, frequency, gain_db, q) => ({ enabled: true, filter, frequency, gain_db, q });
+  const BUILTINS = [
+    ["Flat", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
+    ["Bass boost", [6, 5, 4, 2, 0, 0, 0, 0, 0, 0]],
+    ["Voice clarity", [-4, -3, -2, -1, 0, 2, 4, 4, 2, 0]],
+    ["Treble", [0, 0, 0, 0, 0, 0, 2, 4, 5, 6]],
+  ]
+    .map(([name, g]) => ({ name, kind: "output", builtin: true, eq: { on: true, bands: gains(g) }, volume: null, gate: null }))
+    .concat([
+      { name: "Clean voice", kind: "mic", builtin: true, eq: { on: true, bands: [band("HighPass", 80, 0, 0.707), band("PeakingEQ", 250, -2, 1), band("PeakingEQ", 3000, 2, 1)] }, volume: null, gate: { on: true, db: -50 } },
+      { name: "Broadcast", kind: "mic", builtin: true, eq: { on: true, bands: [band("HighPass", 70, 0, 0.707), band("LowShelving", 120, 3, 0.707), band("PeakingEQ", 400, -2, 1.2), band("PeakingEQ", 3500, 3, 0.9), band("HighShelving", 10000, 2, 0.707)] }, volume: null, gate: { on: true, db: -45 } },
+      { name: "Noise gate", kind: "mic", builtin: true, eq: null, volume: null, gate: { on: true, db: -40 } },
+    ]);
   const sink = () => mix.park || OUTPUTS.find((o) => o !== mix.output && o !== OUTPUTS[0]);
 
   function appStates() {
@@ -78,15 +96,19 @@
     for (const c of mix.channels) {
       for (const exe of c.apps) {
         const app = APPS.find((a) => lower(a.exe) === lower(exe));
-        out[lower(exe)] = !app ? { state: "idle" } : exe === "chrome.exe" ? { state: "elsewhere", output: OUTPUTS[1] } : { state: "playing" };
+        out[lower(exe)] = !app ? { state: "idle" } : exe === "chrome.exe" ? { state: "elsewhere", output: OUTPUTS[1] } : exe === "Discord.exe" ? { state: "own_output", output: OUTPUTS[1] } : { state: "playing" };
       }
     }
     return out;
   }
 
   function mixView() {
+    const follow = prio.on && prio.mixer ? pick(prio.outputs) : null;
     return {
       config: copy(mix),
+      playing_on: running ? (follow ? follow.name : mix.output) : null,
+      following: !!follow,
+      profiles: [...BUILTINS, ...mix.profiles],
       running,
       error,
       outputs: OUTPUTS,
@@ -119,8 +141,32 @@
     if (error) throw error;
   }
 
+  function store(p) {
+    if (BUILTINS.some((b) => b.name === p.name)) throw p.name + " is a built-in profile; pick another name";
+    const i = mix.profiles.findIndex((x) => x.name === p.name);
+    if (i >= 0) mix.profiles[i] = { ...p, builtin: false };
+    else mix.profiles.push({ ...p, builtin: false });
+  }
+
   Object.assign(mock.commands, {
     get_mixer: () => mixView(),
+    get_priority: () => prioView(),
+    set_priority({ priority }) {
+      Object.assign(prio, copy(priority));
+      return prioView();
+    },
+    sound_code: ({ profile }) => "foxden-sound:" + btoa(JSON.stringify({ v: 1, ...profile })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+    sound_decode({ code }) {
+      if (!code.startsWith("foxden-sound:")) throw "That is not a FoxDen sound code";
+      let data;
+      try {
+        data = JSON.parse(atob(code.slice(13).replace(/-/g, "+").replace(/_/g, "/")));
+      } catch {
+        throw "The share code is damaged";
+      }
+      if (data.v !== 1) throw "This code comes from a newer FoxDen; update to use it";
+      return { name: String(data.name || "Shared profile").slice(0, 40), kind: data.kind === "mic" ? "mic" : "output", builtin: false, eq: data.eq || null, volume: data.volume ?? null, gate: data.gate || null };
+    },
     mixer_set({ change: c }) {
       if (c.kind === "output") {
         if (mix.channels.some((x) => x.on && x.loopback && x.source === c.name)) throw "That output is a source; it would play back into itself";
@@ -135,6 +181,8 @@
         const taken = c.apps.map(lower);
         for (const x of mix.channels) if (x.channel !== c.channel) x.apps = x.apps.filter((a) => !taken.includes(lower(a)));
         const target = ch(c.channel);
+        mix.no_auto.push(...target.apps.map(lower).filter((a) => !taken.includes(a)));
+        mix.auto = mix.auto.filter((a) => !taken.includes(a) || target.apps.map(lower).includes(a));
         if (c.apps.length && !target.apps.length && !target.source) target.on = true;
         target.apps = c.apps;
       } else if (c.kind === "volume") ch(c.channel).volume = clamp(c.volume, 0, 1);
@@ -145,6 +193,24 @@
       else if (c.kind === "virtual_mic") mix.virtual_mic = c.on && vmic.installed;
       else if (c.kind === "gate") Object.assign(mix, { gate_on: c.on, gate_db: clamp(c.threshold_db, -90, 0) });
       else if (c.kind === "eq") Object.assign(ch(c.channel), { eq_on: c.enabled, eq: c.bands.slice(0, 10) });
+      else if (c.kind === "auto_assign") mix.auto_assign = c.on;
+      else if (c.kind === "allow_auto") mix.no_auto = mix.no_auto.filter((a) => a !== lower(c.exe));
+      else if (c.kind === "apply_profile") {
+        const mic = c.channel === "chatCapture";
+        if ((c.profile.kind === "mic") !== mic) throw mic ? "That profile is for an output channel, not the mic" : "That is a mic profile; apply it to the mic";
+        const x = ch(c.channel);
+        if (c.profile.eq) Object.assign(x, { eq_on: c.profile.eq.on, eq: copy(c.profile.eq.bands) });
+        if (c.profile.volume != null) x.volume = c.profile.volume;
+        if (c.profile.gate) Object.assign(mix, { gate_on: c.profile.gate.on, gate_db: c.profile.gate.db });
+      } else if (c.kind === "save_profile") {
+        const x = ch(c.channel);
+        const kind = c.channel === "chatCapture" ? "mic" : "output";
+        store({ name: c.name, kind, eq: { on: x.eq_on, bands: copy(x.eq) }, volume: x.volume, gate: kind === "mic" ? { on: mix.gate_on, db: mix.gate_db } : null });
+      } else if (c.kind === "add_profile") store(c.profile);
+      else if (c.kind === "rename_profile") {
+        const p = mix.profiles.find((x) => x.name === c.from);
+        if (p) p.name = c.to;
+      } else if (c.kind === "delete_profile") mix.profiles = mix.profiles.filter((x) => x.name !== c.name);
       else if (c.kind === "run") {
         if (c.on) play();
         else {
@@ -171,6 +237,51 @@
     },
   });
 
+  // ---- Device priority: ?headset=cycle switches the headset off and on every 6 s ----
+
+  const DEVICES = {
+    out: [
+      { id: "hp", name: OUTPUTS[1], usb: true },
+      { id: "spk", name: OUTPUTS[0] },
+      { id: "q27", name: OUTPUTS[2] },
+    ],
+    in: [
+      { id: "solo", name: "Microphone (4- HyperX SoloCast)" },
+      { id: "hpmic", name: INPUTS[0], usb: true },
+    ],
+  };
+  const prio = {
+    on: true,
+    mixer: true,
+    windows: false,
+    outputs: [DEVICES.out[0], DEVICES.out[1]].map(({ id, name }) => ({ id, name })),
+    inputs: [DEVICES.in[0]].map(({ id, name }) => ({ id, name })),
+  };
+  let headsetOn = true;
+  const statusOf = (d) => (!d ? "unplugged" : d.usb && !headsetOn ? "off" : "available");
+  const all = () => [...DEVICES.out, ...DEVICES.in];
+  const pick = (list) => list.map((e) => all().find((d) => d.id === e.id)).find((d) => statusOf(d) === "available") || null;
+
+  function rows(list) {
+    const chosen = pick(list);
+    return list.map((e) => {
+      const d = all().find((x) => x.id === e.id);
+      return { id: e.id, name: e.name, status: statusOf(d), chosen: !!chosen && chosen.id === e.id };
+    });
+  }
+
+  function prioView() {
+    const entry = ({ id, name }) => ({ id, name });
+    return { config: copy(prio), outputs: rows(prio.outputs), inputs: rows(prio.inputs), choices_out: DEVICES.out.map(entry), choices_in: DEVICES.in.map(entry) };
+  }
+
+  if (new URLSearchParams(location.search).get("headset") === "cycle") {
+    setInterval(() => {
+      headsetOn = !headsetOn;
+      mock.emit("audio-priority", prioView());
+    }, 6000);
+  }
+
   // ?tab=audio opens that tab; ?dial=1 pretends a headset's ChatMix dial is turning.
   const query = new URLSearchParams(location.search);
   let dial = null;
@@ -192,6 +303,7 @@
       if (query.get("eq")) document.querySelector('[aria-label="Edit ' + query.get("eq") + ' EQ"]')?.click();
       if (query.get("preset")) [...document.querySelectorAll(".aud-seg button")].find((b) => b.textContent === query.get("preset"))?.click();
       if (query.get("more")) document.querySelector(".aud-more")?.setAttribute("open", "");
+      if (query.get("prio")) document.querySelector(".aud-priobtn")?.click();
     }, 300),
   );
 })();

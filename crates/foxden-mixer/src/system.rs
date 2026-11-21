@@ -5,11 +5,13 @@ use std::ffi::c_void;
 
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
-    AudioSessionStateActive, DEVICE_STATE_ACTIVE, EDataFlow, ERole, IAudioSessionControl2,
-    IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, eCommunications,
-    eConsole, eMultimedia, eRender,
+    AudioSessionStateActive, DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATE_DISABLED,
+    DEVICE_STATE_UNPLUGGED, EDataFlow, ERole, IAudioSessionControl2, IAudioSessionManager2,
+    IMMDevice, IMMDeviceEnumerator, IMMNotificationClient, IMMNotificationClient_Impl,
+    MMDeviceEnumerator, eCapture, eCommunications, eConsole, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, STGM_READ,
@@ -18,7 +20,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::WinRT::RoGetActivationFactory;
-use windows::core::{GUID, HRESULT, HSTRING, IUnknown, Interface, PCWSTR, h};
+use windows::core::{GUID, HRESULT, HSTRING, IUnknown, Interface, PCWSTR, h, implement};
 
 use crate::Result;
 
@@ -81,6 +83,117 @@ pub fn endpoints() -> Result<Vec<Endpoint>> {
         });
     }
     Ok(out)
+}
+
+/// The endpoint's parent device instance, e.g. `{1}.USB\VID_1038&PID_22A1&MI_00\...`.
+const PARENT_ID: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0xb3f8fa53_0004_438e_9003_51a46e139bfc),
+    pid: 2,
+};
+
+/// An endpoint of either flow, in any state but not present.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Device {
+    pub id: String,
+    pub name: String,
+    pub active: bool,
+    /// USB vendor and product id of the device it belongs to.
+    pub usb: Option<(u16, u16)>,
+}
+
+/// `VID_xxxx&PID_xxxx` out of a device instance id.
+pub fn usb_ids(instance: &str) -> Option<(u16, u16)> {
+    let up = instance.to_ascii_uppercase();
+    let hex = |key: &str| {
+        let at = up.find(key)? + key.len();
+        u16::from_str_radix(up.get(at..at + 4)?, 16).ok()
+    };
+    up.contains("USB")
+        .then(|| Some((hex("VID_")?, hex("PID_")?)))
+        .flatten()
+}
+
+pub fn devices(capture: bool) -> Result<Vec<Device>> {
+    let flow = if capture { eCapture } else { eRender };
+    let states =
+        DEVICE_STATE(DEVICE_STATE_ACTIVE.0 | DEVICE_STATE_DISABLED.0 | DEVICE_STATE_UNPLUGGED.0);
+    let devs = unsafe { enumerator()?.EnumAudioEndpoints(flow, states) }.map_err(err)?;
+    let mut out = Vec::new();
+    for i in 0..unsafe { devs.GetCount() }.map_err(err)? {
+        let Ok(dev) = (unsafe { devs.Item(i) }) else {
+            continue;
+        };
+        let parent = unsafe {
+            dev.OpenPropertyStore(STGM_READ)
+                .and_then(|s| s.GetValue(&PARENT_ID))
+        }
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+        out.push(Device {
+            id: id_of(&dev)?,
+            name: name_of(&dev),
+            active: unsafe { dev.GetState() }.is_ok_and(|s| s == DEVICE_STATE_ACTIVE),
+            usb: usb_ids(&parent),
+        });
+    }
+    Ok(out)
+}
+
+/// Windows' default endpoint id for the console role.
+pub fn default_id(capture: bool) -> Option<String> {
+    let flow = if capture { eCapture } else { eRender };
+    let dev = unsafe { enumerator().ok()?.GetDefaultAudioEndpoint(flow, eConsole) }.ok()?;
+    id_of(&dev).ok()
+}
+
+#[implement(IMMNotificationClient)]
+struct Notify(Box<dyn Fn() + Send + Sync>);
+
+impl IMMNotificationClient_Impl for Notify_Impl {
+    fn OnDeviceStateChanged(&self, _: &PCWSTR, _: DEVICE_STATE) -> windows::core::Result<()> {
+        (self.0)();
+        Ok(())
+    }
+    fn OnDeviceAdded(&self, _: &PCWSTR) -> windows::core::Result<()> {
+        (self.0)();
+        Ok(())
+    }
+    fn OnDeviceRemoved(&self, _: &PCWSTR) -> windows::core::Result<()> {
+        (self.0)();
+        Ok(())
+    }
+    fn OnDefaultDeviceChanged(
+        &self,
+        _: EDataFlow,
+        _: ERole,
+        _: &PCWSTR,
+    ) -> windows::core::Result<()> {
+        (self.0)();
+        Ok(())
+    }
+    fn OnPropertyValueChanged(&self, _: &PCWSTR, _: &PROPERTYKEY) -> windows::core::Result<()> {
+        Ok(())
+    }
+}
+
+/// Calls back when an endpoint comes, goes or becomes the default, until dropped. The callback
+/// runs on a Windows thread and must not block.
+pub struct Watch {
+    en: IMMDeviceEnumerator,
+    client: IMMNotificationClient,
+}
+
+pub fn watch(changed: impl Fn() + Send + Sync + 'static) -> Result<Watch> {
+    let en = enumerator()?;
+    let client: IMMNotificationClient = Notify(Box::new(changed)).into();
+    unsafe { en.RegisterEndpointNotificationCallback(&client) }.map_err(err)?;
+    Ok(Watch { en, client })
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        let _ = unsafe { self.en.UnregisterEndpointNotificationCallback(&self.client) };
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +279,25 @@ pub fn processes() -> Vec<Process> {
         let _ = CloseHandle(snap);
     }
     out
+}
+
+/// The full path of a process's executable, when it can be read.
+pub fn exe_path(pid: u32) -> Option<String> {
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
+    };
+    use windows::core::PWSTR;
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok =
+            QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
+        let _ = CloseHandle(h);
+        ok.ok()?;
+        Some(String::from_utf16_lossy(&buf[..len as usize]))
+    }
 }
 
 fn endpoint_volume(id: &str) -> Result<IAudioEndpointVolume> {
@@ -261,5 +393,20 @@ impl AppOutputs {
                 .map_err(err)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::usb_ids;
+
+    #[test]
+    fn usb_ids_come_from_the_parent_instance() {
+        assert_eq!(
+            usb_ids(r"{1}.USB\VID_1038&PID_22A1&MI_00\6&20BBF7CC&0&0000"),
+            Some((0x1038, 0x22A1))
+        );
+        assert_eq!(usb_ids(r"{1}.HDAUDIO\FUNC_01&VEN_10EC&DEV_0897"), None);
+        assert_eq!(usb_ids(r"{1}.ROOT\MEDIA\0001"), None);
     }
 }

@@ -15,6 +15,8 @@ mod links;
 mod log;
 mod mixer;
 mod modules;
+mod priority;
+mod profiles;
 mod report;
 mod service_lights;
 mod state;
@@ -99,6 +101,7 @@ fn main() {
             app.manage(state::spawn_worker(handle.clone(), shared.clone()));
             app.manage(mixer::Mixer::start(shared.clone()));
             headset::spawn_dial(handle.clone());
+            priority::spawn(handle.clone());
             state::spawn_render(handle.clone(), shared.clone());
             apps::spawn(handle.clone(), shared.clone());
             battery::spawn(handle.clone(), shared.clone());
@@ -150,6 +153,10 @@ fn main() {
             headset::headset_eq,
             headset::headset_dial,
             mixer::get_mixer,
+            priority::get_priority,
+            priority::set_priority,
+            profiles::sound_code,
+            profiles::sound_decode,
             mixer::mixer_set,
             mixer::get_mixer_levels,
             mixer::virtual_mic_install,

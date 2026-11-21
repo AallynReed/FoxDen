@@ -1216,6 +1216,7 @@ dependencies = [
 name = "foxden"
 version = "0.11.0"
 dependencies = [
+ "base64 0.21.7",
  "foxden-adlx",
  "foxden-audio",
  "foxden-battery",

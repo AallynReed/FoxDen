@@ -241,9 +241,16 @@ pub fn spawn_dial(app: AppHandle) {
                 found = foxden_headset::find();
                 looked = Some(Instant::now());
             }
-            let now = found
+            let statuses: Vec<_> = found.iter().map(foxden_headset::status).collect();
+            crate::priority::set_headsets(
+                found
+                    .iter()
+                    .zip(&statuses)
+                    .map(|(f, s)| (f.key.clone(), s.as_ref().map(|s| s.connected))),
+            );
+            let now = statuses
                 .iter()
-                .filter_map(foxden_headset::status)
+                .flatten()
                 .filter(|s| s.connected)
                 .find_map(|s| s.chatmix)
                 .map(|(game, chat)| Dial { game, chat });

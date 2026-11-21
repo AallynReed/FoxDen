@@ -621,3 +621,114 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
   min-width: 48px;
   text-align: right;
 }
+/* Device priority, under the top bar. */
+.aud-priobtn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.aud-prio {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.aud-prio-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 12px;
+}
+
+.aud-prio-head .aud-seg {
+  margin-left: auto;
+}
+
+.aud-prio-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aud-prio-row {
+  display: grid;
+  grid-template-columns: 8px 2ch minmax(0, 1fr) auto auto auto auto;
+
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 1px 1px 1px 6px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  font-size: 12px;
+}
+
+.aud-prio-row.chosen {
+  border-left: 3px solid var(--accent);
+  padding-left: 4px;
+}
+
+.aud-prio-row.chosen .aud-tag {
+  border-color: var(--accent);
+  color: var(--accent);
+  clip-path: var(--cut);
+}
+
+.aud-prio-row.off .aud-chipname,
+.aud-prio-row.unplugged .aud-chipname {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.aud-prio-row .aud-num {
+  min-width: 0;
+  color: var(--muted);
+}
+
+.aud-grip {
+  width: 8px;
+  height: 12px;
+  border-left: 2px solid var(--stroke);
+  border-right: 2px solid var(--stroke);
+  cursor: grab;
+}
+
+.aud-x:disabled {
+  opacity: 0.3;
+}
+
+.aud-prio-note {
+  margin: 0;
+}
+
+.aud-auto {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Sound profiles, in the EQ drawer. */
+.aud-pf {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aud-pfrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#panel-audio .aud-pfname {
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 28px;
+  font-size: 12px;
+}

@@ -70,6 +70,7 @@ pub fn spawn(app: AppHandle, shared: Shared) {
             } else if replugged || last.is_none_or(|t| t.elapsed() >= EVERY) {
                 let now = Instant::now();
                 let polled = foxden_battery::poll();
+                crate::priority::set_batteries(&polled);
                 merge(&mut known, polled, now);
                 let warn = lock(&shared).config.settings.battery_alerts;
                 for (title, body) in alerts(&mut steps, &known) {

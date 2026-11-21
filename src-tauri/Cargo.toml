@@ -26,6 +26,7 @@ foxden-battery = { path = "../crates/foxden-battery" }
 foxden-headset = { path = "../crates/foxden-headset" }
 foxden-mixer = { path = "../crates/foxden-mixer" }
 foxden-vcable = { path = "../crates/foxden-vcable" }
+base64 = "0.21"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }

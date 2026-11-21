@@ -6,6 +6,7 @@ pub mod channel;
 pub mod chatmix;
 pub mod dsp;
 pub mod park;
+pub mod presets;
 pub mod router;
 pub mod system;
 
