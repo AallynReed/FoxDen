@@ -268,6 +268,7 @@ pub fn rename() -> Result<usize> {
         }
         changed += 1;
     }
+    changed += hide_extras()?;
     Ok(changed)
 }
 
@@ -275,6 +276,7 @@ pub fn rename() -> Result<usize> {
 struct PolicyVtbl {
     _before: [usize; 13],
     set_default: unsafe extern "system" fn(*mut c_void, PCWSTR, ERole) -> HRESULT,
+    set_visibility: unsafe extern "system" fn(*mut c_void, PCWSTR, i32) -> HRESULT,
 }
 
 #[repr(transparent)]
@@ -313,6 +315,29 @@ pub fn defaults() -> Defaults {
 }
 
 /// Puts the defaults back where VB-CABLE took them over. Returns how many were restored.
+/// Disables VB-CABLE's extra 16-channel playback endpoint, as Sound settings' Disable does.
+/// FoxDen never uses it, and anything played into it would come out of the virtual mic.
+pub fn hide_extras() -> Result<usize> {
+    let extra: Vec<String> = endpoints()?
+        .into_iter()
+        .filter(|e| !e.main && e.active)
+        .map(|e| e.id)
+        .collect();
+    if extra.is_empty() {
+        return Ok(0);
+    }
+    let policy: PolicyConfig =
+        unsafe { CoCreateInstance(&POLICY_CLIENT, None, CLSCTX_ALL) }.map_err(err)?;
+    let vt = unsafe { &**(policy.as_raw() as *const *const PolicyVtbl) };
+    for id in &extra {
+        let wide: Vec<u16> = id.encode_utf16().chain([0]).collect();
+        unsafe { (vt.set_visibility)(policy.as_raw(), PCWSTR(wide.as_ptr()), 0) }
+            .ok()
+            .map_err(err)?;
+    }
+    Ok(extra.len())
+}
+
 pub fn restore(before: &Defaults) -> Result<usize> {
     let ours: Vec<String> = endpoints()?.into_iter().map(|e| e.id).collect();
     let now = defaults();
