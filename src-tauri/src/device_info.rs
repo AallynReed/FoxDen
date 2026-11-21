@@ -43,6 +43,91 @@ fn build(vendor: u16, product: u16, shown: &str, collections: &[foxden_hid::Coll
     })
 }
 
+/// A probed report without its trailing zeros, with its full length.
+fn trimmed(r: &[u8]) -> String {
+    let end = r.iter().rposition(|&b| b != 0).map_or(1, |i| i + 1);
+    format!("{} bytes: {}", r.len(), bytes(&r[..end]))
+}
+
+/// Report ids a descriptor declares for feature and for input reports. 0 when it numbers none.
+fn report_ids(d: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let (mut features, mut inputs) = (Vec::new(), Vec::new());
+    let mut id = 0u8;
+    let mut i = 0;
+    while i < d.len() {
+        let prefix = d[i];
+        let size = match prefix & 3 {
+            3 => 4,
+            n => n as usize,
+        };
+        let data = d.get(i + 1).copied().unwrap_or(0);
+        match prefix & 0xFC {
+            0x84 => id = data,
+            0xB0 if !features.contains(&id) => features.push(id),
+            0x80 if !inputs.contains(&id) => inputs.push(id),
+            _ => {}
+        }
+        i += 1 + size;
+    }
+    (features, inputs)
+}
+
+/// What a device's vendor collections hold right now, to find where it keeps its battery level.
+/// Only reads: feature reports are asked for, input reports are listened to for a moment.
+fn probe(vendor: u16, product: u16, collections: &[foxden_hid::Collection]) -> Vec<Value> {
+    use foxden_battery::hid::{Dev, enumerate};
+    use std::time::{Duration, Instant};
+    let mut out = Vec::new();
+    for c in enumerate()
+        .into_iter()
+        .filter(|c| c.vid == vendor && c.pid == product && c.page >= 0xFF00)
+    {
+        let Some(desc) = collections
+            .iter()
+            .find(|d| d.usage_page == c.page && d.usage == c.usage && d.interface == c.iface)
+            .and_then(|d| d.descriptor.as_ref().ok())
+        else {
+            continue;
+        };
+        let (features, inputs) = report_ids(desc);
+        let mut feature = serde_json::Map::new();
+        if c.feat_len > 0
+            && let Some(dev) = Dev::open_feature_only(&c)
+        {
+            for id in features {
+                if let Some(r) = dev.get_feature(id) {
+                    feature.insert(format!("{id:02x}"), trimmed(&r).into());
+                }
+            }
+        }
+        let mut heard = Vec::new();
+        if c.in_len > 0
+            && !inputs.is_empty()
+            && let Some(dev) = Dev::open_read_only(&c)
+        {
+            let end = Instant::now() + Duration::from_millis(1500);
+            while let Some(left) = end.checked_duration_since(Instant::now()) {
+                if let Some(r) = dev.read(left)
+                    && !heard.contains(&trimmed(&r))
+                    && heard.len() < 8
+                {
+                    heard.push(trimmed(&r));
+                }
+            }
+        }
+        if !feature.is_empty() || !heard.is_empty() {
+            out.push(json!({
+                "usage_page": format!("{:04x}", c.page),
+                "usage": format!("{:04x}", c.usage),
+                "interface": c.iface,
+                "feature": feature,
+                "input": heard,
+            }));
+        }
+    }
+    out
+}
+
 #[tauri::command]
 pub async fn device_info(id: String, name: String) -> Result<String, String> {
     let (vendor, product) = ids(&id).ok_or("Only USB devices can be reported.")?;
@@ -53,7 +138,13 @@ pub async fn device_info(id: String, name: String) -> Result<String, String> {
     if collections.is_empty() {
         return Err("The device is no longer connected.".into());
     }
-    let report = build(vendor, product, &name, &collections);
+    let mut report = build(vendor, product, &name, &collections);
+    let probe = tauri::async_runtime::spawn_blocking(move || probe(vendor, product, &collections))
+        .await
+        .map_err(|e| e.to_string())?;
+    if !probe.is_empty() {
+        report["probe"] = Value::Array(probe);
+    }
     serde_json::to_string_pretty(&report).map_err(|e| e.to_string())
 }
 
@@ -66,6 +157,15 @@ pub async fn send_device_info(text: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_ids_come_from_the_descriptor() {
+        let d = [
+            0x06, 0x00, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x10, 0x09, 0x01, 0x95, 0x06, 0x81,
+            0x00, 0x85, 0x08, 0x09, 0x02, 0x95, 0x07, 0xb1, 0x02, 0xc0,
+        ];
+        assert_eq!(report_ids(&d), (vec![0x08], vec![0x10]));
+    }
 
     #[test]
     fn only_usb_ids_parse() {
