@@ -128,21 +128,31 @@
     return out;
   }
 
+  function facts(h) {
+    const out = [];
+    if (h.battery != null) out.push("Battery " + h.battery + "%" + (h.charging ? ", charging" : ""));
+    if (h.chatmix) out.push("ChatMix game " + h.chatmix[0] + " / chat " + h.chatmix[1]);
+    return out.join(" · ");
+  }
+
+  function factsLine(h) {
+    const span = el("span", { className: "meta hs-facts", textContent: facts(h) });
+    span.dataset.key = h.key;
+    return span;
+  }
+
   function card(h) {
     const off = !h.connected;
     const tag = el("span", { className: "state" });
     if (!h.answered) setState(tag, "warn", "Not answering");
     else if (off) setState(tag, "off", "Headset off");
     else setState(tag, "on", "Connected");
-    const facts = [];
-    if (h.battery != null) facts.push("Battery " + h.battery + "%" + (h.charging ? ", charging" : ""));
-    if (h.chatmix) facts.push("ChatMix game " + h.chatmix[0] + " / chat " + h.chatmix[1]);
     const grid = el("div", { className: "hs-grid" }, ...h.controls.map((c) => control(h, c, off)));
     const out = el(
       "li",
       { className: "hs-card" },
       el("div", { className: "split" }, el("span", { className: "name", textContent: h.name, title: h.name }), tag),
-      el("span", { className: "meta hs-facts", textContent: facts.join(" · ") }),
+      factsLine(h),
       grid,
     );
     if (h.eq) out.append(eq(h, off));
@@ -172,6 +182,16 @@
     timer = setTimeout(tick, EVERY);
     if (!panel.hidden && !document.hidden && !list.contains(document.activeElement)) refresh();
   }
+
+  window.__TAURI__.event.listen("chatmix", (e) => {
+    const d = e.payload;
+    for (const h of views) {
+      if (!h.chatmix || !d) continue;
+      h.chatmix = [d.game, d.chat];
+      const span = list.querySelector('.hs-facts[data-key="' + h.key + '"]');
+      if (span) span.textContent = facts(h);
+    }
+  });
 
   $("tab-devices").addEventListener("click", () => refresh());
   refresh();

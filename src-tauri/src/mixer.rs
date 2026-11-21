@@ -509,6 +509,11 @@ impl Mixer {
         self.controls.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Hands the chat mix to a headset's dial, as game and chat in 0..=100, or back to the slider.
+    pub fn set_dial(&self, dial: Option<(u8, u8)>) {
+        self.controls().dial = dial.map(|(g, c)| (f32::from(g) / 100.0, f32::from(c) / 100.0));
+    }
+
     fn apply(&self, change: Change) -> Result<(), String> {
         let mut replan = false;
         let restart = {

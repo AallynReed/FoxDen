@@ -84,6 +84,14 @@ pub fn read(f: &Found) -> Option<Reading> {
     Some(Reading { status, values })
 }
 
+/// Just the status: battery, power and the ChatMix dial. Cheap enough to ask often.
+pub fn status(f: &Found) -> Option<Status> {
+    wait_ready(&f.key);
+    let dev = Dev::open(&f.coll)?;
+    let _turn = foxden_core::hid_turn::take();
+    exchange(&dev, &f.model, &f.model.status_request()).and_then(|r| proto::status(&f.model, &r))
+}
+
 fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll).ok_or("the headset's receiver could not be opened")?;

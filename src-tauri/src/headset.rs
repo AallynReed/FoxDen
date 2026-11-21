@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use foxden_headset::{Control, EQ_MAX, EQ_MIN, Found, Shape};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::{Shared, lock};
 
@@ -216,4 +216,57 @@ mod tests {
         assert!(text.contains("\"sidetone\":2"));
         assert_eq!(serde_json::from_str::<Saved>(&text).unwrap(), s);
     }
+}
+
+/// A headset's ChatMix dial: game and chat, 0..=100.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct Dial {
+    game: u8,
+    chat: u8,
+}
+
+static DIAL: Mutex<Option<Dial>> = Mutex::new(None);
+
+/// How often the dial is read, and how often headsets are looked for.
+const DIAL_EVERY: Duration = Duration::from_millis(250);
+const FIND_EVERY: Duration = Duration::from_secs(5);
+
+/// Follows the ChatMix dial of a connected headset. While one is on, it drives the mixer's chat mix.
+pub fn spawn_dial(app: AppHandle) {
+    thread::spawn(move || {
+        let mut found: Vec<Found> = Vec::new();
+        let mut looked: Option<Instant> = None;
+        loop {
+            if looked.is_none_or(|t| t.elapsed() >= FIND_EVERY) {
+                found = foxden_headset::find();
+                looked = Some(Instant::now());
+            }
+            let now = found
+                .iter()
+                .filter_map(foxden_headset::status)
+                .filter(|s| s.connected)
+                .find_map(|s| s.chatmix)
+                .map(|(game, chat)| Dial { game, chat });
+            let changed = {
+                let mut last = DIAL.lock().unwrap_or_else(|e| e.into_inner());
+                std::mem::replace(&mut *last, now) != now
+            };
+            if changed {
+                if let Some(mixer) = app.try_state::<crate::mixer::Mixer>() {
+                    mixer.set_dial(now.map(|d| (d.game, d.chat)));
+                }
+                let _ = app.emit("chatmix", now);
+            }
+            thread::sleep(if found.is_empty() {
+                FIND_EVERY
+            } else {
+                DIAL_EVERY
+            });
+        }
+    });
+}
+
+#[tauri::command]
+pub fn headset_dial() -> Option<Dial> {
+    *DIAL.lock().unwrap_or_else(|e| e.into_inner())
 }

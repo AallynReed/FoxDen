@@ -23,6 +23,8 @@ pub struct MixState {
     pub master_muted: bool,
     /// -1 all game … 1 all chat.
     pub chat_mix: f32,
+    /// Game and chat gains from a headset's ChatMix dial; it replaces `chat_mix` while set.
+    pub dial: Option<(f32, f32)>,
     pub eq: [Vec<Band>; 5],
     pub eq_enabled: [bool; 5],
     eq_version: u64,
@@ -38,6 +40,7 @@ impl Default for MixState {
             master: 1.0,
             master_muted: false,
             chat_mix: 0.0,
+            dial: None,
             eq: std::array::from_fn(|_| default_bands()),
             eq_enabled: [false; 5],
             eq_version: 0,
@@ -79,7 +82,7 @@ impl MixState {
         if self.muted[i] {
             return 0.0;
         }
-        let (game, chat) = chatmix::gains(self.chat_mix);
+        let (game, chat) = self.dial.unwrap_or_else(|| chatmix::gains(self.chat_mix));
         let mix = match c {
             Channel::Game => game,
             Channel::ChatRender => chat,

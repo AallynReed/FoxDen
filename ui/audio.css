@@ -4,61 +4,13 @@
   container-type: inline-size;
 }
 
-/* The mixer and its EQ side by side, stacked on narrow windows. */
 .aud-page {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-}
-
-@container (min-width: 1100px) {
-  .aud-page {
-    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-  }
-}
-
-.aud-page .box > h2:first-child {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 12px;
 }
 
-.aud-page h2 .state {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.aud-eq {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.aud-note {
-  margin: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--stroke);
-  font-size: 12px;
-  line-height: 16px;
-  user-select: text;
-}
-
-.aud-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-}
-
-.aud-bar .aud-device {
-  flex: 1 1 200px;
-}
-
-.aud-label,
-.aud-col {
+.aud-label {
   color: var(--muted);
   font-size: 12px;
   line-height: 16px;
@@ -88,39 +40,248 @@
   max-width: none;
 }
 
-/* Rows of name, device, slider, readout, mute and level that share their columns. */
-.aud-grid {
-  display: grid;
-  align-items: center;
-  gap: 6px 10px;
+.aud-icon {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: square;
 }
 
-.aud-mix {
-  grid-template-columns: auto minmax(0, 1.3fr) minmax(80px, 1fr) auto auto minmax(48px, 0.6fr);
-}
-
-.aud-mix .check {
-  min-height: 32px;
-}
-
-.aud-mute {
+.aud-small,
+.aud-mute,
+.aud-eqbtn {
   height: 28px;
-  padding: 0 8px;
+  padding: 0 10px;
   font-size: 12px;
 }
 
-.aud-mute[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-  clip-path: var(--cut);
+/* Output, rescan, and the mixer's state with its one toggle. */
+.aud-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+#panel-audio .aud-top select.aud-device {
+  flex: 1 1 240px;
+  width: auto;
+  max-width: 440px;
+}
+
+.aud-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+}
+
+.aud-run-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.aud-run {
+  min-width: 88px;
+}
+
+/* Strips: six across, three, two or one as the window narrows. Game and Chat share the chat mix. */
+.aud-strips {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.aud-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+@container (min-width: 560px) {
+  .aud-strips {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .aud-pair {
+    grid-column: span 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 760px) {
+  .aud-strips {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 1180px) {
+  .aud-strips {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+.aud-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.aud-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.aud-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.aud-strip.off h3 {
+  color: var(--muted);
+}
+
+.aud-offtag,
+.aud-tag {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--stroke);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.aud-head .aud-small {
+  margin-left: auto;
+}
+
+.aud-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.aud-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aud-chip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 2px 6px;
+  min-height: 28px;
+  padding: 1px 1px 1px 8px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.aud-chip .mark {
+  margin-right: 0;
+}
+
+.aud-chip.warn {
+  border-left: 3px solid var(--danger);
+  padding-left: 6px;
+}
+
+.aud-chip.warn .aud-tag {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.aud-devchip {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.aud-chipname {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aud-chipnote {
+  grid-column: 2 / -1;
+  padding: 0 4px 4px 0;
+  color: var(--muted);
+}
+
+.aud-x {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.aud-x:hover {
+  border-color: var(--line);
+  color: var(--text);
+}
+
+#panel-audio select.aud-add {
+  width: 100%;
+  max-width: none;
+  height: 28px;
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#panel-audio select.aud-add:hover,
+#panel-audio select.aud-add:focus-visible {
+  color: var(--text);
+}
+
+/* Meter, volume and buttons sit at the foot of every strip, level across a row. */
+.aud-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.aud-vol {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .aud-meter {
   display: block;
-  height: 8px;
+  height: 6px;
   border: 1px solid var(--line);
   background: var(--field);
+}
+
+.aud-blank {
+  visibility: hidden;
 }
 
 .aud-meter span {
@@ -131,13 +292,43 @@
   transform-origin: left;
 }
 
+.aud-ctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aud-ctl .aud-eqbtn {
+  margin-left: auto;
+}
+
+.aud-mute[aria-pressed="true"],
+.aud-eqbtn[aria-expanded="true"],
+.aud-seg button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  clip-path: var(--cut);
+}
+
+.aud-mute[aria-pressed="true"]:focus-visible,
+.aud-eqbtn[aria-expanded="true"]:focus-visible,
+.aud-seg button[aria-pressed="true"]:focus-visible {
+  outline-color: var(--on-accent);
+  outline-offset: -4px;
+}
+
+/* The chat mix bar under Game and Chat. */
 .aud-chat {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: auto auto minmax(80px, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
-  padding-top: 6px;
-  border-top: 1px solid var(--line);
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
 }
 
 .aud-end {
@@ -145,17 +336,84 @@
   font-size: 12px;
 }
 
+.aud-dial {
+  grid-column: 1 / -1;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.aud-dial::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  background: var(--accent);
+}
+
+#panel-audio .aud-chat input[type="range"]:disabled {
+  opacity: 1;
+}
+
+.aud-chat input[type="range"]:disabled::-webkit-slider-thumb {
+  background: var(--accent);
+}
+
+.aud-chat.dial {
+  border-left-color: var(--stroke);
+}
+
+/* EQ for one channel, under the strips. */
+.aud-eqhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 -12px 4px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+}
+
+.aud-eqhead h2 {
+  margin: 0;
+}
+
+.aud-eqhead .check {
+  margin-left: auto;
+}
+
+.aud-eqbody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px 20px;
+}
+
+@container (min-width: 900px) {
+  .aud-eqbody {
+    grid-template-columns: minmax(260px, 2fr) minmax(0, 5fr);
+  }
+}
+
+.aud-eqside {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .aud-seg {
-  display: inline-flex;
-  flex: none;
+  display: flex;
   flex-wrap: wrap;
 }
 
 .aud-seg button {
+  flex: 1 1 auto;
   height: 28px;
   margin-left: -1px;
   padding: 0 10px;
   color: var(--muted);
+  font-size: 12px;
 }
 
 .aud-seg button:first-child {
@@ -166,20 +424,8 @@
   color: var(--text);
 }
 
-.aud-seg button[aria-pressed="true"] {
-  position: relative;
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-  clip-path: var(--cut);
-}
-
-.aud-eqbox .aud-eq h2 {
-  margin: 0;
-}
-
-.aud-eq .aud-bar .check {
-  margin-left: auto;
+.aud-advtoggle {
+  font-size: 12px;
 }
 
 .aud-plot {
@@ -211,18 +457,13 @@
   stroke: var(--stroke);
 }
 
-/* Ten band columns, five to a row when narrow. */
-.aud-eqbox {
-  container-type: inline-size;
-}
-
 .aud-bands {
   display: grid;
   grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 8px;
+  gap: 8px 6px;
 }
 
-@container (max-width: 480px) {
+@container (max-width: 560px) {
   .aud-bands {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -244,6 +485,10 @@
   color: var(--muted);
 }
 
+.aud-eqbox:not(.adv) .aud-adv {
+  display: none;
+}
+
 #panel-audio .aud-band select,
 #panel-audio .aud-band input[type="number"] {
   width: 100%;
@@ -256,7 +501,7 @@
 input[type="range"].aud-vert {
   align-self: center;
   width: 24px;
-  height: 96px;
+  height: 120px;
   writing-mode: vertical-lr;
   direction: rtl;
 }
@@ -273,150 +518,74 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
   margin-left: -7px;
 }
 
-#panel-audio input[type="range"]:disabled {
+#panel-audio input[type="range"].aud-vert:disabled {
   opacity: 0.4;
 }
 
-/* Play on and Park apps on, each label beside its list. */
-.aud-outs {
+/* Rarely needed settings, closed by default. */
+.aud-more {
+  border: 1px solid var(--line);
+}
+
+.aud-more summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  background: var(--raised);
+  font-weight: 600;
+  cursor: default;
+  list-style: none;
+}
+
+.aud-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.aud-more summary::before {
+  content: "+";
+  width: 1ch;
+  font-family: var(--mono);
+}
+
+.aud-more[open] summary::before {
+  content: "−";
+}
+
+.aud-more summary:hover {
+  background: var(--hover);
+}
+
+.aud-more summary:focus-visible {
+  outline-offset: -2px;
+}
+
+.aud-moregrid {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
-}
-
-.aud-btns {
-  display: flex;
-  gap: 8px;
-}
-
-@container (max-width: 760px) {
-  .aud-outs {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .aud-btns {
-    grid-column: 1 / -1;
-  }
-}
-
-.aud-apps {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 6px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px 24px;
+  padding: 12px;
   border-top: 1px solid var(--line);
 }
 
-.aud-apps h3 {
-  margin: 0;
-}
-
-/* One column per channel, two per row when narrow. */
-.aud-appgrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-@container (max-width: 640px) {
-  .aud-appgrid {
+@container (min-width: 760px) {
+  .aud-moregrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-.aud-appcol {
+.aud-moreitem {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
-.aud-applist {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--line);
-  background: var(--field);
-}
-
-.aud-app {
+.aud-srcgrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 2px 6px;
-  min-height: 28px;
-  padding: 2px 2px 2px 8px;
-  border-top: 1px solid var(--line);
-}
-
-.aud-app:first-child {
-  border-top: 0;
-}
-
-.aud-app.warn {
-  border-left: 3px solid var(--danger);
-  padding-left: 5px;
-}
-
-.aud-apphead {
-  display: flex;
-  align-items: center;
-  gap: 0 6px;
-  min-width: 0;
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.aud-apphead .mark {
-  margin-right: 0;
-}
-
-.aud-appname {
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.aud-appword {
-  flex: none;
-  color: var(--muted);
-}
-
-.aud-appnote {
-  grid-column: 1 / -1;
-  padding-bottom: 4px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.aud-none {
-  padding: 6px 8px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.aud-x {
-  height: 24px;
-  padding: 0 6px;
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.aud-x:hover {
-  border-color: var(--line);
-  color: var(--text);
-}
-
-#panel-audio select.aud-add {
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  height: 28px;
+  gap: 6px 10px;
   font-size: 12px;
 }

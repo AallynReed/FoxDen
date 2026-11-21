@@ -151,4 +151,27 @@
     },
   });
 
+  // ?tab=audio opens that tab; ?dial=1 pretends a headset's ChatMix dial is turning.
+  const query = new URLSearchParams(location.search);
+  let dial = null;
+  mock.commands.headset_dial = () => dial;
+  if (query.get("dial") === "1") {
+    dial = { game: 100, chat: 100 };
+    setInterval(() => {
+      const t = performance.now() / 4000;
+      const v = Math.round(Math.sin(t) * 100);
+      dial = { game: v > 0 ? 100 - v : 100, chat: v < 0 ? 100 + v : 100 };
+      mock.emit("chatmix", dial);
+    }, 250);
+  }
+  const tab = query.get("tab");
+  if (tab) addEventListener("load", () => document.getElementById("tab-" + tab)?.click());
+  // ?eq=Game opens that channel's EQ, ?preset=Treble picks one and ?more=1 opens Advanced, for screenshots.
+  addEventListener("load", () =>
+    setTimeout(() => {
+      if (query.get("eq")) document.querySelector('[aria-label="Edit ' + query.get("eq") + ' EQ"]')?.click();
+      if (query.get("preset")) [...document.querySelectorAll(".aud-seg button")].find((b) => b.textContent === query.get("preset"))?.click();
+      if (query.get("more")) document.querySelector(".aud-more")?.setAttribute("open", "");
+    }, 300),
+  );
 })();

@@ -76,6 +76,7 @@ fn main() {
             }
             app.manage(state::spawn_worker(handle.clone(), shared.clone()));
             app.manage(mixer::Mixer::start(shared.clone()));
+            headset::spawn_dial(handle.clone());
             state::spawn_render(handle.clone(), shared.clone());
             apps::spawn(handle.clone(), shared.clone());
             battery::spawn(handle.clone(), shared.clone());
@@ -134,6 +135,7 @@ fn main() {
             headset::headset_list,
             headset::headset_set,
             headset::headset_eq,
+            headset::headset_dial,
             mixer::get_mixer,
             mixer::mixer_set,
             mixer::get_mixer_levels,
