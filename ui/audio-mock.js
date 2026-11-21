@@ -39,6 +39,9 @@
     master_muted: false,
     chat_mix: 0,
     running: true,
+    virtual_mic: false,
+    gate_on: false,
+    gate_db: -50,
   };
   mix.channels[0] = { ...mix.channels[0], apps: ["cs2.exe", "RocketLeague.exe"], on: true };
   mix.channels[1] = { ...mix.channels[1], apps: ["Discord.exe"], on: true };
@@ -46,6 +49,9 @@
   mix.channels[4] = { ...mix.channels[4], source: INPUTS[0], on: true };
   let running = true;
   let error = null;
+  // ?vmic=1 starts with VB-CABLE installed by FoxDen.
+  const vmic = { installed: false, ours: false, ready: false, name: null, playing: false, error: null };
+  if (new URLSearchParams(location.search).get("vmic") === "1") Object.assign(vmic, { installed: true, ours: true, ready: true, name: "FoxDen VB-Cable (Microphone)" });
 
   // Rough shape of each band, enough to draw.
   function response(c, f) {
@@ -90,6 +96,7 @@
       parked_on: running ? sink() : null,
       park_error: null,
       filters: FILTERS.map(([id, label, gain]) => ({ id, label, gain })),
+      vmic: { ...vmic, playing: vmic.ready && mix.virtual_mic && !!ch("chatCapture").source },
       curves: mix.channels.map((c) => Array.from({ length: 96 }, (_, i) => response(c, 20 * Math.pow(1000, i / 95)))),
     };
   }
@@ -135,6 +142,8 @@
       else if (c.kind === "master") mix.master = clamp(c.volume, 0, 1);
       else if (c.kind === "master_mute") mix.master_muted = c.muted;
       else if (c.kind === "chat_mix") mix.chat_mix = clamp(c.balance, -1, 1);
+      else if (c.kind === "virtual_mic") mix.virtual_mic = c.on && vmic.installed;
+      else if (c.kind === "gate") Object.assign(mix, { gate_on: c.on, gate_db: clamp(c.threshold_db, -90, 0) });
       else if (c.kind === "eq") Object.assign(ch(c.channel), { eq_on: c.enabled, eq: c.bands.slice(0, 10) });
       else if (c.kind === "run") {
         if (c.on) play();
@@ -143,6 +152,17 @@
           error = null;
         }
       }
+      return mixView();
+    },
+    async virtual_mic_install() {
+      await new Promise((r) => setTimeout(r, 900));
+      Object.assign(vmic, { installed: true, ours: true, ready: true, name: "FoxDen VB-Cable (Microphone)" });
+      mix.virtual_mic = true;
+      return mixView();
+    },
+    virtual_mic_remove() {
+      mix.virtual_mic = false;
+      Object.assign(vmic, { installed: false, ours: false, ready: false, name: null });
       return mixView();
     },
     get_mixer_levels() {

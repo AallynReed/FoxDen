@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use foxden_battery::Battery;
 use tauri::AppHandle;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tauri_plugin_notification::NotificationExt;
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::state::{Shared, lock};
@@ -53,6 +54,7 @@ pub fn spawn(app: AppHandle, shared: Shared) {
     });
     thread::spawn(move || {
         let mut known: HashMap<String, (Battery, Instant)> = HashMap::new();
+        let mut steps: HashMap<String, Step> = HashMap::new();
         let mut shown: HashMap<String, Shown> = HashMap::new();
         let mut last: Option<Instant> = None;
         let mut plugged = foxden_battery::hid::fingerprint();
@@ -69,6 +71,12 @@ pub fn spawn(app: AppHandle, shared: Shared) {
                 let now = Instant::now();
                 let polled = foxden_battery::poll();
                 merge(&mut known, polled, now);
+                let warn = lock(&shared).config.settings.battery_alerts;
+                for (title, body) in alerts(&mut steps, &known) {
+                    if warn {
+                        let _ = app.notification().builder().title(title).body(body).show();
+                    }
+                }
                 let wanted = known
                     .iter()
                     .map(|(k, (b, _))| (k.clone(), show(b)))
@@ -79,6 +87,55 @@ pub fn spawn(app: AppHandle, shared: Shared) {
             thread::sleep(TICK);
         }
     });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+enum Step {
+    Ok,
+    Low,
+    Critical,
+}
+
+/// Where a battery sits; `None` in the gap above the low mark, so it does not flap around it.
+fn step(b: &Battery) -> Option<Step> {
+    if b.charging || b.full {
+        return Some(Step::Ok);
+    }
+    match (b.percent, b.level.as_str()) {
+        (Some(p), _) if p <= 10 => Some(Step::Critical),
+        (Some(p), _) if p <= 20 => Some(Step::Low),
+        (Some(p), _) if p < 30 => None,
+        (Some(_), _) => Some(Step::Ok),
+        (None, "Critical") => Some(Step::Critical),
+        (None, "Low") => Some(Step::Low),
+        (None, "Good" | "Full") => Some(Step::Ok),
+        _ => None,
+    }
+}
+
+/// One notification each time a device drops to low, and again at critical. Charging or
+/// climbing back above 30% arms it again.
+fn alerts(
+    steps: &mut HashMap<String, Step>,
+    known: &HashMap<String, (Battery, Instant)>,
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (key, (b, _)) in known {
+        let Some(now) = step(b) else { continue };
+        let before = steps.insert(key.clone(), now).unwrap_or(Step::Ok);
+        if now <= before || b.asleep {
+            continue;
+        }
+        let level = b
+            .percent
+            .map_or_else(|| b.level.to_lowercase(), |p| format!("{p}%"));
+        let body = match now {
+            Step::Critical => format!("Almost empty ({level}). Charge it now."),
+            _ => format!("Battery low ({level})."),
+        };
+        out.push((b.name.clone(), body));
+    }
+    out
 }
 
 /// Takes in one poll. A sleeping device keeps its last level; one that stops answering stays for its grace time.
@@ -101,12 +158,17 @@ fn merge(known: &mut HashMap<String, (Battery, Instant)>, polled: Vec<Battery>, 
 }
 
 fn show(b: &Battery) -> Shown {
-    let text = match b.percent {
-        Some(p) => p.to_string(),
-        None if !b.level.is_empty() => b.level.chars().take(3).collect(),
-        None => "?".into(),
+    // Devices with only a few steps show a word, with a bar near that step.
+    let (text, bar) = match (b.percent, b.level.as_str()) {
+        (Some(p), _) => (p.to_string(), Some(p)),
+        (None, "Full") => ("OK".into(), Some(100)),
+        (None, "Good") => ("OK".into(), Some(60)),
+        (None, "Low") => ("LOW".into(), Some(20)),
+        (None, "Critical") => ("LOW".into(), Some(5)),
+        (None, l) if !l.is_empty() => (l.chars().take(3).collect(), None),
+        _ => ("?".into(), None),
     };
-    let tint = match b.percent {
+    let tint = match bar {
         _ if b.charging && !b.full => Tint::Charging,
         Some(p) if p <= 10 => Tint::Critical,
         Some(p) if p <= 25 => Tint::Low,
@@ -139,7 +201,7 @@ fn show(b: &Battery) -> Shown {
     Shown {
         tip: tip.chars().take(127).collect(),
         text,
-        bar: b.percent,
+        bar,
         tint,
     }
 }
@@ -412,6 +474,21 @@ mod tests {
             percent,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn low_battery_warns_once_per_step() {
+        let mut steps = HashMap::new();
+        let t = Instant::now();
+        let at = |p| HashMap::from([("m".to_string(), (device("m", Some(p)), t))]);
+        assert!(alerts(&mut steps, &at(50)).is_empty());
+        assert_eq!(alerts(&mut steps, &at(18))[0].1, "Battery low (18%).");
+        assert!(alerts(&mut steps, &at(17)).is_empty());
+        assert!(alerts(&mut steps, &at(22)).is_empty());
+        assert!(alerts(&mut steps, &at(19)).is_empty());
+        assert!(alerts(&mut steps, &at(9))[0].1.starts_with("Almost empty"));
+        assert!(alerts(&mut steps, &at(40)).is_empty());
+        assert_eq!(alerts(&mut steps, &at(15)).len(), 1);
     }
 
     #[test]

@@ -43,6 +43,8 @@ pub struct Settings {
     pub send_reports: bool,
     /// A tray icon with the battery level of each wireless device.
     pub battery_tray: bool,
+    /// A notification when a wireless device's battery runs low.
+    pub battery_alerts: bool,
 }
 
 impl Default for Settings {
@@ -68,6 +70,7 @@ impl Default for Settings {
             keep_running: Vec::new(),
             send_reports: false,
             battery_tray: true,
+            battery_alerts: true,
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use foxden_smbus::i2c::Detect;
 
+mod asrock;
 #[rustfmt::skip]
 mod cards;
 mod colorful;
@@ -74,6 +75,7 @@ pub fn all() -> Vec<Detect> {
         lenovo_legion::detect,
         msi_trio::detect,
         pny_revel::detect,
+        asrock::detect,
     ]
 }
 
@@ -81,7 +83,7 @@ pub fn all() -> Vec<Detect> {
 #[cfg(test)]
 pub fn cards() -> Vec<(&'static str, [u16; 4])> {
     use cards::*;
-    let families: [(&str, &[&[common::Card]]); 23] = [
+    let families: [(&str, &[&[common::Card]]); 24] = [
         ("palit", &[PALIT_V1, PALIT_V2]),
         ("evga_ampere", &[EVGA_AMPERE]),
         ("evga_turing", &[EVGA_TURING]),
@@ -115,6 +117,7 @@ pub fn cards() -> Vec<(&'static str, [u16; 4])> {
         ("lenovo_legion", &[lenovo_legion::LENOVO_LEGION]),
         ("msi_trio", &[msi_trio::MSI_BLACKWELL_TRIO]),
         ("pny_revel", &[pny_revel::PNY_REVEL]),
+        ("asrock", &[asrock::ASROCK]),
     ];
     let listed: usize = families.iter().flat_map(|f| f.1).map(|t| t.len()).sum();
     assert_eq!(listed, ALL.iter().map(|t| t.len()).sum::<usize>());
@@ -174,6 +177,7 @@ mod tests {
             super::lenovo_legion::LENOVO_LEGION.len(),
             super::msi_trio::MSI_BLACKWELL_TRIO.len(),
             super::pny_revel::PNY_REVEL.len(),
+            super::asrock::ASROCK.len(),
         ];
         // OpenRGB's counts, then what SignalRGB adds; MSI_V2 hands seven GAMING TRIO cards to msi_trio.
         assert_eq!(
@@ -202,7 +206,8 @@ mod tests {
                 8,
                 2,
                 10,
-                1
+                1,
+                2
             ]
         );
         // known() reads cards::ALL, so it must hold every table above

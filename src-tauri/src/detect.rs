@@ -186,6 +186,54 @@ pub fn brand(vendor: u16, product_name: &str) -> Option<&'static str> {
         .map(|(_, name)| *name)
 }
 
+/// Words plain office gear names itself with.
+const PLAIN_WORDS: &[&str] = &[
+    "usb",
+    "optical",
+    "wireless",
+    "receiver",
+    "mouse",
+    "keyboard",
+    "unifying",
+    "nano",
+    "combo",
+    "hid",
+    "input",
+    "composite",
+    "dongle",
+    "2.4g",
+    "and",
+];
+
+/// Words of Logitech's gaming range, besides "G" model numbers.
+const LOGITECH_GAMING: &[&str] = &["gaming", "pro", "lightspeed", "powerplay", "litra", "astro"];
+
+/// A lit brand's device no driver knows, whose name says it is plain office gear.
+fn unlit_usb(vendor: u16, brand: &str, label: &str) -> bool {
+    let name = label.to_lowercase();
+    let words: Vec<&str> = name
+        .split(|c: char| !c.is_alphanumeric() && c != '.')
+        .filter(|w| !w.is_empty())
+        .collect();
+    // nothing to judge by, so it keeps its chance
+    if words.is_empty() || name == "device" {
+        return false;
+    }
+    let brand = brand.to_lowercase();
+    if words
+        .iter()
+        .all(|w| PLAIN_WORDS.contains(w) || brand.split(' ').any(|b| b == *w))
+    {
+        return true;
+    }
+    let gaming = |w: &&str| {
+        LOGITECH_GAMING.contains(w)
+            || w.strip_prefix('g')
+                .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+    };
+    vendor == 0x046D && !words.iter().any(gaming)
+}
+
 fn titled(brand: &str, name: &str) -> String {
     if name.to_lowercase().contains(&brand.to_lowercase()) {
         name.to_string()
@@ -278,6 +326,10 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
             continue;
         }
         let known = NATIVE.iter().find(|n| (n.0, n.1) == (vendor, product));
+        if known.is_none() && family.is_none() && brand.is_some_and(|b| unlit_usb(vendor, b, label))
+        {
+            continue;
+        }
         let name = match (known, family, brand) {
             (Some(n), _, _) => n.2.to_string(),
             (None, Some(f), _) => f.to_string(),
@@ -353,9 +405,54 @@ fn board(b: &BaseBoard) -> Option<Found> {
     })
 }
 
+/// Part-number families without lighting. Unknown parts keep their chance.
+fn unlit_memory(brand: &str, part: &str) -> bool {
+    let part = part.trim().to_uppercase();
+    // Crucial's SPD adds a ".M8FE1"-style suffix
+    let part = part.split('.').next().unwrap_or_default();
+    let starts = |list: &[&str]| list.iter().any(|p| part.starts_with(p));
+    let tail = part.rsplit('-').next().unwrap_or_default();
+    match brand {
+        // Vengeance LPX and DDR5, SODIMM, ValueSelect, DDR3 Vengeance, Vengeance LP and XMS
+        "Corsair" => starts(&["CMK", "CMSX", "CMSO", "CMV", "CMZ", "CMY", "CML", "CMX"]),
+        "G.Skill" => {
+            // "16GTZR" or "TZ5RK": the series code after the size
+            let series = tail.trim_start_matches(|c: char| c.is_ascii_digit());
+            let series = if series.len() < tail.len() {
+                series.strip_prefix('G').unwrap_or(series)
+            } else {
+                series
+            };
+            // Ripjaws, Flare X, Sniper X, Aegis, plain Trident Z and Z5
+            series == "TZ"
+                || [
+                    "V", "RK", "RB", "RS", "FX", "SX", "IS", "TZK", "TZS", "TZ5K", "TZ5S",
+                ]
+                .iter()
+                .any(|p| series.starts_with(p))
+        }
+        // Ballistix without "L" at the end, Ballistix Sport, Crucial and Crucial Pro
+        "Crucial" => {
+            starts(&["CT", "CP", "BLS"])
+                || (part.starts_with("BL") && part.ends_with(['B', 'W', 'R']))
+        }
+        // ValueRAM, client and server lines and OEM SPD numbers
+        "Kingston" => starts(&["KVR", "KCP", "KSM", "9905", "ACR"]),
+        // value modules and Gammix D10 and D30
+        "ADATA XPG" => starts(&["AD3", "AD4", "AD5"]) || ["SB10", "SR10", "SR30"].contains(&tail),
+        // Elite, Elite Plus and Vulcan
+        "TeamGroup" => starts(&["TED", "TPD", "TLZ", "FLB", "FLR"]),
+        "Patriot" => starts(&["PSD"]),
+        _ => false,
+    }
+}
+
 fn module(m: &PhysicalMemory) -> Option<Found> {
     let brand = lookup(MEMORY, m.manufacturer.as_deref()?)?;
     let part = m.part_number.as_deref().unwrap_or_default().trim();
+    if unlit_memory(brand, part) {
+        return None;
+    }
     let label = if part.is_empty() { "memory" } else { part };
     let slot = m
         .device_locator
@@ -1157,6 +1254,95 @@ mod tests {
             path: Some(r"ROOT\DISPLAY\0000".into()),
         };
         assert_eq!(card(&remote), None);
+    }
+
+    #[test]
+    fn hardware_without_lighting_is_left_out() {
+        let office = vec![
+            hid(0x046D, 0xC077, 0x0001, 0x0002, "USB Optical Mouse", true),
+            hid(0x046D, 0xC52B, 0x0001, 0x0006, "USB Receiver", true),
+            hid(0x046D, 0xC52B, 0xFF00, 0x0002, "USB Receiver", true),
+            hid(0x046D, 0xC539, 0x0001, 0x0006, "USB Receiver", true),
+            hid(0x046D, 0xC53F, 0xFF00, 0x0002, "USB Receiver", true),
+            hid(0x046D, 0xC0FF, 0x0001, 0x0002, "G305 Gaming Mouse", true),
+            hid(0x046D, 0xC0FE, 0x0001, 0x0002, "PRO X Wireless", true),
+            hid(0x046D, 0xC0FD, 0x0001, 0x0002, "MX Master 3", true),
+            hid(0x046D, 0xC0FC, 0x0001, 0x0002, "", true),
+            hid(0x1532, 0x0FFE, 0x0001, 0x0002, "Razer Viper", true),
+            hid(0x1B1C, 0x0FFE, 0x0001, 0x0006, "Keyboard", true),
+        ];
+        let ids: Vec<String> = usb(&office).into_iter().map(|f| f.id).collect();
+        assert_eq!(
+            ids,
+            [
+                "usb:046d:c0fc",
+                "usb:046d:c0fe",
+                "usb:046d:c0ff",
+                "usb:046d:c539",
+                "usb:1532:0ffe"
+            ]
+        );
+
+        let stick = |maker: &str, part: &str, slot: &str| PhysicalMemory {
+            manufacturer: Some(maker.into()),
+            part_number: Some(part.into()),
+            capacity: Some(17_179_869_184),
+            device_locator: Some(slot.into()),
+            memory_type: Some(26),
+        };
+        for slot in ["DIMM_A2", "DIMM_B2"] {
+            assert_eq!(module(&stick("Corsair", "CMK32GX4M2Z3600C18", slot)), None);
+        }
+        let lit = [
+            ("Corsair", "CMW32GX4M2E3200C16"),
+            ("Corsair", "CMT32GX5M2B5600C36"),
+            ("Corsair", "CMD16GX4M2B3200C16"),
+            ("G.Skill", "F4-3600C16D-32GTZR"),
+            ("G.Skill", "F4-3600C18D-32GTZN"),
+            ("G.Skill", "F5-6000J3038F16GX2-TZ5RK"),
+            ("G.Skill", "F5-6000J3038F16GX2-TZ5RS"),
+            ("Crucial", "BL8G36C16U4BL.M8FE1"),
+            ("Kingston", "KF432C16BBA/16"),
+            ("Patriot", "PVSR416G320C6K"),
+        ];
+        let plain = [
+            ("G.Skill", "F4-3200C16D-16GVK"),
+            ("G.Skill", "F4-3200C16D-16GTZ"),
+            ("G.Skill", "F4-3200C16D-16GTZKW"),
+            ("G.Skill", "F5-6000J3636F16GX2-TZ5K"),
+            ("G.Skill", "F5-6000J3636F16GX2-TZ5S"),
+            ("Crucial", "BL8G32C16U4B.M8FE1"),
+            ("Crucial", "CT16G4DFRA32A.C16FP"),
+            ("Kingston", "KVR32N22S8/8"),
+            ("ADATA", "AX4U320016G16A-SB10"),
+            ("TeamGroup", "TLZGD416G3200HC16CDC01"),
+        ];
+        for (maker, part) in lit {
+            assert!(module(&stick(maker, part, "A1")).is_some(), "{part}");
+        }
+        for (maker, part) in plain {
+            assert_eq!(module(&stick(maker, part, "A1")), None, "{part}");
+        }
+
+        let asus = BaseBoard {
+            manufacturer: Some("ASUSTeK COMPUTER INC.".into()),
+            product: Some("PRIME X370-PRO".into()),
+        };
+        let found = vec![board(&asus).unwrap()];
+        let off = Settings::default();
+        let live = Live {
+            settings: &off,
+            driven: Vec::new(),
+            openrgb_up: false,
+            openrgb_on: false,
+        };
+        let list = resolve(&found, &live);
+        assert_eq!(list[0].name, "ASUS PRIME X370-PRO");
+        assert_eq!(
+            (list[0].route, list[0].state),
+            (Route::Openrgb, State::Available)
+        );
+        assert!(list[0].note.contains("OpenRGB drives many ASUS devices"));
     }
 
     fn part(id: &str, kind: &'static str, bus: Bus, brand: Option<&'static str>) -> Found {

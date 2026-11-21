@@ -166,16 +166,28 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain([0]).collect()
 }
 
-/// Runs the steps in one elevated `cmd.exe`, so there is one UAC prompt.
-fn elevated(steps: &[Step]) -> Result<(), String> {
-    let dir = std::env::current_exe()
+pub fn install_dir() -> Result<std::path::PathBuf, String> {
+    Ok(std::env::current_exe()
         .map_err(|e| e.to_string())?
         .parent()
         .ok_or("no install folder")?
-        .to_path_buf();
+        .to_path_buf())
+}
+
+/// Runs the steps in one elevated `cmd.exe`, so there is one UAC prompt.
+fn elevated(steps: &[Step]) -> Result<(), String> {
     let system = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    let cmd = wide(&format!(r"{system}\System32\cmd.exe"));
-    let args = wide(&cmd_args(steps, &dir));
+    let cmd = format!(r"{system}\System32\cmd.exe");
+    match run_elevated(Path::new(&cmd), &cmd_args(steps, &install_dir()?))? {
+        0 => Ok(()),
+        code => Err(format!("{} failed (exit code {code})", describe(steps))),
+    }
+}
+
+/// Runs one program with administrator rights, hidden, and waits for its exit code.
+pub fn run_elevated(file: &Path, args: &str) -> Result<u32, String> {
+    let cmd = wide(&file.to_string_lossy());
+    let args = wide(args);
     let verb = wide("runas");
     unsafe {
         let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
@@ -201,10 +213,7 @@ fn elevated(steps: &[Step]) -> Result<(), String> {
         if waited == WAIT_FAILED || read == 0 {
             return Err("Lost track of the helper".into());
         }
-        match code {
-            0 => Ok(()),
-            code => Err(format!("{} failed (exit code {code})", describe(steps))),
-        }
+        Ok(code)
     }
 }
 

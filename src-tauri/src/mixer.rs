@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use foxden_mixer::Channel;
 use foxden_mixer::dsp::{self, Band, FilterType};
 use foxden_mixer::park::{self, AppState, Parker, Plan, RunningApp};
-use foxden_mixer::router::{Controls, DeviceList, DeviceRoute, MixState, Router, list_devices};
+use foxden_mixer::router::{
+    Controls, DeviceList, DeviceRoute, MixState, Router, VirtualMic, list_devices,
+};
 use foxden_mixer::system;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -21,6 +23,8 @@ const LAUNCH_TRIES: u32 = 6;
 const LAUNCH_WAIT: Duration = Duration::from_secs(5);
 const TICK: Duration = Duration::from_secs(1);
 const JOURNAL: &str = "audio-parked.json";
+const VMIC_RETRY: Duration = Duration::from_secs(5);
+const GATE_DB: f32 = -50.0;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -72,6 +76,10 @@ pub struct AudioConfig {
     pub chat_mix: f32,
     /// Running when FoxDen last closed, so it starts again with FoxDen.
     pub running: bool,
+    /// The mic is played into VB-CABLE for apps to record.
+    pub virtual_mic: bool,
+    pub gate_on: bool,
+    pub gate_db: f32,
 }
 
 impl Default for AudioConfig {
@@ -84,6 +92,9 @@ impl Default for AudioConfig {
             master_muted: false,
             chat_mix: 0.0,
             running: false,
+            virtual_mic: false,
+            gate_on: false,
+            gate_db: GATE_DB,
         }
     }
 }
@@ -129,7 +140,14 @@ impl AudioConfig {
             .to_vec();
         self.master = finite(self.master, 1.0).clamp(0.0, 1.0);
         self.chat_mix = finite(self.chat_mix, 0.0).clamp(-1.0, 1.0);
+        self.gate_db = finite(self.gate_db, GATE_DB).clamp(-90.0, 0.0);
         self
+    }
+
+    /// The mic source the virtual mic plays, while it is on.
+    fn vmic(&self) -> Option<(String, bool)> {
+        let mic = self.channels.iter().find(|c| c.channel.is_capture())?;
+        (self.virtual_mic && !mic.source.is_empty()).then(|| (mic.source.clone(), mic.loopback))
     }
 
     fn channel(&mut self, c: Channel) -> &mut ChannelConfig {
@@ -193,7 +211,12 @@ impl AudioConfig {
             s.set_muted(c.channel, c.muted);
             s.set_eq(c.channel, c.eq_on, c.eq.clone());
         }
+        s.gate = self.gate();
         s
+    }
+
+    fn gate(&self) -> Option<f32> {
+        self.gate_on.then(|| dsp::db_to_linear(self.gate_db))
     }
 }
 
@@ -245,6 +268,13 @@ pub enum Change {
     Run {
         on: bool,
     },
+    VirtualMic {
+        on: bool,
+    },
+    Gate {
+        on: bool,
+        threshold_db: f32,
+    },
 }
 
 /// What the audio thread last saw of the apps.
@@ -255,7 +285,84 @@ struct Parked {
     error: Option<String>,
 }
 
+/// The virtual mic as the panel shows it.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct VmicView {
+    /// VB-CABLE's driver is present.
+    installed: bool,
+    /// FoxDen installed it, so FoxDen may remove it.
+    ours: bool,
+    /// Both endpoints are up; until then Windows may need a restart.
+    ready: bool,
+    /// The recording endpoint's name, as apps list it.
+    name: Option<String>,
+    playing: bool,
+    error: Option<String>,
+}
+
+/// What the audio thread keeps for the virtual mic.
+#[derive(Default)]
+struct Vmic {
+    want: Option<(String, bool)>,
+    playing: Option<((String, bool, String), VirtualMic)>,
+    failed: Option<((String, bool, String), Instant)>,
+}
+
+impl Vmic {
+    /// Starts, restarts or stops the virtual mic to match `want` and VB-CABLE's feed endpoint.
+    fn tick(&mut self, controls: &Controls, view: &Mutex<VmicView>) {
+        let status = foxden_vcable::status();
+        let feed = status.feed.as_ref().filter(|e| e.active);
+        let key = self
+            .want
+            .clone()
+            .zip(feed)
+            .map(|((s, l), f)| (s, l, f.name.clone()));
+        let mut error = None;
+        match key {
+            None => self.playing = None,
+            Some(k) if self.playing.as_ref().is_some_and(|(p, _)| *p == k) => {}
+            Some(k) => {
+                self.playing = None;
+                let wait = self
+                    .failed
+                    .as_ref()
+                    .is_some_and(|(f, at)| *f == k && at.elapsed() < VMIC_RETRY);
+                if !wait {
+                    match VirtualMic::start(&k.0, k.1, &k.2, controls.clone()) {
+                        Ok(v) => {
+                            self.failed = None;
+                            self.playing = Some((k, v));
+                        }
+                        Err(e) => {
+                            crate::log::warn("audio", format!("virtual mic did not start: {e}"));
+                            self.failed = Some((k, Instant::now()));
+                        }
+                    }
+                }
+                if self.playing.is_none() {
+                    error = Some("The virtual mic could not start; check the microphone".into());
+                }
+            }
+        }
+        *view.lock().unwrap_or_else(|e| e.into_inner()) = VmicView {
+            installed: status.driver,
+            ours: status.ours,
+            ready: status.ready(),
+            name: status.mic.map(|e| e.name),
+            playing: self.playing.is_some(),
+            error,
+        };
+    }
+}
+
+/// VB-CABLE's endpoints are never offered as sources, outputs or a place to park apps.
+fn hidden() -> Vec<foxden_vcable::Endpoint> {
+    foxden_vcable::endpoints().unwrap_or_default()
+}
+
 enum Job {
+    Vmic(Option<(String, bool)>),
     Devices(SyncSender<Result<DeviceList, String>>),
     Apps(SyncSender<Vec<RunningApp>>),
     Start(Spec, SyncSender<Result<(), String>>),
@@ -278,6 +385,7 @@ pub struct Mixer {
     inner: Arc<Mutex<Inner>>,
     controls: Controls,
     parked: Arc<Mutex<Parked>>,
+    vmic: Arc<Mutex<VmicView>>,
     jobs: Arc<Mutex<Sender<Job>>>,
     shared: Shared,
 }
@@ -299,7 +407,9 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
             p.router.set_apps(&[]);
         }
         Some(p) => {
-            let endpoints = system::endpoints().unwrap_or_default();
+            let hide = hidden();
+            let mut endpoints = system::endpoints().unwrap_or_default();
+            endpoints.retain(|e| !hide.iter().any(|h| h.id == e.id));
             let recorded: Vec<&str> = p
                 .spec
                 .routes
@@ -343,15 +453,32 @@ fn audio_thread(
     rx: Receiver<Job>,
     controls: Controls,
     parked: Arc<Mutex<Parked>>,
+    vmic_view: Arc<Mutex<VmicView>>,
     journal: std::path::PathBuf,
 ) {
     system::com_init();
     let mut parker = Parker::new(journal);
     let mut playing: Option<Playing> = None;
+    let mut vmic = Vmic::default();
+    let mut last_vmic = Instant::now();
     loop {
         match rx.recv_timeout(TICK) {
+            Ok(Job::Vmic(want)) => {
+                vmic.want = want;
+                vmic.failed = None;
+                vmic.tick(&controls, &vmic_view);
+                last_vmic = Instant::now();
+            }
             Ok(Job::Devices(reply)) => {
-                let _ = reply.send(list_devices());
+                let hide = hidden();
+                let _ = reply.send(list_devices().map(|mut l| {
+                    l.outputs
+                        .retain(|o| !hide.iter().any(|h| !h.capture && h.name == *o));
+                    l.inputs
+                        .retain(|i| !hide.iter().any(|h| h.capture && h.name == *i));
+                    l.default_output = l.default_output.filter(|d| l.outputs.contains(d));
+                    l
+                }));
             }
             Ok(Job::Apps(reply)) => {
                 let sessions = system::sessions().unwrap_or_default();
@@ -378,6 +505,7 @@ fn audio_thread(
             }
             Ok(Job::Shutdown(reply)) => {
                 playing = None;
+                vmic = Vmic::default();
                 park_apps(&mut parker, None, &parked);
                 let _ = reply.send(());
             }
@@ -388,6 +516,10 @@ fn audio_thread(
             }
             Err(RecvTimeoutError::Disconnected) => break,
         }
+        if last_vmic.elapsed() >= TICK {
+            vmic.tick(&controls, &vmic_view);
+            last_vmic = Instant::now();
+        }
     }
 }
 
@@ -397,12 +529,14 @@ impl Mixer {
         let config = lock(&shared).config.audio.clone().tidy();
         let controls: Controls = Arc::new(Mutex::new(config.state()));
         let parked: Arc<Mutex<Parked>> = Arc::default();
+        let vmic: Arc<Mutex<VmicView>> = Arc::default();
         let (tx, rx) = channel();
-        let (c, p) = (controls.clone(), parked.clone());
+        let _ = tx.send(Job::Vmic(config.vmic()));
+        let (c, p, v) = (controls.clone(), parked.clone(), vmic.clone());
         let journal = crate::config::dir().join(JOURNAL);
         thread::Builder::new()
             .name("audio-mixer".into())
-            .spawn(move || audio_thread(rx, c, p, journal))
+            .spawn(move || audio_thread(rx, c, p, v, journal))
             .expect("audio mixer thread");
         let resume = config.running;
         let mixer = Mixer {
@@ -415,6 +549,7 @@ impl Mixer {
             })),
             controls,
             parked,
+            vmic,
             jobs: Arc::new(Mutex::new(tx)),
             shared,
         };
@@ -516,6 +651,7 @@ impl Mixer {
 
     fn apply(&self, change: Change) -> Result<(), String> {
         let mut replan = false;
+        let vmic_changed = matches!(change, Change::Route { .. } | Change::VirtualMic { .. });
         let restart = {
             let mut inner = self.guard();
             let running = inner.running;
@@ -612,6 +748,16 @@ impl Mixer {
                     self.controls().set_eq(channel, enabled, bands);
                     false
                 }
+                Change::VirtualMic { on } => {
+                    cfg.virtual_mic = on;
+                    false
+                }
+                Change::Gate { on, threshold_db } => {
+                    cfg.gate_on = on;
+                    cfg.gate_db = finite(threshold_db, GATE_DB).clamp(-90.0, 0.0);
+                    self.controls().gate = cfg.gate();
+                    false
+                }
                 Change::Run { on } => {
                     cfg.running = on;
                     if !on {
@@ -625,6 +771,10 @@ impl Mixer {
             }
         };
         self.save();
+        if vmic_changed {
+            let want = self.guard().config.vmic();
+            self.send(Job::Vmic(want));
+        }
         if replan {
             match self.guard().config.spec() {
                 Ok(spec) if !spec.routes.is_empty() || !spec.apps.is_empty() => {
@@ -669,6 +819,7 @@ impl Mixer {
         let devices = inner.devices.clone().unwrap_or_default();
         View {
             curves: inner.config.channels.iter().map(curve).collect(),
+            vmic: self.vmic.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             config: inner.config.clone(),
             running: inner.running,
             error: inner.error.clone(),
@@ -729,6 +880,7 @@ pub struct View {
     park_error: Option<String>,
     filters: Vec<Filter>,
     curves: Vec<Vec<f32>>,
+    vmic: VmicView,
 }
 
 /// Lists the audio devices the first time, or again with `rescan`, and the apps with sound.
@@ -744,6 +896,47 @@ pub fn get_mixer(mixer: State<'_, Mixer>, rescan: bool) -> Result<View, String> 
 pub fn mixer_set(mixer: State<'_, Mixer>, change: Change) -> Result<View, String> {
     mixer.apply(change)?;
     Ok(mixer.view())
+}
+
+/// Installs VB-CABLE through the service, or with an administrator prompt when there is none,
+/// then turns the virtual mic on.
+#[tauri::command(async)]
+pub fn virtual_mic_install(mixer: State<'_, Mixer>) -> Result<View, String> {
+    foxden_vcable::com_init();
+    let before = foxden_vcable::defaults();
+    let text = vmic_action("install")?;
+    crate::log::info("audio", format!("virtual mic: {text}"));
+    // VB-Audio's setup makes VB-CABLE the default playback and recording device.
+    match foxden_vcable::restore(&before) {
+        Ok(0) => {}
+        Ok(n) => crate::log::info("audio", format!("put back {n} default devices")),
+        Err(e) => crate::log::warn("audio", format!("default devices not put back: {e}")),
+    }
+    mixer.apply(Change::VirtualMic { on: true })?;
+    Ok(mixer.view())
+}
+
+/// Turns the virtual mic off and removes VB-CABLE if FoxDen installed it.
+#[tauri::command(async)]
+pub fn virtual_mic_remove(mixer: State<'_, Mixer>) -> Result<View, String> {
+    mixer.apply(Change::VirtualMic { on: false })?;
+    let text = vmic_action("remove")?;
+    crate::log::info("audio", format!("virtual mic: {text}"));
+    Ok(mixer.view())
+}
+
+fn vmic_action(action: &str) -> Result<String, String> {
+    let client = foxden_client::Client::new(foxden_client::PIPE, Duration::from_secs(240));
+    match client.virtual_mic(action) {
+        Ok(text) => return Ok(text),
+        Err(e) if e.starts_with("virtual mic:") => return Err(e),
+        Err(_) => {}
+    }
+    let exe = crate::modules::install_dir()?.join("foxden-service.exe");
+    match crate::modules::run_elevated(&exe, &format!("vcable {action}"))? {
+        0 => Ok(format!("{action} done")),
+        code => Err(format!("VB-CABLE {action} failed (exit code {code})")),
+    }
 }
 
 /// Peak level of each channel since the last call, in [`Channel::ALL`] order.

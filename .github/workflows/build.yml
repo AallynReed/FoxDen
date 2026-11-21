@@ -56,6 +56,9 @@ jobs:
           Invoke-WebRequest https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe -OutFile packaging/PawnIO_setup.exe
           if ((Get-FileHash packaging/PawnIO_setup.exe).Hash -ne '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032') { throw 'PawnIO_setup.exe hash mismatch' }
 
+      - name: Download VB-CABLE
+        run: ./packaging/fetch-vbcable.ps1
+
       - name: Compile installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

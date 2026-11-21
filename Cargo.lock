@@ -1231,9 +1231,11 @@ dependencies = [
  "foxden-screen",
  "foxden-smbus",
  "foxden-superio",
+ "foxden-vcable",
  "foxden-wmi",
  "foxden-xpack",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",
@@ -1389,6 +1391,7 @@ dependencies = [
  "foxden-hwmon",
  "foxden-smbus",
  "foxden-superio",
+ "foxden-vcable",
  "foxden-wmi",
  "foxden-xpack",
  "serde",
@@ -1412,6 +1415,14 @@ dependencies = [
  "foxden-core",
  "foxden-fan",
  "foxden-pawnio",
+]
+
+[[package]]
+name = "foxden-vcable"
+version = "0.11.0"
+dependencies = [
+ "windows 0.62.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]

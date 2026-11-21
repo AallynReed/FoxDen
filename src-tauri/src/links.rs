@@ -19,6 +19,7 @@ pub fn open_link(which: String) -> Result<(), String> {
         "discord" => open(DISCORD),
         "kofi" => open(KOFI),
         "paypal" => open(PAYPAL),
+        "vbaudio" => open(foxden_vcable::DONATE),
         _ => Err("unknown link".into()),
     }
 }

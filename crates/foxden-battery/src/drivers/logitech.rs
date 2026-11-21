@@ -91,6 +91,25 @@ fn status(p: &[u8]) -> Option<Reading> {
     })
 }
 
+/// 0x1000 get_capability: whether the level is a real percentage ("mileage", flag bit 1).
+/// Without it a device reports only a few fixed steps, such as 5 and 30, whatever its charge.
+fn mileage(cap: &[u8]) -> bool {
+    cap.get(1).is_some_and(|f| f & 0x02 != 0)
+}
+
+/// A stepped level shown as words, so a full battery on a two-step keyboard does not read "30%".
+fn coarse(mut r: Reading) -> Reading {
+    if let Some(v) = r.percent.take() {
+        r.level = match v {
+            80.. => "Full",
+            25.. => "Good",
+            11.. => "Low",
+            _ => "Critical",
+        };
+    }
+    r
+}
+
 const LI_ION: &[(i32, i32)] = &[
     (4186, 100),
     (4067, 90),
@@ -210,7 +229,6 @@ fn register_level(p: &[u8]) -> Option<Reading> {
     let [level @ 1..=255, state, ..] = *p else {
         return None;
     };
-    const PCT: [u8; 8] = [0, 5, 10, 20, 35, 50, 75, 100];
     let level = level.min(7);
     let text = match level {
         7 => "Full",
@@ -219,7 +237,6 @@ fn register_level(p: &[u8]) -> Option<Reading> {
         _ => "Critical",
     };
     Some(Reading {
-        percent: Some(PCT[level as usize]),
         level: text,
         charging: charging_10(state),
         ..Reading::default()
@@ -365,7 +382,8 @@ impl Link {
         if let Some(f) = self.feature(idx, BATTERY_STATUS)
             && let Some(r) = self.call(idx, f, 0, &[]).and_then(|p| status(&p))
         {
-            return Some(r);
+            let precise = self.call(idx, f, 1, &[]).is_none_or(|c| mileage(&c));
+            return Some(if precise { r } else { coarse(r) });
         }
         if let Some(f) = self.feature(idx, BATTERY_VOLTAGE)
             && let Some(r) = self
@@ -594,8 +612,8 @@ mod tests {
         assert_eq!((r.percent, r.charging), (Some(64), true));
         assert_eq!(register_percent(&[0x00, 0x00, 0x00]), None);
         let r = register_level(&[7, 0x00]).unwrap();
-        assert_eq!((r.percent, r.level, r.charging), (Some(100), "Full", false));
-        assert_eq!(register_level(&[3, 0x25]).unwrap().percent, Some(20));
+        assert_eq!((r.percent, r.level, r.charging), (None, "Full", false));
+        assert_eq!(register_level(&[3, 0x25]).unwrap().level, "Low");
     }
 
     #[test]
@@ -607,6 +625,15 @@ mod tests {
         let r = unified(&[0x00, 0x02, 0x01]).unwrap();
         assert_eq!((r.percent, r.level, r.charging), (Some(20), "Low", true));
         assert_eq!(unified(&[0x10, 0x00]), None);
+    }
+
+    #[test]
+    fn stepped_levels_read_as_words() {
+        assert!(!mileage(&[2, 0x00]));
+        assert!(mileage(&[10, 0x02]));
+        let thirty = coarse(status(&[30, 5, 0]).unwrap());
+        assert_eq!((thirty.percent, thirty.level), (None, "Good"));
+        assert_eq!(coarse(status(&[5, 0, 0]).unwrap()).level, "Critical");
     }
 
     #[test]

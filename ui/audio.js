@@ -295,8 +295,120 @@
       el("label", { className: "aud-label", htmlFor: "aud-mic", textContent: "Microphone" }),
       s.source,
       s.empty,
+      buildVmic(),
       stripFoot(id, "Mic"),
     ));
+  }
+
+  // ---- Virtual mic ----
+
+  const vm = {};
+
+  function buildVmic() {
+    vm.sw = el("input", { type: "checkbox", className: "switch", id: "aud-vmic" });
+    vm.sw.onchange = () => wantVmic(vm.sw.checked);
+    vm.note = el("p", { className: "aud-empty", role: "status", hidden: true });
+    vm.gate = el("input", { type: "checkbox", id: "aud-gate" });
+    vm.gate.setAttribute("aria-label", "Noise gate on");
+    vm.level = el("input", { type: "range", min: -90, max: 0, step: 1 });
+    vm.level.setAttribute("aria-label", "Noise gate threshold in dB");
+    vm.levelOut = el("span", { className: "aud-num" });
+    const sendGate = () => {
+      touch("gate");
+      setText(vm.levelOut, vm.level.value + " dB");
+      later("gate", () => sendMix({ kind: "gate", on: vm.gate.checked, threshold_db: +vm.level.value }));
+    };
+    vm.gate.onchange = sendGate;
+    vm.level.oninput = sendGate;
+    return el(
+      "div",
+      { className: "aud-vmic" },
+      el("div", { className: "aud-vrow" }, el("label", { className: "aud-name", htmlFor: "aud-vmic", textContent: "Virtual mic" }), vm.sw),
+      vm.note,
+      el("div", { className: "aud-gate" }, el("label", { className: "check" }, vm.gate, "Gate"), vm.level, vm.levelOut),
+    );
+  }
+
+  // Turning it on needs VB-CABLE; without it the install sheet asks first.
+  function wantVmic(on) {
+    touch("vmic");
+    if (!on) return sendMix({ kind: "virtual_mic", on: false });
+    if (mix && mix.vmic && mix.vmic.installed) return sendMix({ kind: "virtual_mic", on: true });
+    say(vm.progress, "");
+    if (!vm.sheet.open) vm.sheet.showModal();
+  }
+
+  function buildSheet() {
+    vm.sheet = document.getElementById("vmic-sheet");
+    vm.progress = document.getElementById("vmic-progress");
+    vm.install = document.getElementById("vmic-install");
+    vm.sheet.addEventListener("close", () => {
+      touched.delete("vmic");
+      renderVmic();
+    });
+    document.getElementById("vmic-cancel").onclick = () => vm.sheet.close();
+    for (const id of ["vmic-donate", "vmic-donate-settings"]) {
+      document.getElementById(id).onclick = () => invoke("open_link", { which: "vbaudio" }).catch(() => {});
+    }
+    vm.install.onclick = async () => {
+      vm.install.disabled = true;
+      say(vm.progress, "Installing VB-CABLE. Windows asks for administrator rights.");
+      try {
+        take(await invoke("virtual_mic_install"));
+        vm.sheet.close();
+      } catch (e) {
+        say(vm.progress, message(e));
+      } finally {
+        vm.install.disabled = false;
+      }
+    };
+    vm.setSw = document.getElementById("set-vmic");
+    vm.setSw.onchange = () => wantVmic(vm.setSw.checked);
+    vm.state = document.getElementById("vmic-state");
+    vm.outcome = document.getElementById("vmic-outcome");
+    vm.remove = document.getElementById("vmic-remove");
+    vm.remove.onclick = async () => {
+      vm.remove.disabled = true;
+      say(vm.outcome, "Removing VB-CABLE. Windows asks for administrator rights.");
+      try {
+        take(await invoke("virtual_mic_remove"));
+        say(vm.outcome, "Removed. Restart Windows to finish.");
+      } catch (e) {
+        say(vm.outcome, message(e));
+      } finally {
+        vm.remove.disabled = false;
+      }
+    };
+  }
+
+  function vmicNote(cfg, v, mic) {
+    if (v.error) return v.error;
+    if (v.installed && !v.ready) return "Restart Windows to finish installing VB-CABLE.";
+    if (!cfg.virtual_mic) return "";
+    if (!v.installed) return "VB-CABLE is not installed.";
+    if (!mic.source) return "Pick a microphone above.";
+    return "Apps can pick " + (v.name || "FoxDen VB-Cable (Microphone)") + ".";
+  }
+
+  function renderVmic() {
+    if (!mix) return;
+    const cfg = mix.config;
+    const v = mix.vmic || {};
+    const on = !!cfg.virtual_mic;
+    if (!held("vmic")) {
+      vm.sw.checked = on;
+      vm.setSw.checked = on;
+    }
+    say(vm.note, vmicNote(cfg, v, chan("chatCapture") || {}));
+    vm.note.classList.toggle("warn", !!v.error);
+    if (!held("gate")) {
+      vm.gate.checked = !!cfg.gate_on;
+      vm.level.value = cfg.gate_db;
+      setText(vm.levelOut, Math.round(cfg.gate_db) + " dB");
+    }
+    vm.level.disabled = !cfg.gate_on;
+    setText(vm.state, !v.installed ? "Not installed" : !v.ready ? "Restart Windows to finish" : v.ours ? "Installed by FoxDen" : "Installed");
+    vm.remove.hidden = !v.ours;
   }
 
   function masterStrip() {
@@ -667,6 +779,7 @@
     if (!held("output")) options(mx.output, mix.outputs.map((o) => [o, o]), cfg.output, cfg.output + " (missing)");
     mx.chat.show(cfg.chat_mix);
     renderStrips();
+    renderVmic();
     renderAdvanced();
     renderEq();
   }
@@ -695,10 +808,13 @@
 
   // ---- Page ----
 
+  const settings = document.getElementById("panel-settings");
+
   function watch() {
     const on = visible();
     if (on && !watching) loadMixer(false);
     watching = on;
+    if (settings && !settings.hidden && !document.hidden) loadMixer(false);
   }
 
   const top = buildBar();
@@ -712,7 +828,9 @@
   const mixer = el("section", { className: "box aud-mixer" }, el("h2", { textContent: "Mixer" }), top, mx.problem, strips);
   root.replaceChildren(el("div", { className: "aud-page" }, mixer, mx.eqBox, buildAdvanced()));
 
+  buildSheet();
   new MutationObserver(watch).observe(root, { attributes: true, attributeFilter: ["hidden"] });
+  if (settings) new MutationObserver(watch).observe(settings, { attributes: true, attributeFilter: ["hidden"] });
   document.addEventListener("visibilitychange", watch);
   setInterval(levels, 100);
   setInterval(() => watching && mix && mix.running && loadMixer(false), 2000);

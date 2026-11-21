@@ -147,6 +147,24 @@
         </section>
 
         <section class="box">
+          <h2>Virtual microphone</h2>
+          <div class="field">
+            <label for="set-vmic">Virtual microphone</label>
+            <input type="checkbox" class="switch" id="set-vmic" aria-describedby="vmic-credit" />
+          </div>
+          <div class="field">
+            <span>VB-CABLE</span>
+            <span class="hint" id="vmic-state"></span>
+          </div>
+          <p class="hint" id="vmic-credit">Virtual microphone uses VB-CABLE by VB-Audio, donationware installed unchanged.</p>
+          <div class="actions">
+            <button type="button" id="vmic-donate-settings">Donate to VB-Audio</button>
+            <button type="button" id="vmic-remove" hidden>Remove virtual microphone</button>
+          </div>
+          <p class="hint" id="vmic-outcome" role="status" hidden></p>
+        </section>
+
+        <section class="box">
           <h2>Rendering</h2>
           <div class="field range">
             <label for="set-fps">Frame rate (fps)</label>
@@ -233,6 +251,10 @@
           <div class="field">
             <label for="set-battery">Battery levels in the tray</label>
             <input type="checkbox" class="switch" id="set-battery" data-setting="battery_tray" />
+          </div>
+          <div class="field">
+            <label for="set-battery-alerts">Low battery notifications</label>
+            <input type="checkbox" class="switch" id="set-battery-alerts" data-setting="battery_alerts" />
           </div>
           <div class="field">
             <label for="set-minimised">Start minimised</label>
@@ -364,6 +386,18 @@
         <button type="button" class="primary" id="support-kofi">Ko-fi</button>
         <button type="button" id="support-paypal">PayPal</button>
         <button type="button" id="support-close">Close</button>
+      </div>
+    </dialog>
+
+    <dialog class="sheet" id="vmic-sheet" aria-labelledby="vmic-title">
+      <h2 id="vmic-title">Virtual microphone</h2>
+      <p class="hint">FoxDen plays your mic, with its volume, mute, EQ and gate, into VB-CABLE, a virtual audio cable by VB-Audio. Apps then pick FoxDen VB-Cable (Microphone) as their mic.</p>
+      <p class="hint">VB-CABLE is VB-Audio's donationware and is installed unchanged. Windows asks for administrator rights. Settings can remove it again.</p>
+      <p class="hint" id="vmic-progress" role="status" hidden></p>
+      <div class="actions">
+        <button type="button" class="primary" id="vmic-install">Install</button>
+        <button type="button" id="vmic-donate">Donate to VB-Audio</button>
+        <button type="button" id="vmic-cancel">Cancel</button>
       </div>
     </dialog>
 

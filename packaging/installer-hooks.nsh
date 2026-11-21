@@ -40,6 +40,10 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; Only a VB-CABLE that FoxDen installed is removed, and never for an update.
+  ${If} $UpdateMode <> 1
+    nsExec::Exec '"$INSTDIR\foxden-service.exe" vcable remove'
+  ${EndIf}
   nsExec::Exec '"$INSTDIR\foxden-service.exe" uninstall'
   nsExec::Exec 'schtasks /Delete /TN FoxDen /F'
 !macroend

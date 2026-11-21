@@ -10,6 +10,7 @@ foxden-hid = { path = "../foxden-hid" }
 foxden-hwmon = { path = "../foxden-hwmon" }
 foxden-core.workspace = true
 foxden-smbus = { path = "../foxden-smbus" }
+foxden-vcable = { path = "../foxden-vcable" }
 foxden-superio = { path = "../foxden-superio" }
 foxden-wmi = { path = "../foxden-wmi" }
 foxden-xpack = { path = "../foxden-xpack" }

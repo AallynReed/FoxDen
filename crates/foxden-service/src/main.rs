@@ -3,6 +3,7 @@ mod guard;
 mod host;
 mod pipe;
 mod service;
+mod vmic;
 
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,8 +25,10 @@ const USAGE: &str = "usage: foxden-service <command>
   uninstall    stop and remove the service
   start        start the installed service
   stop         stop the installed service
+  vcable <install|remove|rename|status>
+               VB-CABLE for the virtual microphone; remove only takes one FoxDen installed
 
-install, uninstall, start and stop need an elevated prompt. install only registers
+install, uninstall, start, stop and vcable need an elevated prompt. install only registers
 a copy of this program that ordinary users cannot replace, such as one in a folder
 under Program Files, and the service keeps its files in a folder closed to them.";
 
@@ -119,6 +122,7 @@ fn main() -> ExitCode {
         ["uninstall"] => service::uninstall(),
         ["start"] => service::start(),
         ["stop"] => service::stop(),
+        ["vcable", action] => vmic::act(action).map(|text| println!("{text}")),
         [service::SERVICE_ARG] => service::dispatch(),
         _ => {
             eprintln!("{USAGE}");

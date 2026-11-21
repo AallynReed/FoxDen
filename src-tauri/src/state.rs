@@ -938,6 +938,7 @@ mod tests {
                 "auto_detect",
                 "auto_update",
                 "autostart",
+                "battery_alerts",
                 "battery_tray",
                 "close_conflicts",
                 "close_to_tray",

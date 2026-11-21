@@ -90,6 +90,9 @@ enum Request<'a> {
     ReleaseHubLights {
         generation: u64,
     },
+    VirtualMic {
+        action: &'a str,
+    },
 }
 
 /// One device's colours in a `set_hub_lights` batch, as `rrggbb` hex.
@@ -225,6 +228,15 @@ impl Client {
     pub fn release_hub_lights(&self, generation: u64) -> Result<(), String> {
         self.ask::<IgnoredAny>(&Request::ReleaseHubLights { generation })
             .map(drop)
+    }
+
+    /// Has the installed service install, remove or rename VB-CABLE; says what it did.
+    pub fn virtual_mic(&self, action: &str) -> Result<String, String> {
+        #[derive(Deserialize)]
+        struct Done {
+            text: String,
+        }
+        Ok(self.ask::<Done>(&Request::VirtualMic { action })?.text)
     }
 
     /// Has the service close what its own list names within `scope`.

@@ -85,7 +85,7 @@ pub fn refresh(app: &AppHandle, snapshot: &Snapshot) {
 }
 
 pub fn show_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = crate::main_window(app) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();

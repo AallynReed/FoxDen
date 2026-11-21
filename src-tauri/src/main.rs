@@ -23,15 +23,44 @@ mod updater;
 
 use std::sync::{Arc, Mutex};
 
-use tauri::{Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
+use tauri::{Manager, RunEvent, WebviewWindowBuilder};
 
 use state::{AppState, Shared, lock};
 
-/// WebView2 flags: wry's defaults, which this replaces, plus no Edge background traffic.
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,AutofillServerCommunication,OptimizationHints,MediaRouter      --disable-background-networking --disable-component-update --disable-domain-reliability      --disable-client-side-phishing-detection --disable-sync --no-pings --metrics-recording-only";
+/// WebView2 flags: wry's defaults, which this replaces, plus no Edge background traffic and a lighter footprint.
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,AutofillServerCommunication,OptimizationHints,MediaRouter,BackForwardCache,SpareRendererForSitePerProcess      --disable-background-networking --disable-component-update --disable-domain-reliability      --disable-client-side-phishing-detection --disable-sync --no-pings --metrics-recording-only      --renderer-process-limit=1 --disable-extensions --disable-gpu-shader-disk-cache      --js-flags=--max-old-space-size=256";
+
+/// The main window, made when it is first shown. Closing it to the tray destroys it, so the
+/// web view's processes and memory go with it; the app keeps running without them.
+pub fn main_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    if let Some(w) = app.get_webview_window("main") {
+        return Some(w);
+    }
+    let cfg = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")?
+        .clone();
+    let built = WebviewWindowBuilder::from_config(app, &cfg).and_then(|b| {
+        b.data_directory(config::webview_dir())
+            .additional_browser_args(BROWSER_ARGS)
+            .build()
+    });
+    match built {
+        Ok(w) => Some(w),
+        Err(e) => {
+            log::warn("app", format!("the window could not open: {e}"));
+            None
+        }
+    }
+}
 
 fn main() {
     report::catch_crashes();
+    // reqwest is built without a TLS provider; without one every HTTPS request panics.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let shared: Shared = Arc::new(Mutex::new(AppState::new(config::load(&config::dir()))));
 
     let app = tauri::Builder::default()
@@ -44,13 +73,6 @@ fn main() {
         .setup(|app| {
             let handle = app.handle();
             log::attach(handle);
-            // Made here and not by Tauri, so that the web view's data goes where the rest does.
-            for window in &app.config().app.windows {
-                WebviewWindowBuilder::from_config(handle, window)?
-                    .data_directory(config::webview_dir())
-                    .additional_browser_args(BROWSER_ARGS)
-                    .build()?;
-            }
             let shared = app.state::<Shared>().inner().clone();
             let (settings, fan_backup) = {
                 let state = lock(&shared);
@@ -84,15 +106,6 @@ fn main() {
             state::spawn_saver(shared);
             fans::start(handle, settings.fans_module, fan_backup);
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                let shared = window.state::<Shared>();
-                if lock(&shared).config.settings.close_to_tray {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-            }
         })
         .invoke_handler(tauri::generate_handler![
             apps::list_apps,
@@ -139,11 +152,22 @@ fn main() {
             mixer::get_mixer,
             mixer::mixer_set,
             mixer::get_mixer_levels,
+            mixer::virtual_mic_install,
+            mixer::virtual_mic_remove,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start FoxDen");
 
     app.run(move |handle, event| {
+        // The last window closing is not a quit while FoxDen lives in the tray; Quit passes a code.
+        if let RunEvent::ExitRequested {
+            code: None, api, ..
+        } = &event
+            && lock(&shared).config.settings.close_to_tray
+        {
+            api.prevent_exit();
+            return;
+        }
         if let RunEvent::Exit = event {
             if let Some(mixer) = handle.try_state::<mixer::Mixer>() {
                 mixer.shutdown();

@@ -254,9 +254,75 @@ pub fn response_db(bands: &[Band], rate: f32, freq: f32) -> f32 {
     db
 }
 
+/// A noise gate: silent below the threshold, open while the level is above it and for a moment after.
+#[derive(Debug, Clone)]
+pub struct Gate {
+    channels: usize,
+    open: f32,
+    hold: u32,
+    hold_frames: u32,
+    attack: f32,
+    release: f32,
+}
+
+impl Gate {
+    pub fn new(rate: f32, channels: usize) -> Self {
+        let per = |ms: f32| 1.0 - (-1.0 / (rate * ms / 1000.0)).exp();
+        Self {
+            channels: channels.max(1),
+            open: 0.0,
+            hold: 0,
+            hold_frames: (rate * 0.15) as u32,
+            attack: per(2.0),
+            release: per(60.0),
+        }
+    }
+
+    /// Gates interleaved samples in place; `threshold` is a linear level.
+    pub fn process(&mut self, samples: &mut [f32], threshold: f32) {
+        for frame in samples.chunks_mut(self.channels) {
+            let level = frame.iter().fold(0f32, |m, s| m.max(s.abs()));
+            if level >= threshold {
+                self.hold = self.hold_frames;
+            } else {
+                self.hold = self.hold.saturating_sub(1);
+            }
+            let (target, speed) = if self.hold > 0 {
+                (1.0, self.attack)
+            } else {
+                (0.0, self.release)
+            };
+            self.open += (target - self.open) * speed;
+            for s in frame.iter_mut() {
+                *s *= self.open;
+            }
+        }
+    }
+}
+
+pub fn db_to_linear(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gate_closes_on_quiet_and_opens_on_loud() {
+        let mut g = Gate::new(48000.0, 2);
+        let t = db_to_linear(-40.0);
+        let mut quiet = vec![0.001f32; 48000];
+        g.process(&mut quiet, t);
+        assert!(quiet.iter().all(|s| s.abs() < 0.001));
+        let mut loud = vec![0.5f32; 48000];
+        g.process(&mut loud, t);
+        assert!((loud[loud.len() - 1] - 0.5).abs() < 1e-3);
+        let mut tail = vec![0.001f32; 96000];
+        g.process(&mut tail, t);
+        assert!(tail[100] > 0.0009, "held open just after speech");
+        assert!(tail[tail.len() - 1] < 1e-6, "closed well after");
+    }
 
     #[test]
     fn peaking_hits_its_gain() {

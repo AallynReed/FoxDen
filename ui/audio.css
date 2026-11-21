@@ -589,3 +589,35 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
   gap: 6px 10px;
   font-size: 12px;
 }
+
+/* Virtual mic and noise gate, on the mic strip. */
+.aud-vmic {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.aud-vrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aud-vmic .aud-empty.warn {
+  color: var(--danger);
+}
+
+.aud-gate {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.aud-gate .aud-num {
+  min-width: 48px;
+  text-align: right;
+}

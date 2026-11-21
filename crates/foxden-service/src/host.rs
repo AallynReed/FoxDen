@@ -28,6 +28,7 @@ pub const MAX_LINE: usize = 64 * 1024;
 const LOG_CAP: u64 = 1024 * 1024;
 const NO_SHUTDOWN: &str =
     "shutdown is for console mode; an installed service is stopped with `foxden-service stop`";
+const NO_VIRTUAL_MIC: &str = "the virtual microphone needs the installed service";
 /// Waits before a control loop that panicked is started again. One more panic ends the process.
 const BACK_OFF: [Duration; 3] = if cfg!(test) {
     [Duration::from_millis(10); 3]
@@ -185,6 +186,10 @@ enum Request {
     },
     /// Closes software from the service's own list; the request only narrows it.
     CloseConflicts(Scope),
+    /// Installs, removes or renames VB-CABLE for the virtual microphone.
+    VirtualMic {
+        action: String,
+    },
     /// Lighting of the fan hubs whose fans the service drives, so one process owns each hub.
     HubLights {
         #[serde(default)]
@@ -387,6 +392,18 @@ impl Host {
                 let out = (self.closer)(scope);
                 json!({"ok": true, "closed": out.closed, "left": out.left})
             }
+            Ok(Request::VirtualMic { action }) => match (self.mode, action.as_str()) {
+                (Mode::Service, "install" | "remove" | "rename") => {
+                    let out = crate::vmic::act(&action);
+                    log(&self.dir, &format!("virtual mic {action}: {out:?}"));
+                    match out {
+                        Ok(text) => json!({"ok": true, "text": text}),
+                        Err(e) => fail(format!("virtual mic: {e}")),
+                    }
+                }
+                (Mode::Service, _) => fail(format!("unknown virtual mic action {action}")),
+                (Mode::Console, _) => fail(NO_VIRTUAL_MIC.into()),
+            },
             Ok(Request::HubLights { lengths }) => self.hub_lights(lengths),
             Ok(Request::SetHubLights { frames }) => {
                 let open = locked(&self.hubs).open.is_some();
@@ -752,6 +769,10 @@ pub fn start(
     let watch = thread::spawn(move || h.watch());
     let (h, name) = (host.clone(), pipe_name.to_string());
     let pipe = thread::spawn(move || pipe::serve(&h, &name, first));
+    if matches!(mode, Mode::Service) {
+        let dir = host.dir.clone();
+        thread::spawn(move || crate::vmic::reapply(|text| log(&dir, text)));
+    }
     Ok(Running {
         host,
         pipe_name: pipe_name.to_string(),
@@ -1273,6 +1294,16 @@ pub(crate) mod tests {
         assert!(r["status"]["fans"].is_array());
         assert!(r["status"]["sensors"].is_array());
         assert_eq!(r.get("sim"), None);
+    }
+
+    #[test]
+    fn the_virtual_mic_is_for_the_installed_service_only() {
+        let console = host("vmic");
+        let r = reply(&console, r#"{"cmd":"virtual_mic","action":"install"}"#);
+        assert_eq!(r["error"], NO_VIRTUAL_MIC);
+        let service = Host::new(scratch("vmic-service"), Vec::new, Mode::Service);
+        let r = reply(&service, r#"{"cmd":"virtual_mic","action":"format"}"#);
+        assert_eq!(r["ok"], false);
     }
 
     #[test]

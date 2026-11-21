@@ -221,6 +221,7 @@
       keep_running: [],
       send_reports: false,
       battery_tray: true,
+      battery_alerts: true,
     },
   };
 

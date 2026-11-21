@@ -11,7 +11,7 @@ use crate::Result;
 use crate::capture::{self, AppCapture};
 use crate::channel::Channel;
 use crate::chatmix;
-use crate::dsp::{Band, Equalizer, default_bands};
+use crate::dsp::{Band, Equalizer, Gate, default_bands};
 
 const MAX_BUFFER_MS: usize = 200;
 
@@ -28,6 +28,8 @@ pub struct MixState {
     pub eq: [Vec<Band>; 5],
     pub eq_enabled: [bool; 5],
     eq_version: u64,
+    /// The mic's noise gate threshold as a linear level, when the gate is on.
+    pub gate: Option<f32>,
     /// Peak level per channel since the last read, 0..1.
     pub peaks: [f32; 5],
 }
@@ -44,6 +46,7 @@ impl Default for MixState {
             eq: std::array::from_fn(|_| default_bands()),
             eq_enabled: [false; 5],
             eq_version: 0,
+            gate: None,
             peaks: [0.0; 5],
         }
     }
@@ -277,6 +280,9 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
     let mut eqs: [Equalizer; 5] = Default::default();
     let mut eq_version = u64::MAX;
     let mut gains = [1f32; 5];
+    let mut gate_at = None;
+    let mut gate = Gate::new(rate, chans);
+    let mic = Channel::ChatCapture.index();
     let mut pending_peaks = [0f32; 5];
     let mut scratch: Vec<f32> = Vec::new();
     dev.build_output_stream(
@@ -284,6 +290,7 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
             if let Ok(s) = ctl.try_lock() {
                 gains = s.gains();
+                gate_at = s.gate;
                 if eq_version != s.eq_version {
                     for (i, eq) in eqs.iter_mut().enumerate() {
                         *eq = if s.eq_enabled[i] {
@@ -318,6 +325,9 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
                     continue;
                 }
                 eqs[i].process(&mut sums[i]);
+                if let (true, Some(t)) = (i == mic, gate_at) {
+                    gate.process(&mut sums[i], t);
+                }
                 let g = gains[i];
                 for s in sums[i].iter_mut() {
                     *s *= g;
@@ -339,6 +349,108 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
             }
         },
         |e| eprintln!("output stream: {e}"),
+        None,
+    )
+    .map_err(dev_err)
+}
+
+/// The mic channel played on its own into one output, apart from the mixer's routes.
+pub struct VirtualMic {
+    _streams: Vec<cpal::Stream>,
+}
+
+impl VirtualMic {
+    /// Plays `source` (an input, or what plays on an output) through the mic's controls on `feed`.
+    pub fn start(
+        source: &str,
+        source_is_output: bool,
+        feed: &str,
+        controls: Controls,
+    ) -> Result<Self> {
+        let host = cpal::default_host();
+        let out_dev = find(&host, feed, true)?;
+        let supported = out_dev.default_output_config().map_err(dev_err)?;
+        let config: cpal::StreamConfig = supported.config();
+        let (rate, chans) = (config.sample_rate.0, config.channels as usize);
+        let cap = rate as usize * chans * MAX_BUFFER_MS / 1000;
+        let buffer: Buffer = Arc::new(Mutex::new(VecDeque::with_capacity(cap)));
+        let route = DeviceRoute {
+            channel: Channel::ChatCapture,
+            source: source.to_string(),
+            source_is_output,
+        };
+        let input = start_source(&host, &route, buffer.clone(), rate, chans, cap)?;
+        let (b, c) = (buffer, controls);
+        let output = match supported.sample_format() {
+            SampleFormat::F32 => mic_stream::<f32>(&out_dev, &config, b, c),
+            SampleFormat::I16 => mic_stream::<i16>(&out_dev, &config, b, c),
+            SampleFormat::I32 => mic_stream::<i32>(&out_dev, &config, b, c),
+            SampleFormat::U16 => mic_stream::<u16>(&out_dev, &config, b, c),
+            f => return Err(format!("unsupported output format {f}")),
+        }?;
+        output.play().map_err(dev_err)?;
+        Ok(VirtualMic {
+            _streams: vec![input, output],
+        })
+    }
+}
+
+fn mic_stream<T: SizedSample + FromSample<f32>>(
+    dev: &cpal::Device,
+    config: &cpal::StreamConfig,
+    buffer: Buffer,
+    ctl: Controls,
+) -> Result<cpal::Stream> {
+    let rate = config.sample_rate.0 as f32;
+    let chans = config.channels as usize;
+    let i = Channel::ChatCapture.index();
+    let mut eq = Equalizer::default();
+    let mut eq_version = u64::MAX;
+    let mut gain = 1f32;
+    let mut gate_at = None;
+    let mut gate = Gate::new(rate, chans);
+    let mut pending_peak = 0f32;
+    let mut work: Vec<f32> = Vec::new();
+    dev.build_output_stream(
+        config,
+        move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
+            if let Ok(s) = ctl.try_lock() {
+                gain = s.gain(Channel::ChatCapture);
+                gate_at = s.gate;
+                if eq_version != s.eq_version {
+                    eq = if s.eq_enabled[i] {
+                        Equalizer::new(&s.eq[i], rate, chans)
+                    } else {
+                        Equalizer::default()
+                    };
+                    eq_version = s.eq_version;
+                }
+            }
+            work.clear();
+            if let Ok(mut b) = buffer.try_lock() {
+                let n = data.len().min(b.len());
+                work.extend(b.drain(..n));
+            }
+            work.resize(data.len(), 0.0);
+            eq.process(&mut work);
+            if let Some(t) = gate_at {
+                gate.process(&mut work, t);
+            }
+            let mut peak = pending_peak;
+            for (d, s) in data.iter_mut().zip(&work) {
+                let v = (s * gain).clamp(-1.0, 1.0);
+                peak = peak.max(v.abs());
+                *d = T::from_sample(v);
+            }
+            match ctl.try_lock() {
+                Ok(mut s) => {
+                    s.peaks[i] = s.peaks[i].max(peak);
+                    pending_peak = 0.0;
+                }
+                Err(_) => pending_peak = peak,
+            }
+        },
+        |e| eprintln!("virtual mic stream: {e}"),
         None,
     )
     .map_err(dev_err)

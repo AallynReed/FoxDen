@@ -788,4 +788,5 @@ pub const ALL: &[&[Card]] = &[
     super::lenovo_legion::LENOVO_LEGION,
     super::msi_trio::MSI_BLACKWELL_TRIO,
     super::pny_revel::PNY_REVEL,
+    super::asrock::ASROCK,
 ];
