@@ -13,14 +13,10 @@
   StrCpy $1 $0 "" -6
   ${If} $1 == "FoxRGB"
   ${AndIf} ${FileExists} "$0\uninstall.exe"
-    nsExec::Exec 'taskkill /F /T /IM foxrgb.exe'
-    nsExec::Exec '"$0\foxrgb-service.exe" stop'
-    nsExec::Exec '"$0\foxrgb-service.exe" uninstall'
-    nsExec::Exec 'schtasks /Delete /TN FoxRGB /F'
+    ; Its own uninstaller stops and removes its service and sign-in task.
     ExecWait '"$0\uninstall.exe" /S _?=$0'
     Delete "$0\uninstall.exe"
-    RMDir /r "$0"
-    DeleteRegKey ${ROOT} "Software\Microsoft\Windows\CurrentVersion\Uninstall\FoxRGB"
+    RMDir "$0"
   ${EndIf}
 !macroend
 
