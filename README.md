@@ -26,8 +26,8 @@
 
 </div>
 
-Free lighting and fan control for Windows. One effect runs across all your devices as a single
-animation, with its own drivers and nothing else to install.
+Free lighting, fan, audio and battery control for Windows, with its own drivers and no vendor
+software. One effect runs across all your devices as a single animation.
 
 ## Devices
 
@@ -75,6 +75,10 @@ OpenRGB can optionally drive anything else through its server.
 - Chosen keys in your own colours, and layers that show only while a game or app is open or in front
 - Layout editor that draws keyboards, mice, RAM, fans and boards as their real shapes, plus per-device backgrounds and profiles
 - Fan curves for motherboard headers, coolers, fan hubs and AMD graphics cards, with zero RPM
+- Battery levels of wireless mice, keyboards, headsets and controllers as tray icons, for over 100 brands
+- Audio mixer: send each app to a Game, Chat, Media or Aux channel with its own volume, EQ and chat
+  mix, no virtual driver needed; a headset's ChatMix dial drives the mix
+- Headset settings for SteelSeries Arctis Nova headsets (sidetone, mic volume, limiter, auto-off)
 - LED strips and network lights
 - Lighting and Fans modules you can switch off
 - Closes conflicting software such as SignalRGB, G HUB and iCUE, unless you keep it running
@@ -97,7 +101,8 @@ cargo run -p foxden
 
 ## Privacy
 
-FoxDen only connects to:
+FoxDen only connects to the places below. Its window's WebView2 runs with Edge's background
+services, SmartScreen and telemetry switched off.
 
 - GitHub, a minute after start and then every hour, to check for a new release. Nothing
   is sent beyond the request itself.
