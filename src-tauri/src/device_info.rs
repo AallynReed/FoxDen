@@ -46,11 +46,10 @@ fn build(vendor: u16, product: u16, shown: &str, collections: &[foxden_hid::Coll
 #[tauri::command]
 pub async fn device_info(id: String, name: String) -> Result<String, String> {
     let (vendor, product) = ids(&id).ok_or("Only USB devices can be reported.")?;
-    let collections = tauri::async_runtime::spawn_blocking(move || {
-        foxden_hid::describe(vendor, product)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    let collections =
+        tauri::async_runtime::spawn_blocking(move || foxden_hid::describe(vendor, product))
+            .await
+            .map_err(|e| e.to_string())?;
     if collections.is_empty() {
         return Err("The device is no longer connected.".into());
     }
@@ -85,7 +84,9 @@ mod tests {
             release: 0x0101,
             name: "G512 RGB".into(),
             manufacturer: "Logitech".into(),
-            descriptor: Ok(vec![0x06, 0x43, 0xFF, 0x0A, 0x02, 0x06, 0xA1, 0x01, 0x85, 0x11, 0x75, 0x08, 0x95, 0x13]),
+            descriptor: Ok(vec![
+                0x06, 0x43, 0xFF, 0x0A, 0x02, 0x06, 0xA1, 0x01, 0x85, 0x11, 0x75, 0x08, 0x95, 0x13,
+            ]),
         };
         let r = build(0x046D, 0xC342, "Logitech G512", &[c]);
         let text = r.to_string();
@@ -93,6 +94,10 @@ mod tests {
         assert_eq!(r["collections"][0]["usage_page"], "ff43");
         assert!(r.get("name").is_none());
         assert!(text.contains("06 43 ff 0a"));
-        assert!(!text.split(|ch: char| !ch.is_ascii_hexdigit()).any(|w| w.len() >= 24));
+        assert!(
+            !text
+                .split(|ch: char| !ch.is_ascii_hexdigit())
+                .any(|w| w.len() >= 24)
+        );
     }
 }

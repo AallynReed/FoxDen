@@ -16,64 +16,35 @@
     ["LowShelving", "Low shelf", true],
     ["HighShelving", "High shelf", true],
   ];
-  const OUTPUTS = ["Speakers (Realtek(R) Audio)", "Headphones (Arctis Nova 7)", "SteelSeries Sonar - Gaming", "SteelSeries Sonar - Chat", "SteelSeries Sonar - Media"];
-  const INPUTS = ["Microphone (Arctis Nova 7)", "SteelSeries Sonar - Microphone", "Line In (Realtek(R) Audio)"];
+  const OUTPUTS = ["Speakers (Realtek(R) Audio)", "Headphones (USB Audio)", "Q27 (AMD High Definition Audio Device)", "CABLE Input (Virtual Cable)"];
+  const INPUTS = ["Microphone (USB Audio)", "Line In (Realtek(R) Audio)"];
+  const APPS = [
+    { exe: "Discord.exe", active: true },
+    { exe: "cs2.exe", active: true },
+    { exe: "Spotify.exe", active: true },
+    { exe: "chrome.exe", active: false },
+    { exe: "obs64.exe", active: false },
+  ];
   const copy = (v) => JSON.parse(JSON.stringify(v));
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
   const bands = () => [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((frequency) => ({ enabled: true, filter: "PeakingEQ", frequency, gain_db: 0, q: 1.414 }));
 
-  // ---- Sonar ----
-
-  const vm = (volume, muted = false) => ({ volume, muted });
-  const sonar = {
-    mode: "classic",
-    classic: { masters: { classic: vm(0.9), stream: {} }, devices: {} },
-    streamer: { masters: { classic: null, stream: { streaming: vm(1), monitoring: vm(0.7) } }, devices: {} },
-    chat_mix: { balance: -0.2, state: "enabled" },
-    redirections: [
-      { id: "game", deviceId: "out-1", isRunning: true },
-      { id: "chat", deviceId: "out-1", isRunning: true },
-      { id: "media", deviceId: "out-0", isRunning: true },
-      { id: "aux", deviceId: "out-1", isRunning: false },
-      { id: "mic", deviceId: "in-0", isRunning: true },
-    ],
-    outputs: [
-      { id: "out-0", name: "Speakers (Realtek(R) Audio)" },
-      { id: "out-1", name: "Headphones (Arctis Nova 7)" },
-    ],
-    inputs: [
-      { id: "in-0", name: "Microphone (Arctis Nova 7)" },
-      { id: "in-1", name: "Line In (Realtek(R) Audio)" },
-    ],
-  };
-  CHANNELS.forEach((c, i) => {
-    sonar.classic.devices[c] = { classic: vm(1 - i * 0.12, c === "aux"), stream: {} };
-    sonar.streamer.devices[c] = { classic: null, stream: { streaming: vm(0.8), monitoring: vm(0.6, c === "chatCapture") } };
-  });
-  let watching = false;
-
-  function sonarView() {
-    if (!mock.commands.get_snapshot().settings.steelseries_gg) return { state: "off" };
-    return { state: "online", problem: null, error: null, ...copy(sonar) };
-  }
-
-  const tellSonar = () => mock.emit("sonar", sonarView());
-  const redirect = { chatRender: "chat", chatCapture: "mic" };
-  const slot = (channel) => (channel === "master" ? null : sonar.classic.devices[channel]);
-
-  // ---- Standalone mixer ----
+  // ---- Mixer ----
 
   const mix = {
     output: OUTPUTS[1],
-    channels: CHANNELS.map((channel) => ({ channel, source: "", loopback: channel !== "chatCapture", on: false, volume: 1, muted: false, eq_on: false, eq: bands() })),
+    park: "",
+    channels: CHANNELS.map((channel) => ({ channel, source: "", loopback: channel !== "chatCapture", apps: [], on: false, volume: 1, muted: false, eq_on: false, eq: bands() })),
     master: 1,
     master_muted: false,
     chat_mix: 0,
-    running: false,
+    running: true,
   };
-  mix.channels[0] = { ...mix.channels[0], source: OUTPUTS[2], on: true };
-  mix.channels[1] = { ...mix.channels[1], source: OUTPUTS[3], on: true };
-  let running = false;
+  mix.channels[0] = { ...mix.channels[0], apps: ["cs2.exe", "RocketLeague.exe"], on: true };
+  mix.channels[1] = { ...mix.channels[1], apps: ["Discord.exe"], on: true };
+  mix.channels[2] = { ...mix.channels[2], apps: ["Spotify.exe", "chrome.exe"], on: true };
+  mix.channels[4] = { ...mix.channels[4], source: INPUTS[0], on: true };
+  let running = true;
   let error = null;
 
   // Rough shape of each band, enough to draw.
@@ -93,6 +64,20 @@
     return db;
   }
 
+  const lower = (s) => s.toLowerCase();
+  const sink = () => mix.park || OUTPUTS.find((o) => o !== mix.output && o !== OUTPUTS[0]);
+
+  function appStates() {
+    const out = {};
+    for (const c of mix.channels) {
+      for (const exe of c.apps) {
+        const app = APPS.find((a) => lower(a.exe) === lower(exe));
+        out[lower(exe)] = !app ? { state: "idle" } : exe === "chrome.exe" ? { state: "elsewhere", output: OUTPUTS[1] } : { state: "playing" };
+      }
+    }
+    return out;
+  }
+
   function mixView() {
     return {
       config: copy(mix),
@@ -100,6 +85,10 @@
       error,
       outputs: OUTPUTS,
       inputs: INPUTS,
+      apps: APPS,
+      app_states: running ? appStates() : {},
+      parked_on: running ? sink() : null,
+      park_error: null,
       filters: FILTERS.map(([id, label, gain]) => ({ id, label, gain })),
       curves: mix.channels.map((c) => Array.from({ length: 96 }, (_, i) => response(c, 20 * Math.pow(1000, i / 95)))),
     };
@@ -109,10 +98,10 @@
 
   function specsError() {
     if (!mix.output) return "Pick an output to play on";
-    const on = mix.channels.filter((c) => c.on && c.source);
+    const on = mix.channels.filter((c) => c.on && (c.source || c.apps.length));
     const loop = on.find((c) => c.loopback && c.source === mix.output);
     if (loop) return loop.channel + " would play back into itself; pick another source or output";
-    if (!on.length) return "Turn on at least one channel with a source";
+    if (!on.length) return "Turn on at least one channel with a source or an app";
     return null;
   }
 
@@ -124,30 +113,6 @@
   }
 
   Object.assign(mock.commands, {
-    get_sonar: () => sonarView(),
-    sonar_watch({ on }) {
-      watching = on;
-      if (on) setTimeout(tellSonar, 200);
-    },
-    sonar_set({ change: c }) {
-      if (!mock.commands.get_snapshot().settings.steelseries_gg) return;
-      const s = c.channel && slot(c.channel);
-      if (c.kind === "mode") sonar.mode = c.mode;
-      else if (c.kind === "volume") s.classic.volume = c.volume;
-      else if (c.kind === "mute") s.classic.muted = c.muted;
-      else if (c.kind === "master") sonar.classic.masters.classic.volume = c.volume;
-      else if (c.kind === "master_mute") sonar.classic.masters.classic.muted = c.muted;
-      else if (c.kind === "stream_volume") sonar.streamer.devices[c.channel].stream[c.mix].volume = c.volume;
-      else if (c.kind === "stream_mute") sonar.streamer.devices[c.channel].stream[c.mix].muted = c.muted;
-      else if (c.kind === "stream_master") sonar.streamer.masters.stream[c.mix].volume = c.volume;
-      else if (c.kind === "stream_master_mute") sonar.streamer.masters.stream[c.mix].muted = c.muted;
-      else if (c.kind === "chat_mix") sonar.chat_mix.balance = c.balance;
-      else if (c.kind === "device") {
-        const id = redirect[c.channel] || c.channel;
-        sonar.redirections.find((r) => r.id === id).deviceId = c.id;
-      }
-      setTimeout(tellSonar, 150);
-    },
     get_mixer: () => mixView(),
     mixer_set({ change: c }) {
       if (c.kind === "output") {
@@ -158,6 +123,13 @@
         if (c.on && c.loopback && c.source === mix.output) throw c.channel + " would play back into itself; pick another source or output";
         Object.assign(ch(c.channel), { source: c.source, loopback: c.loopback, on: c.on });
         if (running) play();
+      } else if (c.kind === "park") mix.park = c.name;
+      else if (c.kind === "apps") {
+        const taken = c.apps.map(lower);
+        for (const x of mix.channels) if (x.channel !== c.channel) x.apps = x.apps.filter((a) => !taken.includes(lower(a)));
+        const target = ch(c.channel);
+        if (c.apps.length && !target.apps.length && !target.source) target.on = true;
+        target.apps = c.apps;
       } else if (c.kind === "volume") ch(c.channel).volume = clamp(c.volume, 0, 1);
       else if (c.kind === "mute") ch(c.channel).muted = c.muted;
       else if (c.kind === "master") mix.master = clamp(c.volume, 0, 1);
@@ -175,9 +147,8 @@
     },
     get_mixer_levels() {
       const t = performance.now() / 1000;
-      return mix.channels.map((c, i) => (running && c.on && c.source && !c.muted ? c.volume * (0.35 + 0.3 * Math.abs(Math.sin(t * (2 + i)))) : 0));
+      return mix.channels.map((c, i) => (running && c.on && (c.source || c.apps.length) && !c.muted ? c.volume * (0.35 + 0.3 * Math.abs(Math.sin(t * (2 + i)))) : 0));
     },
   });
 
-  setInterval(() => watching && tellSonar(), 2000);
 })();

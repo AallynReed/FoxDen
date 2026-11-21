@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="fans.css" />
     <link rel="stylesheet" href="audio.css" />
+    <link rel="stylesheet" href="headset.css" />
   </head>
   <body>
     <h1 class="sr-only">FoxDen</h1>
@@ -85,6 +86,12 @@
         <p class="hint" id="devices-empty" hidden>No devices found. Check the backends under Settings, then rescan.</p>
         <p class="hint" id="canvas-hint">Select a device to set its brightness, position and size, or drag it on the canvas. Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead. [ and ] select the previous or next device.</p>
 
+        <div id="hs-box" hidden>
+          <h2 id="hs-heading">Headset</h2>
+          <p class="hint" id="hs-status" role="status"></p>
+          <ul class="list" id="hs-list" aria-labelledby="hs-heading"></ul>
+        </div>
+
         <h2 id="detected-heading">Detected hardware</h2>
         <div class="field">
           <label for="set-auto">Automatic detection</label>
@@ -97,14 +104,6 @@
         <ul class="list" id="detected-list" aria-labelledby="detected-heading"></ul>
         <p class="hint" id="detected-empty" hidden>No lighting hardware detected yet.</p>
 
-        <div id="gg-box" hidden>
-          <h2 id="gg-heading">SteelSeries GG</h2>
-          <p class="hint" id="gg-status" role="status"></p>
-          <ul class="list" id="gg-list" aria-labelledby="gg-heading"></ul>
-          <div class="actions">
-            <button type="button" id="gg-refresh">Refresh</button>
-          </div>
-        </div>
       </section>
 
       <section class="panel" id="panel-fans" role="tabpanel" aria-labelledby="tab-fans" hidden></section>
@@ -164,11 +163,6 @@
             <input type="checkbox" class="switch" id="set-native" data-setting="native_drivers" aria-describedby="native-hint" />
           </div>
           <p class="hint" id="native-hint">FoxDen's own drivers. On by default.</p>
-          <div class="field">
-            <label for="set-steelseries">SteelSeries GG</label>
-            <input type="checkbox" class="switch" id="set-steelseries" data-setting="steelseries_gg" aria-describedby="steelseries-hint" />
-          </div>
-          <p class="hint" id="steelseries-hint">Keeps SteelSeries GG running and uses it for Sonar, battery levels and firmware. Off by default.</p>
         </section>
 
         <section class="box span" id="net-box">
@@ -473,17 +467,6 @@
       </form>
     </dialog>
 
-    <dialog class="sheet" id="gg-fw-sheet" aria-labelledby="gg-fw-title">
-      <h2 id="gg-fw-title">Update firmware</h2>
-      <p class="notes" id="gg-fw-text"></p>
-      <p class="notes">Keep the device connected and leave it alone until the update ends. Wireless headsets need more than 15% battery; FoxDen checks this first, like GG does.</p>
-      <p class="hint" id="gg-fw-status" role="status" hidden></p>
-      <div class="actions">
-        <button type="button" class="primary" id="gg-fw-go">Update firmware</button>
-        <button type="button" id="gg-fw-cancel">Cancel</button>
-      </div>
-    </dialog>
-
     <dialog class="sheet" id="info-sheet" aria-labelledby="info-title">
       <h2 id="info-title">Device info</h2>
       <p class="hint">This is everything that will be sent: the device's ids and how it describes itself, nothing about you or this PC. It helps add a driver for it.</p>
@@ -499,12 +482,12 @@
     <script src="mock.js"></script>
     <script src="fans-mock.js"></script>
     <script src="audio-mock.js"></script>
-    <script src="gg-mock.js"></script>
+    <script src="headset-mock.js"></script>
     <script src="canvas.js"></script>
     <script src="panels.js"></script>
     <script src="main.js"></script>
     <script src="fans.js"></script>
     <script src="audio.js"></script>
-    <script src="gg.js"></script>
+    <script src="headset.js"></script>
   </body>
 </html>

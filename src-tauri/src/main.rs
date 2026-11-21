@@ -1,15 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod apps;
-mod battery;
 mod autostart;
+mod battery;
 mod commands;
 mod config;
 mod conflicts;
 mod detect;
 mod device_info;
 mod fans;
-mod ggengine;
+mod headset;
 mod keys;
 mod links;
 mod log;
@@ -17,7 +17,6 @@ mod mixer;
 mod modules;
 mod report;
 mod service_lights;
-mod sonar;
 mod state;
 mod tray;
 mod updater;
@@ -76,11 +75,9 @@ fn main() {
                 let _ = autostart::set(settings.autostart);
             }
             app.manage(state::spawn_worker(handle.clone(), shared.clone()));
-            app.manage(sonar::start(handle.clone(), shared.clone()));
             app.manage(mixer::Mixer::start(shared.clone()));
             state::spawn_render(handle.clone(), shared.clone());
             apps::spawn(handle.clone(), shared.clone());
-            ggengine::spawn(handle.clone(), shared.clone());
             battery::spawn(handle.clone(), shared.clone());
             updater::start(handle, shared.clone());
             state::spawn_saver(shared);
@@ -134,12 +131,9 @@ fn main() {
             fans::set_fan_config,
             fans::start_service,
             fans::stop_service,
-            ggengine::gg_devices,
-            ggengine::gg_refresh,
-            ggengine::gg_firmware_update,
-            sonar::get_sonar,
-            sonar::sonar_watch,
-            sonar::sonar_set,
+            headset::headset_list,
+            headset::headset_set,
+            headset::headset_eq,
             mixer::get_mixer,
             mixer::mixer_set,
             mixer::get_mixer_levels,
@@ -147,8 +141,11 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("failed to start FoxDen");
 
-    app.run(move |_, event| {
+    app.run(move |handle, event| {
         if let RunEvent::Exit = event {
+            if let Some(mixer) = handle.try_state::<mixer::Mixer>() {
+                mixer.shutdown();
+            }
             state::shutdown(&shared);
         }
     });

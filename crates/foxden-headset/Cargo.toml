@@ -1,0 +1,10 @@
+[package]
+name = "foxden-headset"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+foxden-core.workspace = true
+foxden-battery = { path = "../foxden-battery" }
+serde.workspace = true

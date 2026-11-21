@@ -67,9 +67,7 @@ pub fn spawn(app: AppHandle, shared: Shared) {
                 sync(&app, &mut shown, HashMap::new());
             } else if replugged || last.is_none_or(|t| t.elapsed() >= EVERY) {
                 let now = Instant::now();
-                let mut polled = foxden_battery::poll();
-                // SteelSeries GG fills in what the native drivers could not read, under the same keys.
-                polled.extend(crate::ggengine::batteries(&polled));
+                let polled = foxden_battery::poll();
                 merge(&mut known, polled, now);
                 let wanted = known
                     .iter()

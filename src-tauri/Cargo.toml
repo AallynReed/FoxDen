@@ -23,7 +23,8 @@ foxden-client = { path = "../crates/foxden-client" }
 foxden-net = { path = "../crates/foxden-net" }
 foxden-xpack = { path = "../crates/foxden-xpack" }
 foxden-battery = { path = "../crates/foxden-battery" }
-steelseries-gg = { path = "../crates/steelseries-gg", features = ["audio"] }
+foxden-headset = { path = "../crates/foxden-headset" }
+foxden-mixer = { path = "../crates/foxden-mixer" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }

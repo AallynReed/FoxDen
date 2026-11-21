@@ -954,7 +954,6 @@ mod tests {
                 "openrgb_port",
                 "send_reports",
                 "start_minimized",
-                "steelseries_gg",
                 "zone_leds"
             ]
         );

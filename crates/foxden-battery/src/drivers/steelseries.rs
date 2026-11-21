@@ -414,7 +414,10 @@ pub fn poll_steel_series(ctx: &mut Ctx) {
             continue;
         };
         for c in ctx.find(vid, pid, |c| pick.accepts(c)) {
-            let Some(b) = Dev::open(&c).and_then(|d| query(&d, pid)) else {
+            let Some(b) = Dev::open(&c).and_then(|d| {
+                let _turn = foxden_core::hid_turn::take();
+                query(&d, pid)
+            }) else {
                 continue;
             };
             if let Some(o) = ctx.out.iter_mut().find(|o| o.key == b.key) {

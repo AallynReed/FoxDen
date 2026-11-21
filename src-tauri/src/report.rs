@@ -108,7 +108,10 @@ pub fn catch_crashes() {
             .map(|s| s.to_string())
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_default();
-        let _ = std::fs::write(crate::config::dir().join(CRASH), format!("{message}{place}"));
+        let _ = std::fs::write(
+            crate::config::dir().join(CRASH),
+            format!("{message}{place}"),
+        );
         default(info);
     }));
 }
@@ -138,7 +141,11 @@ pub fn scrub(text: &str) -> String {
         .map(|word| {
             let bare = word.trim_matches(|c: char| "()[]{}<>,;'\"".contains(c));
             let host = bare.rsplit_once(':').map_or(bare, |(h, p)| {
-                if p.chars().all(|c| c.is_ascii_digit()) { h } else { bare }
+                if p.chars().all(|c| c.is_ascii_digit()) {
+                    h
+                } else {
+                    bare
+                }
             });
             if bare.contains('@') {
                 "<email>".into()
@@ -204,7 +211,10 @@ mod tests {
 
     #[test]
     fn scrub_keeps_ordinary_errors_and_caps_the_length() {
-        assert_eq!(scrub("device busy (0x08) on retry 3"), "device busy (0x08) on retry 3");
+        assert_eq!(
+            scrub("device busy (0x08) on retry 3"),
+            "device busy (0x08) on retry 3"
+        );
         assert!(scrub(&"é".repeat(5000)).len() <= LONGEST);
     }
 

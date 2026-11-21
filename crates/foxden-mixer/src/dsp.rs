@@ -1,5 +1,4 @@
-//! Sonar-style parametric EQ. Filter types follow Sonar's FilterType enum; the coefficient
-//! formulas are the standard RBJ biquads (Sonar's own APO maths isn't readable from managed code).
+//! Parametric EQ from the standard RBJ biquads.
 
 use serde::{Deserialize, Serialize};
 
@@ -52,7 +51,10 @@ impl FilterType {
     }
 
     pub fn uses_gain(self) -> bool {
-        matches!(self, FilterType::PeakingEQ | FilterType::LowShelving | FilterType::HighShelving)
+        matches!(
+            self,
+            FilterType::PeakingEQ | FilterType::LowShelving | FilterType::HighShelving
+        )
     }
 }
 
@@ -67,16 +69,28 @@ pub struct Band {
 
 impl Default for Band {
     fn default() -> Self {
-        Self { enabled: true, filter: FilterType::PeakingEQ, frequency: 1000.0, gain_db: 0.0, q: 0.707 }
+        Self {
+            enabled: true,
+            filter: FilterType::PeakingEQ,
+            frequency: 1000.0,
+            gain_db: 0.0,
+            q: 0.707,
+        }
     }
 }
 
-/// Ten bands at the octave centres Engine's flat preset uses (32 Hz … 16 kHz).
+/// Ten flat bands at octave centres, 32 Hz to 16 kHz.
 pub fn default_bands() -> Vec<Band> {
-    [32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0]
-        .iter()
-        .map(|&f| Band { frequency: f, q: 1.414, ..Band::default() })
-        .collect()
+    [
+        32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+    ]
+    .iter()
+    .map(|&f| Band {
+        frequency: f,
+        q: 1.414,
+        ..Band::default()
+    })
+    .collect()
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -99,13 +113,48 @@ fn coeffs(band: &Band, rate: f32) -> Option<Coeffs> {
     let alpha = sin / (2.0 * q);
     let a = 10f32.powf(band.gain_db / 40.0);
     let (b0, b1, b2, a0, a1, a2) = match band.filter {
-        FilterType::LowPass => ((1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
-        FilterType::HighPass => ((1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
-        FilterType::BandPassPeakQ => (sin / 2.0, 0.0, -sin / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
+        FilterType::LowPass => (
+            (1.0 - cos) / 2.0,
+            1.0 - cos,
+            (1.0 - cos) / 2.0,
+            1.0 + alpha,
+            -2.0 * cos,
+            1.0 - alpha,
+        ),
+        FilterType::HighPass => (
+            (1.0 + cos) / 2.0,
+            -(1.0 + cos),
+            (1.0 + cos) / 2.0,
+            1.0 + alpha,
+            -2.0 * cos,
+            1.0 - alpha,
+        ),
+        FilterType::BandPassPeakQ => (
+            sin / 2.0,
+            0.0,
+            -sin / 2.0,
+            1.0 + alpha,
+            -2.0 * cos,
+            1.0 - alpha,
+        ),
         FilterType::BandPassPeak0dB => (alpha, 0.0, -alpha, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
         FilterType::NotchFilter => (1.0, -2.0 * cos, 1.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
-        FilterType::AllPass => (1.0 - alpha, -2.0 * cos, 1.0 + alpha, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
-        FilterType::PeakingEQ => (1.0 + alpha * a, -2.0 * cos, 1.0 - alpha * a, 1.0 + alpha / a, -2.0 * cos, 1.0 - alpha / a),
+        FilterType::AllPass => (
+            1.0 - alpha,
+            -2.0 * cos,
+            1.0 + alpha,
+            1.0 + alpha,
+            -2.0 * cos,
+            1.0 - alpha,
+        ),
+        FilterType::PeakingEQ => (
+            1.0 + alpha * a,
+            -2.0 * cos,
+            1.0 - alpha * a,
+            1.0 + alpha / a,
+            -2.0 * cos,
+            1.0 - alpha / a,
+        ),
         FilterType::LowShelving => {
             let s = 2.0 * a.sqrt() * alpha;
             (
@@ -130,7 +179,13 @@ fn coeffs(band: &Band, rate: f32) -> Option<Coeffs> {
         }
         FilterType::ByPass => unreachable!(),
     };
-    Some(Coeffs { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 })
+    Some(Coeffs {
+        b0: b0 / a0,
+        b1: b1 / a0,
+        b2: b2 / a0,
+        a1: a1 / a0,
+        a2: a2 / a0,
+    })
 }
 
 /// A chain of biquads with its own state per audio channel.
@@ -143,9 +198,17 @@ pub struct Equalizer {
 
 impl Equalizer {
     pub fn new(bands: &[Band], rate: f32, channels: usize) -> Self {
-        let stages: Vec<Coeffs> = bands.iter().take(MAX_BANDS).filter_map(|b| coeffs(b, rate)).collect();
+        let stages: Vec<Coeffs> = bands
+            .iter()
+            .take(MAX_BANDS)
+            .filter_map(|b| coeffs(b, rate))
+            .collect();
         let state = vec![[0.0; 4]; stages.len() * channels.max(1)];
-        Self { stages, state, channels: channels.max(1) }
+        Self {
+            stages,
+            state,
+            channels: channels.max(1),
+        }
     }
 
     pub fn is_flat(&self) -> bool {
@@ -197,7 +260,12 @@ mod tests {
 
     #[test]
     fn peaking_hits_its_gain() {
-        let b = [Band { gain_db: 6.0, frequency: 1000.0, q: 1.0, ..Band::default() }];
+        let b = [Band {
+            gain_db: 6.0,
+            frequency: 1000.0,
+            q: 1.0,
+            ..Band::default()
+        }];
         let db = response_db(&b, 48000.0, 1000.0);
         assert!((db - 6.0).abs() < 0.1, "{db}");
         assert!(response_db(&b, 48000.0, 50.0).abs() < 0.5);

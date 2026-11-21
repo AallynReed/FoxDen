@@ -37,14 +37,12 @@ pub struct Settings {
     pub fans_module: bool,
     /// Close other lighting and fan software that holds the same devices.
     pub close_conflicts: bool,
-    /// Executables of conflicting software the user keeps running, such as SteelSeriesSonar.exe.
+    /// Executables of conflicting software the user keeps running, such as lghub_agent.exe.
     pub keep_running: Vec<String>,
     /// Send anonymous error reports.
     pub send_reports: bool,
     /// A tray icon with the battery level of each wireless device.
     pub battery_tray: bool,
-    /// Sonar, Engine and GameSense through SteelSeries GG, off until the user turns it on.
-    pub steelseries_gg: bool,
 }
 
 impl Default for Settings {
@@ -70,7 +68,6 @@ impl Default for Settings {
             keep_running: Vec::new(),
             send_reports: false,
             battery_tray: true,
-            steelseries_gg: false,
         }
     }
 }
@@ -169,6 +166,9 @@ pub struct Config {
     /// The standalone audio mixer's routes, volumes and EQ.
     #[serde(deserialize_with = "lenient")]
     pub audio: crate::mixer::AudioConfig,
+    /// Headset settings FoxDen last sent, by receiver.
+    #[serde(deserialize_with = "lenient_map")]
+    pub headsets: BTreeMap<String, crate::headset::Saved>,
 }
 
 impl Default for Config {
@@ -185,6 +185,7 @@ impl Default for Config {
             fan_backup: None,
             known_conflicts: Vec::new(),
             audio: Default::default(),
+            headsets: BTreeMap::new(),
         }
     }
 }
@@ -646,12 +647,27 @@ mod tests {
         config.audio.chat_mix = -0.4;
         config.audio.running = true;
         config.audio.channels[0].eq[2].gain_db = 4.5;
+        config.audio.channels[1].apps = vec!["Discord.exe".into()];
         save(&dir, &config).unwrap();
         assert_eq!(load(&dir), config);
-        fs::write(dir.join(FILE), r#"{"brightness":0.5,"audio":{"channels":"nope"}}"#).unwrap();
+        fs::write(
+            dir.join(FILE),
+            r#"{"brightness":0.5,"audio":{"channels":"nope"}}"#,
+        )
+        .unwrap();
         let read = load(&dir);
         assert_eq!((read.brightness, read.audio), (0.5, Default::default()));
         assert!(!dir.join(CORRUPT).exists());
+        // Settings and channels saved before apps and the GG setting went away still load.
+        fs::write(
+            dir.join(FILE),
+            r#"{"settings":{"steelseries_gg":true,"fps":40},"audio":{"channels":[{"channel":"chatRender","source":"Cable","on":true}]}}"#,
+        )
+        .unwrap();
+        let read = load(&dir);
+        assert_eq!(read.settings.fps, 40);
+        assert_eq!(read.audio.channels[0].source, "Cable");
+        assert!(read.audio.channels[0].apps.is_empty());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

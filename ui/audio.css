@@ -4,7 +4,7 @@
   container-type: inline-size;
 }
 
-/* Sonar and the mixer side by side, stacked on narrow windows. */
+/* The mixer and its EQ side by side, stacked on narrow windows. */
 .aud-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -14,7 +14,7 @@
 
 @container (min-width: 1100px) {
   .aud-page {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
   }
 }
 
@@ -30,16 +30,10 @@
   font-weight: 400;
 }
 
-.aud-body,
-.aud-off,
 .aud-eq {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.aud-off {
-  align-items: flex-start;
 }
 
 .aud-note {
@@ -99,18 +93,6 @@
   display: grid;
   align-items: center;
   gap: 6px 10px;
-}
-
-.aud-classic {
-  grid-template-columns: auto minmax(0, 1.2fr) minmax(80px, 1fr) auto auto;
-}
-
-.aud-stream {
-  grid-template-columns: auto repeat(2, minmax(70px, 1fr) auto auto);
-}
-
-.aud-span3 {
-  grid-column: span 3;
 }
 
 .aud-mix {
@@ -192,9 +174,8 @@
   clip-path: var(--cut);
 }
 
-.aud-eq {
-  padding-top: 4px;
-  border-top: 1px solid var(--line);
+.aud-eqbox .aud-eq h2 {
+  margin: 0;
 }
 
 .aud-eq .aud-bar .check {
@@ -231,10 +212,20 @@
 }
 
 /* Ten band columns, five to a row when narrow. */
+.aud-eqbox {
+  container-type: inline-size;
+}
+
 .aud-bands {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(max(68px, calc((100% - 72px) / 10)), 1fr));
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 8px;
+}
+
+@container (max-width: 480px) {
+  .aud-bands {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 
 .aud-band {
@@ -284,4 +275,148 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
 
 #panel-audio input[type="range"]:disabled {
   opacity: 0.4;
+}
+
+/* Play on and Park apps on, each label beside its list. */
+.aud-outs {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
+}
+
+.aud-btns {
+  display: flex;
+  gap: 8px;
+}
+
+@container (max-width: 760px) {
+  .aud-outs {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .aud-btns {
+    grid-column: 1 / -1;
+  }
+}
+
+.aud-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.aud-apps h3 {
+  margin: 0;
+}
+
+/* One column per channel, two per row when narrow. */
+.aud-appgrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@container (max-width: 640px) {
+  .aud-appgrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.aud-appcol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.aud-applist {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  background: var(--field);
+}
+
+.aud-app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 6px;
+  min-height: 28px;
+  padding: 2px 2px 2px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.aud-app:first-child {
+  border-top: 0;
+}
+
+.aud-app.warn {
+  border-left: 3px solid var(--danger);
+  padding-left: 5px;
+}
+
+.aud-apphead {
+  display: flex;
+  align-items: center;
+  gap: 0 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.aud-apphead .mark {
+  margin-right: 0;
+}
+
+.aud-appname {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aud-appword {
+  flex: none;
+  color: var(--muted);
+}
+
+.aud-appnote {
+  grid-column: 1 / -1;
+  padding-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.aud-none {
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.aud-x {
+  height: 24px;
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.aud-x:hover {
+  border-color: var(--line);
+  color: var(--text);
+}
+
+#panel-audio select.aud-add {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 28px;
+  font-size: 12px;
 }

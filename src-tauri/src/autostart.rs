@@ -42,7 +42,11 @@ fn task_xml(user: &str, exe: &str) -> String {
 fn user() -> String {
     let domain = std::env::var("USERDOMAIN").unwrap_or_default();
     let name = std::env::var("USERNAME").unwrap_or_default();
-    if domain.is_empty() { name } else { format!("{domain}\\{name}") }
+    if domain.is_empty() {
+        name
+    } else {
+        format!("{domain}\\{name}")
+    }
 }
 
 /// Adds or removes the sign-in task. The Run value older versions used is always removed.
@@ -91,7 +95,10 @@ mod tests {
         let shown = super::run("schtasks", &["/Query", "/TN", name, "/XML"]).unwrap();
         let _ = super::run("schtasks", &["/Delete", "/TN", name, "/F"]);
         let xml = String::from_utf8_lossy(&shown.stdout).to_string();
-        assert!(xml.contains("LogonTrigger") && xml.contains("--tray"), "{xml}");
+        assert!(
+            xml.contains("LogonTrigger") && xml.contains("--tray"),
+            "{xml}"
+        );
     }
 
     #[test]

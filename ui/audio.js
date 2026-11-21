@@ -1,35 +1,25 @@
-// Audio tab: Sonar's mixer through SteelSeries GG, and the standalone mixer. Fills #panel-audio.
+// Audio tab: the mixer, its per-channel apps and EQ. Fills #panel-audio.
 (function () {
   const root = document.getElementById("panel-audio");
   if (!root || !window.__TAURI__) return;
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
 
-  // Sonar's api id, label and redirection id, in the order the mixer reports levels.
+  // Channel id and label, in the order the mixer reports levels. All but the mic take apps.
   const CHANNELS = [
-    ["game", "Game", "game"],
-    ["chatRender", "Chat", "chat"],
-    ["media", "Media", "media"],
-    ["aux", "Aux", "aux"],
-    ["chatCapture", "Mic", "mic"],
+    ["game", "Game"],
+    ["chatRender", "Chat"],
+    ["media", "Media"],
+    ["aux", "Aux"],
+    ["chatCapture", "Mic"],
   ];
-  const MIXES = [
-    ["streaming", "Stream"],
-    ["monitoring", "Monitor"],
-  ];
-  const CHAT_STATES = {
-    finiteWheel: "Set by the dial on the headset.",
-    differentDeviceSelected: "Game and Chat play on different devices, so there is nothing to mix.",
-    noDeviceSelected: "Pick an output for Game and Chat first.",
-  };
+  const APP_CHANNELS = CHANNELS.filter(([id]) => id !== "chatCapture");
   const HOLD_MS = 2500;
   const SEND_MS = 90;
   const DB_RANGE = 15;
 
   const touched = new Map();
   const timers = new Map();
-  let snap = null;
-  let sonar = { state: "off" };
   let mix = null;
   let eqChannel = "game";
   let watching = false;
@@ -141,85 +131,6 @@
     select.value = current || "";
   }
 
-  // ---- Sonar ----
-
-  const so = {};
-
-  function buildSonar() {
-    so.mark = el("span", { className: "mark" });
-    so.state = el("span", { className: "state" }, so.mark, (so.stateText = el("span")));
-    so.head = el("h2", {}, "Sonar", so.state);
-    so.offText = el("p", { className: "hint", textContent: "Sonar's mixer needs the SteelSeries GG setting." });
-    so.turnOn = el("button", { type: "button", className: "primary", textContent: "Turn on SteelSeries GG" });
-    so.turnOn.onclick = turnOn;
-    so.off = el("div", { className: "aud-off" }, so.offText, so.turnOn);
-    so.note = el("p", { className: "aud-note" });
-    so.problem = el("p", { className: "problem", role: "alert", hidden: true });
-
-    so.mode = seg(
-      [
-        ["classic", "Classic"],
-        ["stream", "Streamer"],
-      ],
-      (mode) => {
-        touch("mode");
-        so.mode.pick(mode);
-        showMode(mode);
-        sendSonar({ kind: "mode", mode });
-      },
-    );
-    so.modeRow = el("div", { className: "aud-bar" }, el("span", { className: "aud-label", textContent: "Mode" }), so.mode);
-
-    so.classic = el("div", { className: "aud-grid aud-classic" });
-    so.classic.append(...["", "Device", "Volume", "", ""].map((t) => el("span", { className: "aud-col", textContent: t })));
-    so.rows = {};
-    for (const [id, label, redirect] of [["master", "Master", null], ...CHANNELS]) {
-      const row = (so.rows[id] = {});
-      const name = el("span", { className: "aud-name", textContent: label });
-      row.device = el("select", { className: "aud-device" });
-      row.device.setAttribute("aria-label", label + " device");
-      row.device.hidden = !redirect;
-      row.device.onchange = () => {
-        touch("d" + id);
-        sendSonar({ kind: "device", channel: id, id: row.device.value });
-      };
-      const vkey = id === "master" ? "v" : "v" + id;
-      const mkey = id === "master" ? "m" : "m" + id;
-      row.vol = volume(vkey, label, (v) => sendSonar(id === "master" ? { kind: "master", volume: v } : { kind: "volume", channel: id, volume: v }));
-      row.mute = muteButton(mkey, label, (m) =>
-        sendSonar(id === "master" ? { kind: "master_mute", muted: m } : { kind: "mute", channel: id, muted: m }),
-      );
-      so.classic.append(name, redirect ? row.device : el("span"), row.vol.input, row.vol.out, row.mute);
-      row.redirect = redirect;
-    }
-
-    so.stream = el("div", { className: "aud-grid aud-stream" });
-    so.stream.append(el("span"), ...MIXES.map(([, t]) => el("span", { className: "aud-col aud-span3", textContent: t })));
-    so.srows = {};
-    for (const [id, label] of [["master", "Master"], ...CHANNELS]) {
-      so.stream.append(el("span", { className: "aud-name", textContent: label }));
-      so.srows[id] = {};
-      for (const [mixId, mixLabel] of MIXES) {
-        const key = mixId + id;
-        const vol = volume("sv" + key, label + " " + mixLabel, (v) =>
-          sendSonar(id === "master" ? { kind: "stream_master", mix: mixId, volume: v } : { kind: "stream_volume", mix: mixId, channel: id, volume: v }),
-        );
-        const mute = muteButton("sm" + key, label + " " + mixLabel, (m) =>
-          sendSonar(
-            id === "master" ? { kind: "stream_master_mute", mix: mixId, muted: m } : { kind: "stream_mute", mix: mixId, channel: id, muted: m },
-          ),
-        );
-        so.srows[id][mixId] = { vol, mute };
-        so.stream.append(vol.input, vol.out, mute);
-      }
-    }
-
-    so.chat = chatMix("cm", (b) => sendSonar({ kind: "chat_mix", balance: b }));
-    so.chatHint = el("p", { className: "hint", hidden: true });
-    so.body = el("div", { className: "aud-body" }, so.modeRow, so.classic, so.stream, so.chat.row, so.chatHint);
-    so.box = el("section", { className: "box aud-sonar" }, so.head, so.off, so.note, so.problem, so.body);
-  }
-
   function chatMix(key, send) {
     const input = el("input", { type: "range", min: -100, max: 100, step: 1 });
     input.setAttribute("aria-label", "Chat mix");
@@ -250,73 +161,7 @@
     };
   }
 
-  function sendSonar(change) {
-    invoke("sonar_set", { change }).catch((e) => say(so.problem, message(e)));
-  }
-
-  function turnOn() {
-    if (!snap) return;
-    so.turnOn.setAttribute("aria-disabled", "true");
-    invoke("set_settings", { settings: { ...snap.settings, steelseries_gg: true } })
-      .catch((e) => say(so.problem, message(e)))
-      .finally(() => so.turnOn.removeAttribute("aria-disabled"));
-  }
-
-  function showMode(mode) {
-    so.classic.hidden = mode === "stream";
-    so.stream.hidden = mode !== "stream";
-  }
-
-  function renderSonar() {
-    const v = sonar;
-    const off = v.state === "off";
-    const online = v.state === "online";
-    so.mark.className = "mark" + (online ? " on" : v.state === "offline" ? " warn" : "");
-    setText(so.stateText, { off: "Off", searching: "Looking for GG", offline: "Not connected", online: "Connected" }[v.state] || v.state);
-    so.off.hidden = !off;
-    say(so.note, off || online ? "" : v.state === "searching" ? "Looking for SteelSeries GG..." : (v.problem || "SteelSeries GG is not running") + ". The mixer beside this one works without it.");
-    say(so.problem, online ? v.error : "");
-    so.body.hidden = !online;
-    if (!online) return;
-
-    const mode = v.mode || "classic";
-    if (!held("mode")) {
-      so.mode.pick(mode);
-      showMode(mode);
-    }
-    const classic = v.classic || { masters: {}, devices: {} };
-    const vm = (slot) => (slot && slot.classic) || {};
-    const outputs = (v.outputs || []).map((d) => [d.id, d.name]);
-    const inputs = (v.inputs || []).map((d) => [d.id, d.name]);
-    for (const [id, row] of Object.entries(so.rows)) {
-      const slot = id === "master" ? classic.masters : (classic.devices || {})[id];
-      row.vol.show(vm(slot).volume);
-      row.mute.show(vm(slot).muted);
-      if (row.redirect && !held("d" + id)) {
-        const r = (v.redirections || []).find((x) => x.id === row.redirect);
-        options(row.device, id === "chatCapture" ? inputs : outputs, r ? r.deviceId : "", "Unknown device");
-      }
-    }
-    const streamer = v.streamer || { masters: {}, devices: {} };
-    for (const [id, mixes] of Object.entries(so.srows)) {
-      const slot = (id === "master" ? streamer.masters : (streamer.devices || {})[id]) || {};
-      for (const [mixId, c] of Object.entries(mixes)) {
-        const s = (slot.stream || {})[mixId] || {};
-        c.vol.show(s.volume);
-        c.mute.show(s.muted);
-      }
-    }
-    const cm = v.chat_mix;
-    so.chat.row.hidden = !cm;
-    if (cm) {
-      so.chat.show(cm.balance);
-      const writable = cm.state === "enabled";
-      so.chat.input.disabled = !writable;
-      say(so.chatHint, writable ? "" : CHAT_STATES[cm.state] || "Read-only right now.");
-    } else so.chatHint.hidden = true;
-  }
-
-  // ---- Standalone mixer ----
+  // ---- Mixer ----
 
   const mx = { rows: {} };
 
@@ -324,12 +169,21 @@
     mx.mark = el("span", { className: "mark" });
     mx.stateText = el("span");
     mx.head = el("h2", {}, "Mixer", el("span", { className: "state" }, mx.mark, mx.stateText));
-    mx.hint = el("p", { className: "hint", textContent: "Sonar's volumes, chat mix and EQ without GG. Records an input, or what plays on an output, and plays it on one output." });
+    mx.hint = el("p", {
+      className: "hint",
+      textContent: "Mixes apps, an input, or what plays on an output into each channel and plays the result on one output. Apps you add are parked on a spare output, muted while the mixer runs, so each is heard once.",
+    });
     mx.output = el("select", { className: "aud-device" });
     mx.output.setAttribute("aria-label", "Play on");
     mx.output.onchange = () => {
       touch("output");
       sendMix({ kind: "output", name: mx.output.value });
+    };
+    mx.park = el("select", { className: "aud-device" });
+    mx.park.setAttribute("aria-label", "Park apps on");
+    mx.park.onchange = () => {
+      touch("park");
+      sendMix({ kind: "park", name: mx.park.value });
     };
     mx.rescan = el("button", { type: "button", textContent: "Rescan" });
     mx.rescan.onclick = () => loadMixer(true);
@@ -338,8 +192,17 @@
       mx.run.setAttribute("aria-disabled", "true");
       sendMix({ kind: "run", on: !(mix && mix.running) }).finally(() => mx.run.removeAttribute("aria-disabled"));
     };
-    mx.bar = el("div", { className: "aud-bar" }, el("span", { className: "aud-label", textContent: "Play on" }), mx.output, mx.rescan, mx.run);
+    mx.bar = el(
+      "div",
+      { className: "aud-bar aud-outs" },
+      el("span", { className: "aud-label", textContent: "Play on" }),
+      mx.output,
+      el("span", { className: "aud-label", textContent: "Park apps on" }),
+      mx.park,
+      el("span", { className: "aud-btns" }, mx.rescan, mx.run),
+    );
     mx.problem = el("p", { className: "problem", role: "alert", hidden: true });
+    mx.parked = el("p", { className: "aud-note", hidden: true });
 
     mx.grid = el("div", { className: "aud-grid aud-mix" });
     mx.grid.append(...["", "Source", "Volume", "", "", "Level"].map((t) => el("span", { className: "aud-col", textContent: t })));
@@ -352,11 +215,12 @@
       const route = () => {
         touch("r" + id);
         const [kind, ...rest] = row.source.value.split(":");
-        sendMix({ kind: "route", channel: id, source: rest.join(":"), loopback: kind === "out", on: row.on.checked && !!row.source.value });
+        const apps = (chan(id) || {}).apps || [];
+        sendMix({ kind: "route", channel: id, source: rest.join(":"), loopback: kind === "out", on: row.on.checked && (!!row.source.value || apps.length > 0) });
       };
       row.on.onchange = route;
       row.source.onchange = () => {
-        row.on.checked = !!row.source.value;
+        row.on.checked = !!row.source.value || ((chan(id) || {}).apps || []).length > 0;
         route();
       };
       row.vol = volume("mv" + id, label, (v) => sendMix({ kind: "volume", channel: id, volume: v }));
@@ -371,8 +235,80 @@
     mx.grid.append(el("span", { className: "aud-name", textContent: "Master" }), el("span"), mx.master.input, mx.master.out, mx.masterMute, el("span"));
     mx.chat = chatMix("mcm", (b) => sendMix({ kind: "chat_mix", balance: b }));
 
+    buildApps();
     buildEq();
-    mx.box = el("section", { className: "box aud-mixer" }, mx.head, mx.hint, mx.bar, mx.problem, mx.grid, mx.chat.row, mx.eq);
+    mx.box = el("section", { className: "box aud-mixer" }, mx.head, mx.hint, mx.bar, mx.problem, mx.parked, mx.grid, mx.chat.row, mx.apps);
+    mx.eqBox = el("section", { className: "box aud-eqbox" }, mx.eq);
+  }
+
+  // ---- Apps per channel ----
+
+  const lower = (s) => s.toLowerCase();
+  const shortName = (exe) => exe.replace(/\.exe$/i, "");
+
+  function buildApps() {
+    mx.appCols = {};
+    const cols = APP_CHANNELS.map(([id, label]) => {
+      const list = el("ul", { className: "aud-applist" });
+      list.setAttribute("aria-label", label + " apps");
+      const add = el("select", { className: "aud-add" });
+      add.setAttribute("aria-label", "Add an app to " + label);
+      add.onchange = () => {
+        const exe = add.value;
+        add.value = "";
+        if (!exe) return;
+        const apps = [...((chan(id) || {}).apps || []), exe];
+        sendMix({ kind: "apps", channel: id, apps });
+      };
+      mx.appCols[id] = { list, add };
+      return el("div", { className: "aud-appcol" }, el("span", { className: "aud-col", textContent: label }), list, add);
+    });
+    mx.apps = el("div", { className: "aud-apps" }, el("h3", { textContent: "Apps" }), el("div", { className: "aud-appgrid" }, ...cols));
+  }
+
+  // Where an assigned app stands while the mixer runs.
+  function appState(exe) {
+    if (!mix.running) return ["", "", ""];
+    const st = (mix.app_states || {})[lower(exe)];
+    if (!st || st.state === "idle") return ["", "Not playing", ""];
+    if (st.state === "playing") return ["on", "Mixed", ""];
+    if (st.state === "elsewhere") return ["warn", "Restart it", "Still playing on " + st.output + ". Restart it to move it."];
+    if (st.state === "contains") return ["warn", "Not mixed", "It started " + shortName(st.app) + ", which is in another channel."];
+    return ["warn", "Failed", st.message];
+  }
+
+  function renderApps() {
+    const assigned = new Set(mix.config.channels.flatMap((c) => c.apps || []).map(lower));
+    const free = (mix.apps || []).filter((a) => !assigned.has(lower(a.exe)));
+    for (const [id, label] of APP_CHANNELS) {
+      const col = mx.appCols[id];
+      const apps = (chan(id) || {}).apps || [];
+      const want = JSON.stringify([apps, mix.running, apps.map((a) => appState(a))]);
+      if (col.list.dataset.list !== want) {
+        col.list.dataset.list = want;
+        col.list.replaceChildren(
+          ...apps.map((exe) => {
+            const [mark, word, note] = appState(exe);
+            const remove = el("button", { type: "button", className: "aud-x", textContent: "Remove" });
+            remove.setAttribute("aria-label", "Remove " + shortName(exe) + " from " + label);
+            remove.onclick = () => sendMix({ kind: "apps", channel: id, apps: apps.filter((a) => a !== exe) });
+            const head = el("span", { className: "aud-apphead" }, el("span", { className: "mark" + (mark ? " " + mark : "") }), el("span", { className: "aud-appname", textContent: shortName(exe), title: exe }));
+            const item = el("li", { className: "aud-app" + (mark === "warn" ? " warn" : "") }, head, remove);
+            if (word) head.title = shortName(exe) + ": " + word;
+            if (mark === "warn") head.append(el("span", { className: "aud-appword", textContent: word }));
+            if (note) item.append(el("span", { className: "aud-appnote", textContent: note }));
+            return item;
+          }),
+        );
+        if (!apps.length) col.list.append(el("li", { className: "aud-none", textContent: "No apps" }));
+      }
+      options(
+        col.add,
+        [["", free.length ? "Add app" : "No other apps with sound"], ...free.map((a) => [a.exe, shortName(a.exe) + (a.active ? " (playing)" : "")])],
+        "",
+        "",
+      );
+    }
   }
 
   function buildEq() {
@@ -430,7 +366,7 @@
     mx.eq = el(
       "div",
       { className: "aud-eq" },
-      el("h3", { textContent: "Parametric EQ" }),
+      el("h2", { textContent: "Parametric EQ" }),
       el("div", { className: "aud-bar" }, mx.eqSeg, el("label", { className: "check" }, mx.eqOn, "On"), mx.flat),
       mx.plot,
       mx.bands,
@@ -470,7 +406,7 @@
   async function sendMix(change) {
     try {
       take(await invoke("mixer_set", { change }));
-      say(mx.problem, mix.error);
+      say(mx.problem, problemText());
     } catch (e) {
       say(mx.problem, message(e));
       loadMixer(false);
@@ -492,10 +428,12 @@
     renderMixer();
   }
 
+  const problemText = () => mix.error || (mix.running && mix.park_error) || "";
+
   async function loadMixer(rescan) {
     try {
       take(await invoke("get_mixer", { rescan }));
-      say(mx.problem, mix.error);
+      say(mx.problem, problemText());
     } catch (e) {
       say(mx.problem, message(e));
     }
@@ -509,6 +447,12 @@
     setText(mx.run, mix.running ? "Stop" : "Start");
     mx.run.classList.toggle("primary", !mix.running);
     if (!held("output")) options(mx.output, mix.outputs.map((o) => [o, o]), cfg.output, cfg.output + " (missing)");
+    if (!held("park")) {
+      const spare = mix.outputs.filter((o) => o !== cfg.output).map((o) => [o, o]);
+      options(mx.park, [["", "Automatic"], ...spare], cfg.park || "", (cfg.park || "") + " (missing)");
+    }
+    const parking = mix.running && mix.parked_on;
+    say(mx.parked, parking ? "Apps are parked on " + mix.parked_on + ", which stays muted until the mixer stops." : "");
     for (const c of cfg.channels) {
       const row = mx.rows[c.channel];
       if (!row) continue;
@@ -528,6 +472,7 @@
     mx.master.show(cfg.master);
     mx.masterMute.show(cfg.master_muted);
     mx.chat.show(cfg.chat_mix);
+    renderApps();
     renderEq();
   }
 
@@ -581,33 +526,19 @@
 
   // ---- Page ----
 
+  // Reads the mixer when the tab is shown, and app states every few seconds while it plays.
   function watch() {
     const on = visible();
-    if (on === watching) return;
+    if (on && !watching) loadMixer(false);
     watching = on;
-    invoke("sonar_watch", { on }).catch(() => {});
-    if (on) {
-      invoke("get_sonar").then((v) => {
-        sonar = v;
-        renderSonar();
-      });
-      loadMixer(false);
-    }
   }
 
-  buildSonar();
   buildMixer();
-  root.replaceChildren(el("div", { className: "aud-page" }, so.box, mx.box));
-  renderSonar();
+  root.replaceChildren(el("div", { className: "aud-page" }, mx.box, mx.eqBox));
 
   new MutationObserver(watch).observe(root, { attributes: true, attributeFilter: ["hidden"] });
   document.addEventListener("visibilitychange", watch);
-  listen("sonar", (e) => {
-    sonar = e.payload;
-    renderSonar();
-  });
-  listen("snapshot", (e) => (snap = e.payload));
-  invoke("get_snapshot").then((s) => (snap = snap || s));
   setInterval(levels, 100);
+  setInterval(() => watching && mix && mix.running && loadMixer(false), 2000);
   watch();
 })();
