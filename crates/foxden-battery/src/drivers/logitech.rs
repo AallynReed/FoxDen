@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::hid::{Coll, Dev};
@@ -450,6 +451,22 @@ impl Link {
     }
 }
 
+/// Identities seen per product and slot, so a missed read never gives a device a second key.
+type Idents = HashMap<(u16, u8), (String, String)>;
+static IDENTS: Mutex<Option<Idents>> = Mutex::new(None);
+
+fn remembered(pid: u16, idx: u8, read: Option<(String, String)>) -> Option<(String, String)> {
+    let mut known = IDENTS.lock().unwrap_or_else(|e| e.into_inner());
+    let map = known.get_or_insert_with(HashMap::new);
+    match read {
+        Some(ident) => {
+            map.insert((pid, idx), ident.clone());
+            Some(ident)
+        }
+        None => map.get(&(pid, idx)).cloned(),
+    }
+}
+
 /// One receiver, cable or Bluetooth link. Returns true when it reported or deduplicated a device.
 fn poll_link(
     ctx: &mut Ctx,
@@ -488,7 +505,7 @@ fn poll_link(
             Some(Ok(p)) if p.first().is_some_and(|&v| v >= 2) => {
                 let (name, kind) = link.name_and_kind(idx);
                 let reading = link.battery_20(idx, pid);
-                let ident = reading.as_ref().and_then(|_| link.identity(idx));
+                let ident = reading.as_ref().and_then(|_| remembered(pid, idx, link.identity(idx)));
                 (reading, name, kind, ident)
             }
             Some(Err(0x01)) => (link.battery_10(idx), None, Kind::Other, None),
@@ -720,6 +737,14 @@ pub fn poll_logitech(ctx: &mut Ctx) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_missed_identity_read_keeps_the_known_one() {
+        let ident = ("unit".to_string(), "G515".to_string());
+        assert_eq!(remembered(0xFFF0, 1, Some(ident.clone())), Some(ident.clone()));
+        assert_eq!(remembered(0xFFF0, 1, None), Some(ident));
+        assert_eq!(remembered(0xFFF0, 2, None), None);
+    }
 
     #[test]
     fn replies_match_index_feature_and_software_id() {
