@@ -41,8 +41,8 @@ pub fn report() -> Vec<String> {
         .into_iter()
         .map(|w| format!("not opened: {w}"))
         .collect();
-    for bus in &buses {
-        let i = bus.info();
+    for bus in buses {
+        let i = bus.info().clone();
         let alive: Vec<u8> = (0x08..0x78u8)
             .filter(|&a| bus.read_byte_data(a, 0).is_ok())
             .collect();
@@ -59,17 +59,21 @@ pub fn report() -> Vec<String> {
                 hex(&alive)
             }
         ));
+        let shared: i2c::SharedBus = Arc::new(Mutex::new(Box::new(bus) as Box<dyn i2c::SmBus>));
         for &a in alive
             .iter()
             .filter(|a| matches!(a, 0x40 | 0x4E | 0x4F | 0x70..=0x77))
         {
-            let regs: Vec<String> = (0xA0..0xB0u8)
-                .map(|r| {
-                    bus.read_byte_data(a, r)
-                        .map_or("--".into(), |v| format!("{v:02x}"))
-                })
+            let regs: Vec<u8> = (0xA0..0xB0u8)
+                .map(|r| i2c::lock(&shared).read_byte_data(a, r).unwrap_or(0xFF))
                 .collect();
-            out.push(format!("  {a:02x} a0-af: {}", regs.join(" ")));
+            out.push(format!("  {a:02x} a0-af: {}", hex(&regs)));
+            if regs.iter().enumerate().all(|(i, &v)| v == i as u8) {
+                out.push(format!(
+                    "  {a:02x} {}",
+                    families::boards::ene::describe(&shared, a)
+                ));
+            }
         }
     }
     out

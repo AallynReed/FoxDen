@@ -2,7 +2,7 @@
 
 use crate::i2c::Detect;
 
-mod boards;
+pub(crate) mod boards;
 mod dram;
 
 pub fn all() -> Vec<Detect> {

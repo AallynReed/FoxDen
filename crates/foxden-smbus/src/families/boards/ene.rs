@@ -94,6 +94,22 @@ fn version_regs(version: &[u8]) -> (u16, Option<usize>) {
     }
 }
 
+/// The chip's version string and the start of its config table, for device reports.
+pub fn describe(bus: &SharedBus, addr: u8) -> String {
+    let ctx = Ctx::real(bus);
+    let name: Vec<u8> = (0..16)
+        .map(|i| reg_read(&ctx, addr, REG_DEVICE_NAME + i))
+        .collect();
+    let config: Vec<String> = (0..16)
+        .map(|i| format!("{:02x}", reg_read(&ctx, addr, REG_CONFIG_TABLE + i)))
+        .collect();
+    format!(
+        "version \"{}\", config {}",
+        String::from_utf8_lossy(c_str(&name)),
+        config.join(" ")
+    )
+}
+
 struct Chip {
     ctx: Ctx,
     dev: u8,
@@ -151,7 +167,8 @@ fn backend(
     kind: DeviceKind,
     rect: [f32; 4],
 ) -> Option<Box<dyn Backend>> {
-    if chip.leds == 0 || chip.led_count == 0 {
+    // 0xFF everywhere is a chip that did not answer its config reads.
+    if chip.leds == 0 || !(1..=120).contains(&chip.led_count) {
         return None;
     }
     let n = chip.leds as u32;

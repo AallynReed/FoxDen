@@ -9,7 +9,7 @@ use crate::i2c::{BusInfo, Detect, SharedBus, lock};
 
 mod asrock;
 mod dmi;
-mod ene;
+pub(crate) mod ene;
 mod ene_gpus;
 mod evga;
 #[cfg(test)]
