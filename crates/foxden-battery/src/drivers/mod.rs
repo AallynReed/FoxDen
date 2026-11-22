@@ -46,6 +46,7 @@ mod keychron;
 mod kysona;
 mod lamzu;
 mod logitech;
+mod logitech_centurion;
 mod logitech_g435_0adf;
 mod machenike;
 mod maono;
@@ -166,6 +167,7 @@ pub const ORDER: &[fn(&mut Ctx)] = &[
     hyperx::poll_hyper_x,
     logitech_g435_0adf::poll_logitech_g435,
     astro::poll_astro,
+    logitech_centurion::poll_logitech_centurion,
     logitech::poll_logitech,
     razer::poll_razer,
     steelseries_elite::poll_steel_series_elite,

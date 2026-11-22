@@ -191,6 +191,20 @@ const AEROX: &[Aerox] = &[
     aerox(0x1840, 0x1840, "SteelSeries Prime Wireless", false, false),
     aerox(0x1842, 0x1840, "SteelSeries Prime Wireless", true, false),
     aerox(
+        0x1848,
+        0x1848,
+        "SteelSeries Prime Mini Wireless",
+        false,
+        false,
+    ),
+    aerox(
+        0x184A,
+        0x1848,
+        "SteelSeries Prime Mini Wireless",
+        true,
+        false,
+    ),
+    aerox(
         0x1860,
         0x1860,
         "SteelSeries Aerox 5 Wireless Diablo IV Edition",
@@ -508,6 +522,10 @@ mod tests {
         assert_eq!(aerox_status(gen2, &[0xD2, 0x00, 0xFF]), Some((None, false)));
         assert_eq!(aerox_status(gen2, &[0xD2, 0x00, 0x00]), None);
         assert_eq!(aerox_status(gen2, &[0xD2, 0x05, 0x10]), None);
+        let mini = AEROX.iter().find(|m| m.pid == 0x184A).unwrap();
+        assert_eq!((mini.home, mini.wired), (0x1848, true));
+        assert_eq!(aerox_status(mini, &[0x92, 0x95]), Some((Some(100), true)));
+        assert_eq!(collection(0x1848).map(|_| ()), Some(()));
     }
 
     #[test]

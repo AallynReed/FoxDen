@@ -35,9 +35,34 @@ const MICE: &[u16] = &[
     0x0098, 0x0099, 0x009A, 0x009C, 0x009E, 0x009F, 0x00A1, 0x00A3, 0x00A5, 0x00A6, 0x00A7, 0x00A8,
     0x00AA, 0x00AB, 0x00AF, 0x00B0, 0x00B2, 0x00B3, 0x00B4, 0x00B6, 0x00B7, 0x00B8, 0x00B9, 0x00BE,
     0x00BF, 0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C7, 0x00C8, 0x00CB, 0x00CC, 0x00CD,
-    0x00D0, 0x00D1, 0x00D3, 0x00D4, 0x00D6, 0x00D7, 0x00DA, 0x00DB, 0x00DE, 0x00DF, 0x00E0, 0x00E5,
-    0x00E6,
+    0x00D0, 0x00D1, 0x00D3, 0x00D4, 0x00D6, 0x00D7, 0x00DA, 0x00DB, 0x00DE, 0x00DF, 0x00E0, 0x00E2,
+    0x00E3, 0x00E5, 0x00E6, 0x00E7, 0x00E8,
 ];
+
+/// Relays to the docked mouse: 0x1F or 0x0F reach the mouse, 0xFF the dock itself.
+const MOUSE_DOCK_PRO: u16 = 0x00A4;
+/// Naga V3 Pro over its receiver answers about 100 ms after a request.
+const SLOW: &[u16] = &[0x00E8];
+
+/// Milliseconds to wait for the first answer and for each later look.
+fn pace(pid: u16) -> (u64, u64) {
+    if keyboard_tid(pid).is_some() {
+        (5, 5)
+    } else if SLOW.contains(&pid) {
+        (100, 100)
+    } else {
+        (15, 40)
+    }
+}
+
+fn tids(pid: u16) -> Vec<u8> {
+    match (pid, keyboard_tid(pid)) {
+        (MOUSE_DOCK_PRO, _) => vec![0x1F, 0x0F],
+        _ if SLOW.contains(&pid) => vec![0x1F],
+        (_, Some(t)) => vec![t],
+        _ => vec![0x1F, 0x3F, 0xFF, 0x08, 0x9F],
+    }
+}
 
 /// The transaction id a keyboard's battery commands need, when it is known.
 fn keyboard_tid(pid: u16) -> Option<u8> {
@@ -100,7 +125,7 @@ enum Outcome {
 }
 
 /// The feature mailbox is shared with lighting and the vendor app: resend when someone else's reply is there.
-fn command(dev: &Dev, tid: u8, class: u8, id: u8, keyboard: bool) -> Outcome {
+fn command(dev: &Dev, tid: u8, class: u8, id: u8, (first, next): (u64, u64)) -> Outcome {
     let req = request(tid, class, id, 0x02);
     let mut out = vec![0u8];
     out.extend_from_slice(&req);
@@ -110,14 +135,11 @@ fn command(dev: &Dev, tid: u8, class: u8, id: u8, keyboard: bool) -> Outcome {
         if send && !dev.set_feature(&out) {
             return Outcome::Silent;
         }
-        let wait = if keyboard {
-            5
-        } else if attempt == 0 {
-            15
+        sleep(Duration::from_millis(if attempt == 0 {
+            first
         } else {
-            40
-        };
-        sleep(Duration::from_millis(wait));
+            next
+        }));
         send = true;
         last = Outcome::Silent;
         let Some(r) = dev.get_feature(0) else {
@@ -168,15 +190,11 @@ pub fn poll_razer(ctx: &mut Ctx) {
             let Some(dev) = Dev::open_feature_only(&c) else {
                 continue;
             };
-            let tids = match keyboard_tid(pid) {
-                Some(t) => vec![t],
-                None => vec![0x1F, 0x3F, 0xFF, 0x08, 0x9F],
-            };
-            let keyboard = keyboard_tid(pid).is_some();
+            let pace = pace(pid);
             let mut found = None;
             let mut offline = false;
-            for t in tids {
-                match command(&dev, t, POWER, LEVEL, keyboard) {
+            for t in tids(pid) {
+                match command(&dev, t, POWER, LEVEL, pace) {
                     Outcome::Args(a) => {
                         found = Some((t, a));
                         break;
@@ -188,10 +206,15 @@ pub fn poll_razer(ctx: &mut Ctx) {
             if found.is_none() && !offline {
                 continue;
             }
-            let name = clean_name(&c.product);
+            let docked = pid == MOUSE_DOCK_PRO;
+            let name = if docked {
+                "Razer mouse on Mouse Dock Pro".to_string()
+            } else {
+                clean_name(&c.product)
+            };
             let mut kind = if KEYBOARDS.contains(&pid) {
                 Kind::Keyboard
-            } else if MICE.contains(&pid) {
+            } else if docked || MICE.contains(&pid) {
                 Kind::Mouse
             } else {
                 kind_from_collections(&ctx.colls, vid, pid)
@@ -201,7 +224,12 @@ pub fn poll_razer(ctx: &mut Ctx) {
             }
             let mut b = Battery {
                 name,
-                via: "2.4 GHz receiver".into(),
+                via: if docked {
+                    "Mouse Dock Pro"
+                } else {
+                    "2.4 GHz receiver"
+                }
+                .into(),
                 kind,
                 grace_secs: 120,
                 connected: found.is_some(),
@@ -209,7 +237,7 @@ pub fn poll_razer(ctx: &mut Ctx) {
             };
             if let Some((tid, args)) = found {
                 b.percent = Some(level_percent(args[1]));
-                if let Outcome::Args(ch) = command(&dev, tid, POWER, CHARGING, keyboard) {
+                if let Outcome::Args(ch) = command(&dev, tid, POWER, CHARGING, pace) {
                     b.charging = ch[1] == 1;
                 }
             }
@@ -285,5 +313,24 @@ mod tests {
         assert_eq!(clean_name(""), "Razer device");
         assert_eq!(keyboard_tid(0x025C), Some(0x9F));
         assert!(MICE.contains(&0x007A) && KEYBOARDS.contains(&0x0A24));
+        assert!(
+            [0x00E2, 0x00E3, 0x00E7, 0x00E8]
+                .iter()
+                .all(|p| MICE.contains(p))
+        );
+        assert!(MICE.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn dock_and_slow_receivers() {
+        assert_eq!(tids(MOUSE_DOCK_PRO), [0x1F, 0x0F]);
+        assert_eq!(tids(0x00E3)[0], 0x1F);
+        assert_eq!(tids(0x025C), [0x9F]);
+        assert_eq!(pace(0x00E8), (100, 100));
+        assert_eq!(tids(0x00E8), [0x1F]);
+        assert_eq!(pace(0x00E3), (15, 40));
+        let r = request(0x0F, POWER, CHARGING, 0x02);
+        assert_eq!(r[..8], [0x00, 0x0F, 0x00, 0x00, 0x00, 0x02, 0x07, 0x84]);
+        assert_eq!(r[88], 0x02 ^ 0x07 ^ 0x84);
     }
 }

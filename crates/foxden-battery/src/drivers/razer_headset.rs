@@ -133,6 +133,54 @@ fn poll_v3(ctx: &mut Ctx) {
     }
 }
 
+// Kraken V4 Pro: V3 framing on page FF00; the hub (0568) relays 0x80 to the headset, the cable (0567) takes 0x00.
+
+const KRAKEN_V4_PRO: &[(u16, i32, u8, &str)] = &[
+    (0x0567, 5, 0x00, "USB cable"),
+    (0x0568, 4, 0x80, "OLED hub"),
+];
+
+fn kraken_reply(cmd: u8, r: &[u8]) -> Option<u8> {
+    (r.len() >= 14 && r[0] == 0x02 && r[1] == 0x02 && r[10] == cmd && r[11] == 0x01 && r[12] >= 1)
+        .then(|| r[13])
+}
+
+fn kraken_get(dev: &Dev, dir: u8, cmd: u8) -> Option<u8> {
+    let req = v3_packet(dir, cmd);
+    let wait = Duration::from_secs(1);
+    if dev.write(&req) {
+        return read_for(dev, wait, |r| kraken_reply(cmd, r));
+    }
+    let first = dev.set_output_and_read(&req, wait)?;
+    kraken_reply(cmd, &first).or_else(|| read_for(dev, wait, |r| kraken_reply(cmd, r)))
+}
+
+fn poll_kraken_v4_pro(ctx: &mut Ctx) {
+    for &(pid, iface, dir, via) in KRAKEN_V4_PRO {
+        if ctx.is_claimed(VID, pid) {
+            continue;
+        }
+        let colls = ctx.find(VID, pid, |c| {
+            c.iface == iface && c.page == 0xFF00 && c.out_len >= 64 && c.in_len >= 14
+        });
+        let Some(dev) = colls.first().and_then(Dev::open) else {
+            continue;
+        };
+        dev.flush();
+        let level = kraken_get(&dev, dir, LEVEL).filter(|&l| l <= 100);
+        let charging = level.is_some() && kraken_get(&dev, dir, CHARGING).is_some_and(|c| c != 0);
+        let mut b = headset(pid, "Razer Kraken V4 Pro", via, level, charging);
+        b.key = "razer-kraken-v4-pro".into();
+        b.connected = level.is_some();
+        b.grace_secs = 120;
+        add(ctx, pid, b);
+        for &(other, ..) in KRAKEN_V4_PRO {
+            ctx.claim(VID, other);
+        }
+        return;
+    }
+}
+
 // BlackShark V3 X: feature report 07, `07 status txid 00 00 00 argc class cmd args..`, xor of 3..=60 at 62.
 
 static V3X_TXID: AtomicU8 = AtomicU8::new(0x40);
@@ -623,6 +671,7 @@ pub fn poll_razer_headsets(ctx: &mut Ctx) {
     poll_v2_pro_2023(ctx);
     poll_v3x(ctx);
     poll_v3(ctx);
+    poll_kraken_v4_pro(ctx);
 }
 
 #[cfg(test)]
@@ -640,6 +689,30 @@ mod tests {
         ]);
         assert_eq!(v3_reply(LEVEL, &r), Some((78, 1)));
         assert_eq!(v3_reply(CHARGING, &r), None);
+    }
+
+    #[test]
+    fn kraken_v4_pro_frames() {
+        let p = v3_packet(0x80, LEVEL);
+        assert_eq!(p[..11], [0x02, 0, 0x60, 0, 0, 0, 0x04, 0, 0, 0x80, 0x21]);
+        assert_eq!(p[62], 0xC7);
+        assert!(p[11..62].iter().all(|&b| b == 0) && p[63] == 0);
+        assert_eq!(v3_packet(0x80, CHARGING)[62], 0xCC);
+        assert_eq!(
+            v3_packet(0x00, CHARGING)[..11],
+            [0x02, 0, 0x60, 0, 0, 0, 0x04, 0, 0, 0x00, 0x2A]
+        );
+        let mut r = [0u8; 64];
+        r[..14].copy_from_slice(&[
+            0x02, 0x02, 0x60, 0, 0, 0, 0x05, 0, 0, 0x80, 0x21, 0x01, 0x01, 0x4B,
+        ]);
+        assert_eq!(kraken_reply(LEVEL, &r), Some(75));
+        assert_eq!(kraken_reply(CHARGING, &r), None);
+        r[1] = 0x03;
+        assert_eq!(kraken_reply(LEVEL, &r), None);
+        r[1] = 0x02;
+        r[11] = 0x00;
+        assert_eq!(kraken_reply(LEVEL, &r), None);
     }
 
     #[test]

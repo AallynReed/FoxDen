@@ -4,7 +4,8 @@ use crate::hid::Dev;
 use crate::{Battery, Ctx, Kind};
 
 const VID: u16 = 0x1038;
-const PID: u16 = 0x2244;
+/// Standard and Sage & Gold editions: same base station protocol.
+const PIDS: &[u16] = &[0x2244, 0x2270];
 const HEADSET_OFF: u8 = 0x01;
 const ON_CABLE: u8 = 0x02;
 
@@ -35,10 +36,15 @@ fn absorb(s: &mut State, r: &[u8]) {
 }
 
 pub fn poll_steel_series_elite(ctx: &mut Ctx) {
-    if ctx.is_claimed(VID, PID) {
-        return;
+    for &pid in PIDS {
+        if !ctx.is_claimed(VID, pid) {
+            poll_base(ctx, pid);
+        }
     }
-    let mut colls = ctx.find(VID, PID, |c| {
+}
+
+fn poll_base(ctx: &mut Ctx, pid: u16) {
+    let mut colls = ctx.find(VID, pid, |c| {
         c.iface == 3 && (c.in_len > 0 || c.out_len > 0)
     });
     colls.sort_by_key(|c| match c.page {
@@ -76,7 +82,7 @@ pub fn poll_steel_series_elite(ctx: &mut Ctx) {
         return;
     };
     let b = Battery {
-        key: ctx.stable_key("steelseries-1038:2244"),
+        key: ctx.stable_key(&format!("steelseries-1038:{pid:04X}")),
         name: "SteelSeries Arctis Nova Elite".into(),
         via: "Base station".into(),
         kind: Kind::Headset,
@@ -84,7 +90,7 @@ pub fn poll_steel_series_elite(ctx: &mut Ctx) {
         charging: s.charging || s.power == Some(ON_CABLE),
         ..Battery::default()
     };
-    ctx.add(b, VID, PID);
+    ctx.add(b, VID, pid);
 }
 
 #[cfg(test)]
@@ -108,6 +114,21 @@ mod tests {
                 charging: true
             }
         );
+    }
+
+    #[test]
+    fn sage_and_gold_reply() {
+        let mut r = [0u8; 64];
+        r[..17].copy_from_slice(&[
+            0x01, 0xB0, 0x00, 0x00, 0x01, 0x00, 0x63, 0x1A, 0x08, 0x01, 0x02, 0x0A, 0x03, 0x00,
+            0x08, 0x08, 0x03,
+        ]);
+        let mut s = State::default();
+        absorb(&mut s, &r);
+        assert_eq!((s.level, s.charging), (Some(99), false));
+        absorb(&mut s, &[0x07, 0xB7, 0x5F, 0x5A, 0x08]);
+        assert_eq!((s.level, s.charging), (Some(95), false));
+        assert!(PIDS.contains(&0x2270));
     }
 
     #[test]
