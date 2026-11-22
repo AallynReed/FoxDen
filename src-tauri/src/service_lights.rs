@@ -15,8 +15,9 @@ pub struct ServiceLights {
 
 /// The service's lighting devices, or none when no service with SMBus access is running.
 pub fn probe() -> Option<ServiceLights> {
+    // The first ask makes the service scan every bus, which takes a while on AMD chipsets.
+    let devices = Client::new(PIPE, Duration::from_secs(60)).lights().ok()?;
     let client = Client::new(PIPE, Duration::from_secs(5));
-    let devices = client.lights().ok()?;
     (!devices.is_empty()).then_some(ServiceLights {
         client,
         devices,
