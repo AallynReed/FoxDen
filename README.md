@@ -84,13 +84,19 @@ OpenRGB can optionally drive anything else through its server.
   and a headset's ChatMix dial drives the mix
 - Output priority: put your headset first and your speakers second, and FoxDen switches when the
   headset turns off or on
+- Microphone processing: noise suppression, noise gate, volume stabilizer (AGC), compressor,
+  de-esser, EQ and a limiter so shouting never clips, with presets and an option to hear yourself
+- A compressor and limiter on every channel ("Night mode", "Clip guard")
+- Chat mix against Game, Media, Aux or any mix of them
+- Every app's volume and every speaker's and mic's volume in one place, with "Make default"
 - Sound profiles for channels and the microphone, shared with a short code
 - A processed virtual microphone through VB-Audio's VB-CABLE, installed by you
 - Headset settings for SteelSeries Arctis Nova headsets (sidetone, mic volume, limiter, auto-off)
 - LED strips and network lights
-- Lighting and Fans modules you can switch off
+- Lighting, Fans and Batteries modules you can switch off
 - Closes conflicting software such as SignalRGB, G HUB and iCUE, unless you keep it running
-- Send device info for anything not supported yet
+- Send device info for anything without lighting control yet, and anonymous feedback with a
+  picture or video, both from inside the app
 - Starts with Windows and updates itself
 
 ## Lightweight
