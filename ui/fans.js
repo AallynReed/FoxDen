@@ -678,9 +678,69 @@
   function sensorTile() {
     const name = el("span", { className: "name" });
     const value = el("span", { className: "fan-num" });
-    const tile = el("li", { className: "fan-tile" }, name, value);
-    tile.parts = { name, value };
+    const graph = spark();
+    const tile = el("li", { className: "fan-tile" }, name, value, graph);
+    tile.parts = { name, value, graph };
     return tile;
+  }
+
+  // Readings of the last five minutes, one every two seconds, by "s:" sensor or "f:" fan id.
+  const HISTORY = 150;
+  const history = new Map();
+
+  function sample() {
+    const add = (id, v) => {
+      let h = history.get(id);
+      if (!h) history.set(id, (h = []));
+      h.push(v == null ? null : v);
+      if (h.length > HISTORY) h.shift();
+    };
+    for (const s of live.sensors) add("s:" + s.id, s.value);
+    for (const f of live.fans) add("f:" + f.id, f.rpm);
+  }
+
+  function spark() {
+    const area = svg("path", { class: "area" });
+    const line = svg("path", { class: "line" });
+    const graph = svg("svg", { class: "fan-spark", viewBox: "0 0 " + HISTORY + " 32", preserveAspectRatio: "none", "aria-hidden": "true" }, area, line);
+    graph.parts = { area, line };
+    return graph;
+  }
+
+  // Scaled to its own range, never narrower than `span`, so a steady reading stays a flat line.
+  function draw(graph, h, span) {
+    const got = (h || []).filter((v) => v != null);
+    let line = "";
+    let area = "";
+    if (got.length > 1) {
+      let lo = Math.min(...got);
+      let hi = Math.max(...got);
+      if (hi - lo < span) {
+        const mid = (hi + lo) / 2;
+        lo = mid - span / 2;
+        hi = mid + span / 2;
+      }
+      // Stretched over the full width until five minutes have been seen.
+      const step = HISTORY / (h.length - 1);
+      let run = [];
+      const flush = () => {
+        if (run.length > 1) {
+          const d = run.map((p, i) => (i ? "L" : "M") + p[0] + "," + p[1].toFixed(1)).join("");
+          line += d;
+          area += d + "L" + run[run.length - 1][0] + ",32L" + run[0][0] + ",32Z";
+        }
+        run = [];
+      };
+      h.forEach((v, i) => (v == null ? flush() : run.push([+(i * step).toFixed(1), 30 - ((v - lo) / (hi - lo)) * 26])));
+      flush();
+    }
+    graph.parts.line.setAttribute("d", line);
+    graph.parts.area.setAttribute("d", area);
+  }
+
+  function drawAll() {
+    for (const [id, parts] of ui.tiles) draw(parts.graph, history.get("s:" + id), 4);
+    for (const card of ui.fanList.children) if (card.parts.graph) draw(card.parts.graph, history.get("f:" + card.parts.id), 200);
   }
 
   function curvePick(i) {
@@ -837,6 +897,8 @@
     const duty = el("span", { className: "fan-num" });
     const fill = el("i");
     const bar = el("span", { className: "fan-bar" }, fill);
+    const graph = spark();
+    graph.classList.add("rpm");
     bar.setAttribute("aria-hidden", "true");
     const floor = el("p", { className: "hint", hidden: true, textContent: "A pump never runs below 70%, whatever its curve asks." });
     const wrong = el("p", { className: "problem", hidden: true });
@@ -865,6 +927,7 @@
       { className: "fan-card" },
       el("div", { className: "fan-card-head" }, name, tag),
       el("div", { className: "fan-read" }, spin, el("span", { className: "fan-duty" }, "Duty ", duty)),
+      graph,
       bar,
       wrong,
       el("div", { className: "fields" }, el("label", { htmlFor: curve.id, textContent: "Curve" }), curve),
@@ -883,7 +946,7 @@
     body.setAttribute("aria-labelledby", name.id);
     ramp.setAttribute("aria-label", "Ramp, per cent per second");
     const card = el("li", { fan: fan.id }, body);
-    card.parts = { curve, min, max, ramp, name, tag, spin, duty, fill, floor, wrong, warn, said };
+    card.parts = { id: fan.id, graph, curve, min, max, ramp, name, tag, spin, duty, fill, floor, wrong, warn, said };
     return card;
   }
 
@@ -1008,6 +1071,7 @@
       value.classList.toggle("none", sensor.value == null);
     }
     ui.noSensors.hidden = live.sensors.length > 0;
+    for (const [id, parts] of ui.tiles) draw(parts.graph, history.get("s:" + id), 4);
   }
 
   function renderCurves(open) {
@@ -1121,6 +1185,7 @@
       say(parts.said, told("rule", fan.id));
     });
     ui.noFans.hidden = fans.length > 0;
+    for (const card of ui.fanList.children) draw(card.parts.graph, history.get("f:" + card.parts.id), 200);
   }
 
   function renderBar(running, open) {
@@ -1199,6 +1264,12 @@
       render();
     }),
   );
+
+  setInterval(() => {
+    if (live.service !== "running") return;
+    sample();
+    if (!document.hidden && root.offsetParent) drawAll();
+  }, 2000);
 
   listen("fans", (e) => {
     take(e.payload);

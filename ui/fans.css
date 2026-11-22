@@ -157,9 +157,38 @@
   flex-direction: column;
   justify-content: space-between;
   gap: 2px;
-  width: 140px;
-  padding: 6px 8px;
+  width: 168px;
+  padding: 6px 8px 0;
   border: 1px solid var(--line);
+  clip-path: var(--cut);
+}
+
+.fan-spark {
+  --spark: var(--accent);
+  display: block;
+  width: 100%;
+  height: 32px;
+}
+
+.fan-tile .fan-spark {
+  width: calc(100% + 16px);
+  margin: 2px -8px 0;
+}
+
+.fan-spark.rpm {
+  --spark: #5aa9e6;
+}
+
+.fan-spark .area {
+  fill: color-mix(in srgb, var(--spark) 22%, transparent);
+}
+
+.fan-spark .line {
+  fill: none;
+  stroke: var(--spark);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 
 /* Long sensor names get two lines; the tooltip has the rest. */
@@ -620,5 +649,11 @@
 
   .fan-handle:focus .dot {
     fill: Highlight;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  .fan-spark.rpm {
+    --spark: #1f6fb2;
   }
 }
