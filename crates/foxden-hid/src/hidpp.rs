@@ -10,6 +10,37 @@ pub const G502_RECEIVER: u16 = 0xC539;
 pub const G515_RECEIVER: u16 = 0xC547;
 pub const G502_WIRED: u16 = 0xC08D;
 pub const G515_WIRED: u16 = 0xC355;
+/// G915 X LIGHTSPEED on its cable; over the air it pairs with the G515's receiver.
+pub const G915X_LS_WIRED: u16 = 0xC356;
+/// G915 X, the cable-only model.
+pub const G915X_WIRED: u16 = 0xC359;
+
+/// Every product id this module drives.
+pub const PIDS: [u16; 6] = [
+    G502_RECEIVER,
+    G515_RECEIVER,
+    G502_WIRED,
+    G515_WIRED,
+    G915X_LS_WIRED,
+    G915X_WIRED,
+];
+
+/// A device on its own cable, answering at index 0xFF.
+pub fn cable(pid: u16) -> bool {
+    matches!(pid, G502_WIRED | G515_WIRED | G915X_LS_WIRED | G915X_WIRED)
+}
+
+/// What a receiver stores for its paired device.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Paired {
+    pub wpid: u16,
+    pub kind: u8,
+    pub name: String,
+}
+
+/// Device type 1 in the receiver's pairing info.
+const PAIRED_KEYBOARD: u8 = 0x01;
+const NO_LIGHTING: &str = "no lighting feature";
 
 /// A Lightspeed receiver has its one paired device at index 1; a device on a cable answers at 0xFF.
 const RECEIVER_INDEX: u8 = 0x01;
@@ -322,6 +353,43 @@ pub fn tkl_layout() -> Vec<(u8, [f32; 2])> {
     keys
 }
 
+const FULL_WIDTH: f32 = 22.5;
+
+/// Number pad rows as (zone id, column, row, width, height); ids follow the TKL rule.
+const NUMPAD: [(u8, f32, f32, f32, f32); 17] = [
+    (80, 0.0, 1.0, 1.0, 1.0),
+    (81, 1.0, 1.0, 1.0, 1.0),
+    (82, 2.0, 1.0, 1.0, 1.0),
+    (83, 3.0, 1.0, 1.0, 1.0),
+    (92, 0.0, 2.0, 1.0, 1.0),
+    (93, 1.0, 2.0, 1.0, 1.0),
+    (94, 2.0, 2.0, 1.0, 1.0),
+    (84, 3.0, 2.0, 1.0, 2.0),
+    (89, 0.0, 3.0, 1.0, 1.0),
+    (90, 1.0, 3.0, 1.0, 1.0),
+    (91, 2.0, 3.0, 1.0, 1.0),
+    (86, 0.0, 4.0, 1.0, 1.0),
+    (87, 1.0, 4.0, 1.0, 1.0),
+    (88, 2.0, 4.0, 1.0, 1.0),
+    (85, 3.0, 4.0, 1.0, 2.0),
+    (95, 0.0, 5.0, 2.0, 1.0),
+    (96, 2.0, 5.0, 1.0, 1.0),
+];
+
+/// Zone id and position of each key of a full-size board: the TKL block, then the number pad.
+pub fn full_layout() -> Vec<(u8, [f32; 2])> {
+    let scale = TKL_WIDTH / FULL_WIDTH;
+    let mut keys: Vec<(u8, [f32; 2])> = tkl_layout()
+        .into_iter()
+        .map(|(zone, [x, y])| (zone, [x * scale, y]))
+        .collect();
+    for (zone, col, row, w, h) in NUMPAD {
+        let x = (TKL_WIDTH + 0.25 + col + w / 2.0) / FULL_WIDTH;
+        keys.push((zone, [x, (row + h / 2.0) / 6.0]));
+    }
+    keys
+}
+
 /// Shortest gap between two frames, so a busy effect cannot flood the wireless link.
 const FRAME_GAP: Duration = Duration::from_millis(33);
 
@@ -377,63 +445,84 @@ fn feature(hid: &HidDevice, device: u8, id: u16) -> Result<Option<u8>, String> {
 pub fn receiver_of(pid: u16) -> u16 {
     match pid {
         G502_WIRED => G502_RECEIVER,
-        G515_WIRED => G515_RECEIVER,
+        G515_WIRED | G915X_LS_WIRED => G515_RECEIVER,
         other => other,
     }
 }
 
+/// Keyboard or not, and the model name: from the pairing info when the receiver gave it.
+pub fn identify(pid: u16, paired: Option<&Paired>) -> (bool, String) {
+    let keyboard = match paired {
+        Some(p) => p.kind == PAIRED_KEYBOARD,
+        None => matches!(
+            pid,
+            G515_RECEIVER | G515_WIRED | G915X_LS_WIRED | G915X_WIRED
+        ),
+    };
+    let model = match paired {
+        Some(p) if !p.name.is_empty() => p.name.clone(),
+        _ if pid == G915X_LS_WIRED => "G915 X LS".into(),
+        _ if pid == G915X_WIRED => "G915 X".into(),
+        _ if keyboard => "G515 Lightspeed TKL".into(),
+        _ => "G502 Lightspeed".into(),
+    };
+    (keyboard, model)
+}
+
 impl Lightspeed {
     /// The device behind the receiver. Its features are read now if it is awake, otherwise once it wakes.
-    pub fn open(hid: HidDevice, pid: u16) -> Result<Self, String> {
-        let keyboard = matches!(pid, G515_RECEIVER | G515_WIRED);
-        let index = if matches!(pid, G502_WIRED | G515_WIRED) {
-            WIRED_INDEX
-        } else {
-            RECEIVER_INDEX
-        };
-        let wired = matches!(pid, G502_WIRED | G515_WIRED);
-        // One id per model, so its layout stays the same over the cable and the receiver.
-        let id = format!("hid:logitech-{:04x}", receiver_of(pid));
+    /// `paired` is what the receiver stores for slot 1; without it the receiver's usual model is assumed.
+    pub fn open(hid: HidDevice, pid: u16, paired: Option<Paired>) -> Result<Self, String> {
+        let wired = cable(pid);
+        let index = if wired { WIRED_INDEX } else { RECEIVER_INDEX };
+        let (keyboard, model) = identify(pid, paired.as_ref());
         let link = if wired { " (cable)" } else { " (wireless)" };
-        let (zones, device) = if keyboard {
-            let keys = tkl_layout();
-            let device = Device {
-                id: id.clone(),
-                name: format!("Logitech G515 Lightspeed TKL{link}"),
-                kind: DeviceKind::Keyboard,
-                rect: [0.06, 0.58, 0.54, 0.32],
-                grid: [18, 6],
-                leds: keys.iter().map(|(_, at)| *at).collect(),
-            };
-            (keys.iter().map(|(zone, _)| *zone).collect(), device)
-        } else {
-            let rect = [0.70, 0.62, 0.06, 0.22];
-            let device = Device::grid(
-                &id,
-                &format!("Logitech G502 Lightspeed{link}"),
-                DeviceKind::Mouse,
-                rect,
-                1,
-                2,
-            );
-            (vec![0, 1], device)
-        };
         let mut light = Lightspeed {
             hid,
-            device,
+            device: Device::grid("", "", DeviceKind::Other, [0.0; 4], 1, 1),
             index,
             keyboard,
             effects: None,
             per_key: None,
             profiles: None,
-            zones,
+            zones: Vec::new(),
             reported: Vec::new(),
             ready: false,
             tried: Instant::now(),
             sent: Vec::new(),
             last: Instant::now(),
         };
-        let _ = light.discover();
+        if let Err(e) = light.discover()
+            && e == NO_LIGHTING
+        {
+            return Err(format!("Logitech {model}: {e}"));
+        }
+        // One id per model, so its layout stays the same over the cable and the receiver.
+        let id = format!("hid:logitech-{:04x}", receiver_of(pid));
+        let name = format!("Logitech {model}{link}");
+        // An awake keyboard without per-key lighting is shown as one zone.
+        let per_key = keyboard && (!light.ready || light.per_key.is_some());
+        (light.zones, light.device) = if per_key {
+            let full = model.starts_with("G915");
+            let keys = if full { full_layout() } else { tkl_layout() };
+            let device = Device {
+                id,
+                name,
+                kind: DeviceKind::Keyboard,
+                rect: [0.06, 0.58, 0.54, 0.32],
+                grid: [if full { 22 } else { 18 }, 6],
+                leds: keys.iter().map(|(_, at)| *at).collect(),
+            };
+            (keys.iter().map(|(zone, _)| *zone).collect(), device)
+        } else if keyboard {
+            let rect = [0.06, 0.58, 0.54, 0.32];
+            let device = Device::grid(&id, &name, DeviceKind::Keyboard, rect, 1, 1);
+            (vec![0], device)
+        } else {
+            let rect = [0.70, 0.62, 0.06, 0.22];
+            let device = Device::grid(&id, &name, DeviceKind::Mouse, rect, 1, 2);
+            (vec![0, 1], device)
+        };
         Ok(light)
     }
 
@@ -466,7 +555,7 @@ impl Lightspeed {
             }
         }
         if effects.is_none() && per_key.is_none() {
-            return Err("no lighting feature".into());
+            return Err(NO_LIGHTING.into());
         }
         self.effects = effects;
         self.per_key = per_key.filter(|_| !reported.is_empty());
@@ -823,10 +912,100 @@ mod tests {
     }
 
     #[test]
+    fn full_layout_adds_the_number_pad() {
+        let keys = full_layout();
+        assert_eq!(keys.len(), 89 + 17);
+        let mut zones: Vec<u8> = keys.iter().map(|(zone, _)| *zone).collect();
+        zones.sort_unstable();
+        zones.dedup();
+        assert_eq!(zones.len(), keys.len());
+        assert!((80..=96).all(|z| zones.contains(&z)));
+        assert!(
+            keys.iter()
+                .flat_map(|(_, at)| at)
+                .all(|v| (0.0..=1.0).contains(v))
+        );
+    }
+
+    // G915 X LS on its cable: the 0x8081 zone bitmap pages it answered.
+    #[test]
+    fn g915x_zone_pages_from_capture() {
+        let page = |s: &str| -> [u8; 16] {
+            let mut p = [0u8; 16];
+            for (i, b) in p.iter_mut().enumerate() {
+                *b = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap();
+            }
+            p
+        };
+        let first = zones_in_page(0, &page("0000ffffffffffffffffffffffffffff"));
+        assert_eq!(first, (1..=111).collect::<Vec<u8>>());
+        let second = zones_in_page(1, &page("000100000000007a0000f01f00000400"));
+        assert_eq!(
+            second,
+            [
+                153, 155, 156, 157, 158, 180, 181, 182, 183, 184, 185, 186, 187, 188, 210
+            ]
+        );
+        assert_eq!(
+            zones_in_page(2, &page("00020000000000000000000000000000")),
+            Vec::<u8>::new()
+        );
+        let keys = full_layout();
+        assert!(keys.iter().all(|(zone, _)| first.contains(zone)));
+    }
+
+    #[test]
+    fn g915x_pids_reuse_the_g515_receiver() {
+        assert_eq!(receiver_of(G915X_LS_WIRED), G515_RECEIVER);
+        assert_eq!(receiver_of(G915X_WIRED), G915X_WIRED);
+        assert!(cable(G915X_WIRED) && cable(G915X_LS_WIRED) && !cable(G515_RECEIVER));
+        assert_eq!(identify(G915X_LS_WIRED, None), (true, "G915 X LS".into()));
+        let paired = Paired {
+            wpid: 0,
+            kind: 1,
+            name: "G915 X LS".into(),
+        };
+        assert_eq!(
+            identify(G515_RECEIVER, Some(&paired)),
+            (true, "G915 X LS".into())
+        );
+    }
+
+    #[test]
     fn frames_are_paced_but_black_always_goes_out() {
         assert!(due(FRAME_GAP, &[RED]));
         assert!(!due(Duration::from_millis(5), &[RED, Color::BLACK]));
         assert!(due(Duration::ZERO, &[Color::BLACK; 3]));
+    }
+
+    #[test]
+    fn receiver_pairing_decides_the_model() {
+        let g502x = Paired {
+            wpid: 0x409F,
+            kind: 2,
+            name: "G502 X LS".into(),
+        };
+        assert_eq!(
+            identify(G515_RECEIVER, Some(&g502x)),
+            (false, "G502 X LS".into())
+        );
+        let keyboard = Paired {
+            kind: 1,
+            name: String::new(),
+            ..g502x
+        };
+        assert_eq!(
+            identify(G502_RECEIVER, Some(&keyboard)),
+            (true, "G515 Lightspeed TKL".into())
+        );
+        assert_eq!(
+            identify(G515_RECEIVER, None),
+            (true, "G515 Lightspeed TKL".into())
+        );
+        assert_eq!(
+            identify(G502_WIRED, None),
+            (false, "G502 Lightspeed".into())
+        );
     }
 
     #[test]

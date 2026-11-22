@@ -70,6 +70,19 @@ fn pairing_register(link: &mut impl Link, sub: u8) -> Option<[u8; 64]> {
     None
 }
 
+/// The slot's wireless PID and device type (1 keyboard, 2 mouse), from pairing info sub 0x20+n.
+pub fn kind(link: &mut impl Link, index: u8) -> Option<(u16, u8)> {
+    if index < 1 {
+        return None;
+    }
+    pairing_register(link, 0x20 + index - 1).map(|r| parse_kind(&r))
+}
+
+/// Pairing info reply: wireless PID big-endian at data bytes 3-4, device type at data byte 7.
+pub fn parse_kind(r: &[u8]) -> (u16, u8) {
+    (u16::from_be_bytes([r[7], r[8]]), r[11] & 0x0F)
+}
+
 /// `getWirelessDeviceSerial`: the slot's unit id as the receiver stores it.
 pub fn serial(link: &mut impl Link, index: u8) -> String {
     if index < 1 {
@@ -213,6 +226,22 @@ mod tests {
         );
         let mut silent = Fake::new(|_| Vec::new());
         assert_eq!(serial(&mut silent, 1), "");
+    }
+
+    // Pairing info of a G502 X LIGHTSPEED behind a C547 receiver, as a user's receiver answered.
+    #[test]
+    fn pairing_info_gives_pid_and_type() {
+        let mut reply = vec![0x11, 0xFF, 0x83, 0xB5];
+        reply.extend([0x20, 0x07, 0x08, 0x40, 0x9F, 0x11, 0x00, 0x02, 0xB1]);
+        reply.resize(20, 0);
+        assert_eq!(parse_kind(&reply), (0x409F, 2));
+        let echo = reply.clone();
+        let mut f = Fake::new(move |_| vec![echo.clone()]);
+        assert_eq!(kind(&mut f, 1), Some((0x409F, 2)));
+        assert_eq!(f.writes(), [r(&[0x10, 0xFF, 0x83, 0xB5, 0x20, 0, 0])]);
+        let mut silent = Fake::new(|_| Vec::new());
+        assert_eq!(kind(&mut silent, 1), None);
+        assert_eq!(kind(&mut silent, 0), None);
     }
 
     // LogitechDevicePathKey on sibling Windows collections.

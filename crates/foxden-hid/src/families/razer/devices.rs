@@ -7,7 +7,7 @@ use foxden_core::DeviceKind;
 pub const VID: u16 = 0x1532;
 
 /// The Razer device list, in order.
-pub static MODELS: [Model; 251] = [
+pub static MODELS: [Model; 254] = [
     Model {
         name: "Razer BlackWidow 2019",
         pid: 0x0241,
@@ -1934,6 +1934,28 @@ pub static MODELS: [Model; 251] = [
         zones: &[(1, 9)],
     },
     Model {
+        name: "Razer Kraken V4 Pro",
+        pid: 0x0568,
+        kind: DeviceKind::Other,
+        matrix: Matrix::Extended,
+        tid: 0x60,
+        led_id: 0x00,
+        rows: 1,
+        cols: 9,
+        zones: &[(1, 9)],
+    },
+    Model {
+        name: "Razer Kraken V4 Pro (Wired)",
+        pid: 0x0567,
+        kind: DeviceKind::Other,
+        matrix: Matrix::Extended,
+        tid: 0x60,
+        led_id: 0x00,
+        rows: 1,
+        cols: 9,
+        zones: &[(1, 9)],
+    },
+    Model {
         name: "Razer Kraken Kitty V3 Pro (Wired)",
         pid: 0x0587,
         kind: DeviceKind::Other,
@@ -2086,6 +2108,17 @@ pub static MODELS: [Model; 251] = [
         rows: 1,
         cols: 15,
         zones: &[(1, 15)],
+    },
+    Model {
+        name: "Razer Laptop Cooling Pad",
+        pid: 0x0F43,
+        kind: DeviceKind::Strip,
+        matrix: Matrix::Extended,
+        tid: 0x02,
+        led_id: 0x00,
+        rows: 1,
+        cols: 18,
+        zones: &[(1, 18)],
     },
     Model {
         name: "Razer Leviathan V2",
@@ -2773,7 +2806,7 @@ pub static MODELS: [Model; 251] = [
 ];
 
 /// One entry per `REGISTER_HID_DETECTOR*` line, Windows branch of the Nommo lines.
-pub static DETECTORS: [Detector; 253] = [
+pub static DETECTORS: [Detector; 256] = [
     Detector {
         name: "Razer Blackwidow 2019",
         vid: VID,
@@ -4296,6 +4329,24 @@ pub static DETECTORS: [Detector; 253] = [
         open: kraken_v4::open,
     },
     Detector {
+        name: "Razer Kraken V4 Pro",
+        vid: VID,
+        pid: 0x0568,
+        interface: Some(0x04),
+        usage_page: Some(0xFF00),
+        usage: Some(0x0001),
+        open: kraken_v4::open,
+    },
+    Detector {
+        name: "Razer Kraken V4 Pro (Wired)",
+        vid: VID,
+        pid: 0x0567,
+        interface: Some(0x05),
+        usage_page: Some(0xFF00),
+        usage: Some(0x0001),
+        open: kraken_v4::open,
+    },
+    Detector {
         name: "Razer Kraken Kitty V3 Pro (Wired)",
         vid: VID,
         pid: 0x0587,
@@ -4488,6 +4539,15 @@ pub static DETECTORS: [Detector; 253] = [
         name: "Razer Laptop Stand Chroma V2",
         vid: VID,
         pid: 0x0F2B,
+        interface: Some(0x00),
+        usage_page: Some(0x0001),
+        usage: Some(0x0002),
+        open: chroma::open,
+    },
+    Detector {
+        name: "Razer Laptop Cooling Pad",
+        vid: VID,
+        pid: 0x0F43,
         interface: Some(0x00),
         usage_page: Some(0x0001),
         usage: Some(0x0002),

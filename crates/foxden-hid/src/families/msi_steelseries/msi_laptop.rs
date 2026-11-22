@@ -12,6 +12,9 @@ const GE68HX_KEYBOARD: u16 = 0x113a;
 const GE68HX_LIGHTBAR: u16 = 0x114b;
 const GE66_11UH_LIGHTBAR: u16 = 0x1132;
 const RAIDER_GE66_LIGHTBAR: u16 = 0x113c;
+const GE76_11UH_LIGHTBAR: u16 = 0x113e;
+const GE78HX_LIGHTBAR: u16 = 0x114d;
+const TITAN18HX_ALC: u16 = 0x115b;
 const NA: u8 = 0xFF;
 
 const fn det(name: &'static str, pid: u16) -> Detector {
@@ -26,13 +29,16 @@ const fn det(name: &'static str, pid: u16) -> Detector {
     }
 }
 
-static DETECTORS: [Detector; 6] = [
+static DETECTORS: [Detector; 9] = [
     det("MSI Laptop Keyboard", A18_KLC),
     det("MSI Laptop Lightbar", A18_ALC),
     det("MSI GE68HX Keyboard", GE68HX_KEYBOARD),
     det("MSI GE68HX Lightbar", GE68HX_LIGHTBAR),
     det("MSI GE66 11UH Lightbar", GE66_11UH_LIGHTBAR),
     det("MSI Raider GE66 Lightbar", RAIDER_GE66_LIGHTBAR),
+    det("MSI GE76 Raider 11UH Lightbar", GE76_11UH_LIGHTBAR),
+    det("MSI Raider GE78 HX Lightbar", GE78HX_LIGHTBAR),
+    det("MSI Titan 18 HX Touchpad and Logo", TITAN18HX_ALC),
 ];
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -43,7 +49,11 @@ pub fn detectors() -> Vec<&'static Detector> {
 enum Kind {
     Klc,
     Alc,
+    /// ALC zones with the unused records left zero.
+    AlcZeroFill,
     KlcLightbar,
+    /// KLC lightbar records, each report applied on its own after a short wait.
+    AlcLightbar,
     StreamLightbar,
 }
 
@@ -52,8 +62,10 @@ fn zone_packet(kind: Kind, ids: &[u8], colors: &[Color]) -> Vec<u8> {
     let mut buf = vec![0u8; 525];
     buf[1] = 0x0C;
     buf[3] = if kind == Kind::Klc { 0x66 } else { 0x06 };
-    for i in 0..(525 - 5) / 4 {
-        buf[5 + i * 4] = 0xFF;
+    if kind != Kind::AlcZeroFill {
+        for i in 0..(525 - 5) / 4 {
+            buf[5 + i * 4] = 0xFF;
+        }
     }
     for (i, (&id, c)) in ids.iter().zip(colors).enumerate() {
         let at = 5 + i * 4;
@@ -67,6 +79,10 @@ fn zone_packet(kind: Kind, ids: &[u8], colors: &[Color]) -> Vec<u8> {
 
 /// SetLEDs for the GE68HX lightbar: 30 LEDs per feature report, then a commit written as output.
 fn lightbar_packets(ids: &[u8], colors: &[Color]) -> Vec<Op> {
+    lightbar_ops(ids, colors, false)
+}
+
+fn lightbar_ops(ids: &[u8], colors: &[Color], commit_each: bool) -> Vec<Op> {
     let n = ids.len().min(colors.len());
     let mut ops = Vec::new();
     let mut sent = 0;
@@ -84,12 +100,22 @@ fn lightbar_packets(ids: &[u8], colors: &[Color]) -> Vec<Op> {
         }
         ops.push(Op::Feature(buf));
         sent += count;
+        if commit_each {
+            ops.push(Op::Sleep(25));
+            ops.push(Op::Write(commit()));
+        }
     }
+    if !commit_each {
+        ops.push(Op::Write(commit()));
+    }
+    ops
+}
+
+fn commit() -> Vec<u8> {
     let mut commit = vec![0u8; 65];
     commit[1] = 0x0D;
     commit[3] = 0x02;
-    ops.push(Op::Write(commit));
-    ops
+    commit
 }
 
 /// GE66 11UH lightbar stream frame: one 0x0C report of [id, r, g, b].
@@ -127,6 +153,7 @@ impl Proto for Laptop {
     fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
         match self.kind {
             Kind::KlcLightbar => lightbar_packets(&self.ids, colors),
+            Kind::AlcLightbar => lightbar_ops(&self.ids, colors, true),
             Kind::StreamLightbar => {
                 let mut ops = if self.started {
                     Vec::new()
@@ -179,6 +206,24 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
             (0..35).collect(),
             DeviceKind::Strip,
             rows(&[35]),
+        ),
+        GE76_11UH_LIGHTBAR => (
+            Kind::AlcLightbar,
+            (0..30).collect(),
+            DeviceKind::Strip,
+            rows(&[30]),
+        ),
+        GE78HX_LIGHTBAR => (
+            Kind::AlcLightbar,
+            (0..55).collect(),
+            DeviceKind::Strip,
+            rows(&[1, 54]),
+        ),
+        TITAN18HX_ALC => (
+            Kind::AlcZeroFill,
+            (0..6).collect(),
+            DeviceKind::Strip,
+            rows(&[5, 1]),
         ),
         GE66_11UH_LIGHTBAR => (
             Kind::StreamLightbar,
@@ -295,7 +340,7 @@ mod tests {
     // Known laptop ids plus the two GE66 lightbars.
     #[test]
     fn detectors() {
-        assert_eq!(DETECTORS.len(), 6);
+        assert_eq!(DETECTORS.len(), 9);
         assert!(
             DETECTORS
                 .iter()
@@ -320,5 +365,63 @@ mod tests {
         assert_eq!(f[..5], [0, 0x0C, 0, 35, 0]);
         assert_eq!(f[5 + 34 * 4..9 + 34 * 4], [34, 34, 1, 2]);
         assert_eq!(l.frame(&colors).len(), 1);
+    }
+
+    // GE76 Raider 11UH: one 0E 00 1E 00 report of 30 zones, ~25 ms, then 0D 00 02.
+    #[test]
+    fn ge76_lightbar_waits_before_commit() {
+        let mut l = Laptop {
+            kind: Kind::AlcLightbar,
+            ids: (0..30).collect(),
+            started: false,
+        };
+        let colors: Vec<Color> = (0..30).map(|i| Color(0xFF, i, 0x10)).collect();
+        let ops = l.frame(&colors);
+        assert_eq!(ops.len(), 3);
+        let Op::Feature(f) = &ops[0] else { panic!() };
+        assert_eq!(f.len(), 525);
+        assert_eq!(f[1..5], [0x0E, 0x00, 0x1E, 0x00]);
+        assert_eq!(f[5..17], [0xFF, 0, 0x10, 0, 0, 0, 0, 0, 0, 1, 0, 0x00]);
+        assert_eq!(
+            f[5 + 29 * 12..5 + 30 * 12],
+            [0xFF, 29, 0x10, 0, 0, 0, 0, 0, 0, 1, 0, 0x1D]
+        );
+        assert_eq!(ops[1], Op::Sleep(25));
+        let Op::Write(c) = &ops[2] else { panic!() };
+        assert_eq!(c.len(), 65);
+        assert_eq!(c[1..5], [0x0D, 0x00, 0x02, 0x00]);
+    }
+
+    // Raider GE78 HX: zones 0x00-0x1D then 0x1E-0x36, a commit after each report.
+    #[test]
+    fn ge78hx_lightbar_commits_each_report() {
+        let ids: Vec<u8> = (0..55).collect();
+        let colors = vec![Color(1, 2, 3); 55];
+        let ops = lightbar_ops(&ids, &colors, true);
+        assert_eq!(ops.len(), 6);
+        let Op::Feature(a) = &ops[0] else { panic!() };
+        assert_eq!(a[1..5], [0x0E, 0x00, 0x1E, 0x00]);
+        let Op::Feature(b) = &ops[3] else { panic!() };
+        assert_eq!(b[1..5], [0x0E, 0x00, 0x19, 0x00]);
+        assert_eq!(b[5..17], [1, 2, 3, 0, 0, 0, 0, 0, 0, 1, 0, 0x1E]);
+        assert_eq!(b[5 + 24 * 12 + 11], 0x36);
+        assert!(b[5 + 25 * 12..].iter().all(|&x| x == 0));
+        for i in [2, 5] {
+            assert_eq!(ops[i], Op::Write(commit()));
+        }
+    }
+
+    // Titan 18 HX ALC: five touchpad zones and the logo, as captured from the vendor app.
+    #[test]
+    fn titan18hx_alc_matches_capture() {
+        let mut colors = vec![Color(0xFF, 0, 0); 5];
+        colors.push(Color(0x09, 0x00, 0xFF));
+        let p = zone_packet(Kind::AlcZeroFill, &[0, 1, 2, 3, 4, 5], &colors);
+        let mut want = vec![0u8; 525];
+        want[1..29].copy_from_slice(&[
+            0x0C, 0x00, 0x06, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x01, 0xFF, 0x00, 0x00, 0x02, 0xFF,
+            0x00, 0x00, 0x03, 0xFF, 0x00, 0x00, 0x04, 0xFF, 0x00, 0x00, 0x05, 0x09, 0x00, 0xFF,
+        ]);
+        assert_eq!(p, want);
     }
 }

@@ -76,15 +76,15 @@ const NATIVE: &[(u16, u16, &str, &str, &str)] = &[
     (
         0x046D,
         0xC539,
-        "Logitech G502 Lightspeed receiver",
-        "mouse",
+        "Logitech Lightspeed receiver",
+        "other",
         "hid:logitech-c539",
     ),
     (
         0x046D,
         0xC547,
-        "Logitech G515 Lightspeed TKL receiver",
-        "keyboard",
+        "Logitech Lightspeed receiver",
+        "other",
         "hid:logitech-c547",
     ),
     (
@@ -100,6 +100,20 @@ const NATIVE: &[(u16, u16, &str, &str, &str)] = &[
         "Logitech G515 Lightspeed TKL (cable)",
         "keyboard",
         "hid:logitech-c547",
+    ),
+    (
+        0x046D,
+        0xC356,
+        "Logitech G915 X Lightspeed (cable)",
+        "keyboard",
+        "hid:logitech-c547",
+    ),
+    (
+        0x046D,
+        0xC359,
+        "Logitech G915 X (cable)",
+        "keyboard",
+        "hid:logitech-c359",
     ),
     (
         0x1462,
@@ -986,7 +1000,7 @@ mod tests {
         let kinds: Vec<&str> = found.iter().map(|f| f.kind).collect();
         assert_eq!(
             kinds,
-            ["microphone", "mouse", "keyboard", "headset", "motherboard"]
+            ["microphone", "other", "other", "headset", "motherboard"]
         );
         assert_eq!(found[0].native, None);
         assert_eq!(found[1].native, Some("hid:logitech-c539"));

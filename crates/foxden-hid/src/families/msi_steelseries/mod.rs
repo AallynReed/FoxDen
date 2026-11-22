@@ -38,6 +38,6 @@ mod tests {
     // One detector per known id, plus the extra ids.
     #[test]
     fn detector_count() {
-        assert_eq!(super::detectors().len(), 194 + 28 + 19);
+        assert_eq!(super::detectors().len(), 194 + 28 + 22);
     }
 }

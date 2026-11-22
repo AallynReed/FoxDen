@@ -18,14 +18,7 @@ use hidapi::HidApi;
 pub use lengths::{Zone, key as length_key, resizable, set_lengths};
 
 fn supported(vid: u16, pid: u16) -> bool {
-    matches!(
-        (vid, pid),
-        (msi::VID, msi::PID)
-            | (
-                hidpp::VID,
-                hidpp::G502_RECEIVER | hidpp::G515_RECEIVER | hidpp::G502_WIRED | hidpp::G515_WIRED
-            )
-    )
+    (vid, pid) == (msi::VID, msi::PID) || (vid == hidpp::VID && hidpp::PIDS.contains(&pid))
 }
 
 static LISTING: std::sync::Mutex<Vec<scan::Dev>> = std::sync::Mutex::new(Vec::new());
@@ -172,7 +165,8 @@ pub fn diagnose() -> Vec<String> {
                 if info.vendor_id() == hidpp::VID
                     && hidpp::is_long_channel(info.usage_page(), info.usage()) =>
             {
-                match hidpp::Lightspeed::open(hid, info.product_id()) {
+                let paired = paired(&api, info.product_id(), &info.path().to_string_lossy());
+                match hidpp::Lightspeed::open(hid, info.product_id(), paired) {
                     Ok(_) => "hid++ ok".into(),
                     Err(e) => format!("hid++ failed: {e}"),
                 }
@@ -182,6 +176,29 @@ pub fn diagnose() -> Vec<String> {
         out.push(format!("{what}: {result}"));
     }
     out
+}
+
+/// What a Lightspeed receiver stores for slot 1, read over its short HID++ collection.
+fn paired(api: &HidApi, pid: u16, path: &str) -> Option<hidpp::Paired> {
+    use generic_any::receiver;
+    if hidpp::cable(pid) {
+        return None;
+    }
+    let key = receiver::path_key(path);
+    let mut rap = crate::device_list(api)
+        .iter()
+        .find(|d| {
+            d.vendor_id() == hidpp::VID
+                && d.product_id() == pid
+                && d.usage_page() == 0xFF00
+                && d.usage() == 0x0001
+                && receiver::path_key(&d.path().to_string_lossy()) == key
+        })?
+        .open_device(api)
+        .ok()?;
+    let (wpid, kind) = receiver::kind(&mut rap, 1)?;
+    let name = receiver::name(&mut rap, 1);
+    Some(hidpp::Paired { wpid, kind, name })
 }
 
 /// Detects supported USB HID lighting devices and returns one backend per device.
@@ -268,16 +285,11 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
                 }
                 continue;
             }
-            (
-                hidpp::VID,
-                pid @ (hidpp::G502_RECEIVER
-                | hidpp::G515_RECEIVER
-                | hidpp::G502_WIRED
-                | hidpp::G515_WIRED),
-            ) => {
+            (hidpp::VID, pid) if hidpp::PIDS.contains(&pid) => {
                 if hidpp::is_long_channel(info.usage_page, info.usage)
                     && let Ok(hid) = raw.open_device(&api)
-                    && let Ok(device) = hidpp::Lightspeed::open(hid, pid)
+                    && let Ok(device) =
+                        hidpp::Lightspeed::open(hid, pid, paired(&api, pid, &info.path))
                 {
                     lightspeed.push((pid, device));
                 }
@@ -362,12 +374,7 @@ pub fn matchers() -> Vec<&'static registry::Matcher> {
 pub fn other_devices() -> Vec<(u16, u16, &'static str)> {
     let mut v = families::other_ids();
     v.push((msi::VID, msi::PID, "MSI Mystic Light"));
-    for pid in [
-        hidpp::G502_RECEIVER,
-        hidpp::G515_RECEIVER,
-        hidpp::G502_WIRED,
-        hidpp::G515_WIRED,
-    ] {
+    for pid in hidpp::PIDS {
         v.push((hidpp::VID, pid, "Logitech Lightspeed"));
     }
     v

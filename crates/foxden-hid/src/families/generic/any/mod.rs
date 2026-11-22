@@ -9,7 +9,7 @@ use crate::registry::{Bus, Matcher};
 
 mod hidpp20;
 mod lamparray;
-mod receiver;
+pub(crate) mod receiver;
 
 /// `REGISTER_HID_DETECTOR_PU_ONLY` and the unified Logitech HID++ 2.0 lines. The Centurion
 /// line (usage page 0xFFA0) is left out: its transport is not ported.

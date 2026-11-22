@@ -117,7 +117,7 @@ mod tests {
     // plus 19 extra ids.
     #[test]
     fn one_detector_per_registered_line() {
-        assert_eq!(detectors().len(), 253);
+        assert_eq!(detectors().len(), 256);
         assert!(detectors().iter().all(|d| d.vid == 0x1532));
     }
 
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn table_rows_are_sane() {
-        assert_eq!(devices::MODELS.len(), 251);
+        assert_eq!(devices::MODELS.len(), 254);
         for m in &devices::MODELS {
             assert!(m.led_count() > 0, "{}", m.name);
             assert!(

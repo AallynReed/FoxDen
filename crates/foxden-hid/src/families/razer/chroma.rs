@@ -1057,6 +1057,22 @@ mod tests {
         assert_eq!(s[3][11], 1);
     }
 
+    // Cooling pad: one 18-LED extended row, then custom mode on LED id 0.
+    #[test]
+    fn laptop_cooling_pad_frame() {
+        let p = Params::new(0x0F43);
+        let colors: Vec<Color> = (0..18).map(|i| Color(i, 0x10, 0x20)).collect();
+        let s = sends(&plan(&p, false, &colors));
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0][..9], [0, 0, 0x02, 0, 0, 0, 18 * 3 + 5, 0x0F, 0x03]);
+        assert_eq!(s[0][9..17], [0, 0, 0, 0, 17, 0, 0x10, 0x20]);
+        assert_eq!(s[0][14 + 17 * 3..14 + 18 * 3], [17, 0x10, 0x20]);
+        let mut want = vec![0u8; s[1].len()];
+        want[..12].copy_from_slice(&[0, 0, 0x02, 0, 0, 0, 0x0C, 0x0F, 0x02, 0, 0, 0x08]);
+        want[89] = want[3..89].iter().fold(0, |a, b| a ^ b);
+        assert_eq!(s[1], want);
+    }
+
     // Modern mice and keyboards: rows sized from their LED tables.
     #[test]
     fn extra_devices_led_counts() {
