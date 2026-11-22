@@ -834,6 +834,8 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
     }
     let note = if found.bus == Bus::Gpu {
         "FoxDen does not control lighting on this card. Many cards have none."
+    } else if found.bus != Bus::Usb {
+        "FoxDen found no lighting chip it can control on it. If it has lighting, tell us with Feedback."
     } else {
         "FoxDen does not control lighting on it. If it has lighting, send its device info."
     };
@@ -1379,7 +1381,7 @@ mod tests {
         );
         assert_eq!(
             list[0].note,
-            "FoxDen does not control lighting on it. If it has lighting, send its device info."
+            "FoxDen found no lighting chip it can control on it. If it has lighting, tell us with Feedback."
         );
     }
 

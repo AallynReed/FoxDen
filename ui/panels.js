@@ -2275,7 +2275,7 @@ function showUpdate(info) {
   setText($("update-status"), "Version " + info.version + " available");
   setText($("update-title"), "FoxDen " + info.version);
   setText($("update-notes"), info.notes || "No release notes.");
-  if (info.auto) note("Updating to " + info.version + " soon. Open the update to put it off.");
+  if (info.auto) note("Version " + info.version + " installs in a minute. Open the update to put it off.");
 }
 
 async function wireUpdates() {

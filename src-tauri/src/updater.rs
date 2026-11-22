@@ -46,7 +46,9 @@ pub fn due(auto: bool, put_off: bool, idle: bool, waited: Duration) -> bool {
 
 pub fn toast_text(version: &str, auto: bool) -> String {
     if auto {
-        format!("Updating to {version}")
+        format!(
+            "Version {version} is available. It installs in a minute, or once FoxDen is in the tray."
+        )
     } else {
         format!("Version {version} is available")
     }
@@ -61,28 +63,52 @@ pub fn start(app: &AppHandle, shared: Shared) {
     tauri::async_runtime::spawn(async move {
         sleep(FIRST).await;
         loop {
-            if let Ok(Some(info)) = check(&app, &shared).await
-                && info.auto
-            {
-                let toasted = Instant::now();
-                loop {
-                    let put_off = guard(&LATER).as_deref() == Some(info.version.as_str());
-                    let idle = app
-                        .get_webview_window("main")
-                        .is_none_or(|w| !w.is_visible().unwrap_or(false));
-                    if put_off || *guard(&INSTALLING) {
-                        break;
-                    }
-                    if due(true, put_off, idle, toasted.elapsed()) {
-                        let _ = install(&app).await;
-                        break;
-                    }
-                    sleep(Duration::from_secs(1)).await;
-                }
+            if let Ok(Some(info)) = check(&app, &shared).await {
+                wait_and_install(&app, &info).await;
             }
             sleep(EVERY).await;
         }
     });
+}
+
+/// Whether a countdown to an automatic install is running.
+static WAITING: Mutex<bool> = Mutex::new(false);
+
+/// With automatic updates on, installs once FoxDen is in the tray or after the grace minute.
+async fn wait_and_install(app: &AppHandle, info: &Info) {
+    if !info.auto || std::mem::replace(&mut *guard(&WAITING), true) {
+        return;
+    }
+    let toasted = Instant::now();
+    loop {
+        let put_off = guard(&LATER).as_deref() == Some(info.version.as_str());
+        let idle = app
+            .get_webview_window("main")
+            .is_none_or(|w| !w.is_visible().unwrap_or(false));
+        if put_off || *guard(&INSTALLING) {
+            break;
+        }
+        if due(true, put_off, idle, toasted.elapsed()) {
+            if let Err(e) = install(app).await {
+                crate::log::warn(
+                    "updates",
+                    format!("installing {} failed: {e}", info.version),
+                );
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("FoxDen update")
+                    .body(format!(
+                        "Version {} could not be installed. Try again from Settings.",
+                        info.version
+                    ))
+                    .show();
+            }
+            break;
+        }
+        sleep(Duration::from_secs(1)).await;
+    }
+    *guard(&WAITING) = false;
 }
 
 /// Test-only path for development builds: `FOXDEN_FAKE_UPDATE=<version>` shows the UI for a release that is not there.
@@ -170,7 +196,12 @@ pub async fn check_update(
     if cfg!(debug_assertions) {
         return Err(DEV.into());
     }
-    check(&app, shared.inner()).await
+    let found = check(&app, shared.inner()).await?;
+    if let Some(info) = found.clone() {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { wait_and_install(&app, &info).await });
+    }
+    Ok(found)
 }
 
 #[tauri::command]
@@ -208,7 +239,7 @@ mod tests {
 
     #[test]
     fn the_toast_says_what_will_happen() {
-        assert_eq!(toast_text("0.4.0", true), "Updating to 0.4.0");
+        assert!(toast_text("0.4.0", true).starts_with("Version 0.4.0 is available."));
         assert_eq!(toast_text("0.4.0", false), "Version 0.4.0 is available");
     }
 }
