@@ -85,6 +85,19 @@ OpenRGB can optionally drive anything else through its server.
 - Send device info for anything not supported yet
 - Starts with Windows and updates itself
 
+## Lightweight
+
+FoxDen lives in the tray. Closing the window shuts its web view down completely, so in the
+background it costs almost nothing. Measured on Windows 11 with five devices animating at 30 fps
+and a 28-thread CPU:
+
+| Process | Private memory | CPU |
+| --- | --- | --- |
+| `foxden.exe`, in the tray | 16 MB | 0.14% (about 4% of one core) |
+| `foxden-service.exe`, fans | 7 MB | under 0.01% |
+
+The window adds about 200 MB while it is open and gives it back when closed.
+
 ## Install
 
 Download the setup program from [releases](../../releases) and run it. It installs FoxDen, the
