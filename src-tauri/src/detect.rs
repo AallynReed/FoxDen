@@ -174,7 +174,7 @@ const CARD_MAKERS: &[(u16, &str)] = &[
     (0x7377, "Colorful"),
 ];
 
-/// The lighting brand behind a USB vendor id, if OpenRGB covers it.
+/// The lighting brand behind a USB vendor id, if it is one.
 pub fn brand(vendor: u16, product_name: &str) -> Option<&'static str> {
     // HP's id is mostly printers and office gear; only its HyperX range is lit.
     if vendor == 0x03F0 && !product_name.to_lowercase().contains("hyperx") {
@@ -674,7 +674,6 @@ pub struct Live<'a> {
     /// Backend label and device of everything a working backend offers.
     pub driven: Vec<(&'a str, &'a Device)>,
     /// The OpenRGB server answered the last probe.
-    pub openrgb_up: bool,
     /// The OpenRGB backend is connected.
     pub openrgb_on: bool,
 }
@@ -782,42 +781,12 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         let note = "Its lighting is set on the device itself, with Fn key combinations. It has no way for software to control it.";
         return (Route::None, State::Unsupported, note.into());
     }
-    let note = match (found.bus, found.brand) {
-        // Switching OpenRGB on did not help, so it is no longer offered as the way in.
-        (_, Some(_)) if live.openrgb_on && live.listed() > 0 => {
-            let note = "OpenRGB is connected but does not list it. It may have no lighting OpenRGB can control.";
-            return (Route::None, State::Unsupported, note.into());
-        }
-        (Bus::Gpu, Some(brand)) => {
-            let note = format!(
-                "FoxDen has no driver for this card yet. OpenRGB drives some {brand} cards and may list this one."
-            );
-            return (Route::None, State::Unsupported, note);
-        }
-        (_, None) => {
-            return (
-                Route::None,
-                State::Unsupported,
-                "FoxDen has no driver for it yet.".into(),
-            );
-        }
-        (_, Some(_)) if live.openrgb_on => {
-            "OpenRGB is connected but lists no devices yet.".to_string()
-        }
-        (_, Some(_)) if settings.openrgb_enabled => {
-            "OpenRGB is switched on, but FoxDen is not connected to it.".into()
-        }
-        // The vendor is all we know, so the note does not promise that this device has lighting.
-        (_, Some(brand)) => {
-            let next = if live.openrgb_up {
-                "Its server is running: switch OpenRGB on in Settings."
-            } else {
-                "Start its server, then switch OpenRGB on in Settings."
-            };
-            format!("OpenRGB drives many {brand} devices, perhaps this one. {next}")
-        }
+    let note = if found.bus == Bus::Gpu {
+        "FoxDen has no driver for this card yet."
+    } else {
+        "FoxDen has no driver for it yet."
     };
-    (Route::Openrgb, State::Available, note)
+    (Route::None, State::Unsupported, note.into())
 }
 
 /// The detected list: what was found, joined with what drives it now.
@@ -837,8 +806,8 @@ pub fn resolve(found: &[Found], live: &Live) -> Vec<Detected> {
             }
         })
         .collect();
-    if live.openrgb_up || live.openrgb_on {
-        let settings = live.settings;
+    let settings = live.settings;
+    if settings.openrgb_enabled || live.openrgb_on {
         let (state, note) = if live.openrgb_on && live.listed() == 0 {
             (State::Active, "Connected, but it lists no devices yet.")
         } else if live.openrgb_on {
@@ -846,16 +815,8 @@ pub fn resolve(found: &[Found], live: &Live) -> Vec<Detected> {
                 State::Active,
                 "Connected. Its devices are in the device list.",
             )
-        } else if settings.openrgb_enabled {
-            (
-                State::Available,
-                "It answers, but the connection failed. Rescan to try again.",
-            )
         } else {
-            (
-                State::Available,
-                "Switch on OpenRGB in Settings to use the devices it drives.",
-            )
+            (State::Available, "Not connected. Rescan to try again.")
         };
         list.push(Detected {
             id: "network:openrgb".into(),
@@ -1333,16 +1294,15 @@ mod tests {
         let live = Live {
             settings: &off,
             driven: Vec::new(),
-            openrgb_up: false,
             openrgb_on: false,
         };
         let list = resolve(&found, &live);
         assert_eq!(list[0].name, "ASUS PRIME X370-PRO");
         assert_eq!(
             (list[0].route, list[0].state),
-            (Route::Openrgb, State::Available)
+            (Route::None, State::Unsupported)
         );
-        assert!(list[0].note.contains("OpenRGB drives many ASUS devices"));
+        assert_eq!(list[0].note, "FoxDen has no driver for it yet.");
     }
 
     fn part(id: &str, kind: &'static str, bus: Bus, brand: Option<&'static str>) -> Found {
@@ -1362,7 +1322,6 @@ mod tests {
             settings: &Settings::default(),
             driven: vec![],
             openrgb_on: false,
-            openrgb_up: false,
         };
         let found = part("usb:0951:172d", "keyboard", Bus::Usb, Some("HyperX"));
         let (route, state, note) = status(&found, &live);
@@ -1371,15 +1330,15 @@ mod tests {
     }
 
     #[test]
-    fn idle_hardware_points_at_the_route_that_could_drive_it() {
+    fn idle_hardware_without_a_driver_is_not_supported_yet() {
         let mut found = usb(&desk());
         found.push(part("memory:x", "memory", Bus::Memory, Some("Corsair")));
         found.push(part("gpu:1002:7550", "gpu", Bus::Gpu, Some("ASUS")));
         let off = Settings::default();
-        let idle = |openrgb_up| Live {
-            settings: &off,
+        let bridge = settings(false, true);
+        let idle = |openrgb_enabled| Live {
+            settings: if openrgb_enabled { &bridge } else { &off },
             driven: Vec::new(),
-            openrgb_up,
             openrgb_on: false,
         };
         let list = resolve(&found, &idle(false));
@@ -1389,35 +1348,20 @@ mod tests {
             (line("usb:046d:c539").route, line("usb:046d:c539").state),
             (Route::Native, State::Available)
         );
+        for id in ["usb:1038:22a1", "memory:x", "gpu:1002:7550"] {
+            assert_eq!(
+                (line(id).route, line(id).state),
+                (Route::None, State::Unsupported)
+            );
+            assert!(!line(id).note.contains("OpenRGB"), "{}", line(id).note);
+        }
         assert_eq!(
-            (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
-            (Route::Openrgb, State::Available)
+            line("gpu:1002:7550").note,
+            "FoxDen has no driver for this card yet."
         );
-        assert_eq!(
-            (line("memory:x").route, line("memory:x").state),
-            (Route::Openrgb, State::Available)
-        );
-        assert_eq!(
-            (line("gpu:1002:7550").route, line("gpu:1002:7550").state),
-            (Route::None, State::Unsupported)
-        );
-        // known by its vendor alone, so the note may not promise anything
-        let headset = &line("usb:1038:22a1").note;
-        assert!(
-            headset.contains("SteelSeries") && headset.contains("perhaps this one"),
-            "{headset}"
-        );
-        assert!(headset.contains("Start its server"), "{headset}");
 
-        // a running server is listed, and offered rather than used
+        // the bridge's server is listed only once it is switched on
         let list = resolve(&found, &idle(true));
-        assert!(
-            list.iter()
-                .find(|d| d.id == "usb:1038:22a1")
-                .unwrap()
-                .note
-                .contains("server is running")
-        );
         let server = list.last().unwrap();
         assert_eq!(
             (server.id.as_str(), server.kind, server.bus),
@@ -1450,7 +1394,6 @@ mod tests {
         let live = Live {
             settings: &both,
             driven: vec![("openrgb", &keys), ("openrgb", &ram), ("hid", &mouse)],
-            openrgb_up: true,
             openrgb_on: true,
         };
         let list = resolve(&found, &live);
@@ -1473,17 +1416,15 @@ mod tests {
             (Route::Native, State::Available)
         );
         assert!(line("usb:1462:7d99").note.contains("could not open"));
-        // connected but not listed: OpenRGB is no longer offered as the way to drive it
         assert_eq!(
             (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
             (Route::None, State::Unsupported)
         );
-        assert!(line("usb:1038:22a1").note.contains("does not list"));
         assert_eq!(
             (line("gpu:1002:7550").route, line("gpu:1002:7550").state),
             (Route::None, State::Unsupported)
         );
-        assert!(line("gpu:1002:7550").note.contains("does not list"));
+        assert!(!line("gpu:1002:7550").note.contains("OpenRGB"));
         assert_eq!(line("network:openrgb").state, State::Active);
         assert!(line("network:openrgb").note.contains("device list"));
     }
@@ -1503,7 +1444,6 @@ mod tests {
         let live = Live {
             settings: &both,
             driven: vec![("smbus", &light)],
-            openrgb_up: false,
             openrgb_on: false,
         };
         let row = &resolve(&[stick], &live)[0];
@@ -1528,7 +1468,6 @@ mod tests {
         let live = Live {
             settings: &both,
             driven: vec![("hid", &light)],
-            openrgb_up: false,
             openrgb_on: false,
         };
         let row = &resolve(&[board], &live)[0];
@@ -1554,7 +1493,6 @@ mod tests {
             let live = Live {
                 settings,
                 driven,
-                openrgb_up: false,
                 openrgb_on: false,
             };
             resolve(&found, &live)
@@ -1582,16 +1520,14 @@ mod tests {
         let live = Live {
             settings: &on,
             driven: Vec::new(),
-            openrgb_up: true,
             openrgb_on: true,
         };
         let list = resolve(&found, &live);
         let line = |id: &str| list.iter().find(|d| d.id == id).unwrap();
         assert_eq!(
             (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
-            (Route::Openrgb, State::Available)
+            (Route::None, State::Unsupported)
         );
-        assert!(line("usb:1038:22a1").note.contains("lists no devices yet"));
         assert_eq!(line("network:openrgb").state, State::Active);
         assert!(
             line("network:openrgb")
@@ -1613,7 +1549,6 @@ mod tests {
             let live = Live {
                 settings: &on,
                 driven,
-                openrgb_up: true,
                 openrgb_on: true,
             };
             resolve(&found, &live)[0].state

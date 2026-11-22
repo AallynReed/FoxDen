@@ -581,8 +581,9 @@
     };
     const served = (id, name, kind, bus) => {
       const on = openrgb();
-      const note = on ? "Driven through the OpenRGB server." : "No native driver yet. The OpenRGB server can drive it.";
-      return { id, name, kind, bus, route: "openrgb", state: on ? "active" : "available", note };
+      return on
+        ? { id, name, kind, bus, route: "openrgb", state: "active", note: "Driven through OpenRGB." }
+        : { id, name, kind, bus, route: "none", state: "unsupported", note: kind === "gpu" ? "FoxDen has no driver for this card yet." : "FoxDen has no driver for it yet." };
     };
     const plain = (id, name, kind, note) => ({ id, name, kind, bus: "usb", route: "none", state: "unsupported", note });
     const found = [
@@ -593,15 +594,15 @@
       served("gpu:1002:7550", "ASUS Radeon RX 9070 XT", "gpu", "gpu"),
       plain("usb:1038:2202", "SteelSeries Arctis Nova 7", "headset", "Has no lighting that software can control."),
       plain("usb:03f0:0b8b", "HyperX SoloCast", "microphone", "Its status light cannot be controlled."),
-      {
+      ...(!openrgb() ? [] : [{
         id: "network:openrgb",
         name: "OpenRGB server",
         kind: "server",
         bus: "network",
         route: "openrgb",
-        state: openrgb() ? "active" : "available",
-        note: openrgb() ? "Connected on 127.0.0.1:6742, 3 devices." : "Answering on 127.0.0.1:6742.",
-      },
+        state: "active",
+        note: "Connected on 127.0.0.1:6742, 3 devices.",
+      }]),
     ];
     return found.filter((d) => state.keyboard || d.id !== "usb:046d:c547");
   }
@@ -782,6 +783,11 @@
       return JSON.stringify(report, null, 2);
     },
     send_device_info() {},
+    send_feedback(body) {
+      const len = new DataView(body.buffer, body.byteOffset).getUint32(0, true);
+      const { message } = JSON.parse(new TextDecoder().decode(body.subarray(4, 4 + len)));
+      if (message.includes("fail")) throw "Too many sent just now. Try again later.";
+    },
     open_link({ which }) {
       window.open({ discord: "https://discord.gg/VGTaqW3vwn", kofi: "https://ko-fi.com/aallyn", paypal: "https://paypal.me/waterin" }[which], "_blank");
     },
@@ -831,7 +837,7 @@
     return new Promise((resolve, reject) => {
       if (!commands[name]) return reject(`unknown command ${name}`);
       try {
-        const out = commands[name](copy(args || {}));
+        const out = commands[name](args instanceof Uint8Array ? args : copy(args || {}));
         if (!name.startsWith("get_") && name !== "detect") emit("snapshot", snapshot());
         resolve(out === undefined ? null : out);
       } catch (e) {

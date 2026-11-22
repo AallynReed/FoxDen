@@ -571,7 +571,7 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
             };
             let config = config_185(pid).ok_or("board has no Mystic Light direct mode")?;
             if fw < config.min_fw {
-                return Err("firmware below the minimum OpenRGB supports".into());
+                return Err("firmware too old for direct mode".into());
             }
             if config.mode == Direct::Disabled
                 || (config.mode == Direct::PerLed && !config.per_led_active())

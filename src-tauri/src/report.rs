@@ -94,6 +94,110 @@ pub async fn post(body: &Value) -> Result<(), String> {
     }
 }
 
+const FEEDBACK_URL: &str = "https://reports.foxhearth.com/v1/foxden/feedback";
+const FEEDBACK: [&str; 4] = ["bug", "idea", "praise", "other"];
+const ATTACHMENT_MOST: usize = 16 * 1024 * 1024;
+const ATTACHMENTS: [(&str, &str); 7] = [
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("webp", "image/webp"),
+    ("mp4", "video/mp4"),
+    ("webm", "video/webm"),
+    ("mov", "video/quicktime"),
+];
+
+#[derive(serde::Deserialize)]
+struct Feedback {
+    #[serde(rename = "type")]
+    kind: String,
+    message: String,
+    contact: String,
+    #[serde(default)]
+    file: Option<String>,
+}
+
+fn feedback_body(kind: &str, message: &str, contact: &str) -> Result<Value, String> {
+    let (message, contact) = (message.trim(), contact.trim());
+    if !FEEDBACK.contains(&kind) {
+        return Err("Pick what kind of feedback this is.".into());
+    }
+    if message.is_empty() {
+        return Err("Write a message first.".into());
+    }
+    if message.chars().count() > LONGEST || contact.chars().count() > 100 {
+        return Err("Too large to send.".into());
+    }
+    Ok(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "type": kind,
+        "message": message,
+        "contact": contact,
+    }))
+}
+
+/// The attachment's upload name and content type, from its extension. The user's file name is not sent.
+fn attachment(name: &str, size: usize) -> Result<(String, &'static str), String> {
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_lowercase());
+    let ext = if ext.as_deref() == Some("jpeg") {
+        Some("jpg".to_string())
+    } else {
+        ext
+    };
+    let Some(&(ext, mime)) = ATTACHMENTS.iter().find(|(e, _)| Some(*e) == ext.as_deref()) else {
+        return Err("That file type isn't supported.".into());
+    };
+    if size > ATTACHMENT_MOST {
+        return Err("The file is larger than 16 MB.".into());
+    }
+    Ok((format!("attachment.{ext}"), mime))
+}
+
+/// Feedback the user wrote and chose to send. The body is a 4-byte length, the JSON, then the file.
+#[tauri::command]
+pub async fn send_feedback(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("The feedback could not be read.".into());
+    };
+    let bad = || "The feedback could not be read.".to_string();
+    let len = u32::from_le_bytes(
+        body.get(..4)
+            .ok_or_else(bad)?
+            .try_into()
+            .map_err(|_| bad())?,
+    ) as usize;
+    let meta = body.get(4..4 + len).ok_or_else(bad)?;
+    let file = &body[4 + len..];
+    let meta: Feedback = serde_json::from_slice(meta).map_err(|_| bad())?;
+    let data = feedback_body(&meta.kind, &meta.message, &meta.contact)?;
+    let mut form = reqwest::multipart::Form::new().text("data", data.to_string());
+    if let Some(name) = meta.file.filter(|_| !file.is_empty()) {
+        let (name, mime) = attachment(&name, file.len())?;
+        let part = reqwest::multipart::Part::bytes(file.to_vec())
+            .file_name(name)
+            .mime_str(mime)
+            .map_err(|e| e.to_string())?;
+        form = form.part("file", part);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let reply = client
+        .post(FEEDBACK_URL)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|_| "Could not reach the feedback server.".to_string())?;
+    match reply.status().as_u16() {
+        200..=299 => Ok(()),
+        413 => Err("Too large to send.".into()),
+        415 => Err("That file type isn't supported.".into()),
+        429 => Err("Too many sent just now. Try again later.".into()),
+        code => Err(format!("The feedback server refused it ({code}).")),
+    }
+}
+
 /// Writes a crash to disk; it is sent at the next start if reports are on.
 pub fn catch_crashes() {
     let default = std::panic::take_hook();
@@ -216,6 +320,24 @@ mod tests {
             "device busy (0x08) on retry 3"
         );
         assert!(scrub(&"é".repeat(5000)).len() <= LONGEST);
+    }
+
+    #[test]
+    fn feedback_is_checked_before_it_is_sent() {
+        let body = feedback_body("idea", "  More fans  ", "").unwrap();
+        assert_eq!(body["type"], "idea");
+        assert_eq!(body["message"], "More fans");
+        assert!(feedback_body("rant", "x", "").is_err());
+        assert!(feedback_body("bug", "   ", "").is_err());
+        assert!(feedback_body("bug", &"a".repeat(2001), "").is_err());
+        assert!(feedback_body("bug", "x", &"a".repeat(101)).is_err());
+        assert_eq!(
+            attachment("Clip.MOV", 10).unwrap(),
+            ("attachment.mov".into(), "video/quicktime")
+        );
+        assert_eq!(attachment("a.jpeg", 10).unwrap().1, "image/jpeg");
+        assert!(attachment("a.exe", 10).is_err());
+        assert!(attachment("a.png", ATTACHMENT_MOST + 1).is_err());
     }
 
     #[test]

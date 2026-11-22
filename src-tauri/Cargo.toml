@@ -31,11 +31,13 @@ serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 tray-icon = "0.25"
+webview2-com = "0.39"
+windows-core = "0.62"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 wmi = { version = "0.18", default-features = false }
 tauri-plugin-notification = "2"
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 windows-service = "0.8"
 windows-sys = { version = "0.61", features = [

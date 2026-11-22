@@ -103,7 +103,7 @@ pub async fn open_logs(app: AppHandle) -> Result<(), String> {
         // Every window in one data folder must share the browser flags, or WebView2 refuses it.
         .additional_browser_args(crate::BROWSER_ARGS)
         .build()
-        .map(|_| ())
+        .map(|w| crate::no_browser_keys(&w))
         .map_err(|e| e.to_string())
 }
 

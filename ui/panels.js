@@ -3,7 +3,7 @@ const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
 const ROUTES = { native: ["Native driver", "set-native"], openrgb: ["OpenRGB", "set-openrgb"] };
-const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "Unsupported"] };
+const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "Not supported yet"] };
 const PRESETS = [
   ["Red", "#FF0000"],
   ["Orange", "#FF6A00"],
@@ -938,6 +938,7 @@ function renderEffects(snap) {
   }
   for (const input of box.querySelectorAll("[data-param]")) put(input, effect[input.dataset.param]);
   $("params-empty").hidden = params.length > 0;
+  $("params-actions").hidden = !params.length;
 
   // The list scrolls on its own, so keep the chosen effect in view.
   if (!$("panel-effects").hidden && list.dataset.kind !== effect.kind) {
@@ -1174,6 +1175,7 @@ function renderLayer(snap, layer) {
     box.replaceChildren(...params.map((p) => paramRow(p, "layer")));
     $("layer-problem").hidden = true;
   }
+  $("layer-reset").hidden = !params.length;
   for (const input of box.querySelectorAll("[data-param]")) put(input, layer.effect[input.dataset.param]);
   const painter = box.querySelector(".keyboard.paint");
   if (painter) painter.show(snap, layer.effect.map);
@@ -1423,7 +1425,7 @@ function detectedRow(item) {
     el("span", { className: "meta", textContent: about.filter(Boolean).join(" · ") }),
     el("span", { className: "hint", textContent: item.note }),
   );
-  if (item.state === "available" && route) {
+  if (item.state === "available" && item.route === "native") {
     const go = el("button", { type: "button", textContent: route[0] + " setting" });
     go.onclick = () => showSetting(route[1]);
     row.append(go);
@@ -1463,6 +1465,124 @@ function wireInfo() {
       send.disabled = false;
       setText(status, typeof e === "string" ? e : String(e));
     }
+  };
+}
+
+const FEEDBACK_HOUR = 5;
+const FEEDBACK_WAIT = 30000;
+
+function feedbackTimes() {
+  try {
+    const hour = Date.now() - 3600000;
+    return JSON.parse(localStorage.getItem("feedback-sent") || "[]").filter((t) => t > hour);
+  } catch {
+    return [];
+  }
+}
+
+const ATTACHMENT_TYPES = ["png", "jpg", "jpeg", "gif", "webp", "mp4", "webm", "mov"];
+const ATTACHMENT_MOST = 16 * 1024 * 1024;
+
+function fileSize(bytes) {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function wireFeedback() {
+  const sheet = $("feedback-sheet");
+  const message = $("feedback-message");
+  const send = $("feedback-send");
+  const status = $("feedback-status");
+  const picker = $("feedback-file");
+  const fileName = $("feedback-file-name");
+  const fileProblem = $("feedback-file-problem");
+  const types = [...$("feedback-type").querySelectorAll("button")];
+  const hint = fileName.textContent;
+  let waiting = false;
+  let file = null;
+  const pick = (b) => {
+    for (const o of types) {
+      o.setAttribute("aria-checked", String(o === b));
+      o.tabIndex = o === b ? 0 : -1;
+    }
+  };
+  const ready = () => {
+    setText($("feedback-count"), `${message.value.length} / 2000`);
+    send.disabled = waiting || !message.value.trim();
+  };
+  const attach = (f, problem = "") => {
+    file = f;
+    picker.value = "";
+    setText(fileName, f ? `${f.name}, ${fileSize(f.size)}` : hint);
+    $("feedback-file-remove").hidden = !f;
+    setText(fileProblem, problem);
+    fileProblem.hidden = !problem;
+  };
+  for (const b of types) {
+    b.onclick = () => pick(b);
+    b.onkeydown = (e) => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const next = types[(types.indexOf(b) + step + types.length) % types.length];
+      pick(next);
+      next.focus();
+    };
+  }
+  message.oninput = ready;
+  $("feedback-pick").onclick = () => picker.click();
+  $("feedback-file-remove").onclick = () => {
+    attach(null);
+    $("feedback-pick").focus();
+  };
+  picker.onchange = () => {
+    const f = picker.files[0];
+    if (!f) return;
+    const ext = f.name.includes(".") ? f.name.split(".").pop().toLowerCase() : "";
+    if (!ATTACHMENT_TYPES.includes(ext)) attach(null, `${f.name} is not an image or video FoxDen can send. Use PNG, JPG, GIF, WebP, MP4, WebM or MOV.`);
+    else if (f.size > ATTACHMENT_MOST) attach(null, `${f.name} is ${fileSize(f.size)}. Files can be up to 16 MB.`);
+    else attach(f);
+  };
+  $("feedback-open").onclick = () => {
+    setText(status, "");
+    ready();
+    sheet.showModal();
+    message.focus();
+  };
+  $("feedback-close").onclick = () => sheet.close();
+  $("feedback-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const times = feedbackTimes();
+    if (times.length >= FEEDBACK_HOUR) {
+      setText(status, "That is a lot of feedback for one hour. Try again later.");
+      return;
+    }
+    waiting = true;
+    ready();
+    setText(status, file ? `Sending with ${fileSize(file.size)} attached…` : "Sending…");
+    try {
+      const type = types.find((b) => b.getAttribute("aria-checked") === "true").dataset.type;
+      const meta = new TextEncoder().encode(JSON.stringify({ type, message: message.value, contact: $("feedback-contact").value, file: file ? file.name : null }));
+      const data = file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(0);
+      const body = new Uint8Array(4 + meta.length + data.length);
+      new DataView(body.buffer).setUint32(0, meta.length, true);
+      body.set(meta, 4);
+      body.set(data, 4 + meta.length);
+      await invoke("send_feedback", body);
+      try {
+        localStorage.setItem("feedback-sent", JSON.stringify([...times, Date.now()]));
+      } catch {}
+      message.value = "";
+      attach(null);
+      setText(status, "Sent. Thank you.");
+      setTimeout(() => {
+        waiting = false;
+        ready();
+      }, FEEDBACK_WAIT);
+    } catch (err) {
+      waiting = false;
+      setText(status, typeof err === "string" ? err : String(err));
+    }
+    ready();
   };
 }
 
@@ -2048,6 +2168,7 @@ function wirePanels() {
   const name = $("name-input");
   name.oninput = () => flag(name, "");
   wireInfo();
+  wireFeedback();
   $("name-cancel").onclick = () => $("name-sheet").close();
   $("name-form").onsubmit = (e) => {
     const to = name.value.trim();

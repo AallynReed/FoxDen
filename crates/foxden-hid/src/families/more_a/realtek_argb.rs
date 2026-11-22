@@ -171,7 +171,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
     let mut io = opened(api, info)?;
     let state = detect(io.as_mut())?;
     if !state.supported {
-        return Err("controller does not support OpenRGB sync".into());
+        return Err("controller does not support direct control".into());
     }
     let counts: Vec<usize> = state.groups.iter().map(|g| g.1).collect();
     if counts.iter().sum::<usize>() == 0 {

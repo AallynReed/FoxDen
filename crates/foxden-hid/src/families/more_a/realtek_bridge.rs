@@ -103,7 +103,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
     let mut io = opened(api, info)?;
     let state = detect(io.as_mut())?;
     if !state.supported {
-        return Err("bridge does not support OpenRGB sync".into());
+        return Err("bridge does not support direct control".into());
     }
     let n = argb_num(&state.hdr);
     if n <= 0 || n as usize * 3 > 4096 {

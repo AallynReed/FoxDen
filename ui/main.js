@@ -242,13 +242,23 @@ function setSnapshot(snap) {
   settle = null;
 }
 
+const TAB_ABOUT = {
+  "tab-effects": "Choose a lighting effect and stack layers over it, some only while an app is open.",
+  "tab-devices": "Place your lighting devices on the canvas, set their brightness and see what hardware was found.",
+  "tab-fans": "Set fan speeds and curves that follow your temperatures.",
+  "tab-audio": "Mix your apps into Game, Chat, Media and Aux, balance game against chat, and process your mic.",
+  "tab-profiles": "Save your lighting as profiles, switch between them and share them.",
+  "tab-settings": "Switch the Lighting or Fans module off if you do not use it, and set up startup, hardware and updates.",
+};
+
 function showTab(tab) {
   if (!tab || tab.hidden) return;
+  setText($("tab-about"), TAB_ABOUT[tab.id] || "");
   for (const t of document.querySelectorAll("[role=tab]")) {
     const on = t === tab;
     t.setAttribute("aria-selected", on);
     t.tabIndex = on ? 0 : -1;
-    $(t.getAttribute("aria-controls")).hidden = !on;
+    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
   }
   // Only the lighting tabs need the canvas.
   document.body.classList.toggle("wide", !LIGHTING_TABS.includes(tab.id));
@@ -354,6 +364,7 @@ function onShortcut(e) {
 
 async function init() {
   wireTabs();
+  setText($("tab-about"), TAB_ABOUT[document.querySelector("[role=tab][aria-selected=true]").id]);
   wirePanels();
   $("error-close").onclick = () => ($("error").hidden = true);
   $("help-open").onclick = openHelp;

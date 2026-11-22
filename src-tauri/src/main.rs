@@ -54,12 +54,37 @@ pub fn main_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
             .build()
     });
     match built {
-        Ok(w) => Some(w),
+        Ok(w) => {
+            no_browser_keys(&w);
+            Some(w)
+        }
         Err(e) => {
             log::warn("app", format!("the window could not open: {e}"));
             None
         }
     }
+}
+
+/// Turns off WebView2's browser shortcuts (reload, print, find, history, dev tools) in release builds.
+pub fn no_browser_keys(window: &tauri::WebviewWindow) {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    let _ = window.with_webview(|view| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+        use windows_core::Interface;
+        // SAFETY: plain WebView2 COM calls on the live controller, made on its own thread.
+        unsafe {
+            if let Ok(settings) = view
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.Settings())
+                .and_then(|s| s.cast::<ICoreWebView2Settings3>())
+            {
+                let _ = settings.SetAreBrowserAcceleratorKeysEnabled(false);
+            }
+        }
+    });
 }
 
 fn main() {
@@ -115,6 +140,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             apps::list_apps,
+            report::send_feedback,
             commands::get_snapshot,
             commands::set_effect,
             commands::set_layers,

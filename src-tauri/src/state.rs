@@ -162,8 +162,6 @@ pub struct AppState {
     retry_inputs: bool,
     /// Hardware the last detection pass found.
     found: Vec<Found>,
-    /// Whether the OpenRGB server answered that pass.
-    openrgb_up: bool,
     /// Resizable zones of the native devices, by device id.
     zones: HashMap<String, Vec<ZoneView>>,
 }
@@ -196,7 +194,6 @@ impl AppState {
             inputs: Vec::new(),
             retry_inputs: false,
             found: Vec::new(),
-            openrgb_up: false,
             zones: HashMap::new(),
         }
     }
@@ -286,7 +283,6 @@ impl AppState {
         let live = Live {
             settings: &self.config.settings,
             driven: self.engine.driven(),
-            openrgb_up: self.openrgb_up,
             openrgb_on: self.connected("openrgb"),
         };
         detect::resolve(&self.found, &live)
@@ -476,13 +472,11 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                     system = detect::system();
                 }
                 let (found, print) = detect::scan(&system, &settings, settled);
-                let openrgb_up = print.openrgb;
                 let change = watch.step(print, &settings, settled);
                 let died = watch.died(failing);
                 {
                     let mut state = lock(&shared);
                     state.found = found;
-                    state.openrgb_up = openrgb_up;
                 }
                 // Only what the user has switched on and whose hardware changed is connected again.
                 let hid = (change.native || died) && !done.hid;
@@ -1090,7 +1084,7 @@ mod tests {
             native: None,
             brand: Some("Corsair"),
         }];
-        state.openrgb_up = true;
+        state.config.settings.openrgb_enabled = true;
         let json = serde_json::to_value(state.snapshot()).unwrap();
         let detected = json["detected"].as_array().unwrap();
         assert_eq!(detected.len(), 2);
@@ -1099,8 +1093,8 @@ mod tests {
             ["bus", "id", "kind", "name", "note", "route", "state"]
         );
         assert_eq!(detected[0]["id"], "usb:1b1c:0001");
-        assert_eq!(detected[0]["route"], "openrgb");
-        assert_eq!(detected[0]["state"], "available");
+        assert_eq!(detected[0]["route"], "none");
+        assert_eq!(detected[0]["state"], "unsupported");
         assert_eq!(detected[1]["id"], "network:openrgb");
         assert_eq!(detected[1]["state"], "available");
     }

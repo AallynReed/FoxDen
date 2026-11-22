@@ -667,14 +667,16 @@ input.switch::after {
   border-left: 1px solid var(--line);
 }
 
-.seg button[aria-pressed="true"] {
+.seg button[aria-pressed="true"],
+.seg button[aria-checked="true"] {
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 600;
   clip-path: var(--cut);
 }
 
-.seg button[aria-pressed="true"]:focus-visible {
+.seg button[aria-pressed="true"]:focus-visible,
+.seg button[aria-checked="true"]:focus-visible {
   outline-color: var(--on-accent);
   outline-offset: -4px;
 }
@@ -1402,6 +1404,34 @@ dialog.sheet {
 
 dialog.sheet::backdrop {
   background: rgb(0 0 0 / 0.6);
+}
+
+#tab-about {
+  padding: 8px 16px 0;
+}
+
+#feedback-type {
+  align-self: flex-start;
+}
+
+#feedback-message {
+  width: 100%;
+  resize: vertical;
+}
+
+#feedback-attach {
+  align-items: center;
+}
+
+#feedback-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#feedback-count {
+  margin-top: -4px;
+  text-align: right;
 }
 
 #info-sheet {
