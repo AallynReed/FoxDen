@@ -780,6 +780,13 @@ fn drives(found: &Found, native: &str, device: &Device) -> bool {
         || (native == PORTED
             && device.id.starts_with(PORTED)
             && usb.is_some_and(|ids| device.id.contains(&ids)))
+        // Logitech receivers and cables reach devices whose ids name the model, not the USB device.
+        || (native == PORTED
+            && found
+                .id
+                .strip_prefix("usb:046d:")
+                .and_then(|pid| u16::from_str_radix(pid, 16).ok())
+                .is_some_and(|pid| foxden_hid::logitech_drives(pid, &device.id)))
         // Memory sticks are probed on the bus, so any stick a native driver lights counts.
         || (found.bus == Bus::Memory
             && device.kind == DeviceKind::Memory

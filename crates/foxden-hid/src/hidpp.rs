@@ -1,4 +1,4 @@
-//! Logitech HID++ 2.0 lighting, behind a Lightspeed receiver or on a cable.
+//! Logitech HID++ 2.0 lighting, behind a receiver or on a cable.
 
 use std::time::{Duration, Instant};
 
@@ -15,7 +15,7 @@ pub const G915X_LS_WIRED: u16 = 0xC356;
 /// G915 X, the cable-only model.
 pub const G915X_WIRED: u16 = 0xC359;
 
-/// Every product id this module drives.
+/// Product ids with fixed layouts and ids; any other HID++ 2.0 device is driven from what it reports.
 pub const PIDS: [u16; 6] = [
     G502_RECEIVER,
     G515_RECEIVER,
@@ -38,17 +38,22 @@ pub struct Paired {
     pub name: String,
 }
 
-/// Device type 1 in the receiver's pairing info.
+/// Device types 1 and 2 in the receiver's pairing info.
 const PAIRED_KEYBOARD: u8 = 0x01;
+const PAIRED_MOUSE: u8 = 0x02;
 const NO_LIGHTING: &str = "no lighting feature";
 
-/// A Lightspeed receiver has its one paired device at index 1; a device on a cable answers at 0xFF.
+/// A receiver's devices answer at their slot, 1 to 6; a device on a cable answers at 0xFF.
+#[cfg(test)]
 const RECEIVER_INDEX: u8 = 0x01;
 const WIRED_INDEX: u8 = 0xFF;
+const SLOTS: u8 = 6;
 const SW_ID: u8 = 0x07;
 
+const DEVICE_NAME_TYPE: u16 = 0x0005;
 const COLOR_LED_EFFECTS: u16 = 0x8070;
 const RGB_EFFECTS: u16 = 0x8071;
+const PER_KEY_V1: u16 = 0x8080;
 const PER_KEY_V2: u16 = 0x8081;
 const ONBOARD_PROFILES: u16 = 0x8100;
 const PROFILE_MANAGEMENT: u16 = 0x8101;
@@ -401,9 +406,10 @@ fn due(since_last: Duration, colors: &[Color]) -> bool {
 pub struct Lightspeed {
     hid: HidDevice,
     device: Device,
-    /// HID++ address of the device: 1 behind a receiver, 0xFF on a cable.
+    /// HID++ address of the device: its slot behind a receiver, 0xFF on a cable.
     index: u8,
-    keyboard: bool,
+    /// Ask for per-key lighting.
+    keys: bool,
     effects: Option<(u8, Effects)>,
     per_key: Option<u8>,
     profiles: Option<Profiles>,
@@ -469,19 +475,253 @@ pub fn identify(pid: u16, paired: Option<&Paired>) -> (bool, String) {
     (keyboard, model)
 }
 
+/// One device an HID++ collection reaches: a receiver slot, or the device itself on its cable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    pub pid: u16,
+    pub index: u8,
+    pub paired: Option<Paired>,
+    /// The original G502 and G515 and their cables: fixed layouts, ids kept from before.
+    pub known: bool,
+    /// What Windows calls the collection's device.
+    pub product: String,
+}
+
+impl Target {
+    /// One id per model, so a layout stays the same across ports and restarts.
+    pub fn id(&self) -> String {
+        let model = match &self.paired {
+            _ if self.known => receiver_of(self.pid),
+            _ if self.index == WIRED_INDEX => self.pid,
+            Some(p) if p.wpid != 0 => p.wpid,
+            _ => return format!("hid:logitech-{:04x}-{}", self.pid, self.index),
+        };
+        format!("hid:logitech-{model:04x}")
+    }
+
+    fn model(&self) -> String {
+        if let Some(p) = &self.paired
+            && !p.name.is_empty()
+        {
+            return p.name.clone();
+        }
+        let product = self.product.trim();
+        let product = product.strip_prefix("Logitech").unwrap_or(product).trim();
+        match self.paired.as_ref().map(|p| p.wpid) {
+            _ if !product.is_empty() && !product.eq_ignore_ascii_case("USB Receiver") => {
+                product.to_string()
+            }
+            Some(wpid) if wpid != 0 => format!("device {wpid:04x}"),
+            _ => format!("device {:04x}", self.pid),
+        }
+    }
+}
+
+/// What a receiver says about one pairing slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+    /// Wireless product id and device type.
+    Paired(u16, u8),
+    Empty,
+    /// No answer, or an HID++ 2.0 one: not a receiver.
+    Silent,
+}
+
+/// Long register 0xB5, pairing info of slot `n`, over the receiver's short collection.
+pub fn slot_request(n: u8) -> [u8; 7] {
+    [0x10, 0xFF, 0x83, 0xB5, 0x20 + n - 1, 0, 0]
+}
+
+/// The answer in `frame` to `slot_request(n)`; `None` for unrelated reports.
+pub fn slot_reply(n: u8, frame: &[u8]) -> Option<Slot> {
+    let sub = 0x20 + n - 1;
+    match frame {
+        [_, 0xFF, 0x83, 0xB5, s, ..] if *s == sub && frame.len() >= 12 => {
+            let (wpid, kind) = crate::generic_any::receiver::parse_kind(frame);
+            Some(if wpid == 0 {
+                Slot::Empty
+            } else {
+                Slot::Paired(wpid, kind)
+            })
+        }
+        [_, 0xFF, 0x8F, 0x83, 0xB5, ..] => Some(Slot::Empty),
+        [_, 0xFF, 0xFF, 0x83, ..] => Some(Slot::Silent),
+        _ => None,
+    }
+}
+
+/// Name the receiver stores for slot `n`, from its answer in `frame` to `name_request(n)`.
+pub fn name_reply(n: u8, frame: &[u8]) -> Option<String> {
+    let sub = 0x40 + n - 1;
+    match frame {
+        [_, 0xFF, 0x83, 0xB5, s, len, rest @ ..] if *s == sub => {
+            let mut name = rest.get(..*len as usize).unwrap_or_default().to_vec();
+            while matches!(name.last(), Some(0 | b' ')) {
+                name.pop();
+            }
+            let printable = name.iter().all(|c| (0x20..=0x7E).contains(c));
+            Some(if printable && *len <= 14 {
+                String::from_utf8(name).unwrap_or_default()
+            } else {
+                String::new()
+            })
+        }
+        [_, 0xFF, 0x8F, 0x83, 0xB5, ..] => Some(String::new()),
+        _ => None,
+    }
+}
+
+/// Writes a register read to the short collection and waits for the answer on either: data comes
+/// back as a long report, errors as short ones.
+fn register<T>(
+    short: &HidDevice,
+    long: &HidDevice,
+    request: [u8; 7],
+    reply: impl Fn(&[u8]) -> Option<T>,
+) -> Option<T> {
+    short.write(&request).ok()?;
+    let deadline = Instant::now() + Duration::from_millis(300);
+    let mut buf = [0u8; 64];
+    while Instant::now() < deadline {
+        for hid in [long, short] {
+            if let Ok(len) = hid.read_timeout(&mut buf, 10)
+                && let Some(r) = reply(&buf[..len])
+            {
+                return Some(r);
+            }
+        }
+    }
+    None
+}
+
+pub fn read_slot(short: &HidDevice, long: &HidDevice, n: u8) -> Slot {
+    register(short, long, slot_request(n), |f| slot_reply(n, f)).unwrap_or(Slot::Silent)
+}
+
+pub fn read_name(short: &HidDevice, long: &HidDevice, n: u8) -> String {
+    let request = [0x10, 0xFF, 0x83, 0xB5, 0x40 + n - 1, 0, 0];
+    register(short, long, request, |f| name_reply(n, f)).unwrap_or_default()
+}
+
+/// The paired slots as (slot, wireless pid, type), or `None` when slot 1 gets no receiver's answer.
+/// Stops at the first silent slot, so a receiver costs one exchange per slot it has.
+pub fn pairing(mut ask: impl FnMut(u8) -> Slot) -> Option<Vec<(u8, u16, u8)>> {
+    let mut slots = Vec::new();
+    for n in 1..=SLOTS {
+        match ask(n) {
+            Slot::Paired(wpid, kind) => slots.push((n, wpid, kind)),
+            Slot::Empty => {}
+            Slot::Silent if n == 1 => return None,
+            Slot::Silent => break,
+        }
+    }
+    Some(slots)
+}
+
+/// The devices a long collection reaches. `slots` is its pairing table, `None` when it is no receiver.
+pub fn targets(pid: u16, product: &str, slots: Option<Vec<(u8, Paired)>>) -> Vec<Target> {
+    let target = |index, paired, known| Target {
+        pid,
+        index,
+        paired,
+        known,
+        product: product.to_string(),
+    };
+    let original = matches!(pid, G502_RECEIVER | G515_RECEIVER);
+    match slots {
+        _ if cable(pid) => vec![target(WIRED_INDEX, None, true)],
+        Some(slots) if !slots.is_empty() => slots
+            .into_iter()
+            .enumerate()
+            .map(|(i, (n, paired))| target(n, Some(paired), original && i == 0))
+            .collect(),
+        // the original receivers keep their device at slot 1 even when the table cannot be read
+        _ if original => vec![target(1, None, true)],
+        Some(_) => Vec::new(),
+        None => vec![target(WIRED_INDEX, None, false)],
+    }
+}
+
+/// Whether a device is offered after its first discovery: a known model may be asleep,
+/// anything else must answer with a lighting feature.
+pub fn offer(known: bool, found: Result<(), String>) -> Result<(), String> {
+    match found {
+        Err(e) if e == NO_LIGHTING || !known => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// Zone ids, LED positions and grid of a model without a fixed layout. Per-key boards take the
+/// keys they report, any others on an extra row; other devices get one LED per zone.
+pub fn discovered_layout(
+    kind: DeviceKind,
+    reported: &[u8],
+    zones: u8,
+) -> (Vec<u8>, Vec<[f32; 2]>, [u32; 2]) {
+    if reported.is_empty() {
+        let n = zones.max(1);
+        let (cols, rows) = if kind == DeviceKind::Keyboard {
+            (n as u32, 1)
+        } else {
+            (1, n as u32)
+        };
+        let leds = Device::grid("", "", kind, [0.0; 4], cols, rows).leds;
+        return ((0..n).collect(), leds, [cols, rows]);
+    }
+    let full = reported.iter().any(|z| (80..=96).contains(z));
+    let base = if full { full_layout() } else { tkl_layout() };
+    let cols = if full { 22 } else { 18 };
+    let mut keys: Vec<(u8, [f32; 2])> = base
+        .into_iter()
+        .filter(|(zone, _)| reported.contains(zone))
+        .collect();
+    let extra: Vec<u8> = reported
+        .iter()
+        .copied()
+        .filter(|z| !keys.iter().any(|(k, _)| k == z))
+        .collect();
+    let rows = if extra.is_empty() { 6 } else { 7 };
+    if !extra.is_empty() {
+        for (_, at) in &mut keys {
+            at[1] *= 6.0 / 7.0;
+        }
+        let n = extra.len() as f32;
+        keys.extend(
+            extra
+                .iter()
+                .enumerate()
+                .map(|(i, &z)| (z, [(i as f32 + 0.5) / n, 6.5 / 7.0])),
+        );
+    }
+    let (zones, leds) = keys.into_iter().unzip();
+    (zones, leds, [cols, rows])
+}
+
+fn rect(kind: DeviceKind) -> [f32; 4] {
+    match kind {
+        DeviceKind::Keyboard => [0.06, 0.58, 0.54, 0.32],
+        DeviceKind::Mouse => [0.70, 0.62, 0.06, 0.22],
+        _ => [0.34, 0.12, 0.24, 0.24],
+    }
+}
+
 impl Lightspeed {
-    /// The device behind the receiver. Its features are read now if it is awake, otherwise once it wakes.
-    /// `paired` is what the receiver stores for slot 1; without it the receiver's usual model is assumed.
-    pub fn open(hid: HidDevice, pid: u16, paired: Option<Paired>) -> Result<Self, String> {
-        let wired = cable(pid);
-        let index = if wired { WIRED_INDEX } else { RECEIVER_INDEX };
-        let (keyboard, model) = identify(pid, paired.as_ref());
+    /// The device a target names. Its features are read now if it is awake, otherwise once it wakes;
+    /// only known models are offered while asleep.
+    pub fn open(hid: HidDevice, target: Target) -> Result<Self, String> {
+        let wired = target.index == WIRED_INDEX;
+        let paired_kind = target.paired.as_ref().map(|p| p.kind);
+        let (keyboard, model) = if target.known {
+            identify(target.pid, target.paired.as_ref())
+        } else {
+            (paired_kind == Some(PAIRED_KEYBOARD), target.model())
+        };
         let link = if wired { " (cable)" } else { " (wireless)" };
         let mut light = Lightspeed {
             hid,
             device: Device::grid("", "", DeviceKind::Other, [0.0; 4], 1, 1),
-            index,
-            keyboard,
+            index: target.index,
+            keys: keyboard || (!target.known && paired_kind != Some(PAIRED_MOUSE)),
             effects: None,
             per_key: None,
             profiles: None,
@@ -492,14 +732,26 @@ impl Lightspeed {
             sent: Vec::new(),
             last: Instant::now(),
         };
-        if let Err(e) = light.discover()
-            && e == NO_LIGHTING
-        {
-            return Err(format!("Logitech {model}: {e}"));
-        }
-        // One id per model, so its layout stays the same over the cable and the receiver.
-        let id = format!("hid:logitech-{:04x}", receiver_of(pid));
+        let found = light.discover();
+        offer(target.known, found).map_err(|e| format!("Logitech {model}: {e}"))?;
+        let id = target.id();
         let name = format!("Logitech {model}{link}");
+        if !target.known {
+            let (kind, zones) = light
+                .shape(paired_kind)
+                .map_err(|e| format!("Logitech {model}: {e}"))?;
+            let (ids, leds, grid) = discovered_layout(kind, &light.reported, zones);
+            light.zones = ids;
+            light.device = Device {
+                id,
+                name,
+                kind,
+                rect: rect(kind),
+                grid,
+                leds,
+            };
+            return Ok(light);
+        }
         // An awake keyboard without per-key lighting is shown as one zone.
         let per_key = keyboard && (!light.ready || light.per_key.is_some());
         (light.zones, light.device) = if per_key {
@@ -536,7 +788,7 @@ impl Lightspeed {
                 feature(hid, device, COLOR_LED_EFFECTS)?.map(|index| (index, Effects::ColorLed))
             }
         };
-        let per_key = if self.keyboard {
+        let per_key = if self.keys {
             feature(hid, device, PER_KEY_V2)?
         } else {
             None
@@ -564,6 +816,47 @@ impl Lightspeed {
         self.ready = true;
         self.sent.clear();
         Ok(())
+    }
+
+    /// Kind and zone count of a model without a fixed layout. Older per-key boards are left to
+    /// the other HID++ driver.
+    fn shape(&self, paired_kind: Option<u8>) -> Result<(DeviceKind, u8), String> {
+        let (hid, device) = (&self.hid, self.index);
+        if self.per_key.is_none() && self.keys && feature(hid, device, PER_KEY_V1)?.is_some() {
+            return Err("per-key lighting of an older kind".into());
+        }
+        let zones = match self.effects {
+            Some((f, Effects::Rgb)) => {
+                request(hid, &long(device, f, 0x00, &[0xFF, 0xFF, 0x00]))?[2]
+            }
+            Some((f, Effects::ColorLed)) => request(hid, &long(device, f, 0x00, &[]))?[0],
+            None => 0,
+        };
+        let kind = match paired_kind {
+            _ if self.per_key.is_some() => DeviceKind::Keyboard,
+            Some(PAIRED_KEYBOARD) => DeviceKind::Keyboard,
+            Some(PAIRED_MOUSE) => DeviceKind::Mouse,
+            _ => {
+                let kind = feature(hid, device, DEVICE_NAME_TYPE)
+                    .ok()
+                    .flatten()
+                    .and_then(|f| request(hid, &long(device, f, 0x20, &[])).ok());
+                match kind.map(|r| r[0]) {
+                    Some(0 | 2) => DeviceKind::Keyboard,
+                    Some(3..=5) => DeviceKind::Mouse,
+                    _ => DeviceKind::Other,
+                }
+            }
+        };
+        Ok((kind, zones))
+    }
+
+    pub fn id(&self) -> &str {
+        &self.device.id
+    }
+
+    pub fn wired(&self) -> bool {
+        self.index == WIRED_INDEX
     }
 
     /// The device stopped answering: wait for it to wake, then take it over again.
@@ -1006,6 +1299,175 @@ mod tests {
             identify(G502_WIRED, None),
             (false, "G502 Lightspeed".into())
         );
+    }
+
+    fn paired(wpid: u16, kind: u8) -> Paired {
+        Paired {
+            wpid,
+            kind,
+            name: String::new(),
+        }
+    }
+
+    fn ids(pid: u16, slots: Option<Vec<(u8, Paired)>>) -> Vec<(u8, bool, String)> {
+        targets(pid, "USB Receiver", slots)
+            .iter()
+            .map(|t| (t.index, t.known, t.id()))
+            .collect()
+    }
+
+    #[test]
+    fn original_devices_keep_their_ids() {
+        let id = |s: &str| s.to_string();
+        assert_eq!(
+            ids(G502_RECEIVER, None),
+            [(1, true, id("hid:logitech-c539"))]
+        );
+        assert_eq!(
+            ids(G502_WIRED, None),
+            [(0xFF, true, id("hid:logitech-c539"))]
+        );
+        assert_eq!(
+            ids(G515_WIRED, None),
+            [(0xFF, true, id("hid:logitech-c547"))]
+        );
+        assert_eq!(
+            ids(G915X_WIRED, None),
+            [(0xFF, true, id("hid:logitech-c359"))]
+        );
+        assert_eq!(
+            ids(G515_RECEIVER, Some(Vec::new())),
+            [(1, true, id("hid:logitech-c547"))]
+        );
+        // whatever slot it sits in, the first device keeps the receiver's id; the next is its own model
+        assert_eq!(
+            ids(
+                G515_RECEIVER,
+                Some(vec![(2, paired(0x40A9, 1)), (3, paired(0x4099, 2))])
+            ),
+            [
+                (2, true, id("hid:logitech-c547")),
+                (3, false, id("hid:logitech-4099"))
+            ]
+        );
+    }
+
+    #[test]
+    fn other_receivers_and_cables() {
+        let id = |s: &str| s.to_string();
+        let slots = vec![(1, paired(0x40A5, 2)), (4, paired(0, 0))];
+        assert_eq!(
+            ids(0xC548, Some(slots)),
+            [
+                (1, false, id("hid:logitech-40a5")),
+                (4, false, id("hid:logitech-c548-4"))
+            ]
+        );
+        assert!(ids(0xC548, Some(Vec::new())).is_empty());
+        assert_eq!(ids(0xC09D, None), [(0xFF, false, id("hid:logitech-c09d"))]);
+        // a cable is never read as a receiver
+        assert_eq!(
+            ids(G502_WIRED, Some(vec![(1, paired(0x407F, 2))]))[0].0,
+            0xFF
+        );
+    }
+
+    #[test]
+    fn unknown_models_are_named_from_pairing_or_product() {
+        let mut t = targets(0xC09D, "Logitech G502 X", None).remove(0);
+        assert_eq!(t.model(), "G502 X");
+        t.product.clear();
+        assert_eq!(t.model(), "device c09d");
+        let mut slot =
+            targets(0xC548, "USB Receiver", Some(vec![(1, paired(0x40A5, 2))])).remove(0);
+        assert_eq!(slot.model(), "device 40a5");
+        slot.paired.as_mut().unwrap().name = "PRO X 2".into();
+        assert_eq!(slot.model(), "PRO X 2");
+    }
+
+    #[test]
+    fn pairing_reads_only_slots_that_answer() {
+        let table = |replies: Vec<Slot>| {
+            let mut asked = 0;
+            let out = pairing(|n| {
+                asked = n;
+                replies.get(n as usize - 1).copied().unwrap_or(Slot::Silent)
+            });
+            (out, asked)
+        };
+        assert_eq!(
+            table(vec![Slot::Paired(0x407F, 2), Slot::Empty, Slot::Silent]),
+            (Some(vec![(1, 0x407F, 2)]), 3)
+        );
+        assert_eq!(table(vec![Slot::Silent]), (None, 1));
+        assert_eq!(table(vec![Slot::Empty; 6]), (Some(Vec::new()), 6));
+        assert_eq!(
+            table(vec![Slot::Empty, Slot::Paired(0x4099, 1)]).0,
+            Some(vec![(2, 0x4099, 1)])
+        );
+    }
+
+    #[test]
+    fn slot_replies() {
+        assert_eq!(slot_request(2), [0x10, 0xFF, 0x83, 0xB5, 0x21, 0, 0]);
+        let mut data = vec![
+            0x11, 0xFF, 0x83, 0xB5, 0x21, 0x07, 0x08, 0x40, 0x9F, 0x11, 0x00, 0x02,
+        ];
+        data.resize(20, 0);
+        assert_eq!(slot_reply(2, &data), Some(Slot::Paired(0x409F, 2)));
+        assert_eq!(slot_reply(1, &data), None);
+        data[7..9].copy_from_slice(&[0, 0]);
+        assert_eq!(slot_reply(2, &data), Some(Slot::Empty));
+        let error = [0x10, 0xFF, 0x8F, 0x83, 0xB5, 0x03, 0x00];
+        assert_eq!(slot_reply(3, &error), Some(Slot::Empty));
+        let hidpp2 = [0x11, 0xFF, 0xFF, 0x83, 0xB7, 0x05, 0x00];
+        assert_eq!(slot_reply(1, &hidpp2), Some(Slot::Silent));
+        assert_eq!(slot_reply(1, &[0x10, 0x01, 0x41, 0x04, 0, 0, 0]), None);
+    }
+
+    #[test]
+    fn name_replies() {
+        let mut frame = vec![0x11, 0xFF, 0x83, 0xB5, 0x41, 5];
+        frame.extend(b"G915\0");
+        frame.resize(20, 0);
+        assert_eq!(name_reply(2, &frame), Some("G915".into()));
+        assert_eq!(name_reply(1, &frame), None);
+        frame[5] = 15;
+        assert_eq!(name_reply(2, &frame), Some(String::new()));
+        let error = [0x10, 0xFF, 0x8F, 0x83, 0xB5, 0x03, 0x00];
+        assert_eq!(name_reply(2, &error), Some(String::new()));
+    }
+
+    #[test]
+    fn only_known_models_are_offered_asleep() {
+        let asleep = || Err("no reply from the device".to_string());
+        assert!(offer(true, asleep()).is_ok());
+        assert!(offer(false, asleep()).is_err());
+        assert!(offer(false, Err("HID++ error 0x09".into())).is_err());
+        assert!(offer(true, Err(NO_LIGHTING.into())).is_err());
+        assert!(offer(false, Err(NO_LIGHTING.into())).is_err());
+        assert!(offer(false, Ok(())).is_ok());
+    }
+
+    #[test]
+    fn discovered_layouts() {
+        let (zones, leds, grid) = discovered_layout(DeviceKind::Mouse, &[], 3);
+        assert_eq!((zones, leds.len(), grid), (vec![0, 1, 2], 3, [1, 3]));
+        assert_eq!(discovered_layout(DeviceKind::Other, &[], 0).0, [0]);
+        assert_eq!(discovered_layout(DeviceKind::Keyboard, &[], 2).2, [2, 1]);
+
+        let tkl: Vec<u8> = tkl_layout().iter().map(|(z, _)| *z).collect();
+        let (zones, _, grid) = discovered_layout(DeviceKind::Keyboard, &tkl[..40], 0);
+        assert_eq!((zones.as_slice(), grid), (&tkl[..40], [18, 6]));
+
+        let mut full: Vec<u8> = (1..=111).collect();
+        full.extend([153, 210]);
+        let (zones, leds, grid) = discovered_layout(DeviceKind::Keyboard, &full, 0);
+        assert_eq!(grid, [22, 7]);
+        // every reported key gets one LED, the unplaced ones on the extra row
+        assert_eq!(zones.len(), full.len());
+        assert_eq!(zones[zones.len() - 2..], [153, 210]);
+        assert!(leds.iter().flatten().all(|v| (0.0..=1.0).contains(v)));
     }
 
     #[test]

@@ -165,10 +165,16 @@ pub fn diagnose() -> Vec<String> {
                 if info.vendor_id() == hidpp::VID
                     && hidpp::is_long_channel(info.usage_page(), info.usage()) =>
             {
-                let paired = paired(&api, info.product_id(), &info.path().to_string_lossy());
-                match hidpp::Lightspeed::open(hid, info.product_id(), paired) {
-                    Ok(_) => "hid++ ok".into(),
-                    Err(e) => format!("hid++ failed: {e}"),
+                drop(hid);
+                let opened = hidpp_devices(&api, &registry::Info::from_hidapi(info));
+                let failed: Vec<String> = opened
+                    .iter()
+                    .filter_map(|o| o.as_ref().err().cloned())
+                    .collect();
+                match (opened.len() - failed.len(), failed.is_empty()) {
+                    (0, true) => "hid++: nothing paired".into(),
+                    (n, true) => format!("hid++ ok, {n} device(s)"),
+                    (n, false) => format!("hid++ {n} ok, failed: {}", failed.join("; ")),
                 }
             }
             Ok(_) => "opened".into(),
@@ -178,27 +184,73 @@ pub fn diagnose() -> Vec<String> {
     out
 }
 
-/// What a Lightspeed receiver stores for slot 1, read over its short HID++ collection.
-fn paired(api: &HidApi, pid: u16, path: &str) -> Option<hidpp::Paired> {
-    use generic_any::receiver;
-    if hidpp::cable(pid) {
-        return None;
-    }
-    let key = receiver::path_key(path);
-    let mut rap = crate::device_list(api)
+/// A receiver's pairing table, asked over the short HID++ collection beside `info`; `None` when it is no receiver.
+fn pairing(api: &HidApi, info: &registry::Info) -> Option<Vec<(u8, hidpp::Paired)>> {
+    let key = generic_any::receiver::path_key(&info.path);
+    let short = crate::device_list(api)
         .iter()
         .find(|d| {
-            d.vendor_id() == hidpp::VID
-                && d.product_id() == pid
+            d.vendor_id() == info.vid
+                && d.product_id() == info.pid
                 && d.usage_page() == 0xFF00
                 && d.usage() == 0x0001
-                && receiver::path_key(&d.path().to_string_lossy()) == key
+                && generic_any::receiver::path_key(&d.path().to_string_lossy()) == key
         })?
         .open_device(api)
         .ok()?;
-    let (wpid, kind) = receiver::kind(&mut rap, 1)?;
-    let name = receiver::name(&mut rap, 1);
-    Some(hidpp::Paired { wpid, kind, name })
+    let long = info.open(api).ok()?;
+    let slots = hidpp::pairing(|n| hidpp::read_slot(&short, &long, n))?;
+    Some(
+        slots
+            .into_iter()
+            .map(|(n, wpid, kind)| {
+                let name = hidpp::read_name(&short, &long, n);
+                (n, hidpp::Paired { wpid, kind, name })
+            })
+            .collect(),
+    )
+}
+
+/// Every device a Logitech HID++ long collection reaches, or why each could not be driven.
+fn hidpp_devices(api: &HidApi, info: &registry::Info) -> Vec<Result<hidpp::Lightspeed, String>> {
+    let slots = if hidpp::cable(info.pid) {
+        None
+    } else {
+        pairing(api, info)
+    };
+    hidpp::targets(info.pid, &info.product, slots)
+        .into_iter()
+        .map(|target| hidpp::Lightspeed::open(info.open(api)?, target))
+        .collect()
+}
+
+/// Logitech devices the last probe drove itself, by USB product id and device id.
+static HIDPP_ROUTES: std::sync::Mutex<Vec<(u16, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// Whether the last probe drove `device_id` through the Logitech USB device `pid`.
+pub fn logitech_drives(pid: u16, device_id: &str) -> bool {
+    HIDPP_ROUTES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|(p, id)| *p == pid && id == device_id)
+}
+
+/// Which HID++ devices to keep: one per device id, the cable one when a device shows on both.
+fn keep_hidpp(devices: &[(&str, bool)]) -> Vec<bool> {
+    devices
+        .iter()
+        .enumerate()
+        .map(|(i, &(id, wired))| {
+            let first = devices.iter().position(|d| d.0 == id && d.1) == Some(i);
+            let unique = devices.iter().position(|d| d.0 == id) == Some(i);
+            if wired {
+                first
+            } else {
+                unique && !devices.iter().any(|d| d.0 == id && d.1)
+            }
+        })
+        .collect()
 }
 
 /// Detects supported USB HID lighting devices and returns one backend per device.
@@ -259,6 +311,7 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
     let wanted = |c: &registry::Info| {
         pick.wants(c.vid, c.pid)
             && (supported(c.vid, c.pid)
+                || (c.vid == hidpp::VID && c.usage_page == 0xFF00)
                 || detectors.iter().any(|d| d.matches(c))
                 || matchers.iter().any(|m| m.matches(c)))
     };
@@ -268,6 +321,10 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
     let mut found: Vec<Box<dyn Backend>> = Vec::new();
     let mut board = false;
     let mut lightspeed: Vec<(u16, hidpp::Lightspeed)> = Vec::new();
+    HIDPP_ROUTES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     let mut taken: Vec<String> = Vec::new();
     let mut infos = Vec::new();
     for raw in crate::device_list(&api).iter() {
@@ -286,12 +343,12 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
                 continue;
             }
             (hidpp::VID, pid) if hidpp::PIDS.contains(&pid) => {
-                if hidpp::is_long_channel(info.usage_page, info.usage)
-                    && let Ok(hid) = raw.open_device(&api)
-                    && let Ok(device) =
-                        hidpp::Lightspeed::open(hid, pid, paired(&api, pid, &info.path))
-                {
-                    lightspeed.push((pid, device));
+                if hidpp::is_long_channel(info.usage_page, info.usage) {
+                    let start = std::time::Instant::now();
+                    for device in hidpp_devices(&api, &info).into_iter().flatten() {
+                        lightspeed.push((pid, device));
+                    }
+                    note_slow("Logitech HID++", start);
                 }
                 continue;
             }
@@ -325,15 +382,43 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
     if matches!(pick, Pick::Only(_)) {
         return found;
     }
+    // Any other Logitech HID++ 2.0 device no fixed detector drives, before the generic matchers.
+    for info in &infos {
+        let key = info.key();
+        if info.vid != hidpp::VID
+            || info.bus != registry::Bus::Usb
+            || !hidpp::is_long_channel(info.usage_page, info.usage)
+            || taken.contains(&key)
+            || detectors
+                .iter()
+                .any(|d| (d.vid, d.pid) == (info.vid, info.pid))
+        {
+            continue;
+        }
+        let start = std::time::Instant::now();
+        let before = lightspeed.len();
+        for device in hidpp_devices(&api, info).into_iter().flatten() {
+            lightspeed.push((info.pid, device));
+        }
+        note_slow(&format!("Logitech HID++ {:04x}", info.pid), start);
+        if lightspeed.len() > before {
+            taken.push(key);
+        }
+    }
     // Any-product matchers only see what the fixed detectors and hidpp.rs left.
     // A keyboard or mouse on its cable is driven there; the receiver's copy of it is left out.
-    let wired: Vec<u16> = lightspeed
+    let ids: Vec<(String, bool)> = lightspeed
         .iter()
-        .filter(|(pid, _)| hidpp::receiver_of(*pid) != *pid)
-        .map(|(pid, _)| hidpp::receiver_of(*pid))
+        .map(|(_, d)| (d.id().to_string(), d.wired()))
         .collect();
-    for (pid, device) in lightspeed {
-        if !wired.contains(&pid) {
+    let refs: Vec<(&str, bool)> = ids.iter().map(|(id, w)| (id.as_str(), *w)).collect();
+    let keep = keep_hidpp(&refs);
+    for ((pid, device), keep) in lightspeed.into_iter().zip(keep) {
+        if keep {
+            HIDPP_ROUTES
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((pid, device.id().to_string()));
             found.push(Box::new(device));
         }
     }
@@ -386,4 +471,31 @@ pub fn family_devices() -> Vec<(u16, u16, &'static str)> {
         .iter()
         .map(|d| (d.vid, d.pid, d.name))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_device_on_both_its_cable_and_receiver_is_driven_once() {
+        let devices = [
+            ("hid:logitech-c539", false),
+            ("hid:logitech-4099", false),
+            ("hid:logitech-c539", true),
+            ("hid:logitech-c547", false),
+            ("hid:logitech-c547", false),
+        ];
+        assert_eq!(keep_hidpp(&devices), [false, true, true, true, false]);
+    }
+
+    #[test]
+    fn routes_name_the_usb_device() {
+        HIDPP_ROUTES
+            .lock()
+            .unwrap()
+            .push((0xC548, "hid:logitech-40a5".into()));
+        assert!(logitech_drives(0xC548, "hid:logitech-40a5"));
+        assert!(!logitech_drives(0xC547, "hid:logitech-40a5"));
+    }
 }
