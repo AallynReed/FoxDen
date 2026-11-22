@@ -63,8 +63,8 @@ hubs, LED strips and network lights.
 
 And many more.
 
-Tested so far on MSI Mystic Light boards, Logitech G502 and G515, and Corsair Vengeance RGB
-DDR5. If yours works or doesn't, [open an issue](../../issues/new/choose).
+Tested so far on MSI Mystic Light boards, an ASUS PRIME X370-PRO with Aura on AMD SMBus, Logitech
+G502, G515 and K295, and Corsair Vengeance RGB DDR5. If yours works or doesn't, [open an issue](../../issues/new/choose).
 
 OpenRGB can optionally drive anything else through its server.
 
@@ -77,6 +77,7 @@ OpenRGB can optionally drive anything else through its server.
 - Layers that show only while a game or app is open or in front, for keybinds
 - Layout editor that draws keyboards, mice, RAM, fans and boards as their real shapes, plus per-device backgrounds and profiles
 - Fan curves for motherboard headers, coolers, fan hubs and AMD graphics cards, with zero RPM
+- History graphs of temperatures and fan speeds over the last five minutes
 - Battery levels of wireless mice, keyboards, headsets and controllers as tray icons, for over 100
   brands, with low battery notifications
 - Audio mixer: Game, Chat, Media and Aux channels with their own volume, EQ and chat mix, no virtual
@@ -96,8 +97,8 @@ OpenRGB can optionally drive anything else through its server.
 - LED strips and network lights
 - Lighting, Fans and Batteries modules you can switch off
 - Closes conflicting software such as SignalRGB, G HUB and iCUE, unless you keep it running
-- Send device info for anything without lighting control yet, and anonymous feedback with a
-  picture or video, both from inside the app
+- Send device info from any device, and anonymous feedback with a picture or video, both from
+  inside the app
 - In 16 languages, following the Windows display language: English, Portuguese (Portugal), Spanish,
   German, French, Russian, Simplified and Traditional Chinese, Polish, Turkish, Japanese, Korean,
   Italian, Ukrainian, Dutch and Czech
