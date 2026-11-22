@@ -1436,7 +1436,7 @@ function detectedRow(item) {
     { className: "found" },
     el("div", { className: "split" }, el("span", { className: "name", textContent: item.name, title: item.name }), tag),
     el("span", { className: "meta", textContent: about.filter(Boolean).join(" · ") }),
-    el("span", { className: "hint", textContent: item.note }),
+    ...(item.note ? [el("span", { className: "hint", textContent: item.note })] : []),
   );
   if (item.state === "available" && item.route === "native") {
     const go = el("button", { type: "button", textContent: route[0] + " setting" });
