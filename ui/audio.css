@@ -931,9 +931,10 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
   list-style: none;
 }
 
+/* Fixed columns, so every row of Apps and Devices lines up, with or without a default button. */
 .aud-vrow2 {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px minmax(110px, 160px) auto auto;
+  grid-template-columns: minmax(0, 1fr) 56px 150px 28px 28px;
   align-items: center;
   gap: 8px;
   min-height: 36px;
@@ -975,13 +976,35 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
   gap: 4px;
 }
 
-.aud-vrow2 > .aud-small:not([hidden]) {
-  grid-column: auto;
+.aud-vrow2 .aud-num {
+  min-width: 5ch;
+}
+
+.aud-vrow2 .aud-icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.aud-vrow2 .aud-mute {
+  grid-column: 4;
+}
+
+.aud-vrow2 .aud-make {
+  grid-column: 5;
+}
+
+.aud-mute .off,
+.aud-mute[aria-pressed="true"] .on {
+  display: none;
+}
+
+.aud-mute[aria-pressed="true"] .off {
+  display: block;
 }
 
 @container (max-width: 560px) {
   .aud-vrow2 {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) 28px 28px;
   }
 
   .aud-vrow2 .aud-meter {
@@ -991,5 +1014,13 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
 
   .aud-vrow2 .aud-vol {
     grid-column: 1 / 2;
+  }
+
+  .aud-vrow2 .aud-mute {
+    grid-column: 2;
+  }
+
+  .aud-vrow2 .aud-make {
+    grid-column: 3;
   }
 }

@@ -13,6 +13,22 @@
     return node;
   }
 
+  function svg(tag, attrs, ...children) {
+    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const name in attrs) node.setAttribute(name, attrs[name]);
+    node.append(...children);
+    return node;
+  }
+  const icon = (cls, d) => svg("svg", { viewBox: "0 0 16 16", width: 16, height: 16, "aria-hidden": "true", class: "aud-icon " + cls }, svg("path", { d }));
+  const SPEAKER = "M2 6h3l4-3v10l-4-3H2z";
+  const MIC = "M6.5 2h3v7h-3zM3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V15M5.5 15h5";
+  // Sound waves when on, a cross or slash when muted.
+  const MUTE_ICONS = {
+    out: [icon("on", SPEAKER + "M11.5 5.5a3.5 3.5 0 0 1 0 5M13.5 3.5a6.5 6.5 0 0 1 0 9"), SPEAKER + "M11 6l4 4M15 6l-4 4"],
+    in: [icon("on", MIC), MIC + "M2 2l12 12"],
+  };
+  const STAR = "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
+
   const setText = (node, text) => node.textContent !== text && (node.textContent = text);
   const shortName = (exe) => exe.replace(/\.exe$/i, "");
   const message = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
@@ -80,7 +96,7 @@
       ),
     );
 
-    function row(key, name, onVolume, onMute, extra) {
+    function row(key, name, onVolume, onMute, extra, capture) {
       const r = { key };
       r.name = el("span", { className: "aud-chipname", textContent: name, title: name });
       r.sub = el("span", { className: "aud-vsub" });
@@ -94,7 +110,8 @@
         setText(r.num, r.vol.value + "%");
         later("v" + key, () => onVolume(r.vol.value / 100));
       };
-      r.mute = el("button", { type: "button", className: "aud-mute", textContent: "Mute" });
+      const [on, off] = MUTE_ICONS[capture ? "in" : "out"];
+      r.mute = el("button", { type: "button", className: "aud-mute aud-icon-btn", title: "Mute" }, on.cloneNode(true), icon("off", off));
       r.mute.setAttribute("aria-label", "Mute " + name);
       r.mute.onclick = () => {
         const on = r.mute.getAttribute("aria-pressed") !== "true";
@@ -119,6 +136,7 @@
         setText(r.num, r.vol.value + "%");
       }
       if (!held("m" + r.key)) r.mute.setAttribute("aria-pressed", String(!!v.muted));
+      r.mute.title = r.mute.getAttribute("aria-pressed") === "true" ? "Unmute" : "Mute";
       r.peak = Math.max(v.peak || 0, (r.peak || 0) * 0.7);
       r.fill.style.transform = "scaleX(" + Math.min(1, r.peak).toFixed(3) + ")";
     }
@@ -172,11 +190,11 @@
         for (const k of [...st.rows.keys()]) if (k[0] === "d") st.rows.delete(k);
         for (const d of list) {
           const key = "d" + d.id;
-          const make = el("button", { type: "button", className: "aud-small", textContent: "Make default" });
+          const make = el("button", { type: "button", className: "aud-make aud-icon-btn", title: "Make default" }, icon("", STAR));
           make.setAttribute("aria-label", "Make " + d.name + " the default " + (d.capture ? "recording" : "playback") + " device");
           make.hidden = d.default || !!d.note;
           make.onclick = () => call("make_default_device", { id: d.id });
-          st.rows.set(key, row(key, d.name, (v) => call("set_device_volume", { id: d.id, volume: v, muted: null }), (m) => call("set_device_volume", { id: d.id, volume: null, muted: m }), make));
+          st.rows.set(key, row(key, d.name, (v) => call("set_device_volume", { id: d.id, volume: v, muted: null }), (m) => call("set_device_volume", { id: d.id, volume: null, muted: m }), make, d.capture));
         }
         outList.replaceChildren(...list.filter((d) => !d.capture).map((d) => st.rows.get("d" + d.id).node));
         inList.replaceChildren(...list.filter((d) => d.capture).map((d) => st.rows.get("d" + d.id).node));
