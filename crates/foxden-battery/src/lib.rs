@@ -7,6 +7,11 @@ pub mod util;
 
 pub use ctx::Ctx;
 
+/// Read-only HID++ answers of a Logitech receiver and its devices, for device reports.
+pub fn logitech_diagnose(pid: u16) -> Vec<String> {
+    drivers::logitech_diagnose(pid)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Kind {
     #[default]

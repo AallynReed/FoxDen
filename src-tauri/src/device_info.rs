@@ -145,6 +145,16 @@ pub async fn device_info(id: String, name: String) -> Result<String, String> {
     if !probe.is_empty() {
         report["probe"] = Value::Array(probe);
     }
+    if vendor == 0x046D {
+        let hidpp = tauri::async_runtime::spawn_blocking(move || {
+            foxden_battery::logitech_diagnose(product)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        if hidpp.len() > 1 {
+            report["hidpp"] = hidpp.into();
+        }
+    }
     serde_json::to_string_pretty(&report).map_err(|e| e.to_string())
 }
 

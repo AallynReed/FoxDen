@@ -201,3 +201,7 @@ pub const ORDER: &[fn(&mut Ctx)] = &[
     generic::poll_generic_hid,
     xinput::poll_x_input,
 ];
+
+pub fn logitech_diagnose(pid: u16) -> Vec<String> {
+    logitech::diagnose(pid)
+}

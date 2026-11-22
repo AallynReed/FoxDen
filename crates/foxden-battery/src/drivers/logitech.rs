@@ -543,6 +543,84 @@ fn poll_link(
     any
 }
 
+/// What a Logitech receiver and its paired devices answer about their batteries, for a device
+/// report. Only reads: pings, feature lookups and battery queries.
+pub fn diagnose(pid: u16) -> Vec<String> {
+    let hex = |b: &[u8]| {
+        b.iter()
+            .map(|x| format!("{x:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let colls: Vec<Coll> = crate::hid::enumerate()
+        .into_iter()
+        .filter(|c| c.vid == VID && c.pid == pid)
+        .collect();
+    let short = colls.iter().find(|c| c.out_len == 7 && c.page == 0xFF00);
+    let long = colls.iter().find(|c| c.out_len == 20 && c.page == 0xFF00);
+    let link = Link {
+        short: short.and_then(Dev::open),
+        long: long.and_then(Dev::open),
+    };
+    let mut out = vec![format!(
+        "channels: short {}, long {}",
+        if link.short.is_some() {
+            "open"
+        } else {
+            "closed"
+        },
+        if link.long.is_some() {
+            "open"
+        } else {
+            "closed"
+        }
+    )];
+    if link.short.is_none() && link.long.is_none() {
+        return out;
+    }
+    for idx in (1..=6).chain([DIRECT]) {
+        match link.ping(idx) {
+            // 0x01 means an HID++ 1.0 device answered; other errors mean an empty slot.
+            None => {}
+            Some(Err(code)) if code != 0x01 => {}
+            Some(Err(code)) => {
+                let mut line = format!("{idx:#04x}: HID++ 1.0 (error {code:#04x})");
+                for reg in [0x0D, 0x07] {
+                    if let Some(r) = link.register(idx, reg) {
+                        line += &format!(", register {reg:#04x}: {}", hex(&r));
+                    }
+                }
+                out.push(line);
+            }
+            Some(Ok(p)) => {
+                let mut line = format!(
+                    "{idx:#04x}: HID++ {}.{}",
+                    p.first().unwrap_or(&0),
+                    p.get(1).unwrap_or(&0)
+                );
+                for (name, id) in [
+                    ("1004", UNIFIED_BATTERY),
+                    ("1000", BATTERY_STATUS),
+                    ("1001", BATTERY_VOLTAGE),
+                    ("1f20", ADC_MEASUREMENT),
+                ] {
+                    let Some(f) = link.feature(idx, id) else {
+                        continue;
+                    };
+                    line += &format!(", {name} at {f}");
+                    for function in [0u8, 1] {
+                        if let Some(r) = link.call(idx, f, function, &[]) {
+                            line += &format!(" f{function}: {}", hex(&r[..r.len().min(8)]));
+                        }
+                    }
+                }
+                out.push(line);
+            }
+        }
+    }
+    out
+}
+
 pub fn poll_logitech(ctx: &mut Ctx) {
     let mut seen = HashSet::new();
     for (vid, pid) in ctx.products(VID) {
