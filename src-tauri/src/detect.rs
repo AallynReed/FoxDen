@@ -770,11 +770,10 @@ fn drives(found: &Found, native: &str, device: &Device) -> bool {
         || (found.bus == Bus::Memory
             && device.kind == DeviceKind::Memory
             && !device.id.starts_with("openrgb"))
-        // The board row goes by its lighting controller, a USB device of its own.
-        || (native == PORTED
-            && found.bus == Bus::Board
+        // The board row goes by its lighting controller: a USB device of its own, or a chip on the SMBus.
+        || (found.bus == Bus::Board
             && device.kind == DeviceKind::Motherboard
-            && device.id.starts_with(PORTED))
+            && !device.id.starts_with("openrgb"))
 }
 
 fn status(found: &Found, live: &Live) -> (Route, State, String) {
@@ -1382,6 +1381,24 @@ mod tests {
         assert_eq!(
             list[0].note,
             "FoxDen found no lighting chip it can control on it. If it has lighting, send its device info."
+        );
+        let chip = Device::grid(
+            "smbus:ene-board-4e",
+            "ASUS PRIME X370-PRO",
+            DeviceKind::Motherboard,
+            [0.0; 4],
+            5,
+            1,
+        );
+        let live = Live {
+            settings: &off,
+            driven: vec![("service", &chip)],
+            openrgb_on: false,
+        };
+        let list = resolve(&found, &live);
+        assert_eq!(
+            (list[0].route, list[0].state),
+            (Route::Native, State::Active)
         );
     }
 
