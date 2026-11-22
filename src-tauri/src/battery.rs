@@ -13,7 +13,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::state::{Shared, lock};
 
-const EVERY: Duration = Duration::from_secs(20);
+const EVERY: Duration = Duration::from_secs(60);
 const TICK: Duration = Duration::from_secs(2);
 const PREFIX: &str = "battery:";
 

@@ -4,10 +4,10 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::{Apps, Backend, Color, Device, Effect, Inputs, Layer};
+use crate::{Apps, Backend, Color, Device, Effect, Inputs, Layer, Spot, paint, spots};
 use serde::Serialize;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Frame {
     pub device: String,
     pub colors: Vec<Color>,
@@ -18,6 +18,8 @@ struct Placed {
     device: Device,
     /// The rect the backend reported.
     home: [f32; 4],
+    /// The key or zone under each LED, for key colour layers.
+    spots: Vec<Spot>,
 }
 
 /// Newest colours for each device of one backend; `None` where nothing is waiting.
@@ -63,6 +65,9 @@ impl Link {
     }
 }
 
+/// The longest a device goes without its colours being sent again, even when they have not changed.
+const RESEND: Duration = Duration::from_secs(1);
+
 /// Owns a backend on its own thread, so a slow or dead device never holds up the caller.
 fn spawn_pusher(
     mut backend: Box<dyn Backend>,
@@ -71,6 +76,9 @@ fn spawn_pusher(
     failed: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
+        // Last colours sent per device: identical frames are skipped, but resent at least every
+        // `RESEND` so devices that fall back to their own lighting without a steady signal stay put.
+        let mut sent: Vec<Option<(Vec<Color>, Instant)>> = vec![None; devices.len()];
         loop {
             let batch = {
                 let mut mail = link.mail();
@@ -85,16 +93,26 @@ fn spawn_pusher(
                 mail.busy = true;
                 std::mem::take(&mut mail.batch)
             };
+            let now = Instant::now();
+            let mut any = false;
             let pushed = devices
                 .iter()
                 .zip(batch)
-                .filter_map(|(device, colors)| Some((device, colors?)))
-                .try_for_each(|((id, name), colors)| {
+                .zip(sent.iter_mut())
+                .filter_map(|((device, colors), last)| Some((device, colors?, last)))
+                .filter(|(_, colors, last)| {
+                    last.as_ref()
+                        .is_none_or(|(c, at)| c != colors || now.duration_since(*at) >= RESEND)
+                })
+                .try_for_each(|((id, name), colors, last)| {
+                    any = true;
                     backend
                         .push(id, &colors)
-                        .map_err(|e| format!("{name}: {e}"))
+                        .map_err(|e| format!("{name}: {e}"))?;
+                    *last = Some((colors, now));
+                    Ok(())
                 })
-                .and_then(|()| backend.flush());
+                .and_then(|()| if any { backend.flush() } else { Ok(()) });
             if let Err(e) = pushed {
                 let mut mail = link.mail();
                 mail.error = Some(e);
@@ -202,6 +220,7 @@ impl Engine {
                 .map(|device| Placed {
                     home: device.rect,
                     device,
+                    spots: Vec::new(),
                 })
                 .collect();
             let names = devices
@@ -353,6 +372,7 @@ impl Engine {
     /// Renders the effect at time `t`, hands it to every backend and returns what was rendered.
     pub fn render(&mut self, t: f32, inputs: &Inputs) -> Vec<Frame> {
         let mut frames = Vec::new();
+        let tables: Vec<_> = self.layers.iter().map(Layer::key_table).collect();
         for slot in &self.slots {
             let mut batch = Batch::with_capacity(slot.devices.len());
             for p in &slot.devices {
@@ -366,18 +386,25 @@ impl Engine {
                 };
                 let colors: Vec<Color> = if k > 0.0 {
                     let effect = self.overrides.get(&device.id).unwrap_or(&self.effect);
-                    let layers: Vec<&Layer> = self
+                    let layers: Vec<_> = self
                         .layers
                         .iter()
-                        .filter(|l| l.covers(device) && l.live(&self.apps))
+                        .zip(&tables)
+                        .filter(|(l, _)| l.covers(device) && l.live(&self.apps))
                         .collect();
                     device
                         .canvas_positions()
-                        .map(|(x, y)| {
+                        .enumerate()
+                        .map(|(i, (x, y))| {
                             let base = effect.sample(x, y, t, inputs);
                             layers
                                 .iter()
-                                .fold(base, |below, l| l.apply(below, x, y, t, inputs))
+                                .fold(base, |below, (l, table)| match table {
+                                    Some(table) => {
+                                        l.over(below, p.spots.get(i).and_then(|s| paint(s, table)))
+                                    }
+                                    None => l.apply(below, x, y, t, inputs),
+                                })
                                 .scale(k)
                         })
                         .collect()
@@ -428,6 +455,9 @@ impl Engine {
             let device = &mut self.slots[s].devices[d].device;
             device.rect = free_spot(device.grid, &taken);
             taken.push(device.rect);
+        }
+        for p in self.slots.iter_mut().flat_map(|slot| &mut slot.devices) {
+            p.spots = spots(&p.device);
         }
     }
 }
@@ -521,6 +551,70 @@ mod tests {
 
     fn all_black(frame: &Frame) -> bool {
         frame.colors.iter().all(|c| *c == Color::BLACK)
+    }
+
+    /// A TKL board with an LED on every key, a four-zone board and a strip.
+    struct Boards;
+
+    impl Backend for Boards {
+        fn name(&self) -> &str {
+            "boards"
+        }
+
+        fn devices(&self) -> Vec<Device> {
+            let leds = crate::key_layout()
+                .iter()
+                .filter_map(|k| crate::key_spot(k.vk, false).filter(|_| k.x < 18.0))
+                .map(|(x, y)| [x, y])
+                .collect();
+            let per_key = Device {
+                id: "keys".into(),
+                name: "Keys".into(),
+                kind: DeviceKind::Keyboard,
+                rect: [0.0; 4],
+                grid: [18, 6],
+                leds,
+            };
+            vec![
+                per_key,
+                Device::grid("zones", "Zones", DeviceKind::Keyboard, [0.0; 4], 4, 1),
+                Device::grid("strip", "Strip", DeviceKind::Strip, [0.0; 4], 4, 1),
+            ]
+        }
+
+        fn push(&mut self, _: &str, _: &[Color]) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn key_colours_paint_keys_and_zones_with_the_layer_blend() {
+        use crate::{Blend, LayerEffect, Post};
+        const BASE: Color = Color(0, 0, 100);
+        const RED: Color = Color(255, 0, 0);
+        let mut engine = Engine::new(vec![Box::new(Boards)]);
+        engine.effect = Effect::Static { color: BASE };
+        let mut layer = Layer::new(LayerEffect::Post(Post::KeyColours {
+            map: vec![(0x41, RED), (0x53, RED)],
+        }));
+        layer.opacity = 0.5;
+        engine.layers = vec![layer];
+        let device = |e: &mut Engine, id: &str| {
+            e.render(0.0, &Inputs::default())
+                .into_iter()
+                .find(|f| f.device == id)
+                .unwrap()
+                .colors
+        };
+        let half = BASE.lerp(RED, 0.5);
+        let keys = device(&mut engine, "keys");
+        assert_eq!(keys.iter().filter(|c| **c == half).count(), 2);
+        assert_eq!(keys.iter().filter(|c| **c == BASE).count(), keys.len() - 2);
+        assert_eq!(device(&mut engine, "zones"), [half, BASE, BASE, BASE]);
+        assert_eq!(device(&mut engine, "strip"), [BASE; 4]);
+        engine.layers[0].blend = Blend::Add;
+        engine.layers[0].opacity = 1.0;
+        assert_eq!(device(&mut engine, "zones")[0], Color(255, 0, 100));
     }
 
     #[test]

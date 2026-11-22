@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use foxden_audio::AudioCapture;
 use foxden_core::{
-    Backend, DeviceKind, Effect, EffectInfo, Engine, Inputs, KeyInfo, Layer, Post, PostInfo,
+    Backend, DeviceKind, Effect, EffectInfo, Engine, Frame, Inputs, KeyInfo, Layer, Post, PostInfo,
     key_layout, presses_on,
 };
 use foxden_openrgb::OpenRgbBackend;
@@ -20,6 +20,12 @@ use crate::detect::{self, Detected, Found, Live, Watch};
 use crate::keys::KeyCapture;
 use crate::tray;
 
+/// Every pass is a full one while the board's memory driver may still be coming up.
+const STARTUP: Duration = Duration::from_secs(35);
+/// A full hardware pass even when the device list looks unchanged.
+const FULL_SCAN: Duration = Duration::from_secs(60);
+/// Frames a second while nothing on screen moves.
+const IDLE_FPS: u32 = 4;
 const SAVE_DELAY: Duration = Duration::from_millis(500);
 /// Seconds after which effect time starts again from zero.
 const CLOCK_WRAP: f64 = 21_600.0;
@@ -90,6 +96,7 @@ pub struct Snapshot {
     overrides: BTreeMap<String, Effect>,
     post_catalog: Vec<PostInfo>,
     key_layout: Vec<KeyInfo>,
+    key_maps: Vec<crate::key_maps::KeyMap>,
     brightness: f32,
     pub paused: bool,
     catalog: Vec<EffectInfo>,
@@ -221,6 +228,7 @@ impl AppState {
             overrides: self.engine.overrides.clone().into_iter().collect(),
             post_catalog: Post::catalog(),
             key_layout: key_layout(),
+            key_maps: self.config.key_maps.clone(),
             brightness: self.engine.brightness,
             paused: self.engine.paused,
             catalog: Effect::catalog(),
@@ -427,6 +435,9 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         let mut job = Some(Job::Detect);
         let started = Instant::now();
         let mut board_tries = 0;
+        let mut plugged: Option<u64> = None;
+        let mut scanned: Option<Instant> = None;
+        let mut was_failing = false;
         loop {
             let asked = job.is_some();
             let detect_asked = matches!(job, Some(Job::Detect));
@@ -447,7 +458,19 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
             if settings.close_conflicts && (asked || settings.auto_detect) {
                 close_conflicts(&app, &settings);
             }
-            if settings.lighting_module && (asked || settings.auto_detect) {
+            // Listing every device costs real CPU; a cheap check of the device list decides whether
+            // anything could have changed since the last full pass.
+            let print_now = foxden_battery::hid::fingerprint();
+            let due = asked
+                || plugged != Some(print_now)
+                || failing != was_failing
+                || (settings.openrgb_enabled && !settled)
+                || started.elapsed() < STARTUP
+                || scanned.is_none_or(|t| t.elapsed() >= FULL_SCAN);
+            was_failing = failing;
+            if settings.lighting_module && (asked || settings.auto_detect) && due {
+                plugged = Some(print_now);
+                scanned = Some(Instant::now());
                 // The board, memory and cards stay put: WMI is asked again only while it has given nothing.
                 if asked && system.is_empty() {
                     system = detect::system();
@@ -768,6 +791,8 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
     thread::spawn(move || {
         let start = Instant::now();
         let mut next = start;
+        let mut last: Vec<Frame> = Vec::new();
+        let mut still = 0u32;
         let mut inputs = Inputs::default();
         let mut audio = Input::<AudioCapture>::off();
         let mut screen = Input::<ScreenCapture>::off();
@@ -820,18 +845,37 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                     .engine
                     .views()
                     .filter(|(_, d, on, _)| *on && d.kind == DeviceKind::Keyboard)
-                    .map(|(_, d, _, _)| (d.rect, d.grid[0] >= 21))
+                    .map(|(_, d, _, _)| (d.rect, d.number_pad()))
                     .collect();
                 inputs.presses = presses_on(&pressed, &inputs.keyboards);
                 let frames = state.engine.render(t, &inputs);
                 (frames, state.engine.take_failed())
             };
-            let _ = app.emit("frame", &frames);
+            // Only a shown window draws the preview; serialising every LED 30 times a second for nobody is waste.
+            if app.get_webview_window("main").is_some_and(|w| {
+                w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false)
+            }) {
+                let _ = app.emit("frame", &frames);
+            }
             if changed || failed {
                 emit_snapshot(&app, &shared);
             }
 
-            next += Duration::from_secs_f64(1.0 / f64::from(fps.clamp(10, 60)));
+            // A picture that has not changed for a second is drawn only a few times a second.
+            still = if frames == last {
+                still.saturating_add(1)
+            } else {
+                0
+            };
+            last = frames;
+            // Effects that follow keys, sound or the screen keep full speed so they never lag.
+            let reactive = want_audio || want_screen || want_keys;
+            let rate = if still > fps && !reactive {
+                IDLE_FPS
+            } else {
+                fps.clamp(10, 60)
+            };
+            next += Duration::from_secs_f64(1.0 / f64::from(rate));
             match next.checked_duration_since(Instant::now()) {
                 Some(wait) => thread::sleep(wait),
                 None => next = Instant::now(),
@@ -923,6 +967,7 @@ mod tests {
                 "devices",
                 "effect",
                 "key_layout",
+                "key_maps",
                 "layers",
                 "overrides",
                 "paused",

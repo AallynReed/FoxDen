@@ -55,6 +55,11 @@ impl Device {
         }
     }
 
+    /// Wide enough for a number pad.
+    pub fn number_pad(&self) -> bool {
+        self.grid[0] >= 21
+    }
+
     /// Canvas position of each LED.
     pub fn canvas_positions(&self) -> impl Iterator<Item = (f32, f32)> + '_ {
         let [x, y, w, h] = self.rect;

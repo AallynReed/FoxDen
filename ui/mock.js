@@ -40,6 +40,7 @@
     grid("hid:046d:c539", "Logitech G502 Lightspeed", "mouse", "hid", [0.8, 0.62, 0.06, 0.22], 1, 2),
     grid("hid:046d:c547", "Logitech G515 Lightspeed TKL", "keyboard", "hid", [0.06, 0.4, 0.4, 0.13], 17, 6),
     ring("hid:fan", "Case fan", [0.62, 0.62, 0.07, 0.12], 16),
+    grid("hid:zones", "Laptop keyboard", "keyboard", "hid", [0.48, 0.4, 0.18, 0.1], 4, 1),
   ];
 
   const ORANGE = [255, 106, 0];
@@ -159,9 +160,10 @@
     entry("Breathe", { kind: "breathe", speed: 1, depth: 0.7 }, pspeed, range("depth", "Depth", 0, 1, 0.05)),
     entry("Beat flash", { kind: "beat_flash", color: WHITE, sensitivity: 1.5 }, main, sensitivity),
     entry("Chosen keys", { kind: "key_lights", color: ORANGE, keys: [0x57, 0x41, 0x53, 0x44] }, main, { name: "keys", label: "Keys", control: { type: "keys" } }),
+    entry("Key colours", { kind: "key_colours", map: [] }, { name: "map", label: "Key colours", control: { type: "key_colours" } }),
   ];
   // Same as key_layout in crates/foxden-core/src/keys.rs: vk, x, row, width.
-  const keyLayout = [[27, 0.5, 0, 1.0], [112, 2.5, 0, 1.0], [113, 3.5, 0, 1.0], [114, 4.5, 0, 1.0], [115, 5.5, 0, 1.0], [116, 7.25, 0, 1.0], [117, 8.25, 0, 1.0], [118, 9.25, 0, 1.0], [119, 10.25, 0, 1.0], [120, 11.75, 0, 1.0], [121, 12.75, 0, 1.0], [122, 13.75, 0, 1.0], [123, 14.75, 0, 1.0], [44, 15.75, 0, 1.0], [145, 16.75, 0, 1.0], [19, 17.75, 0, 1.0], [192, 0.5, 1, 1.0], [49, 1.5, 1, 1.0], [50, 2.5, 1, 1.0], [51, 3.5, 1, 1.0], [52, 4.5, 1, 1.0], [53, 5.5, 1, 1.0], [54, 6.5, 1, 1.0], [55, 7.5, 1, 1.0], [56, 8.5, 1, 1.0], [57, 9.5, 1, 1.0], [48, 10.5, 1, 1.0], [189, 11.5, 1, 1.0], [187, 12.5, 1, 1.0], [8, 14.0, 1, 2.0], [45, 15.75, 1, 1.0], [36, 16.75, 1, 1.0], [33, 17.75, 1, 1.0], [144, 19.25, 1, 1.0], [111, 20.25, 1, 1.0], [106, 21.25, 1, 1.0], [109, 22.25, 1, 1.0], [9, 0.75, 2, 1.5], [81, 2.0, 2, 1.0], [87, 3.0, 2, 1.0], [69, 4.0, 2, 1.0], [82, 5.0, 2, 1.0], [84, 6.0, 2, 1.0], [89, 7.0, 2, 1.0], [85, 8.0, 2, 1.0], [73, 9.0, 2, 1.0], [79, 10.0, 2, 1.0], [80, 11.0, 2, 1.0], [219, 12.0, 2, 1.0], [221, 13.0, 2, 1.0], [220, 14.25, 2, 1.5], [46, 15.75, 2, 1.0], [35, 16.75, 2, 1.0], [34, 17.75, 2, 1.0], [103, 19.25, 2, 1.0], [104, 20.25, 2, 1.0], [105, 21.25, 2, 1.0], [107, 22.25, 2, 1.0], [20, 0.875, 3, 1.75], [65, 2.25, 3, 1.0], [83, 3.25, 3, 1.0], [68, 4.25, 3, 1.0], [70, 5.25, 3, 1.0], [71, 6.25, 3, 1.0], [72, 7.25, 3, 1.0], [74, 8.25, 3, 1.0], [75, 9.25, 3, 1.0], [76, 10.25, 3, 1.0], [186, 11.25, 3, 1.0], [222, 12.25, 3, 1.0], [13, 13.875, 3, 2.25], [100, 19.25, 3, 1.0], [101, 20.25, 3, 1.0], [102, 21.25, 3, 1.0], [160, 1.125, 4, 2.25], [90, 2.75, 4, 1.0], [88, 3.75, 4, 1.0], [67, 4.75, 4, 1.0], [86, 5.75, 4, 1.0], [66, 6.75, 4, 1.0], [78, 7.75, 4, 1.0], [77, 8.75, 4, 1.0], [188, 9.75, 4, 1.0], [190, 10.75, 4, 1.0], [191, 11.75, 4, 1.0], [161, 13.625, 4, 2.75], [38, 16.75, 4, 1.0], [97, 19.25, 4, 1.0], [98, 20.25, 4, 1.0], [99, 21.25, 4, 1.0], [162, 0.625, 5, 1.25], [91, 1.875, 5, 1.25], [164, 3.125, 5, 1.25], [32, 6.875, 5, 6.25], [165, 10.625, 5, 1.25], [92, 11.875, 5, 1.25], [93, 13.125, 5, 1.25], [163, 14.375, 5, 1.25], [37, 15.75, 5, 1.0], [40, 16.75, 5, 1.0], [39, 17.75, 5, 1.0], [96, 19.75, 5, 2.0], [110, 21.25, 5, 1.0], [27, 0.2, 1, 1.0]].map(([vk, x, row, w]) => ({ vk, x, row, w }));
+  const keyLayout = [[27, 0.5, 0, 1.0], [112, 2.5, 0, 1.0], [113, 3.5, 0, 1.0], [114, 4.5, 0, 1.0], [115, 5.5, 0, 1.0], [116, 7.25, 0, 1.0], [117, 8.25, 0, 1.0], [118, 9.25, 0, 1.0], [119, 10.25, 0, 1.0], [120, 11.75, 0, 1.0], [121, 12.75, 0, 1.0], [122, 13.75, 0, 1.0], [123, 14.75, 0, 1.0], [44, 15.75, 0, 1.0], [145, 16.75, 0, 1.0], [19, 17.75, 0, 1.0], [192, 0.5, 1, 1.0], [49, 1.5, 1, 1.0], [50, 2.5, 1, 1.0], [51, 3.5, 1, 1.0], [52, 4.5, 1, 1.0], [53, 5.5, 1, 1.0], [54, 6.5, 1, 1.0], [55, 7.5, 1, 1.0], [56, 8.5, 1, 1.0], [57, 9.5, 1, 1.0], [48, 10.5, 1, 1.0], [189, 11.5, 1, 1.0], [187, 12.5, 1, 1.0], [8, 14.0, 1, 2.0], [45, 15.75, 1, 1.0], [36, 16.75, 1, 1.0], [33, 17.75, 1, 1.0], [144, 19.25, 1, 1.0], [111, 20.25, 1, 1.0], [106, 21.25, 1, 1.0], [109, 22.25, 1, 1.0], [9, 0.75, 2, 1.5], [81, 2.0, 2, 1.0], [87, 3.0, 2, 1.0], [69, 4.0, 2, 1.0], [82, 5.0, 2, 1.0], [84, 6.0, 2, 1.0], [89, 7.0, 2, 1.0], [85, 8.0, 2, 1.0], [73, 9.0, 2, 1.0], [79, 10.0, 2, 1.0], [80, 11.0, 2, 1.0], [219, 12.0, 2, 1.0], [221, 13.0, 2, 1.0], [220, 14.25, 2, 1.5], [46, 15.75, 2, 1.0], [35, 16.75, 2, 1.0], [34, 17.75, 2, 1.0], [103, 19.25, 2, 1.0], [104, 20.25, 2, 1.0], [105, 21.25, 2, 1.0], [107, 22.25, 2, 1.0], [20, 0.875, 3, 1.75], [65, 2.25, 3, 1.0], [83, 3.25, 3, 1.0], [68, 4.25, 3, 1.0], [70, 5.25, 3, 1.0], [71, 6.25, 3, 1.0], [72, 7.25, 3, 1.0], [74, 8.25, 3, 1.0], [75, 9.25, 3, 1.0], [76, 10.25, 3, 1.0], [186, 11.25, 3, 1.0], [222, 12.25, 3, 1.0], [13, 13.875, 3, 2.25], [100, 19.25, 3, 1.0], [101, 20.25, 3, 1.0], [102, 21.25, 3, 1.0], [160, 1.125, 4, 2.25], [90, 2.75, 4, 1.0], [88, 3.75, 4, 1.0], [67, 4.75, 4, 1.0], [86, 5.75, 4, 1.0], [66, 6.75, 4, 1.0], [78, 7.75, 4, 1.0], [77, 8.75, 4, 1.0], [188, 9.75, 4, 1.0], [190, 10.75, 4, 1.0], [191, 11.75, 4, 1.0], [161, 13.625, 4, 2.75], [38, 16.75, 4, 1.0], [97, 19.25, 4, 1.0], [98, 20.25, 4, 1.0], [99, 21.25, 4, 1.0], [162, 0.625, 5, 1.25], [91, 1.875, 5, 1.25], [164, 3.125, 5, 1.25], [32, 6.875, 5, 6.25], [165, 10.625, 5, 1.25], [92, 11.875, 5, 1.25], [93, 13.125, 5, 1.25], [163, 14.375, 5, 1.25], [37, 15.75, 5, 1.0], [40, 16.75, 5, 1.0], [39, 17.75, 5, 1.0], [96, 19.75, 5, 2.0], [110, 21.25, 5, 1.0]].map(([vk, x, row, w]) => ({ vk, x, row, w }));
 
   const layer = (effect, more) => ({ enabled: true, opacity: 1, blend: "normal", scope: "all", devices: [], when: "always", apps: [], effect: copy(effect), ...more });
   // Pretend osu! is open and in front, and Discord open behind it.
@@ -176,6 +178,7 @@
     overrides: {},
     brightness: 1,
     paused: false,
+    keyMaps: [{ name: "WASD", map: [65, 68, 83, 87].map((vk) => [vk, ORANGE]) }],
     profiles: new Map([
       ["Desk", { effect: copy(catalog[2].default), layers: [layer(postCatalog[1].default)], overrides: {}, brightness: 0.8 }],
       ["Night", { effect: { kind: "static", color: [255, 60, 0] }, layers: [], overrides: {}, brightness: 0.25 }],
@@ -463,6 +466,49 @@
 
   const isPost = (kind) => postCatalog.some((c) => c.default.kind === kind);
 
+  // As in crates/foxden-core/src/keys.rs: the key nearest a point of a board in its row, within half a key.
+  function keyUnder(rx, ry, full) {
+    const width = full ? 22.75 : 18.25;
+    const row = Math.floor(ry * 6);
+    let best = null;
+    let gap = 0.5;
+    for (const k of keyLayout) {
+      if (k.row !== row || k.x + k.w / 2 > width) continue;
+      const g = Math.abs(rx * width - k.x) - k.w / 2;
+      if (g <= gap) [best, gap] = [k.vk, g];
+    }
+    return best;
+  }
+
+  // A key colours layer on one LED: its key's colour, or on a zone board the colour most keys of its zone have.
+  function keyColour(p, d, x, y) {
+    if (d.kind !== "keyboard") return null;
+    const [bx, by, w, h] = d.rect;
+    const [rx, ry] = [(x - bx) / w, (y - by) / h];
+    const map = new Map(p.map);
+    if (d.grid[1] > 1) return map.get(keyUnder(rx, ry, d.grid[0] >= 21)) || null;
+    const nearest = (kx, ky) => d.leds.reduce((b, l) => (Math.hypot((l[0] - kx) * w, (l[1] - ky) * h) < Math.hypot((b[0] - kx) * w, (b[1] - ky) * h) ? l : b));
+    const me = nearest(rx, ry);
+    const counts = new Map();
+    for (const k of keyLayout) {
+      const c = map.get(k.vk);
+      if (!c || nearest(k.x / 22.75, (k.row + 0.5) / 6) !== me) continue;
+      const seen = counts.get(String(c)) || [c, 0];
+      counts.set(String(c), [c, seen[1] + 1]);
+    }
+    let best = null;
+    for (const [c, n] of counts.values()) if (!best || n > best[1]) best = [c, n];
+    return best && best[0];
+  }
+
+  const shareName = (n) => [...String(n)].filter((ch) => ch >= " ").slice(0, 40).join("").trim();
+  const cleanMap = (m) => {
+    const known = new Map();
+    for (const [vk, c] of m.map || []) if (keyLayout.some((k) => k.vk === vk)) known.set(vk, c.map((v) => clamp(Math.round(v), 0, 255)));
+    return { name: shareName(m.name) || "Shared key map", map: [...known].sort((a, b) => a[0] - b[0]) };
+  };
+  const b64 = (text) => btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
   function covers(l, d) {
     if (!l.enabled) return false;
     const named = (n) => l.apps.some((a) => appName(a) === n);
@@ -477,6 +523,11 @@
     let c = sample(state.overrides[d.id] || state.effect, x, y, t, sound);
     for (const l of state.layers) {
       if (!covers(l, d)) continue;
+      if (l.effect.kind === "key_colours") {
+        const paint = keyColour(l.effect, d, x, y);
+        if (paint) c = blend(c, paint, l.opacity, l.blend);
+        continue;
+      }
       const [over, k] = isPost(l.effect.kind) ? render(l.effect, x, y, t, sound) : [sample(l.effect, x, y, t, sound), 1];
       c = blend(c, over, k * l.opacity, l.blend);
     }
@@ -575,6 +626,7 @@
       overrides: state.overrides,
       post_catalog: postCatalog,
       key_layout: keyLayout,
+      key_maps: state.keyMaps,
       brightness: state.brightness,
       paused: state.paused,
       catalog,
@@ -642,6 +694,44 @@
       state.overrides = copy(profile.overrides);
       state.brightness = profile.brightness;
       state.active = name;
+    },
+    save_key_map({ map }) {
+      const m = cleanMap(map);
+      const at = state.keyMaps.findIndex((x) => x.name === m.name);
+      if (at < 0 && state.keyMaps.length >= 32) throw "Too many key maps; delete one first";
+      if (at < 0) state.keyMaps.push(m);
+      else state.keyMaps[at] = m;
+    },
+    delete_key_map({ name }) {
+      if (!state.keyMaps.some((m) => m.name === name)) throw `no key map named ${name}`;
+      state.keyMaps = state.keyMaps.filter((m) => m.name !== name);
+    },
+    key_map_code({ map }) {
+      const m = cleanMap(map);
+      const groups = new Map();
+      for (const [vk, c] of m.map) {
+        const hex = c.map((v) => v.toString(16).padStart(2, "0")).join("");
+        groups.set(hex, [...(groups.get(hex) || []), vk]);
+      }
+      return "foxden-keys:" + b64(JSON.stringify({ v: 1, n: m.name, c: [...groups] }));
+    },
+    key_map_decode({ code }) {
+      code = code.trim();
+      if (code.length > 4000) throw "That share code is too long";
+      if (!code.startsWith("foxden-keys:")) throw "That is not a FoxDen key map code";
+      let s;
+      try {
+        s = JSON.parse(atob(code.slice(12).replace(/-/g, "+").replace(/_/g, "/")));
+      } catch {
+        throw "The share code is damaged";
+      }
+      if (s.v !== 1) throw typeof s.v === "number" ? "This code comes from a newer FoxDen; update to use it" : "The share code is damaged";
+      const map = [];
+      for (const [hex, vks] of s.c || []) {
+        if (!/^[0-9a-f]{6}$/i.test(hex)) throw "The share code has a bad colour";
+        for (const vk of vks) map.push([vk, [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16))]);
+      }
+      return cleanMap({ name: s.n, map });
     },
     delete_profile({ name }) {
       if (!state.profiles.delete(name)) throw `no profile named ${name}`;

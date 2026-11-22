@@ -172,6 +172,8 @@ pub struct Config {
     /// Headset settings FoxDen last sent, by receiver.
     #[serde(deserialize_with = "lenient_map")]
     pub headsets: BTreeMap<String, crate::headset::Saved>,
+    #[serde(deserialize_with = "lenient_list")]
+    pub key_maps: Vec<crate::key_maps::KeyMap>,
 }
 
 impl Default for Config {
@@ -189,6 +191,7 @@ impl Default for Config {
             known_conflicts: Vec::new(),
             audio: Default::default(),
             headsets: BTreeMap::new(),
+            key_maps: Vec::new(),
         }
     }
 }

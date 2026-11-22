@@ -1,5 +1,7 @@
 use crate::effect::{along, band, color, hash, range, smooth, toggle};
-use crate::{Color, Control, Device, DeviceKind, Effect, Inputs, ParamInfo, Press, key_at};
+use crate::{
+    Color, Control, Device, DeviceKind, Effect, Inputs, KeyTable, ParamInfo, Press, key_at,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -123,6 +125,12 @@ pub enum Post {
         /// Windows virtual-key codes.
         keys: Vec<u32>,
     },
+    /// A colour painted on each of some keys; the rest show what is below.
+    KeyColours {
+        /// Windows virtual-key code and colour.
+        #[serde(default)]
+        map: Vec<(u32, Color)>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -226,6 +234,22 @@ impl Layer {
             LayerEffect::Fill(e) => (e.sample(x, y, t, inputs), 1.0),
         };
         mix(below, color, k * self.opacity.clamp(0.0, 1.0), self.blend)
+    }
+
+    /// `below` with a colour this layer worked out ahead drawn over it, or left alone without one.
+    pub fn over(&self, below: Color, color: Option<Color>) -> Color {
+        match color {
+            Some(c) => mix(below, c, self.opacity.clamp(0.0, 1.0), self.blend),
+            None => below,
+        }
+    }
+
+    /// The key colour map of a key colours layer, as a table.
+    pub fn key_table(&self) -> Option<KeyTable> {
+        match &self.effect {
+            LayerEffect::Post(Post::KeyColours { map }) => Some(crate::key_table(map)),
+            _ => None,
+        }
     }
 
     pub fn uses_keys(&self) -> bool {
@@ -523,6 +547,15 @@ impl Post {
                     },
                 ],
             },
+            PostInfo {
+                label: "Key colours",
+                default: Post::KeyColours { map: Vec::new() },
+                params: vec![ParamInfo {
+                    name: "map",
+                    label: "Key colours",
+                    control: Control::KeyColours,
+                }],
+            },
         ]
     }
 
@@ -688,6 +721,10 @@ impl Post {
                 let lit = keys.iter().any(|&vk| key_at(vk, x, y, &inputs.keyboards));
                 (color, if lit { 1.0 } else { 0.0 })
             }
+            Post::KeyColours { ref map } => map
+                .iter()
+                .find(|&&(vk, _)| key_at(vk, x, y, &inputs.keyboards))
+                .map_or((Color::BLACK, 0.0), |&(_, c)| (c, 1.0)),
         }
     }
 }
@@ -775,7 +812,7 @@ mod tests {
                     }
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
-                    Control::Keys => assert!(value.is_array()),
+                    Control::Keys | Control::KeyColours => assert!(value.is_array()),
                     Control::Choice { options } => {
                         assert!(
                             options.contains(&value.as_str().unwrap()),
@@ -1044,6 +1081,29 @@ mod tests {
         assert_eq!(keys.render(ax + 0.1, ay, 0.0, &board).1, 0.0);
         assert_eq!(keys.render(ax, ay, 0.0, &Inputs::default()).1, 0.0);
         assert!(!keys.uses_keys());
+    }
+
+    #[test]
+    fn key_colours_load_without_a_map_and_light_painted_keys() {
+        let v = serde_json::json!({"enabled": true, "opacity": 1, "blend": "normal", "scope": "keyboards", "effect": {"kind": "key_colours"}});
+        let layer: Layer = serde_json::from_value(v).unwrap();
+        assert_eq!(
+            layer.effect,
+            LayerEffect::Post(Post::KeyColours { map: vec![] })
+        );
+        let red = Color(255, 0, 0);
+        let keys = Post::KeyColours {
+            map: vec![(0x41, red)],
+        };
+        let board = Inputs {
+            keyboards: vec![([0.0, 0.0, 1.0, 1.0], false)],
+            ..Inputs::default()
+        };
+        let (ax, ay) = crate::key_spot(0x41, false).unwrap();
+        assert_eq!(keys.render(ax, ay, 0.0, &board), (red, 1.0));
+        assert_eq!(keys.render(ax + 0.1, ay, 0.0, &board).1, 0.0);
+        let back: Post = serde_json::from_value(serde_json::to_value(&keys).unwrap()).unwrap();
+        assert_eq!(back, keys);
     }
 
     #[test]

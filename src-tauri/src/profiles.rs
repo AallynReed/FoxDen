@@ -1,14 +1,12 @@
 //! Sound profiles: named processing for an output channel or the mic, shareable as a short code.
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use crate::share;
 use foxden_mixer::dsp::{self, Band, FilterType};
 use serde::{Deserialize, Serialize};
 
 pub const PREFIX: &str = "foxden-sound:";
 const VERSION: u32 = 1;
 const MAX_CODE: usize = 2000;
-const MAX_NAME: usize = 40;
 pub const MAX_PROFILES: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,21 +49,13 @@ fn num(v: f32, lo: f32, hi: f32, or: f32) -> f32 {
 }
 
 pub fn clean_name(name: &str) -> String {
-    let s: String = name
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(MAX_NAME)
-        .collect();
-    s.trim().to_string()
+    share::clean_name(name, "")
 }
 
 impl Profile {
     /// Values in range, a bounded size, nothing a mic-only profile carries on an output.
     pub fn clean(mut self) -> Profile {
-        self.name = clean_name(&self.name);
-        if self.name.is_empty() {
-            self.name = "Shared profile".into();
-        }
+        self.name = share::clean_name(&self.name, "Shared profile");
         self.builtin = false;
         if let Some(eq) = &mut self.eq {
             eq.bands.truncate(dsp::MAX_BANDS);
@@ -221,30 +211,12 @@ pub fn encode(p: &Profile) -> String {
         o: p.volume.map(|v| round(v, 2)),
         g: p.gate.map(|g| (g.on, round(g.db, 1))),
     };
-    let json = serde_json::to_vec(&share).unwrap_or_default();
-    format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(json))
+    share::encode(PREFIX, &share)
 }
 
 /// Reads a share code. It is only ever data: checked, clamped and bounded.
 pub fn decode(code: &str) -> Result<Profile, String> {
-    let code = code.trim();
-    if code.len() > MAX_CODE {
-        return Err("That share code is too long".into());
-    }
-    let body = code
-        .strip_prefix(PREFIX)
-        .ok_or("That is not a FoxDen sound code")?;
-    let json = URL_SAFE_NO_PAD
-        .decode(body.trim_end_matches('='))
-        .map_err(|_| "The share code is damaged")?;
-    let value: serde_json::Value =
-        serde_json::from_slice(&json).map_err(|_| "The share code is damaged")?;
-    match value.get("v").and_then(|v| v.as_u64()) {
-        Some(1) => {}
-        Some(_) => return Err("This code comes from a newer FoxDen; update to use it".into()),
-        None => return Err("The share code is damaged".into()),
-    }
-    let s: Share = serde_json::from_value(value).map_err(|_| "The share code is damaged")?;
+    let s: Share = share::decode(code, PREFIX, MAX_CODE, "sound")?;
     let eq = match s.e {
         Some((on, bands)) => {
             let mut out = Vec::new();
@@ -288,6 +260,8 @@ pub fn sound_decode(code: String) -> Result<Profile, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
     #[test]
     fn codes_round_trip_and_stay_short() {

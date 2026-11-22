@@ -205,6 +205,7 @@ function remember(rgb) {
 }
 
 // A colour field: a swatch that opens sliders, a hex field and ready-made colours below its row.
+// `target` may be a function that takes the colour instead of the effect.
 function colourField(param, id, target) {
   const chip = el("span", { className: "chip" });
   const code = el("span", { id: id + "-code" });
@@ -225,7 +226,8 @@ function colourField(param, id, target) {
     if (!keep) hsv = toHsv(rgb);
     sentAt = performance.now();
     paint();
-    queueEffect(param.name, rgb, target);
+    if (typeof target === "function") target(rgb);
+    else queueEffect(param.name, rgb, target);
     clearTimeout(timer);
     timer = setTimeout(scheduleRender, 350);
   };
@@ -294,7 +296,7 @@ function colourField(param, id, target) {
     paint();
   };
   button.onclick = () => open(panel.hidden);
-  button.dataset.param = param.name;
+  if (typeof target !== "function") button.dataset.param = param.name;
   button.setAttribute("aria-expanded", "false");
   button.setAttribute("aria-controls", panel.id);
   button.setAttribute("aria-labelledby", id + "-label " + code.id);
@@ -323,6 +325,27 @@ function colourField(param, id, target) {
   panel.addEventListener("keydown", close);
   return el("div", { className: "field colour" }, el("label", { htmlFor: id, id: id + "-label", textContent: param.label }), button, panel);
 }
+
+// Puts a share code on the clipboard, or selects it in `box` when that is refused. Returns what happened.
+async function copyShare(code, box) {
+  box.value = code;
+  try {
+    await navigator.clipboard.writeText(code);
+    return "Share code copied.";
+  } catch {
+    box.select();
+    return "Copy the code from the box.";
+  }
+}
+
+// Saves `text` as a file named `name` plus `ext`.
+function saveText(text, name, ext) {
+  const a = el("a", { href: URL.createObjectURL(new Blob([text + "\n"], { type: "text/plain" })), download: name.replace(/[^\w -]+/g, "") + ext });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+const errorText = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
 
 // The background being edited: the main one, or the device's own when it has one.
 function edited(snap = state.snap) {
@@ -452,6 +475,18 @@ function keyCode(e) {
 
 let showPad = false;
 
+// One button per key of the full-size board, placed as the board draws it.
+function keyButton(k) {
+  const key = el("button", { type: "button", textContent: KEY_SHORT[k.vk] || keyName(k.vk), tabIndex: -1 });
+  key.dataset.vk = k.vk;
+  key.title = (onPad(k) ? "Number pad " : "") + keyName(k.vk);
+  if (onPad(k)) key.classList.add("pad");
+  key.style.left = "calc(" + (k.x - k.w / 2) + " * var(--unit))";
+  key.style.width = "calc(" + k.w + " * var(--unit))";
+  key.style.top = (k.row / 6) * 100 + "%";
+  return key;
+}
+
 function keysField(param, id) {
   const board = el("div", { className: "keyboard", id, tabIndex: 0 });
   board.setAttribute("role", "group");
@@ -464,13 +499,7 @@ function keysField(param, id) {
       else keys.splice(at, 1);
     });
   for (const k of state.snap.key_layout) {
-    const key = el("button", { type: "button", textContent: KEY_SHORT[k.vk] || keyName(k.vk), tabIndex: -1 });
-    key.dataset.vk = k.vk;
-    key.title = (onPad(k) ? "Number pad " : "") + keyName(k.vk);
-    if (onPad(k)) key.classList.add("pad");
-    key.style.left = "calc(" + (k.x - k.w / 2) + " * var(--unit))";
-    key.style.width = "calc(" + k.w + " * var(--unit))";
-    key.style.top = (k.row / 6) * 100 + "%";
+    const key = keyButton(k);
     key.onclick = () => toggle(k.vk);
     board.append(key);
   }
@@ -500,12 +529,342 @@ function keysField(param, id) {
     el("div", { className: "row" }, count, clear));
 }
 
+const span = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+const KEY_GROUPS = [
+  ["F-keys", span(0x70, 0x7b)],
+  ["Numbers", span(0x30, 0x39)],
+  ["Letters", span(0x41, 0x5a)],
+  ["WASD", [0x57, 0x41, 0x53, 0x44]],
+  ["Arrows", span(0x25, 0x28)],
+  ["Number pad", [0x90, ...span(0x60, 0x6b), 0x6d, 0x6e, 0x6f]],
+  ["Modifiers", [0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0x5b, 0x5c, 0x5d]],
+  ["Nav cluster", [0x2d, 0x24, 0x21, 0x2e, 0x23, 0x22]],
+  ["All", null],
+];
+const MAX_KEYS_CODE = 4000;
+const contrast = ([r, g, b]) => (0.299 * r + 0.587 * g + 0.114 * b > 140 ? "#000" : "#fff");
+
+let brush = [255, 106, 0];
+try {
+  brush = fromHex(localStorage.getItem("foxden.brush") || "") || brush;
+} catch {}
+let paintTool = "paint";
+// The map being painted. While a stroke lasts, and briefly after a change, the app's echo is not taken as news.
+const painting = { map: new Map(), sentAt: 0, stroke: null, layer: -1, name: "" };
+
+document.addEventListener("pointerup", () => {
+  if (painting.stroke === "paint") rememberBrush();
+  painting.stroke = null;
+});
+
+function rememberBrush() {
+  remember(brush);
+  const row = document.querySelector(".paint-recent");
+  if (row) row.fill();
+}
+
+// A board of keys painted by clicking, dragging or the keyboard, with the colour, groups and saved maps around it.
+function paintField(param, id) {
+  const board = el("div", { className: "keyboard paint", id });
+  board.setAttribute("role", "group");
+  board.setAttribute("aria-label", param.label + ": arrow keys move, Space paints, Delete erases");
+  const layout = state.snap.key_layout;
+  const buttons = new Map();
+  let cursor = 0x41;
+  const note = el("p", { className: "hint", role: "status", hidden: true });
+  const say = (text) => {
+    note.textContent = text;
+    note.hidden = !text;
+  };
+
+  const send = () => {
+    painting.sentAt = performance.now();
+    const map = [...painting.map].sort((a, b) => a[0] - b[0]);
+    queueLayers((layers) => layers[layerSel] && (layers[layerSel].effect.map = map));
+  };
+  // Paints `vks` with `colour`, or clears them without one.
+  const set = (vks, colour) => {
+    let changed = false;
+    for (const vk of vks) {
+      if (colour && !same(painting.map.get(vk), colour)) painting.map.set(vk, colour);
+      else if (!colour && painting.map.has(vk)) painting.map.delete(vk);
+      else continue;
+      changed = true;
+    }
+    if (!changed) return;
+    show();
+    send();
+  };
+  const apply = (vks, erase) => set(vks, erase || paintTool === "erase" ? null : brush);
+
+  for (const k of layout) {
+    const key = keyButton(k);
+    key.onclick = (e) => {
+      // Mouse and touch paint on pointerdown; this is Space or Enter.
+      if (e.detail !== 0) return;
+      apply([k.vk]);
+      if (paintTool === "paint") rememberBrush();
+    };
+    key.onfocus = () => moveTo(k.vk, false);
+    buttons.set(k.vk, key);
+    board.append(key);
+  }
+
+  function moveTo(vk, focus = true) {
+    if (!buttons.has(vk)) return;
+    buttons.get(cursor).tabIndex = -1;
+    cursor = vk;
+    const key = buttons.get(vk);
+    key.tabIndex = 0;
+    if (focus) key.focus();
+  }
+  function nudge(dx, dy) {
+    const keys = layout.filter((k) => showPad || !onPad(k));
+    const at = layout.find((k) => k.vk === cursor);
+    if (!at) return;
+    let next;
+    if (dy) {
+      const row = keys.filter((k) => k.row === at.row + dy);
+      next = row.reduce((best, k) => (!best || Math.abs(k.x - at.x) < Math.abs(best.x - at.x) ? k : best), null);
+    } else {
+      const row = keys.filter((k) => k.row === at.row).sort((a, b) => a.x - b.x);
+      next = row[row.findIndex((k) => k.vk === cursor) + dx];
+    }
+    if (next) moveTo(next.vk);
+  }
+  board.onkeydown = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const move = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (move) {
+      e.preventDefault();
+      nudge(...move);
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      apply([cursor], true);
+    }
+  };
+
+  const hit = (target) => {
+    const key = target && target.closest && target.closest("button[data-vk]");
+    if (key && board.contains(key)) apply([Number(key.dataset.vk)], painting.stroke === "erase");
+  };
+  board.onpointerdown = (e) => {
+    const key = e.target.closest("button[data-vk]");
+    if (!key || (e.button !== 0 && e.button !== 2)) return;
+    e.preventDefault();
+    painting.stroke = e.button === 2 || paintTool === "erase" ? "erase" : "paint";
+    moveTo(Number(key.dataset.vk));
+    hit(key);
+  };
+  board.onpointermove = (e) => painting.stroke && hit(document.elementFromPoint(e.clientX, e.clientY));
+  board.oncontextmenu = (e) => e.preventDefault();
+
+  // The brush: the colour field, with the colours used lately one click away.
+  const setBrush = (rgb) => {
+    brush = rgb;
+    try {
+      localStorage.setItem("foxden.brush", toHex(rgb));
+    } catch {}
+    if (paintTool === "erase") setTool("paint");
+    recentRow.fill();
+  };
+  const colour = colourField({ name: "brush", label: "Paint colour" }, id + "-brush", setBrush);
+  const swatch = colour.querySelector(".swatch");
+  swatch.show(brush);
+  const recentRow = el("div", { className: "tiles paint-recent" });
+  recentRow.setAttribute("role", "group");
+  recentRow.setAttribute("aria-label", "Recent colours");
+  recentRow.fill = () => {
+    const now = toHex(brush);
+    recentRow.replaceChildren(
+      ...recent.map((hex) => {
+        const b = el("button", { type: "button", className: "tile", title: hex }, el("span", { className: "chip" }));
+        b.firstChild.style.background = hex;
+        b.setAttribute("aria-label", "Paint with " + hex);
+        b.setAttribute("aria-pressed", String(hex === now));
+        b.onclick = () => {
+          setBrush(fromHex(hex));
+          swatch.show(brush);
+        };
+        return b;
+      }),
+    );
+    recentRow.hidden = !recent.length;
+  };
+
+  const tools = el("div", { className: "seg" });
+  tools.setAttribute("role", "group");
+  tools.setAttribute("aria-label", "Tool");
+  const toolButtons = ["paint", "erase"].map((tool) => {
+    const b = el("button", { type: "button", textContent: sentence(tool) });
+    b.onclick = () => setTool(tool);
+    tools.append(b);
+    return [tool, b];
+  });
+  function setTool(tool) {
+    paintTool = tool;
+    for (const [t, b] of toolButtons) b.setAttribute("aria-pressed", String(t === tool));
+  }
+  setTool(paintTool);
+  recentRow.fill();
+
+  const groups = el("div", { className: "key-groups" });
+  groups.setAttribute("role", "group");
+  groups.setAttribute("aria-label", "Paint a group of keys");
+  for (const [name, vks] of KEY_GROUPS) {
+    const b = el("button", { type: "button", textContent: name });
+    b.onclick = () => {
+      apply(vks || layout.map((k) => k.vk));
+      if (paintTool === "paint") rememberBrush();
+    };
+    groups.append(b);
+  }
+
+  const pad = el("input", { type: "checkbox", className: "switch", id: id + "-pad", checked: showPad });
+  pad.oninput = () => {
+    showPad = pad.checked;
+    board.classList.toggle("full", showPad);
+    if (!showPad && onPad(layout.find((k) => k.vk === cursor))) moveTo(0x41, false);
+  };
+  board.classList.toggle("full", showPad);
+  const button = (text, onClick, label) => {
+    const b = el("button", { type: "button", textContent: text });
+    if (label) b.title = label;
+    b.onclick = onClick;
+    return b;
+  };
+  const count = el("span", { className: "meta", id: id + "-count" });
+  const zones = el("p", { className: "hint", id: id + "-zones", hidden: true });
+
+  // Saved maps and share codes.
+  const savedMaps = () => state.snap.key_maps || [];
+  const pick = el("select", { id: id + "-pick" });
+  pick.setAttribute("aria-label", "Use a saved key map");
+  pick.onchange = () => {
+    const m = savedMaps().find((x) => x.name === pick.value);
+    pick.value = "";
+    if (!m) return;
+    useMap(m);
+    say("Using " + m.name + ".");
+  };
+  const name = el("input", { type: "text", maxLength: 40, placeholder: "Key map name", id: id + "-name" });
+  name.setAttribute("aria-label", "Key map name");
+  const code = el("input", { type: "text", placeholder: "Paste share code", id: id + "-code", spellcheck: false });
+  code.setAttribute("aria-label", "Key map share code");
+  const file = el("input", { type: "file", accept: ".foxkeys,text/plain", hidden: true });
+  const current = () => ({ name: name.value.trim() || painting.name || "Key map", map: [...painting.map].sort((a, b) => a[0] - b[0]) });
+  function useMap(m) {
+    painting.map = new Map(m.map);
+    painting.name = name.value = m.name;
+    show();
+    send();
+  }
+  const attempt = (run) => async (...args) => {
+    try {
+      await run(...args);
+    } catch (e) {
+      say(sentence(errorText(e)));
+    }
+  };
+  const save = button("Save", attempt(async () => {
+    if (!name.value.trim()) return name.focus();
+    const m = current();
+    await invoke("save_key_map", { map: m });
+    painting.name = m.name;
+    say("Saved " + m.name + ".");
+  }), "Save these colours as a key map");
+  const del = button("Delete", attempt(async () => {
+    const m = savedMaps().find((x) => x.name === (name.value.trim() || painting.name));
+    if (!m) return say("Pick a saved key map first.");
+    await invoke("delete_key_map", { name: m.name });
+    say("Deleted " + m.name + ".");
+  }), "Delete the saved key map of this name");
+  const importCode = attempt(async (text) => {
+    const m = await invoke("key_map_decode", { code: text.trim() });
+    await invoke("save_key_map", { map: m });
+    code.value = "";
+    useMap(m);
+    say("Added " + m.name + ", " + plural(m.map.length, "key") + ".");
+  });
+  file.onchange = async () => {
+    const f = file.files[0];
+    file.value = "";
+    if (f && f.size <= MAX_KEYS_CODE + 16) importCode(await f.text());
+    else if (f) say("That file is too large to be a key map.");
+  };
+  const copy = button("Copy code", attempt(async () => say(await copyShare(await invoke("key_map_code", { map: current() }), code))), "Copy a share code for these colours");
+  const exportFile = button("Export", attempt(async () => {
+    const m = current();
+    saveText(await invoke("key_map_code", { map: m }), m.name, ".foxkeys");
+  }), "Save these colours as a .foxkeys file");
+  const importFile = button("Import", () => file.click(), "Add a key map from a .foxkeys file");
+  const add = button("Add", () => importCode(code.value), "Add the key map in the share code");
+  code.onkeydown = (e) => e.key === "Enter" && importCode(code.value);
+
+  function show() {
+    for (const [vk, key] of buttons) {
+      const c = painting.map.get(vk);
+      key.style.background = key.style.borderColor = c ? toHex(c) : "";
+      key.style.color = c ? contrast(c) : "";
+      key.setAttribute("aria-label", keyName(vk) + ", " + (c ? toHex(c) : "not painted"));
+    }
+    const colours = new Set([...painting.map.values()].map(toHex)).size;
+    setText(count, painting.map.size ? plural(painting.map.size, "key") + " in " + plural(colours, "colour") : "No keys painted");
+    if (!showPad && [...painting.map.keys()].some((vk) => onPad(layout.find((k) => k.vk === vk) || {}))) {
+      showPad = pad.checked = true;
+      board.classList.add("full");
+    }
+  }
+
+  // Follows the app, except while a stroke goes on or its echo may still be on the way.
+  board.show = (snap, map) => {
+    if (painting.layer !== layerSel || (!painting.stroke && performance.now() - painting.sentAt > 400)) {
+      painting.layer = layerSel;
+      painting.map = new Map(map);
+      show();
+    }
+    const names = savedMaps().map((m) => m.name);
+    if (pick.dataset.key !== JSON.stringify(names)) {
+      pick.dataset.key = JSON.stringify(names);
+      pick.replaceChildren(el("option", { value: "", textContent: names.length ? "Use a saved key map" : "No saved key maps" }), ...names.map((n) => el("option", { value: n, textContent: n })));
+    }
+    pick.disabled = !names.length;
+    del.disabled = !names.includes(name.value.trim() || painting.name);
+    const zoned = snap.devices.filter((d) => d.kind === "keyboard" && d.grid[1] <= 1).map((d) => d.name);
+    zones.hidden = !zoned.length;
+    setText(zones, zoned.join(", ") + (zoned.length === 1 ? " lights" : " light") + " in zones, not single keys: each zone shows the colour most of its painted keys have.");
+  };
+  name.oninput = () => (del.disabled = !savedMaps().some((m) => m.name === name.value.trim()));
+  moveTo(cursor, false);
+  painting.layer = -1;
+
+  return el("div", { className: "field keys paint-field" },
+    colour,
+    el("div", { className: "paint-tools" }, tools, recentRow),
+    groups,
+    el("div", { className: "board-scroll" }, board),
+    el("p", { className: "hint", textContent: "Click or drag to paint, right-click to erase. On the board, arrow keys move, Space paints and Delete erases." }),
+    zones,
+    el("div", { className: "field" }, el("label", { htmlFor: pad.id, textContent: "Show number pad" }), pad),
+    el("div", { className: "row paint-row" }, count, button("Undo", () => step(-1)), button("Redo", () => step(1)),
+      button("Fill empty", () => set(layout.map((k) => k.vk).filter((vk) => !painting.map.has(vk)), brush), "Paint every key that has no colour yet"),
+      button("Clear", () => set(layout.map((k) => k.vk), null), "Clear every key")),
+    el("h3", { textContent: "Key maps" }),
+    pick,
+    el("div", { className: "row" }, name, save, del),
+    el("div", { className: "row" }, copy, exportFile, importFile, file),
+    el("div", { className: "row" }, code, add),
+    note,
+  );
+}
+
 function paramRow(param, target = "effect") {
   const control = param.control;
   const id = (target === "layer" ? "layer-param-" : "param-") + param.name;
   const problem = $(target === "layer" ? "layer-problem" : "params-problem");
   if (control.type === "color") return colourField(param, id, target);
   if (control.type === "keys") return keysField(param, id);
+  if (control.type === "key_colours") return paintField(param, id);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
   if (control.type === "range") {
@@ -816,7 +1175,9 @@ function renderLayer(snap, layer) {
     $("layer-problem").hidden = true;
   }
   for (const input of box.querySelectorAll("[data-param]")) put(input, layer.effect[input.dataset.param]);
-  const board = box.querySelector(".keyboard");
+  const painter = box.querySelector(".keyboard.paint");
+  if (painter) painter.show(snap, layer.effect.map);
+  const board = box.querySelector(".keyboard:not(.paint)");
   if (board) {
     const on = layer.effect.keys;
     const [r, g, b] = layer.effect.color;
@@ -842,7 +1203,7 @@ function addLayer(value) {
   const entry = entryFor(state.snap, value);
   if (!entry) return;
   const effect = JSON.parse(JSON.stringify(entry.default));
-  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") || entry.default.kind === "key_lights" ? "keyboards" : "all", devices: [], when: "always", apps: [], effect }));
+  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") || ["key_lights", "key_colours"].includes(entry.default.kind) ? "keyboards" : "all", devices: [], when: "always", apps: [], effect }));
   layerSel = state.snap.layers.length;
   layerFocus = "layer-" + layerSel;
 }

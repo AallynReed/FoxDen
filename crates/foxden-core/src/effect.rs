@@ -108,6 +108,8 @@ pub enum Control {
     },
     /// A set of keyboard keys.
     Keys,
+    /// A colour for each of some keyboard keys.
+    KeyColours,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -683,7 +685,7 @@ mod tests {
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
                     Control::Choice { .. } => assert!(value.is_string()),
-                    Control::Keys => assert!(value.is_array()),
+                    Control::Keys | Control::KeyColours => assert!(value.is_array()),
                 }
             }
         }

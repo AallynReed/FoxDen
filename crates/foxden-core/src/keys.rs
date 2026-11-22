@@ -1,4 +1,4 @@
-use crate::Press;
+use crate::{Color, Device, DeviceKind, Press};
 use serde::Serialize;
 
 /// Key centres on a full-size ANSI board, in key widths: (Windows virtual-key code, x, row).
@@ -138,10 +138,15 @@ pub struct KeyInfo {
     pub w: f32,
 }
 
+/// Not the left-or-right-neutral codes or the ISO key that shares a spot.
+fn listed(vk: u32) -> bool {
+    !matches!(vk, 0x10 | 0x11 | 0x12 | 0xE2)
+}
+
 /// Every key once, without the left-or-right-neutral codes or the ISO key that shares a spot.
 pub fn key_layout() -> Vec<KeyInfo> {
     KEYS.iter()
-        .filter(|k| !matches!(k.0, 0x10 | 0x11 | 0x12 | 0xE2))
+        .filter(|k| listed(k.0))
         .map(|&(vk, x, row)| KeyInfo {
             vk,
             x,
@@ -171,6 +176,116 @@ pub fn key_spot(vk: u32, full: bool) -> Option<(f32, f32)> {
     let &(_, x, row) = KEYS.iter().find(|k| k.0 == vk)?;
     let width = if full { FULL } else { TKL };
     Some(((x / width).min(1.0), (row as f32 + 0.5) / 6.0))
+}
+
+/// The key nearest point `x`, `y` of a board (each 0..=1) in its row, if within half a key.
+pub fn key_under(x: f32, y: f32, full: bool) -> Option<u32> {
+    let width = if full { FULL } else { TKL };
+    let row = (y * 6.0).floor();
+    if !(0.0..6.0).contains(&row) || !x.is_finite() {
+        return None;
+    }
+    let at = x * width;
+    KEYS.iter()
+        .filter(|&&(vk, kx, r)| listed(vk) && r as f32 == row && kx + key_width(vk) / 2.0 <= width)
+        .map(|&(vk, kx, _)| (vk, (at - kx).abs() - key_width(vk) / 2.0))
+        .filter(|&(_, gap)| gap <= 0.5)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(vk, _)| vk)
+}
+
+/// What one LED of a keyboard shows of a key colour map.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Spot {
+    Key(u32),
+    /// A lighting zone and the keys nearest it.
+    Zone(Vec<u32>),
+    None,
+}
+
+/// Boards with one row of lights drive zones, not keys.
+pub fn zoned(device: &Device) -> bool {
+    device.kind == DeviceKind::Keyboard && device.grid[1] <= 1
+}
+
+/// The key or zone under each LED of `device`; empty when it is not a keyboard.
+pub fn spots(device: &Device) -> Vec<Spot> {
+    if device.kind != DeviceKind::Keyboard {
+        return Vec::new();
+    }
+    if !zoned(device) {
+        let full = device.number_pad();
+        return device
+            .leds
+            .iter()
+            .map(|&[x, y]| key_under(x, y, full).map_or(Spot::None, Spot::Key))
+            .collect();
+    }
+    // Zone boards are taken as full size, so the number pad goes to the zone at the right.
+    let (w, h) = (
+        device.rect[2].abs().max(1e-6),
+        device.rect[3].abs().max(1e-6),
+    );
+    let mut zones = vec![Vec::new(); device.leds.len()];
+    for k in key_layout() {
+        let (kx, ky) = (k.x / FULL, (k.row as f32 + 0.5) / 6.0);
+        let near = device
+            .leds
+            .iter()
+            .enumerate()
+            .map(|(i, [lx, ly])| (i, ((lx - kx) * w).hypot((ly - ky) * h)))
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((i, _)) = near {
+            zones[i].push(k.vk);
+        }
+    }
+    zones.into_iter().map(Spot::Zone).collect()
+}
+
+/// A key colour map as a table by virtual-key code.
+pub type KeyTable = [Option<Color>; 256];
+
+pub fn key_table(map: &[(u32, Color)]) -> KeyTable {
+    let mut table = [None; 256];
+    for &(vk, c) in map {
+        if let Some(slot) = table.get_mut(vk as usize) {
+            *slot = Some(c);
+        }
+    }
+    table
+}
+
+/// The colour a spot shows: its key's, or the colour most of a zone's painted keys have.
+pub fn paint(spot: &Spot, table: &KeyTable) -> Option<Color> {
+    let at = |vk: u32| table.get(vk as usize).copied().flatten();
+    match spot {
+        Spot::Key(vk) => at(*vk),
+        Spot::None => None,
+        Spot::Zone(keys) => {
+            let mut counts: Vec<(Color, usize)> = Vec::new();
+            for c in keys.iter().filter_map(|&vk| at(vk)) {
+                match counts.iter_mut().find(|(seen, _)| *seen == c) {
+                    Some((_, n)) => *n += 1,
+                    None => counts.push((c, 1)),
+                }
+            }
+            let most = counts.iter().map(|(_, n)| *n).max()?;
+            counts.into_iter().find(|(_, n)| *n == most).map(|(c, _)| c)
+        }
+    }
+}
+
+/// Known keys only, each once (the last colour wins), in key-code order, at most one per key.
+pub fn clean_key_map(map: Vec<(u32, Color)>) -> Vec<(u32, Color)> {
+    let mut table = [None; 256];
+    for (vk, c) in map {
+        if KEYS.iter().any(|k| k.0 == vk && listed(vk)) {
+            table[vk as usize] = Some(c);
+        }
+    }
+    (0..256u32)
+        .filter_map(|vk| table[vk as usize].map(|c| (vk, c)))
+        .collect()
 }
 
 /// Places key presses `(virtual-key code, age, seed)` on each keyboard `(rect, full)` of the canvas.
@@ -225,6 +340,100 @@ mod tests {
         assert!(!key_at(0x6B, 0.99, 0.4, &board));
         let layout = key_layout();
         assert!(layout.iter().all(|k| k.vk != 0x10) && layout.len() == KEYS.len() - 4);
+    }
+
+    const RED: Color = Color(255, 0, 0);
+    const BLUE: Color = Color(0, 0, 255);
+
+    /// A per-key board with an LED on every key it has.
+    fn per_key(full: bool) -> Device {
+        let width = if full { FULL } else { TKL };
+        let keys: Vec<_> = key_layout()
+            .into_iter()
+            .filter(|k| k.x + k.w / 2.0 <= width)
+            .collect();
+        Device {
+            id: "kb".into(),
+            name: "Board".into(),
+            kind: DeviceKind::Keyboard,
+            rect: [0.1, 0.5, 0.5, 0.3],
+            grid: [if full { 22 } else { 18 }, 6],
+            leds: keys
+                .iter()
+                .map(|k| key_spot(k.vk, full).unwrap().into())
+                .collect(),
+        }
+    }
+
+    fn shown(device: &Device, map: &[(u32, Color)]) -> Vec<Option<Color>> {
+        let table = key_table(map);
+        spots(device).iter().map(|s| paint(s, &table)).collect()
+    }
+
+    #[test]
+    fn painted_keys_light_their_own_leds() {
+        let board = per_key(false);
+        let lit = shown(&board, &[(0x41, RED), (0x57, BLUE), (0x20, RED)]);
+        let at = |vk| {
+            let spot = key_spot(vk, false).unwrap();
+            lit[board
+                .leds
+                .iter()
+                .position(|l| (l[0], l[1]) == spot)
+                .unwrap()]
+        };
+        assert_eq!(
+            (at(0x41), at(0x57), at(0x20)),
+            (Some(RED), Some(BLUE), Some(RED))
+        );
+        assert_eq!(at(0x53), None);
+        assert_eq!(lit.iter().flatten().count(), 3);
+        assert!(spots(&board).iter().all(|s| matches!(s, Spot::Key(_))));
+    }
+
+    #[test]
+    fn number_pad_keys_only_light_on_boards_with_one() {
+        let map = [(0x67, RED), (0x41, BLUE)];
+        let tkl = shown(&per_key(false), &map);
+        assert!(!tkl.contains(&Some(RED)) && tkl.contains(&Some(BLUE)));
+        assert!(shown(&per_key(true), &map).contains(&Some(RED)));
+        assert_eq!(key_under(0.99, 0.4, false), Some(0x22));
+        assert_eq!(key_under(f32::NAN, 0.4, true), None);
+        assert_eq!(key_under(0.5, 1.5, true), None);
+    }
+
+    #[test]
+    fn zone_boards_take_the_colour_most_painted_keys_in_a_zone_have() {
+        let board = Device::grid("z", "Z", DeviceKind::Keyboard, [0.0, 0.0, 0.5, 0.2], 4, 1);
+        assert!(zoned(&board) && !zoned(&per_key(false)));
+        let lit = shown(
+            &board,
+            &[(0x57, RED), (0x41, RED), (0x53, BLUE), (0x67, BLUE)],
+        );
+        assert_eq!(lit, [Some(RED), None, None, Some(BLUE)]);
+        let zones = spots(&board);
+        let total: usize = zones
+            .iter()
+            .map(|s| match s {
+                Spot::Zone(keys) => keys.len(),
+                _ => 0,
+            })
+            .sum();
+        assert_eq!(total, key_layout().len());
+        let mouse = Device::grid("m", "M", DeviceKind::Mouse, [0.0; 4], 2, 1);
+        assert!(spots(&mouse).is_empty());
+    }
+
+    #[test]
+    fn key_maps_keep_known_keys_once() {
+        let map = clean_key_map(vec![
+            (0x41, RED),
+            (0x10, RED),
+            (0x41, BLUE),
+            (999, RED),
+            (0x1B, RED),
+        ]);
+        assert_eq!(map, [(0x1B, RED), (0x41, BLUE)]);
     }
 
     #[test]

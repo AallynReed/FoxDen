@@ -235,11 +235,17 @@ const FIND_EVERY: Duration = Duration::from_secs(5);
 pub fn spawn_dial(app: AppHandle) {
     thread::spawn(move || {
         let mut found: Vec<Found> = Vec::new();
-        let mut looked: Option<Instant> = None;
+        let mut plugged: Option<u64> = None;
+        let mut checked: Option<Instant> = None;
         loop {
-            if looked.is_none_or(|t| t.elapsed() >= FIND_EVERY) {
-                found = foxden_headset::find();
-                looked = Some(Instant::now());
+            // Listing every HID device is costly; it is only redone when something is plugged in or out.
+            if checked.is_none_or(|t| t.elapsed() >= FIND_EVERY) {
+                let now = foxden_battery::hid::fingerprint();
+                if plugged != Some(now) {
+                    found = foxden_headset::find();
+                    plugged = Some(now);
+                }
+                checked = Some(Instant::now());
             }
             let statuses: Vec<_> = found.iter().map(foxden_headset::status).collect();
             crate::priority::set_headsets(

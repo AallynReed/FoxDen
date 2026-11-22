@@ -10,6 +10,7 @@ mod detect;
 mod device_info;
 mod fans;
 mod headset;
+mod key_maps;
 mod keys;
 mod links;
 mod log;
@@ -19,6 +20,7 @@ mod priority;
 mod profiles;
 mod report;
 mod service_lights;
+mod share;
 mod state;
 mod tray;
 mod updater;
@@ -157,6 +159,10 @@ fn main() {
             priority::set_priority,
             profiles::sound_code,
             profiles::sound_decode,
+            key_maps::save_key_map,
+            key_maps::delete_key_map,
+            key_maps::key_map_code,
+            key_maps::key_map_decode,
             mixer::mixer_set,
             mixer::get_mixer_levels,
             mixer::virtual_mic_install,

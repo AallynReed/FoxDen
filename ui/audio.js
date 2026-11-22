@@ -815,14 +815,7 @@
   async function copyCode() {
     try {
       const code = await invoke("sound_code", { profile: shareable() });
-      pf.code.value = code;
-      try {
-        await navigator.clipboard.writeText(code);
-        say(pf.note, "Share code copied.");
-      } catch {
-        pf.code.select();
-        say(pf.note, "Copy the code from the box.");
-      }
+      say(pf.note, await copyShare(code, pf.code));
     } catch (e) {
       say(pf.note, message(e));
     }
@@ -830,10 +823,7 @@
 
   async function exportFile() {
     const p = shareable();
-    const code = await invoke("sound_code", { profile: p });
-    const a = el("a", { href: URL.createObjectURL(new Blob([code + "\n"], { type: "text/plain" })), download: p.name.replace(/[^\w -]+/g, "") + ".foxsound" });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    saveText(await invoke("sound_code", { profile: p }), p.name, ".foxsound");
   }
 
   async function importCode(text) {

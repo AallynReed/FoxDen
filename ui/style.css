@@ -618,6 +618,101 @@ input.switch::after {
   justify-content: space-between;
 }
 
+.paint-field h3 {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.paint-tools,
+.key-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.key-groups {
+  gap: 4px;
+}
+
+.key-groups button,
+.paint-field .row button {
+  height: 28px;
+  padding: 0 8px;
+}
+
+.field.keys .paint-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.paint-row .meta {
+  flex: 1 0 100%;
+}
+
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--stroke);
+}
+
+.seg button {
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+}
+
+.seg button + button {
+  border-left: 1px solid var(--line);
+}
+
+.seg button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  clip-path: var(--cut);
+}
+
+.seg button[aria-pressed="true"]:focus-visible {
+  outline-color: var(--on-accent);
+  outline-offset: -4px;
+}
+
+button.tile {
+  height: 24px;
+  border: 1px solid transparent;
+  background: none;
+}
+
+button.tile[aria-pressed="true"] {
+  padding: 1px;
+  border: 2px solid var(--text);
+}
+
+/* Keys stay 24 px or more; a narrow panel scrolls the board instead. */
+.board-scroll {
+  overflow-x: auto;
+  padding: 3px;
+}
+
+.keyboard.paint {
+  min-width: calc(18.25 * 26px);
+  margin-top: 0;
+  touch-action: none;
+  user-select: none;
+}
+
+.keyboard.paint.full {
+  min-width: calc(22.75 * 26px);
+}
+
+.keyboard.paint button:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
 .layer.waiting .name {
   color: var(--muted);
 }

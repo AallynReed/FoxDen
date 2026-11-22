@@ -41,7 +41,23 @@ pub struct Coll {
 }
 
 /// Every HID collection on the system, with its report lengths.
+/// Listing opens every collection, so the last list is reused until the device list changes.
 pub fn enumerate() -> Vec<Coll> {
+    static LAST: std::sync::Mutex<Option<(u64, Vec<Coll>)>> = std::sync::Mutex::new(None);
+    let print = fingerprint();
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((p, list)) = last.as_ref()
+        && *p == print
+        && print != 0
+    {
+        return list.clone();
+    }
+    let list = list_now();
+    *last = Some((print, list.clone()));
+    list
+}
+
+fn list_now() -> Vec<Coll> {
     static ONCE: Once = Once::new();
     ONCE.call_once(hidapi::HidApi::disable_device_discovery);
     let Ok(mut api) = hidapi::HidApi::new() else {
@@ -300,43 +316,54 @@ impl Dev {
     }
 }
 
-/// A cheap hash of the present HID interfaces: it changes when something is plugged in or out.
+/// A cheap hash of the present HID and USB device interfaces: it changes when something is
+/// plugged in or out, including devices without a HID interface.
 pub fn fingerprint() -> u64 {
+    use windows_sys::core::GUID;
+    const HID: GUID = GUID::from_u128(0x4d1e55b2_f16f_11cf_88cb_001111000030);
+    const USB_DEVICE: GUID = GUID::from_u128(0xa5dcbf10_6530_11d2_901f_00c04fb951ed);
+    let mut h = 0xcbf29ce484222325u64;
+    for class in [HID, USB_DEVICE] {
+        let mut paths = interfaces(&class);
+        paths.sort();
+        for c in paths.iter().flat_map(|p| p.iter().chain([&0])) {
+            h = (h ^ *c as u64).wrapping_mul(0x100000001b3);
+        }
+    }
+    h
+}
+
+fn interfaces(class: &windows_sys::core::GUID) -> Vec<Vec<u16>> {
     use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
         CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CM_Get_Device_Interface_List_SizeW,
         CM_Get_Device_Interface_ListW, CR_SUCCESS,
     };
-    use windows_sys::core::GUID;
-    const HID: GUID = GUID::from_u128(0x4d1e55b2_f16f_11cf_88cb_001111000030);
     let mut len = 0u32;
     let mut list = Vec::new();
     unsafe {
         if CM_Get_Device_Interface_List_SizeW(
             &mut len,
-            &HID,
+            class,
             std::ptr::null(),
             CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
         ) != CR_SUCCESS
         {
-            return 0;
+            return Vec::new();
         }
         list.resize(len as usize, 0u16);
         if CM_Get_Device_Interface_ListW(
-            &HID,
+            class,
             std::ptr::null(),
             list.as_mut_ptr(),
             len,
             CM_GET_DEVICE_INTERFACE_LIST_PRESENT,
         ) != CR_SUCCESS
         {
-            return 0;
+            return Vec::new();
         }
     }
-    let mut paths: Vec<&[u16]> = list.split(|&c| c == 0).filter(|p| !p.is_empty()).collect();
-    paths.sort();
-    let mut h = 0xcbf29ce484222325u64;
-    for c in paths.iter().flat_map(|p| p.iter().chain([&0])) {
-        h = (h ^ *c as u64).wrapping_mul(0x100000001b3);
-    }
-    h
+    list.split(|&c| c == 0)
+        .filter(|p| !p.is_empty())
+        .map(<[u16]>::to_vec)
+        .collect()
 }
