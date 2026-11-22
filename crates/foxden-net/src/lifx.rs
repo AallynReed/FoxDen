@@ -67,7 +67,7 @@ fn set_color_zone(c: Color, zone: u8, sequence: u8) -> Vec<u8> {
     d
 }
 
-/// At most 82 colours fit; OpenRGB would write past the packet beyond that.
+/// At most 82 colours fit in the packet.
 fn set_extended(colors: &[Color], sequence: u8) -> Vec<u8> {
     let mut d = packet(SET_EXTENDED_COLOR_ZONES, 664, sequence);
     let colors = &colors[..colors.len().min(EXTENDED_COLORS)];
@@ -178,7 +178,7 @@ pub fn open(cfg: &LifxLight) -> Option<Light> {
     ))
 }
 
-/// Not in OpenRGB: LIFX's documented GetService (2), tagged, sent to the broadcast address.
+/// LIFX's documented GetService (2), tagged, sent to the broadcast address.
 fn get_service() -> Vec<u8> {
     let mut d = packet(2, 0, 0);
     d[3] |= 0x20;

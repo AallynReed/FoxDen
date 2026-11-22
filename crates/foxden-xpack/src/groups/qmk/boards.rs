@@ -1,4 +1,4 @@
-//! QMK keyboard table from the SRGBmods QMK plugins (protocol learned from SignalRGB's QMK plugin behaviour).
+//! QMK keyboard table.
 
 use super::keyboards::{Board, Layout, open};
 use crate::hid::on_i;

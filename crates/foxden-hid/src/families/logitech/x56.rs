@@ -77,7 +77,7 @@ mod tests {
 
     // LogitechX56Controller::SetColor at Direct's default brightness 0x64.
     #[test]
-    fn set_color_matches_openrgb() {
+    fn set_color_bytes() {
         let [b, c] = set_color(Color(1, 2, 3), BRIGHTNESS);
         assert_eq!(b[..5], [0x09, 0x00, 0x02, 0x64, 0x00]);
         assert_eq!(c[..7], [0x09, 0x00, 0x03, 1, 2, 3, 0x00]);

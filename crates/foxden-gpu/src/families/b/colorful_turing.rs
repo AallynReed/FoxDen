@@ -8,7 +8,7 @@ use super::common::{Driver, Gpu, Io, detect_each, device_id, row};
 
 const COLOR_PACKET_LENGTH: usize = 8;
 
-// DetectColorfulTuringGPUControllers has no probe. The constructor's raw I2C reads only fill
+// No probe. The setup's raw I2C reads only fill
 // the UI, so they are left out.
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_each(bus, COLORFUL_TURING, |bus, card| {
@@ -32,7 +32,7 @@ struct Turing {
 }
 
 impl Driver for Turing {
-    // DeviceUpdateMode only calls DeviceUpdateLEDs.
+    // Entering the mode only writes the LEDs.
     fn setup(&mut self, _: &Io, _: &[Color]) {}
 
     // A raw I2C write of the packet is the same on the wire as a block write whose register
@@ -48,7 +48,7 @@ mod tests {
     use super::super::fake::{Fake, ids, push, run, s, take};
     use super::*;
 
-    // ColorfulTuringGPUController::SetDirect checksum: 256 - ((1 + sum) & 0xFF).
+    // Direct checksum: 256 - ((1 + sum) & 0xFF).
     #[test]
     fn checksum() {
         // 1 + 0x08 + 0x20 + 0x10 + 0x10 + 0x20 + 0x30 = 0x99.
@@ -59,7 +59,7 @@ mod tests {
         assert_eq!(direct_packet(Color(0xC7, 0, 0))[7], 0x00);
     }
 
-    // RGBController_ColorfulTuringGPU::DeviceUpdateLEDs in Direct.
+    // LED update in Direct.
     #[test]
     fn direct_and_frame() {
         let card = "iGame GeForce RTX 2070 SUPER Advanced OC-V";

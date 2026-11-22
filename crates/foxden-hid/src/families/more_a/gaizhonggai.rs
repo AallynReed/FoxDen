@@ -201,7 +201,7 @@ pub fn reports(pid: u16, data: &[u8]) -> Vec<(Vec<u8>, bool)> {
 
 struct Gai {
     pid: u16,
-    /// Each exposed LED's index in OpenRGB's LED list.
+    /// Each exposed LED's index in the LED list.
     ids: Vec<u32>,
     total: usize,
 }

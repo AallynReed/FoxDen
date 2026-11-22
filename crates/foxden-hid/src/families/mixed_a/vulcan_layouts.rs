@@ -2,7 +2,7 @@
 
 use super::common::NA;
 
-/// Matrix of LED indices (row-major) and the hardware id of each LED, in OpenRGB order.
+/// Matrix of LED indices (row-major) and the hardware id of each LED, in LED order.
 pub struct Layout {
     pub table: &'static str,
     pub layout: u8,

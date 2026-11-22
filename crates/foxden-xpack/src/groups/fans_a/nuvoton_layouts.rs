@@ -1,4 +1,4 @@
-//! Keyboard layouts and model ids of the Nuvoton keyboards (data from SignalRGB's Nuvoton/Nuvoton_Controller.js).
+//! Keyboard layouts and model ids of the Nuvoton keyboards.
 
 use super::nuvoton::{Layout, Model};
 

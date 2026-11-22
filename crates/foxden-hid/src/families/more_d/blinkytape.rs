@@ -7,7 +7,7 @@ use foxden_core::{Backend, Color, Device, DeviceKind};
 const FAMILY: &str = "blinkytape";
 pub const IDS: (u16, u16) = (0x1D50, 0x605E);
 const BAUD: u32 = 115_200;
-/// OpenRGB leaves the length to the user; a stock BlinkyTape has 60 LEDs.
+/// The length is not reported; a stock BlinkyTape has 60 LEDs.
 const LEDS: usize = 60;
 const MAX_LEDS: usize = 512;
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-/// Every REGISTER_I2C_PCI_DETECTOR line: name, vendor, device, subvendor, subdevice, address.
+/// Every detector row: name, vendor, device, subvendor, subdevice, address.
 pub const ENE_GPUS: &[(&str, u16, u16, u16, u16, u8)] = &[
     (
         "ASUS ROG STRIX GeForce RTX 3050 Gaming",
@@ -1394,7 +1394,6 @@ pub const ENE_GPUS: &[(&str, u16, u16, u16, u16, u8)] = &[
         0x0613,
         0x67,
     ),
-    // From SignalRGB's Asus_Ampere_Lovelace_GPU.js.
     (
         "ASUS ROG Strix RTX 3060 O12G Gaming V2 LHR",
         0x10DE,

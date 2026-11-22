@@ -152,7 +152,6 @@ pub const EVGA_AMPERE: &[Card] = &[
     c("EVGA GeForce RTX 3090 Ti FTW3 Gaming", 0x10DE, 0x2203, 0x3842, 0x4983, 0x2D),
     c("EVGA GeForce RTX 3090 Ti FTW3 Ultra Gaming", 0x10DE, 0x2203, 0x3842, 0x4985, 0x2D),
     c("EVGA GeForce RTX 3090 Ti FTW3 Ultra Hybrid Gaming", 0x10DE, 0x2203, 0x3842, 0x4988, 0x2D),
-    // From SignalRGB's EVGA_Ampere_GPU.js.
     c("EVGA RTX 3060Ti FTW3 Ultra Gaming", 0x10DE, 0x2489, 0x3842, 0x3667, 0x2D),
     c("EVGA RTX 3080 XC3 Ultra HydroCopper", 0x10DE, 0x2216, 0x3842, 0x4889, 0x2D),
     c("EVGA RTX 3080 XC3 Ultra HydroCopper GA102", 0x10DE, 0x220A, 0x3842, 0x4869, 0x2D),
@@ -191,7 +190,6 @@ pub const EVGA_TURING: &[Card] = &[
     c("EVGA GeForce RTX 2080 Ti XC HYDRO COPPER", 0x10DE, 0x1E04, 0x3842, 0x2389, 0x49),
     c("EVGA GeForce RTX 2080 Ti FTW3 Ultra", 0x10DE, 0x1E07, 0x3842, 0x2487, 0x49),
     c("EVGA GeForce RTX 2080 Ti FTW3 Ultra Hydro Copper", 0x10DE, 0x1E07, 0x3842, 0x2489, 0x49),
-    // From SignalRGB's EVGA_Turing_GPU.js.
     c("EVGA RTX 2060 Super XC Gaming", 0x10DE, 0x1F06, 0x3842, 0x3162, 0x49),
     c("EVGA RTX 2060 Super XC Ultra Gaming", 0x10DE, 0x1F06, 0x3842, 0x3163, 0x49),
     c("EVGA RTX 2070 Super XC Hybrid", 0x10DE, 0x1E84, 0x3842, 0x3178, 0x49),
@@ -381,7 +379,6 @@ pub const COLORFUL: &[Card] = &[
     c("iGame GeForce RTX 5070 Ultra W OC-V", 0x10DE, 0x2F04, 0x7377, 0x1501, 0x61),
     c("iGame GeForce RTX 5070 Ti Ultra W OC", 0x10DE, 0x2C05, 0x7377, 0x1500, 0x61),
     c("iGame GeForce RTX 5080 Ultra W OC", 0x10DE, 0x2C02, 0x7377, 0x1501, 0x61),
-    // From SignalRGB's Colorful_Ampere_GPU.js.
     c("Colorful 3060 iGame Ultra", 0x10DE, 0x2544, 0x7377, 0x1500, 0x61),
     c("Colorful 3060 iGame Advanced OC 12G L-V LHR", 0x10DE, 0x2504, 0x7377, 0x1401, 0x61),
     c("Colorful 3060 iGame Ultra OC GDDR6X", 0x10DE, 0x24C9, 0x7377, 0x1581, 0x61),
@@ -522,7 +519,6 @@ pub const MSI_V1: &[Card] = &[
     c("MSI Radeon RX 6950 XT Gaming X Trio", 0x1002, 0x73A5, 0x1462, 0x3955, 0x68),
     c("MSI Radeon RX 7900 XTX Gaming X Trio", 0x1002, 0x744C, 0x1462, 0x5200, 0x68),
     c("MSI Radeon RX 7900 XT Gaming Trio Classic", 0x1002, 0x744C, 0x1462, 0x5201, 0x68),
-    // From SignalRGB's MSI_GPU.js.
     c("MSI GeForce GTX 1060 Gaming 3GB", 0x10DE, 0x1C03, 0x1462, 0x3285, 0x68),
     c("MSI GeForce GTX 1060 Gaming 6GB", 0x10DE, 0x1C03, 0x1462, 0x3282, 0x68),
     c("MSI GeForce GTX 1070 Gaming X 8G", 0x10DE, 0x1B81, 0x1462, 0x3302, 0x68),
@@ -582,7 +578,6 @@ pub const MSI_V2: &[Card] = &[
     c("MSI GeForce RTX 5090 VANGUARD SOC", 0x10DE, 0x2B85, 0x1462, 0x5302, 0x68),
     c("MSI GeForce RTX 5090 SUPRIM SOC", 0x10DE, 0x2B85, 0x1462, 0x5301, 0x68),
     c("MSI GeForce RTX 5090 SUPRIM LIQUID SOC", 0x10DE, 0x2B85, 0x1462, 0x5300, 0x68),
-    // From SignalRGB's MSI_GPU_Lovelace.js and MSI_GPU_Blackwell.js.
     c("MSI GeForce RTX 4060 Ti GAMING X TRIO", 0x10DE, 0x2803, 0x1462, 0x5151, 0x68),
     c("MSI GeForce RTX 4060 Ti GAMING X SLIM", 0x10DE, 0x2803, 0x1462, 0x5157, 0x68),
     c("MSI GeForce RTX 4060 Ti GAMING X SLIM", 0x10DE, 0x2803, 0x1462, 0x5170, 0x68),

@@ -13,7 +13,7 @@ const CMD_GREEN: u8 = 0xB1;
 const CMD_BLUE: u8 = 0xB2;
 const MODE_SINGLE: u8 = 0x00;
 
-/// TestForCorsairVengeanceController: every register 0xA0..0xAF reads 0xBA.
+/// Probe: every register 0xA0..0xAF reads 0xBA.
 fn test(io: &Io, a: u8) -> bool {
     if io.quick(a) < 0 {
         return false;
@@ -27,7 +27,7 @@ fn test(io: &Io, a: u8) -> bool {
     pass
 }
 
-/// DetectCorsairVengeanceControllers: each slot at SPD + 8 and SPD - 0x40 + 8.
+/// Detection: each slot at SPD + 8 and SPD - 0x40 + 8.
 pub fn detect(
     bus: &SharedBus,
     io: &Io,
@@ -61,7 +61,7 @@ pub struct Vengeance {
 }
 
 impl Proto for Vengeance {
-    /// DeviceUpdateMode for Static, the per-LED mode.
+    /// Static mode, the per-LED mode.
     fn start(&mut self, io: &Io, _zones: &[Vec<Color>]) {
         io.write_byte_data(self.dev, CMD_MODE, MODE_SINGLE);
     }
@@ -83,7 +83,7 @@ mod tests {
     use super::super::spd;
     use super::*;
 
-    // DetectCorsairVengeanceControllers on slot 1: 0x59 answers, 0x19 does not
+    // Detection on slot 1: 0x59 answers, 0x19 does not
     #[test]
     fn detection_and_frame() {
         let mut sim = Sim::default();
@@ -121,7 +121,7 @@ mod tests {
         );
     }
 
-    // TestForCorsairVengeanceController keeps reading after a mismatch
+    // The probe keeps reading after a mismatch
     #[test]
     fn mismatch_reads_all() {
         let mut sim = Sim::default();

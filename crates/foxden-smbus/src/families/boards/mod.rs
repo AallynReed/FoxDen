@@ -67,7 +67,7 @@ fn mobo_bus(info: &BusInfo) -> bool {
 
 pub(crate) type Sleep = Arc<dyn Fn(u64) + Send + Sync>;
 
-/// The bus plus the sleep OpenRGB does between transactions; tests swap the sleep for a logger.
+/// The bus plus the sleep between transactions; tests swap the sleep for a logger.
 #[derive(Clone)]
 pub(crate) struct Ctx {
     pub bus: SharedBus,

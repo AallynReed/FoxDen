@@ -171,7 +171,7 @@ impl Slot {
     }
 }
 
-/// DetectionManager::BackgroundDetectI2CDRAMDevices: slots 0x50..0x57 and the bus's memory type.
+/// Slots 0x50..0x57 and the bus's memory type.
 pub fn scan(io: &Io) -> (Vec<Slot>, u8) {
     let mut slots = Vec::new();
     let mut dram_type = RESERVED;

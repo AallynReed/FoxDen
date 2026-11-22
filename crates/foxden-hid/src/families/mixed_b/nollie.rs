@@ -23,7 +23,7 @@ const FLAG1: usize = 15;
 const FLAG2: usize = 31;
 const MOS_CHANNEL: usize = 26;
 const MOS_LEDS: usize = 20;
-/// OpenRGB starts every channel at 0 LEDs; this is the count assumed here, capped by the model.
+/// Channels report no size; this is the count assumed here, capped by the model.
 const CHANNEL_LEDS: usize = 60;
 
 const DFLT: [usize; 32] = [
@@ -40,7 +40,7 @@ const CH16: [usize; 32] = [
 ];
 const N16: [usize; 16] = [3, 2, 1, 0, 8, 9, 10, 11, 4, 5, 6, 7, 15, 14, 13, 12];
 
-/// (vid, pid, channels, LEDs per channel, channel index) from `NollieDevices.cpp`.
+/// (vid, pid, channels, LEDs per channel, channel index).
 const MODELS: [(u16, u16, usize, usize, &[usize]); 16] = [
     (HS_VID, NOLLIE32, 32, 256, &CH32),
     (HS_VID, NOLLIE16, 16, 256, &CH16),

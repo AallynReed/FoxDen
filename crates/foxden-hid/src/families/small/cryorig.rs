@@ -7,7 +7,7 @@ use hidapi::HidApi;
 
 const FAMILY: &str = "cryorig-h7";
 const ZONE_LEDS: usize = 5;
-/// OpenRGB loops on blocking reads until the 17-byte reply arrives; this bounds the wait.
+/// Reads repeat until the 17-byte reply arrives; this bounds the wait.
 const FIRMWARE_TRIES: usize = 10;
 
 pub fn firmware_request() -> [u8; 65] {

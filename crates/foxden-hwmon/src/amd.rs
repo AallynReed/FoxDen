@@ -293,7 +293,7 @@ mod tests {
         data
     }
 
-    // Windows layout of adl_structures.h: 4-byte ints, 256-byte strings, default packing.
+    // Windows layout of the ADL structures: 4-byte ints, 256-byte strings, default packing.
     #[test]
     fn layouts_match_the_adl_headers() {
         assert_eq!(size_of::<AdapterInfo>(), 1572);

@@ -56,7 +56,7 @@ fn send_modern(io: &mut dyn Io, data: &[u8]) -> Result<(), String> {
 }
 
 /// `DasKeyboardController::SendDataTraditional`: 7 data bytes per 8-byte report, checksum last.
-/// A failed report restarts at the second chunk with the checksum still running, as in OpenRGB.
+/// A failed report restarts at the second chunk with the checksum still running.
 fn send_traditional(io: &mut dyn Io, data: &[u8]) -> Result<(), String> {
     let len = data.len();
     let mut retries = 3;
@@ -96,7 +96,7 @@ fn send(io: &mut dyn Io, traditional: bool, data: &[u8]) -> Result<(), String> {
 }
 
 /// `DasKeyboardController::ReceiveData`: 8-byte feature reads until one starts with 0.
-/// Returns OpenRGB's count (-1 on a bad checksum or length) and the payload.
+/// Returns the count (-1 on a bad checksum or length) and the payload.
 fn receive(io: &mut dyn Io, max: usize) -> (i32, Vec<u8>) {
     let mut got = Vec::new();
     let mut sum = 0u8;
@@ -136,7 +136,7 @@ fn receive(io: &mut dyn Io, max: usize) -> (i32, Vec<u8>) {
 fn initialize(io: &mut dyn Io) -> Result<(Vec<u8>, bool), String> {
     let mut traditional = false;
     let data = loop {
-        // SendData returns nothing in OpenRGB; a dead modern send just reads back 0.
+        // SendData returns nothing; a dead modern send just reads back 0.
         let _ = send(io, traditional, &[0xEA, 0x02, 0xB0]);
         let (n, data) = receive(io, 65);
         if n != 0 || traditional {
@@ -154,7 +154,7 @@ enum Layout {
     Eu,
 }
 
-/// `DasKeyboardController::GetLayoutString`; `None` is OpenRGB's "NONE", which drops the device.
+/// `DasKeyboardController::GetLayoutString`; `None` is "NONE", which drops the device.
 fn layout(version: &[u8]) -> Option<Layout> {
     if version.len() < 17 {
         return None;
@@ -269,7 +269,7 @@ mod tests {
     }
 
     // DasKeyboardController::SendInitialize + ReceiveData; each report's leading byte stays in
-    // the stream, so version[4] is that byte and OpenRGB reads the layout as EU
+    // the stream, so version[4] is that byte and the layout reads as EU
     #[test]
     fn initialize_reads_version_over_modern_sends() {
         let mut fake = Fake::with(version_reply([1, 20, 0xAA, 0xBB, b'U', b'S', b'-', b'1']));

@@ -1,4 +1,4 @@
-//! KBM! Gaming keyboards (protocol learned from SignalRGB's KBM_Keyboard_Controller.js).
+//! KBM! Gaming keyboards.
 
 use super::common::{open_with, positioned};
 use super::xiaohua::Zoned;

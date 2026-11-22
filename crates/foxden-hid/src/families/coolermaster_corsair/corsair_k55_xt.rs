@@ -68,7 +68,7 @@ pub fn lighting_control() -> [Report; 3] {
 
 /// SetLEDs: red, green and blue banks of 137, sent as 53 bytes then six packets of 61.
 pub fn frame(colors: &[Color]) -> [Report; 7] {
-    // OpenRGB reads 8 bytes past its banks for the last packet; those are zero here.
+    // The last packet runs 8 bytes past the banks; those are zero.
     let mut bank = [0u8; 3 * BANK + 8];
     for (c, &k) in colors.iter().zip(KEYS.iter()) {
         bank[k as usize] = c.0;

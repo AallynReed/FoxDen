@@ -1,4 +1,4 @@
-//! Razer PWM fan controller (protocol learned from SignalRGB's Razer/Razer_PWM_Controller.js).
+//! Razer PWM fan controller.
 
 use super::util::{Every, be16, hub_id, iface, open, scan, spun};
 use crate::fan::{Channel, FanHub, backend, percent};

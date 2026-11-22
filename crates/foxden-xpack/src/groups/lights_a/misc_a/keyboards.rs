@@ -1,4 +1,4 @@
-//! Aula Win HE, BYTech (Aula Hero HE) and Dareu Cool68 keyboards (protocol learned from SignalRGB's Aula_Win_HE_Controller.js, BYTech_Keyboard_Controller.js and Dareu_Cool68_Keyboard.js).
+//! Aula Win HE, BYTech (Aula Hero HE) and Dareu Cool68 keyboards.
 
 use super::super::common::{KEYBOARD_RECT, full, keyed};
 use super::layouts::*;

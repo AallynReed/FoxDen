@@ -78,7 +78,7 @@ impl Driver for GigabyteSio {
     }
 }
 
-/// DetectGigabyteSuperIORGBControllers. The board list is checked before PawnIO is loaded.
+/// Detection. The board list is checked before PawnIO is loaded.
 pub(crate) fn detect(dmi: &Dmi, open: OpenSio) -> Vec<Box<dyn Backend>> {
     if dmi.manufacturer != "Gigabyte Technology Co., Ltd."
         || !COMPATIBLE_DEVICES
@@ -155,7 +155,7 @@ mod tests {
         assert!(found.is_empty());
     }
 
-    // SetMode(Direct = static) then DeviceUpdateLEDs -> SetColor.
+    // Direct (static) mode then each LED colour.
     #[test]
     fn direct_frame() {
         let (log, mut found) = run("X570 UD", 0x8688);

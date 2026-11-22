@@ -74,7 +74,7 @@ struct MsiRgb {
 }
 
 impl MsiRgb {
-    /// The MSIRGBController constructor.
+    /// Setup.
     fn init(sio: &Sio, invert: bool) {
         sio.outb(SIO_REG_LOGDEV, 0x09);
         let val_at_2c = (sio.inb(0x2C) & 0b1111_0111) | 0b0001_0000;
@@ -119,7 +119,7 @@ impl Driver for MsiRgb {
     }
 }
 
-/// DetectMSIRGBControllers. The board list is checked before PawnIO is loaded.
+/// Detection. The board list is checked before PawnIO is loaded.
 pub(crate) fn detect(dmi: &Dmi, open: OpenSio) -> Vec<Box<dyn Backend>> {
     let maker = dmi.manufacturer.as_str();
     if !matches!(
@@ -181,7 +181,7 @@ mod tests {
         (log, found)
     }
 
-    // DetectMSIRGBControllers then the MSIRGBController constructor, for an inverting board.
+    // Detection then setup, for an inverting board.
     #[test]
     fn detection_and_constructor() {
         let (log, found) = run(&msi("MS-7B89"), 0xD352, 0x00);
@@ -233,7 +233,7 @@ mod tests {
         assert!(found.is_empty());
     }
 
-    // DeviceUpdateLEDs -> SetColor.
+    // LED update.
     #[test]
     fn direct_frame() {
         let (log, mut found) = run(&msi("MS-7A40"), 0xD350, 0xE0);

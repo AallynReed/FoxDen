@@ -7,14 +7,14 @@ use hidapi::HidApi;
 
 const FAMILY: &str = "zalman-zsync";
 const CHANNELS: usize = 8;
-/// OpenRGB leaves channel sizes to the user; FoxDen starts each at its 40-LED maximum.
+/// Channel sizes are not reported; FoxDen starts each at its 40-LED maximum.
 const CHANNEL_LEDS: usize = 40;
 const FIRMWARE: u8 = 0x02;
 const DIRECT: u8 = 0x32;
 const COMMIT: u8 = 0x33;
 const PORT_STATE: u8 = 0x38;
 const SOFTWARE: u8 = 0x02;
-/// OpenRGB blocks on each 17-byte reply; this bounds the wait.
+/// Each 17-byte reply is awaited; this bounds the wait.
 const REPLY_MS: i32 = 1000;
 
 fn packet(head: &[u8]) -> [u8; 65] {

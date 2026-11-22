@@ -307,7 +307,7 @@ impl Keymap {
             }
             if x.row > k.row || (x.row == k.row && x.col > k.col) {
                 if k.named {
-                    // OpenRGB inserts one place early when it is not at the front.
+                    // Inserted one place early when it is not at the front.
                     self.keys.insert(i.saturating_sub(1), k);
                 }
                 return;

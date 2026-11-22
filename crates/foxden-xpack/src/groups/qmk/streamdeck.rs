@@ -1,4 +1,4 @@
-//! Elgato Stream Deck original, V2 and XL (protocol learned from SignalRGB's pre-release Streamdeck_0x0060.js, Streamdeck.js and Streamdeck-XL_0x006c.js).
+//! Elgato Stream Deck original, V2 and XL.
 
 use super::jpeg;
 use crate::hid::{Driver, Io, Proto, any, open_io};

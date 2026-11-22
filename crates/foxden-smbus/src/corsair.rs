@@ -15,14 +15,14 @@ const REG_GET_BINARY_DATA: u8 = 0x40;
 const REG_GET_DEVICE_INFO: u8 = 0x61;
 const REG_VENDOR: u8 = 0x43;
 const REG_MODEL: u8 = 0x44;
-/// Vendor and model bytes of a Vengeance RGB Pro on version 3 firmware (SignalRGB's Corsair_Vengeance_Pro_Ram.js).
+/// Vendor and model bytes of a Vengeance RGB Pro on version 3 firmware.
 const LEGACY_VENDOR: u8 = 0x1C;
 const LEGACY_MODEL: u8 = 0x03;
 const LEGACY_LEDS: usize = 10;
 const REG_LEGACY_START: u8 = 0x10;
 const REG_LEGACY_CRC: u8 = 0x28;
 
-/// Name, product ids, LED count and whether the LEDs run in reverse, from CorsairDRAMDevices.cpp.
+/// Name, product ids, LED count and whether the LEDs run in reverse.
 const MODELS: &[(&str, &[u16], usize, bool)] = &[
     (
         "Corsair Vengeance RGB Pro DDR4",

@@ -13,7 +13,7 @@ const BAUD: u32 = 250_000;
 const BRIGHTNESS: u8 = 255;
 const BREAK: Duration = Duration::from_millis(1);
 
-/// `DeviceUpdateLEDs`: start code 0 and 512 channels, one colour per device.
+/// Start code 0 and 512 channels, one colour per device.
 fn frame(devices: &[DmxDevice], colors: &[Color]) -> [u8; 513] {
     let mut d = [0u8; 513];
     let mut put = |ch: u32, v: u8| {
@@ -46,7 +46,7 @@ impl Driver for Dmx {
     }
 }
 
-/// `DetectDMXControllers` puts every device in one group, on the first device's port.
+/// Every device goes in one group, on the first device's port.
 pub fn open(devices: &[DmxDevice]) -> Vec<Light> {
     let Some(first) = devices.first() else {
         return Vec::new();

@@ -1,4 +1,4 @@
-//! Arctic fan controller (protocol learned from SignalRGB's Arctic/Arctic_Fan_Controller.js).
+//! Arctic fan controller.
 
 use super::util::{Every, hub_id, iface, latest, open, scan, spun};
 use crate::fan::{Channel, FanHub, backend, percent};

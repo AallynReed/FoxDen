@@ -41,7 +41,7 @@ impl Driver for Acx30 {
     fn write(&mut self, colors: &[Color], first: bool) -> Result<(), String> {
         let bus = lock(&self.ctx.bus);
         if first {
-            // DeviceUpdateMode with Static: SetMode, SetSpeed(0).
+            // Static mode: mode, speed 0.
             unlock(&**bus);
             wbd(&**bus, REG_21, 0xE5);
             wbd(&**bus, REG_22, 0xE7);
@@ -113,7 +113,7 @@ mod tests {
         (h, f)
     }
 
-    // TestForAcx30SMBusController: quick write, then reg 0x01 must be odd.
+    // Probe: quick write, then reg 0x01 must be odd.
     #[test]
     fn detection() {
         let (h, f) = found(0x03, 0x3842);
@@ -126,7 +126,7 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // DeviceUpdateMode (Static) then DeviceUpdateSingleLED: Unlock, SetColors, Lock.
+    // Static mode then single-LED writes: unlock, colours, lock.
     #[test]
     fn static_frame() {
         let (h, mut f) = found(0x01, 0x3842);

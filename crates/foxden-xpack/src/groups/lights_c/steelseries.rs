@@ -1,4 +1,4 @@
-//! SteelSeries keyboards, mice, headsets and speakers (protocol learned from SignalRGB's Steelseries_*.js plugins).
+//! SteelSeries keyboards, mice, headsets and speakers.
 
 use super::common::{open_with, positioned};
 use crate::hid::{Io, Proto, rgb};
@@ -248,7 +248,7 @@ fn kind(pid: u16) -> Option<Kind> {
     })
 }
 
-/// Device layout: SignalRGB `Size()` and `LedPositions()` per kind.
+/// Device layout: grid size and LED positions per kind.
 fn layout(k: Kind) -> (DeviceKind, u32, u32, Vec<(u8, u8)>) {
     match k {
         Kind::ApexM750Tkl => (DeviceKind::Keyboard, 17, 6, rows(&M750_ROWS)),

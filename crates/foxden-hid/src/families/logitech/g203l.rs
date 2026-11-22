@@ -56,7 +56,7 @@ impl G203L {
         if self.sent.is_none() {
             ack(hid, &software_control(), TIMEOUT)?;
         }
-        // DeviceUpdateLEDs sends the frame twice, OpenRGB's workaround for colour lag
+        // DeviceUpdateLEDs sends the frame twice to work around colour lag
         for _ in 0..2 {
             ack(hid, &frame(colors), TIMEOUT)?;
             ack(hid, &apply(), TIMEOUT)?;
@@ -110,7 +110,7 @@ mod tests {
 
     // LogitechG203LController constructor.
     #[test]
-    fn software_control_matches_openrgb() {
+    fn software_control_bytes() {
         assert_eq!(
             software_control()[..8],
             [0x11, 0xFF, 0x0E, 0x50, 0x01, 0x03, 0x07, 0x00]
@@ -119,7 +119,7 @@ mod tests {
 
     // LogitechG203LController::SetDevice and SendApply.
     #[test]
-    fn frame_matches_openrgb() {
+    fn frame_bytes() {
         let f = frame(&[Color(1, 2, 3), Color(4, 5, 6), Color(7, 8, 9)]);
         assert_eq!(
             f,

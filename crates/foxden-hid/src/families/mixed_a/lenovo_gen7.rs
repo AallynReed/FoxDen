@@ -40,7 +40,7 @@ fn gen10(pid: u16) -> bool {
     pid == GEN10 || pid == L5GEN10
 }
 
-/// Keyboard-only parts have no Direct mode; OpenRGB drives them per LED through Static.
+/// Keyboard-only parts have no Direct mode; they are driven per LED through Static.
 fn keyboard_only(pid: u16) -> bool {
     pid == L5GEN10
 }

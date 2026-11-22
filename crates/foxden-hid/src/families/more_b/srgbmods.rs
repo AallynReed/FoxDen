@@ -8,7 +8,7 @@ use hidapi::HidApi;
 use super::{Driver, Io, any, at, backend, device, open_io, rows};
 use crate::registry::{Detector, Info};
 
-/// LEDs given to each header in place of OpenRGB's user-sized zones, which start at 0.
+/// LEDs given to each header in place of user-sized zones, which start at 0.
 const CHANNEL_LEDS: usize = 60;
 const PER_PACKET: usize = 20;
 

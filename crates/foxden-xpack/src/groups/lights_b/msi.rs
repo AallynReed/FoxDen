@@ -1,5 +1,4 @@
-//! MSI Vigor GK41/GK50/GK71 keyboards and the MSI MAG monitor light (protocol learned from
-//! SignalRGB's MSI_Keyboard_Controller.js and MSI_MAG_Monitor.js).
+//! MSI Vigor GK41/GK50/GK71 keyboards and the MSI MAG monitor light.
 
 use super::layouts::MSI_MAG_POS;
 use super::{KEYBOARD, MONITOR, boxed, det, placed, row};

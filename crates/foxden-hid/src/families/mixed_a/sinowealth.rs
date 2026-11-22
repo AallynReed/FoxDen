@@ -188,7 +188,7 @@ fn open_zet(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>,
     Ok(Hid::boxed("sinowealth zet fury pro", p.data, Zet, dev))
 }
 
-/// Genesis Thor 300 key index of each LED, in OpenRGB order.
+/// Genesis Thor 300 key index of each LED, in LED order.
 #[rustfmt::skip]
 const THOR_KEYS: [u8; 104] = [
     0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0F, 0x10, 0x11, 0x12,

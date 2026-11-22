@@ -37,7 +37,7 @@ impl Io for HidDevice {
     }
 }
 
-/// How long a blocking `hid_read` in OpenRGB may wait here.
+/// How long a blocking `hid_read` may wait.
 pub const BLOCKING_MS: i32 = 1000;
 
 /// Packets that keep the device listening: sent once the last frame is `idle` old, then every `every`.
@@ -210,7 +210,7 @@ pub fn rows(counts: &[usize]) -> (Vec<[f32; 2]>, [u32; 2]) {
 
 pub const NA: u32 = u32::MAX;
 
-/// The LEDs an OpenRGB matrix map names, in LED order, with their cell centres.
+/// The LEDs a matrix map names, in LED order, with their cell centres.
 pub fn mapped(map: &[&[u32]]) -> (Vec<u32>, Vec<[f32; 2]>, [u32; 2]) {
     let h = map.len();
     let w = map.iter().map(|r| r.len()).max().unwrap_or(1);

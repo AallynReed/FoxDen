@@ -1,5 +1,4 @@
-//! Corsair Bragi peripherals: keyboards, mice and their Slipstream dongles (protocol learned from
-//! SignalRGB's Corsair_Bragi_Device.js).
+//! Corsair Bragi peripherals: keyboards, mice and their Slipstream dongles.
 
 use super::bragi_models::{MODELS, Model, PIDS};
 use super::util::due;

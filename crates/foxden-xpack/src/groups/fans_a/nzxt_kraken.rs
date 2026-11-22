@@ -1,5 +1,4 @@
-//! NZXT Kraken X3, Z3, 2023 and Elite V2 pump and fan control (protocol learned from SignalRGB's
-//! Nzxt/Nzxt_Kraken_X3_AIO.js, Nzxt_Kraken_Z3_AIO.js, NZXT_Kraken_Elite.js and NZXT_Kraken_Elite_V2_AIO.js).
+//! NZXT Kraken X3, Z3, 2023 and Elite V2 pump and fan control.
 
 use super::util::{Every, hub_id, iface, latest, le16, open, scan, spun};
 use crate::fan::{Channel, FanHub, backend_on, percent};

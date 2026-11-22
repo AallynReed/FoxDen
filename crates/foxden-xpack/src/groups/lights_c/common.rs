@@ -1,4 +1,4 @@
-//! Shared helpers for the lights_c drivers: device layouts from SignalRGB sizes and positions.
+//! Shared helpers for the lights_c drivers: device layouts from sizes and positions.
 
 use crate::hid::{Driver, Proto, open_io};
 use foxden_core::{Backend, Device, DeviceKind};
@@ -15,7 +15,7 @@ pub fn rect(kind: DeviceKind) -> [f32; 4] {
     }
 }
 
-/// LEDs at SignalRGB `LedPositions` cells of a `Size()` of `w` x `h`, in plugin order.
+/// LEDs at canvas cells of a `w` x `h` grid, in order.
 pub fn positioned(
     id: &str,
     name: &str,

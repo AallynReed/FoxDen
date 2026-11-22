@@ -562,7 +562,7 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
         Generation::G185 => {
             let fw = read_fw(&hid);
             let pid = if info.pid == PID_COMMON {
-                // SignalRGB drives an unlisted common-PID board with the common row
+                // an unlisted common-PID board takes the common row
                 common_pid(&info.serial)
                     .filter(|p| config_185(*p).is_some())
                     .unwrap_or(PID_COMMON)
@@ -679,7 +679,7 @@ const ZONES_SET21: &[u8] = &[
     J_PIPE_2,
     ON_BOARD_LED_0,
 ];
-// SignalRGB MSI_185Byte_Controller.js Library rows that OpenRGB has no set for.
+// 185-byte controller rows with no other set.
 const ZONES_SET22: &[u8] = &[
     J_RGB_1,
     J_RGB_2,
@@ -2004,9 +2004,9 @@ mod tests {
         }
     }
 
-    // MSIMotherboardControllerDetect.cpp lines outside ENABLE_UNTESTED_MYSTIC_LIGHT plus SignalRGB's extra boards; 7D99 left to msi.rs.
+    // Known boards outside the untested Mystic Light set, plus the extra boards; 7D99 left to msi.rs.
     #[test]
-    fn detectors_match_openrgb_list() {
+    fn detector_list() {
         assert_eq!(DETECTORS.len(), 129);
         assert!(DETECTORS.iter().all(|d| d.pid != 0x7D99));
         assert!(DETECTORS.iter().all(|d| d.interface.is_none()));
@@ -2078,7 +2078,7 @@ mod tests {
     fn sync_frame_matches_msi_rs_for_7d99() {
         let cfg = config_185(0x7D99).unwrap();
         let n: usize = cfg.leds().iter().map(|z| z.1).sum();
-        // OpenRGB's 7D99 row has no ONBOARD zone; msi.rs also drives its six reserved slots
+        // The 7D99 row has no ONBOARD zone; msi.rs also drives its six reserved slots
         assert_eq!(n + 6, crate::msi::LED_COUNT);
         let colors: Vec<Color> = (0..n)
             .map(|i| Color(i as u8, 2 * i as u8, 255 - i as u8))
@@ -2214,7 +2214,7 @@ mod tests {
         assert_eq!(p[175..178], [0, 0, 0]);
     }
 
-    // Boards OpenRGB gives no Direct mode.
+    // Boards with no Direct mode.
     #[test]
     fn disabled_boards() {
         assert_eq!(config_185(0x7C59).unwrap().mode, Direct::Disabled);
@@ -2305,9 +2305,9 @@ mod tests {
         assert_eq!(layout(&c.leds()).0.len(), n);
     }
 
-    // MSI_185Byte_Controller.js sendGen1ARGB: onboard first, then RGB headers, then each ARGB header.
+    // Gen1 ARGB packing: onboard first, then RGB headers, then each ARGB header.
     #[test]
-    fn signalrgb_rows_pack_like_the_plugin() {
+    fn extra_rows_pack_gen1_argb() {
         let c = config_185(0x7D05).unwrap();
         assert_eq!(c.leds(), vec![(J_RAINBOW_1, 40), (ON_BOARD_LED_0, 6)]);
         let colors: Vec<Color> = (0..46).map(|i| Color(i as u8 + 1, 0, 0)).collect();

@@ -45,7 +45,7 @@ impl Hid for HidDevice {
     }
 }
 
-/// Writes a report and waits for the device's answer, as OpenRGB does after every write.
+/// Writes a report and waits for the device's answer.
 fn ack(hid: &dyn Hid, report: &[u8], timeout_ms: i32) -> Result<(), String> {
     hid.write(report)?;
     let mut buf = [0u8; 64];
@@ -534,9 +534,9 @@ pub(crate) mod fake {
 mod tests {
     use super::*;
 
-    // REGISTER_HID_DETECTOR* lines of LogitechControllerDetect.cpp that this folder ports.
+    // Known detector ids this folder covers.
     #[test]
-    fn detectors_match_openrgb_lines() {
+    fn detector_lines() {
         let d = detectors();
         assert_eq!(d.len(), 37 + 4);
         let skipped = [0xC539, 0xC547, 0xC08D, 0xC355];
@@ -557,7 +557,7 @@ mod tests {
         assert_eq!(g933.usage, Some(0x0202));
     }
 
-    // LogitechDevicePathKey in LogitechControllerDetect.cpp.
+    // Device path keys.
     #[test]
     fn path_key_joins_collections_of_one_interface() {
         let a = r"\\?\HID#VID_046D&PID_C53A&MI_02&Col01#8&b41415e&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";

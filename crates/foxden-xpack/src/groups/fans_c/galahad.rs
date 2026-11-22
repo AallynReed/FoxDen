@@ -1,4 +1,4 @@
-//! Lian Li Galahad II Trinity and Galahad II LCD AIOs (protocol learned from SignalRGB's Lian_Li_Galahad_II_Trinity.js and Lian_Li_Galahad_II_LCD.js).
+//! Lian Li Galahad II Trinity and Galahad II LCD AIOs.
 
 use crate::fan::{Channel, FanHub, backend_on, percent};
 use crate::hid::{Driver, Io, Proto, drain, on_i, open_io};

@@ -7,13 +7,13 @@ mod asus_aura;
 mod fake;
 mod gigabyte_fusion;
 
-/// A REGISTER_I2C_PCI_DETECTOR line: name, vendor, device, subsystem vendor, subsystem device, address.
+/// A detector row: name, vendor, device, subsystem vendor, subsystem device, address.
 type Entry = (&'static str, u16, u16, u16, u16, u8);
 
 /// Where every graphics card sits on the canvas.
 const RECT: [f32; 4] = [0.06, 0.30, 0.40, 0.05];
 
-/// The four-id comparison DetectionManager::BackgroundDetectI2CPCIDevices makes.
+/// All four PCI ids must match.
 fn matching<'a>(info: &'a BusInfo, table: &'a [Entry]) -> impl Iterator<Item = &'a Entry> {
     table.iter().filter(|&&(_, ven, dev, sub_ven, sub_dev, _)| {
         info.pci_vendor == ven

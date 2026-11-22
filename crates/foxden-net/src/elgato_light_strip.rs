@@ -15,7 +15,7 @@ const ACCESSORY_INFO: &[u8] =
 const BRIGHTNESS: u32 = 100;
 const SETTLE: Duration = Duration::from_millis(150);
 
-/// `SetColor`: hue capped at 360 and the 0..255 saturation capped at 100, as OpenRGB does.
+/// `SetColor`: hue capped at 360 and the 0..255 saturation capped at 100.
 fn request(c: Color) -> Vec<u8> {
     let hsv = rgb2hsv(c);
     let hue = hsv.hue.min(360);

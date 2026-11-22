@@ -1,4 +1,4 @@
-//! ASUS ROG Claymore layouts (protocol learned from SignalRGB's ASUS_ROG_Claymore_I.js and ASUS_ROG_Claymore_II.js).
+//! ASUS ROG Claymore layouts.
 
 pub static C1_RIGHT: &[u8] = &[
     61, 69, 0, 16, 24, 32, 40, 56, 64, 72, 80, 96, 104, 112, 120, 128, 136, 144, 1, 9, 17, 25, 33,

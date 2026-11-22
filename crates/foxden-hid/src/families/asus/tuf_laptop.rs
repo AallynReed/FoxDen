@@ -27,7 +27,7 @@ pub fn wrap(command: u32, args: &[u32]) -> Vec<u8> {
     b
 }
 
-/// setMode in Static with OpenRGB's default speed, not saved.
+/// setMode in Static with the default speed, not saved.
 pub fn set_mode(c: Color) -> Vec<u8> {
     let (r, g, b) = (c.0 as u32, c.1 as u32, c.2 as u32);
     let high = MAGIC_USE | (MODE_STATIC << 8) | (r << 16) | (g << 24);

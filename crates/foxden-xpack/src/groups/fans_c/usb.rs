@@ -1,4 +1,4 @@
-//! Shared WinUSB handles for Lian Li raw-USB and hybrid devices (protocol learned from SignalRGB's Lian Li plugins).
+//! Shared WinUSB handles for Lian Li raw-USB and hybrid devices.
 
 use foxden_core::{Backend, Color, Device};
 use foxden_hid::winusb::{self, WinUsb};

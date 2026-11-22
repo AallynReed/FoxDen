@@ -131,7 +131,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
     Ok(backend(io, dev, driver, "klipsch lumina"))
 }
 
-/// The plain line only claims the other interfaces, so OpenRGB's LampArray driver leaves them.
+/// The plain line only claims the other interfaces, so a LampArray driver leaves them.
 pub(super) static DETECTORS: [Detector; 2] = [
     on_i("Klipsch ProMedia Lumina", VID, PID, VENDOR_IFACE, open),
     any("Klipsch ProMedia Lumina", VID, PID, open),

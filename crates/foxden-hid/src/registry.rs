@@ -67,7 +67,7 @@ fn fnv(bytes: &[u8]) -> u32 {
 /// Opens a matching collection. `api` lets a driver open sibling collections of the same device.
 pub type Open = fn(&HidApi, &Info, &Detector) -> Result<Box<dyn Backend>, String>;
 
-/// One supported device, as an OpenRGB `REGISTER_HID_DETECTOR*` line declares it.
+/// One supported device.
 pub struct Detector {
     pub name: &'static str,
     pub vid: u16,
@@ -91,7 +91,7 @@ impl Detector {
 /// Opens every device a collection reaches. `claimed` holds identities already built this pass.
 pub type OpenAny = fn(&HidApi, &Info, &mut Vec<String>) -> Vec<Box<dyn Backend>>;
 
-/// An OpenRGB detector registered with `HID_PID_ANY`: any product of `vid`, or of any vendor when `vid` is `None`.
+/// A detector for any product of `vid`, or of any vendor when `vid` is `None`.
 pub struct Matcher {
     pub name: &'static str,
     pub vid: Option<u16>,
@@ -112,8 +112,7 @@ impl Matcher {
     }
 }
 
-/// Runs `matchers` over collections the fixed detectors left, the way OpenRGB's DetectionManager
-/// orders them: a vendor-wide matcher before a generic one, and no generic matcher on a vid/pid
+/// Runs `matchers` over collections the fixed detectors left: a vendor-wide matcher before a generic one, and no generic matcher on a vid/pid
 /// any specific detector claims. `skip` filters collections other drivers own.
 pub fn sweep<T>(
     infos: &[Info],
@@ -207,9 +206,9 @@ mod tests {
         open: no_open,
     };
 
-    // DetectionManager::DetectHIDDevices: specific detectors first, generic ones only on unclaimed vid/pid.
+    // Specific detectors first, generic ones only on unclaimed vid/pid.
     #[test]
-    fn sweep_follows_openrgb_order() {
+    fn sweep_order() {
         let infos = [
             info(0x1234, 0x0001, 0x59, 1, Bus::Usb),
             info(0x1234, 0x0002, 0x59, 1, Bus::Usb),

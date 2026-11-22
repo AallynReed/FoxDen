@@ -29,7 +29,7 @@ fn key_image(c: Color) -> Vec<u8> {
     jpeg::solid(KEY_PX, KEY_PX, c.0, c.1, c.2)
 }
 
-/// `ElgatoStreamDeckController::SetBrightness`; OpenRGB defines it but never sends it.
+/// `ElgatoStreamDeckController::SetBrightness`; it is defined but never sent.
 #[allow(dead_code)]
 fn brightness_report(percent: u8) -> [u8; 32] {
     let mut b = [0u8; 32];
@@ -136,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn image_report_cuts_long_images_like_openrgb() {
+    fn image_report_cuts_long_images() {
         let jpeg = vec![0xAB; 1100];
         let b = image_report(0, &jpeg);
         assert_eq!(b.len(), 1024);

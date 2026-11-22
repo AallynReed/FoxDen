@@ -13,7 +13,7 @@ const MODE3_DIRECT: u8 = 0x21;
 const SLOT_BASE: [u8; 4] = [0x11, 0x41, 0x71, 0xA1];
 const SLOT_MAP: [u8; 4] = [0, 2, 1, 3];
 
-/// DetectHyperXDRAMControllers
+/// Detection.
 pub fn detect(
     bus: &SharedBus,
     io: &Io,
@@ -108,7 +108,7 @@ impl Proto for HyperX {
         self.send_apply(io);
     }
 
-    /// DeviceUpdateZoneLEDs
+    /// Zone update.
     fn frame(&mut self, io: &Io, zones: &[Vec<Color>], zone: usize) {
         let slot = self.slot_of(zone);
         for (led, &c) in zones[zone].iter().enumerate() {
@@ -141,7 +141,7 @@ mod tests {
         (take(), found)
     }
 
-    // DetectHyperXDRAMControllers: read_byte 0x27, manufacturer byte 6 per slot, 1 ms apart
+    // Detection: read_byte 0x27, manufacturer byte 6 per slot, 1 ms apart
     #[test]
     fn detection() {
         let (ops, found) = detect_on(&[(0x50, 1), (0x51, 1)]);
@@ -164,7 +164,7 @@ mod tests {
         assert!(found[0].devices()[0].name.starts_with("HyperX DRAM,"));
     }
 
-    // SetMode(Direct), then DeviceUpdateZoneLEDs: SetLEDColor per LED, then SendApply
+    // Direct mode, then the zone update: each LED's colour, then apply
     #[test]
     fn direct_frame_uses_slot_map() {
         let (_, mut found) = detect_on(&[(0x50, 0), (0x51, 0), (0x52, 0)]);

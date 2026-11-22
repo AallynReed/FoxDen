@@ -136,9 +136,9 @@ pub fn probe() -> Vec<Box<dyn Backend>> {
 mod tests {
     use super::*;
 
-    // REGISTER_HID_DETECTOR* lines per Detect.cpp (JGINYUE V2 as registered on Windows)
+    // Known detector ids (JGINYUE V2 as registered on Windows)
     #[test]
-    fn detector_counts_match_openrgb() {
+    fn detector_counts() {
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
         assert_eq!(counts, [4, 2, 1, 1]);
         assert_eq!(detectors().len(), 8);

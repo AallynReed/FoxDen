@@ -80,7 +80,7 @@ fn deflect(on: bool, c: Color) -> Color {
 
 /// DeviceUpdateColors without save: filter, every set and row, then apply.
 pub fn colour_packets(t: &Table, colors: &[Color]) -> Vec<[u8; LEN]> {
-    // the colour filter tints the whole board; it stays at OpenRGB's default white
+    // the colour filter tints the whole board; it stays at the default white
     let filter = Color(0xFF, 0xFF, 0xFF);
     let mut data = vec![Color::BLACK; t.sets * t.rows * t.columns];
     for (i, (&index, &defl)) in t.indices.iter().zip(t.deflections).enumerate() {

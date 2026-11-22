@@ -168,7 +168,7 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // DeviceUpdateLEDs: SetLEDEffect per zone (32-byte block of the slot pair), then Apply.
+    // LED update: effect per zone (32-byte block of the slot pair), then apply.
     #[test]
     fn direct_frame_generic_layout() {
         let h = bus("PawnIO SMBus");

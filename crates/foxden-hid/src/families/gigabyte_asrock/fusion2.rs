@@ -33,7 +33,7 @@ const REPORT_ID: u8 = 0xCC;
 const LEN: usize = 64;
 const EFFECT_STATIC: u8 = 1;
 const BRIGHTNESS_MAX: u8 = 255;
-/// OpenRGB starts addressable headers at 0 LEDs; 32 keeps the same LED-count register value.
+/// Addressable headers report no size; 32 keeps the same LED-count register value.
 const DEFAULT_ARGB_LEDS: u16 = 32;
 
 const LED4: u8 = 3;
@@ -72,7 +72,7 @@ const fn led(n: u8) -> Zone {
     z(n - 1, 1, 1)
 }
 
-/// The generic layouts OpenRGB falls back to when the board name is not in its table.
+/// The generic layouts used when the board name is not in the table.
 const IT8297: [Zone; 8] = [
     z(HDR_D_LED1, 0, 1024),
     z(HDR_D_LED2, 0, 1024),

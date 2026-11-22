@@ -106,7 +106,7 @@ mod tests {
     use rec::*;
 
     #[test]
-    fn layout_matches_openrgb() {
+    fn layout_size() {
         assert_eq!(MATRIX.iter().map(|r| r.len()).sum::<usize>(), 6 * 23);
         let mut seen: Vec<u32> = MATRIX.iter().flat_map(|r| r.iter().copied()).collect();
         seen.retain(|&v| v != NA);

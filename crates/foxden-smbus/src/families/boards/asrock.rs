@@ -93,7 +93,7 @@ fn zone_sizes(ctx: &Ctx) -> [u8; 6] {
     }
 }
 
-/// The LED list each RGBController's SetupZones builds.
+/// The LED list each board's zones build.
 fn selects(kind: Kind, sizes: [u8; 6]) -> Vec<u8> {
     match kind {
         Kind::Asr => vec![0],
@@ -120,7 +120,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_with(&Ctx::real(bus), &dmi::read())
 }
 
-/// DetectASRockSMBusControllers.
+/// Finds ASRock controllers.
 fn detect_with(ctx: &Ctx, dmi: &dmi::Dmi) -> Vec<Box<dyn Backend>> {
     let info = ctx.info();
     if !mobo_bus(&info) || info.pci_subsystem_vendor != ASROCK_SUB_VEN {
@@ -193,7 +193,7 @@ mod tests {
         b.push(&id, colors).unwrap();
     }
 
-    // DetectASRockSMBusControllers + ASRockASRRGB: SetMode(Static) then SetColorsAndSpeed.
+    // Detection, then static mode and colours with speed.
     #[test]
     fn asr_rgb() {
         let (h, mut found) = board([1, 4], None);

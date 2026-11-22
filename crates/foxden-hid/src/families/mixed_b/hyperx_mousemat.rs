@@ -10,8 +10,8 @@ use crate::registry::{Detector, Info};
 
 const FURY_A_XL: u16 = 0x1741;
 
-/// `HyperXMousematController::SendDirect`: a setup report, then two of 16 colours. OpenRGB reads
-/// 32 colours from a 20- or 2-LED buffer; the missing ones go out black here.
+/// `HyperXMousematController::SendDirect`: a setup report, then two of 16 colours. Of the
+/// 32 colours, those past the 20 or 2 LEDs go out black.
 fn direct(colors: &[Color]) -> [Vec<u8>; 3] {
     let mut setup = vec![0u8; 65];
     setup[1] = 0x04;

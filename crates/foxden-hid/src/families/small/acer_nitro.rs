@@ -28,7 +28,7 @@ pub fn zone_report(device: u8, zone: usize, c: Color) -> [u8; 11] {
     ]
 }
 
-/// The keyboard's four zones then the lid LED, which OpenRGB lists as a second device.
+/// The keyboard's four zones then the lid LED.
 struct AcerNitro;
 
 impl Proto for AcerNitro {

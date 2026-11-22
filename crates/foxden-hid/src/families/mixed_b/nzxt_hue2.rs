@@ -174,7 +174,7 @@ fn open6(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, St
     open(api, info, d, 6)
 }
 
-/// NZXT_Motherboard.js ChannelLibrary: NZXT accessory headers, then ARGB headers.
+/// Channel layout: NZXT accessory headers, then ARGB headers.
 fn open_n2a1(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     open_board(api, info, d, 2, 1)
 }

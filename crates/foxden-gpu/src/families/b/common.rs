@@ -6,7 +6,7 @@ use std::time::Duration;
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_smbus::i2c::{BusInfo, SharedBus, lock};
 
-/// One REGISTER_I2C_PCI_DETECTOR line.
+/// One detector row.
 pub struct Card {
     pub name: &'static str,
     pub ven: u16,
@@ -76,7 +76,7 @@ pub fn sleep(d: Duration) {
     std::thread::sleep(d);
 }
 
-/// Bus calls shaped like OpenRGB's: one lock per transaction, reads give -1 on error, writes
+/// Bus calls: one lock per transaction, reads give -1 on error, writes
 /// never stop the sequence and the first error is kept for the caller.
 pub struct Io<'a> {
     bus: &'a SharedBus,
@@ -158,11 +158,10 @@ pub fn c_string(buf: &[u8]) -> String {
     String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
-/// The protocol half of a device: OpenRGB's DeviceUpdateMode for the direct mode, and
-/// DeviceUpdateLEDs.
+/// The protocol half of a device: entering direct mode, and pushing colours.
 pub trait Driver: Send {
     fn setup(&mut self, io: &Io, colors: &[Color]);
-    /// Whether `setup` already writes the LEDs, as when DeviceUpdateMode calls DeviceUpdateLEDs.
+    /// Whether `setup` already writes the LEDs.
     fn setup_writes_leds(&self) -> bool {
         false
     }

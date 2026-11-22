@@ -1,4 +1,4 @@
-//! EVision-based keyboards (VGN, Redragon, Kreo, WOBKEY, EvoFox, M4G) (protocol learned from SignalRGB's EVision_Keyboard_Controller.js).
+//! EVision-based keyboards (VGN, Redragon, Kreo, WOBKEY, EvoFox, M4G).
 
 use super::super::common::{KEYBOARD_RECT, keyed};
 use super::layouts::EVISION;

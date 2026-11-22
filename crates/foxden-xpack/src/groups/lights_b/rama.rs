@@ -1,4 +1,4 @@
-//! Rama Works M65-B keyboard (protocol learned from SignalRGB's Rama_M65B.js).
+//! Rama Works M65-B keyboard.
 
 use super::layouts::RAMA_POS;
 use super::{KEYBOARD, boxed, det, placed};

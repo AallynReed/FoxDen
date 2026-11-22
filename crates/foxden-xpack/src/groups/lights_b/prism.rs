@@ -1,5 +1,4 @@
-//! PrismRGB Prism Mini (one ARGB channel) and Prism S (ATX and triple 8-pin GPU strimers)
-//! (protocol learned from SignalRGB's PrismRGB/Prism_Mini.js and PrismRGB/Prism_S.js).
+//! PrismRGB Prism Mini (one ARGB channel) and Prism S (ATX and triple 8-pin GPU strimers).
 
 use super::layouts::{PRISM_ATX_POS, PRISM_GPU3_POS};
 use super::{STRIP, boxed, det, placed, row};
@@ -16,7 +15,7 @@ pub static DETECTORS: &[Detector] = &[
     det("Prism S", VID, 0x1294, Some(2), None, None, open_s),
 ];
 
-/// SignalRGB sizes the channel from its components; FoxDen drives a fixed 60.
+/// A fixed 60 LEDs per channel.
 const MINI_LEDS: usize = 60;
 const MINI_PER_PACKET: usize = 20;
 /// Low Power Saver (on by default): an LED whose R+G+B exceeds this is scaled down to it.

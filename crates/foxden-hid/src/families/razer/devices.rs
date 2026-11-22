@@ -6,7 +6,7 @@ use foxden_core::DeviceKind;
 
 pub const VID: u16 = 0x1532;
 
-/// OpenRGB's `razer_device_list`, in order.
+/// The Razer device list, in order.
 pub static MODELS: [Model; 251] = [
     Model {
         name: "Razer BlackWidow 2019",
@@ -2219,7 +2219,7 @@ pub static MODELS: [Model; 251] = [
         cols: 70,
         zones: &[(1, 16), (1, 18), (1, 18), (1, 18)],
     },
-    // Added from SignalRGB's Razer plugins.
+    // Extra models.
     Model {
         name: "Razer Blackwidow V4 Low-profile",
         pid: 0x02CC,
@@ -4601,7 +4601,7 @@ pub static DETECTORS: [Detector; 253] = [
         usage: Some(0x0003),
         open: chroma::open,
     },
-    // Added from SignalRGB's Razer plugins.
+    // Extra detectors.
     Detector {
         name: "Razer Blackwidow V4 Low-profile",
         vid: VID,

@@ -36,7 +36,7 @@ const MATRIX_TKL: [[u8; 20]; 7] = [
     [81, 84, 83, NA, NA, NA, NA, 40, NA, NA, NA, NA, 87, 88, 80, 85, NA, 76, 77, 75],
 ];
 
-/// (zone, index) of each LED in OpenRGB's led_names order; a TKL takes the first 95.
+/// (zone, index) of each LED in led_names order; a TKL takes the first 95.
 fn leds(tkl: bool) -> Vec<(u8, u8)> {
     let mut v: Vec<_> = keys::usages(0x04, 0x52).collect();
     v.extend(keys::usages(0x64, 0x65));
@@ -239,9 +239,9 @@ mod tests {
         f.iter().map(|r| r.to_vec()).collect()
     }
 
-    // InitializeDirect, SendSingleLed and SendCommit in LogitechG915Controller.cpp, receiver indices.
+    // Direct setup, single-LED and commit reports, receiver indices.
     #[test]
-    fn direct_setup_matches_openrgb_receiver() {
+    fn direct_setup_receiver() {
         assert_eq!(
             v(direct_setup(indices(false))),
             vec![
@@ -257,7 +257,7 @@ mod tests {
 
     // Same sequence on a cable: LogitechG915Controller's wired constructor branch.
     #[test]
-    fn direct_setup_matches_openrgb_wired() {
+    fn direct_setup_wired() {
         let s = v(direct_setup(indices(true)));
         assert_eq!(s[0], hex("11 FF 0E 3E"));
         assert_eq!(
@@ -270,7 +270,7 @@ mod tests {
 
     // RGBController_LogitechG915::DeviceUpdateLEDs with populate_big/little_frame_data.
     #[test]
-    fn frames_match_openrgb_packing() {
+    fn frame_packing() {
         let red = Color(0xFF, 0, 0);
         let blue = Color(0, 0, 0xFF);
         let codes: Vec<u8> = (1..=17).collect();

@@ -1,5 +1,4 @@
-//! Corsair Commander Pro and Obsidian 1000D fan and probe side (protocol learned from SignalRGB's
-//! Corsair_Lighting_Commander_Pro.js).
+//! Corsair Commander Pro and Obsidian 1000D fan and probe side.
 
 use super::util::{Cached, ask, device_key, due, fan_id, u16be};
 use crate::fan::{Channel, FanHub, backend_on, percent};

@@ -1,4 +1,4 @@
-//! SignalRGB plugin ports, group lights_a (A4Tech through Gigabyte, ASUS peripherals and monitors).
+//! Group lights_a (A4Tech through Gigabyte, ASUS peripherals and monitors).
 
 mod asus_kb;
 mod asus_monitor;

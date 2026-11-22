@@ -46,7 +46,7 @@ struct Blackwell {
 }
 
 impl Blackwell {
-    // DeviceUpdateZoneLEDs for Static: SetMode then Commit.
+    // Static zone update: mode then commit.
     fn zone(&self, io: &Io, zone: usize, c: Color) {
         let regs = [
             0x00,
@@ -109,7 +109,7 @@ mod tests {
         log
     }
 
-    // DetectZotacBlackwellGPUControllersPCI: a byte read of 0x10, zones from the PCI ids.
+    // Probe: a byte read of 0x10, zones from the PCI ids.
     #[test]
     fn detect_probe() {
         let bus = Fake::new("NV", ids(ZOTAC_BLACKWELL, CARD))
@@ -122,7 +122,7 @@ mod tests {
         assert!(run(&[super::detect], &absent).is_empty());
     }
 
-    // RGBController_ZotacBlackwellGPU::DeviceUpdateMode in Static, then one changed zone.
+    // Static mode, then one changed zone.
     #[test]
     fn direct_and_frame() {
         let bus = Fake::new("NV", ids(ZOTAC_BLACKWELL, CARD))

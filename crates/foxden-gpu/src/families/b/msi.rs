@@ -21,7 +21,7 @@ const BRIGHTNESS_MAX: u8 = 5;
 const BRIGHTNESS_MULTI: u8 = 20;
 
 const V1_REG_UNKNOWN: u8 = 0x26;
-/// RGBController_MSIGPU's mode values, Direct first.
+/// Mode values, Direct first.
 const V1_MODES: [u8; 20] = [
     0x13, 0x08, 0x1A, 0x07, 0x05, 0x06, 0x15, 0x1F, 0x16, 0x0D, 0x0B, 0x09, 0x0F, 0x11, 0x1D, 0x14,
     0x04, 0x02, 0x03, 0x01,
@@ -68,14 +68,14 @@ struct V1 {
 }
 
 impl Driver for V1 {
-    // RGBController_MSIGPU::DeviceUpdateMode
+    // Mode change
     fn setup(&mut self, io: &Io, _colors: &[Color]) {
         let value = self.brightness.wrapping_mul(BRIGHTNESS_MULTI);
         io.write(self.addr, REG_BRIGHTNESS, value);
         io.write(self.addr, REG_MODE, MODE_STATIC);
     }
 
-    // RGBController_MSIGPU::DeviceUpdateLEDs: Direct writes colour 1 only
+    // LED update: Direct writes colour 1 only
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         let Color(r, g, b) = colors[0];
         io.write(self.addr, V1_REG_UNKNOWN, 0x00);
@@ -97,7 +97,7 @@ struct V2 {
 }
 
 impl V2 {
-    // MSIGPUv2Controller::MSIGPURegisterWrite
+    // Register write
     fn write(&self, io: &Io, reg: u8, value: u8) {
         io.write(self.addr, reg, value);
         sleep(V2_DELAY);
@@ -107,7 +107,7 @@ impl V2 {
 impl Driver for V2 {
     fn setup(&mut self, _io: &Io, _colors: &[Color]) {}
 
-    // RGBController_MSIGPUv2::DeviceUpdateAll for Direct, used for mode and LED updates alike
+    // v2 update for Direct, used for mode and LED updates alike
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         let Color(r, g, b) = colors[0];
         self.write(io, V2_REG_UNKNOWN, 0x00);
@@ -127,7 +127,7 @@ mod tests {
 
     const V1_CARD: &str = "MSI GeForce GTX 1070 Gaming X";
 
-    // RGBController_MSIGPU constructor reads, then Direct: brightness and mode, then colour 1.
+    // Setup reads, then Direct: brightness and mode, then colour 1.
     #[test]
     fn v1_direct() {
         let bus = Fake::new("NV", ids(MSI_V1, V1_CARD))
@@ -170,7 +170,7 @@ mod tests {
         assert_eq!(push(&mut b, &[Color(1, 2, 3)])[0], "wr 68 36 64");
     }
 
-    // RGBController_MSIGPUv2::DeviceUpdateAll, MSI_GPU_V2_MODE_STATIC, 20 ms after every write.
+    // v2 update, static mode, 20 ms after every write.
     #[test]
     fn v2_direct() {
         let card = MSI_V2[0].name;

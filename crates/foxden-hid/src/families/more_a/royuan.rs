@@ -328,7 +328,7 @@ pub static DETECTORS: [Detector; 6] = [
         open_akko,
     ),
     det("Skyloong GK68HE Pro", VID, 0x5029, 2, ANY, ANY, open_gk68he),
-    // SignalRGB enters Direct exactly as the GK68HE does (SET_LEDPARAM 0x15, then 0x0E colours).
+    // Enters Direct exactly as the GK68HE does (SET_LEDPARAM 0x15, then 0x0E colours).
     det("Royuan Keyboard", VID, 0x4002, 0, ANY, ANY, open_gk68he),
     det(
         "Epomaker TH80 Pro (USB Cable)",

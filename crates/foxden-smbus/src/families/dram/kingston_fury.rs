@@ -25,7 +25,7 @@ const REG_BASE_BLUE: u8 = 0x52;
 const BEGIN: u8 = 0x53;
 const END: u8 = 0x44;
 const MODE_DIRECT: u8 = 0x10;
-/// The Direct mode's default brightness in RGBController_KingstonFuryDRAM.
+/// The Direct mode's default brightness.
 const BRIGHTNESS: u8 = 80;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -53,7 +53,7 @@ fn ddr5_spd_model(variant: u8, model: u8) -> bool {
     }
 }
 
-/// TestForFurySignature
+/// Signature check.
 fn signature(io: &Io, addr: u8, model_ok: fn(u8) -> bool, spd_identified: bool) -> Test {
     if io.write_byte_data(addr, REG_APPLY, BEGIN) < 0 {
         return Test::Error;
@@ -96,7 +96,7 @@ fn signature(io: &Io, addr: u8, model_ok: fn(u8) -> bool, spd_identified: bool) 
     result
 }
 
-/// DetectKingstonFuryDRAMControllers: slot indices that answer as Fury modules.
+/// Detection: slot indices that answer as Fury modules.
 fn find(io: &Io, slots: &mut [&mut Slot], base: u8, model_ok: fn(u8) -> bool) -> Vec<u8> {
     let mut fury = Vec::new();
     for slot in slots.iter_mut() {
@@ -166,7 +166,7 @@ pub fn detect_ddr5(
     backend(bus, name, BASE_DDR5, found)
 }
 
-/// KingstonFuryDRAMController with its per-slot register cache.
+/// The controller with its per-slot register cache.
 pub struct Fury {
     base: u8,
     slots: Vec<u8>,
@@ -297,7 +297,7 @@ impl Fury {
         }
     }
 
-    /// RGBController_KingstonFuryDRAM::DeviceUpdateLEDs in Direct mode.
+    /// LED update in Direct mode.
     fn update_leds(&mut self, io: &Io, zones: &[Vec<Color>]) {
         self.send_begin(io);
         self.set_all(io, REG_MODE, MODE_DIRECT);
@@ -311,7 +311,7 @@ impl Fury {
 impl Proto for Fury {
     const START_SENDS_FRAME: bool = true;
 
-    /// DeviceUpdateMode: preamble only when the stick is not already in Direct.
+    /// Mode change: preamble only when the stick is not already in Direct.
     fn start(&mut self, io: &Io, zones: &[Vec<Color>]) {
         let mode = self.cached_read(io, 0, REG_MODE).unwrap_or(0);
         if mode != MODE_DIRECT {
@@ -380,7 +380,7 @@ mod tests {
         assert_eq!(found[0].devices()[1].leds.len(), 10);
     }
 
-    // TestForFurySignature: an unknown model code fails without retry
+    // Signature check: an unknown model code fails without retry
     #[test]
     fn unknown_model_fails() {
         let mut sim = Sim::default();
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(take(), signature_ops(0x58, true));
     }
 
-    // TestForFurySignature: 0xFFFF is retried three times, then the whole test is retried
+    // Signature check: 0xFFFF is retried three times, then the whole test is retried
     #[test]
     fn ffff_is_retried() {
         let mut sim = Sim::default();
@@ -472,7 +472,7 @@ mod tests {
         ops
     }
 
-    // DeviceUpdateMode(Direct): GetMode, SendPreamble, then DeviceUpdateLEDs; later frames are cached
+    // Direct mode: mode read, preamble, then the LEDs; later frames are cached
     #[test]
     fn direct_setup_and_frames() {
         let (_, mut found) = two_ddr4();

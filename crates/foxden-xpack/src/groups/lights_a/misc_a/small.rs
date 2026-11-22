@@ -1,4 +1,4 @@
-//! A4Tech, Attack Shark, Dark Project, Drevo, Gigabyte Aorus AIO and ASRock monitor (protocol learned from SignalRGB's A4Tech_Controller.js, Attack_Shark_X68_Pro_HE_Keyboard.js, DarkProject ALU87A.js, DREVO_BladeMaster_TE_88K.js, Aorus_Liquid_Cooler_360.js and Asrock_Monitor_Controller.js).
+//! A4Tech, Attack Shark, Dark Project, Drevo, Gigabyte Aorus AIO and ASRock monitor.
 
 use super::super::common::{KEYBOARD_RECT, MOUSE_RECT, SMALL_RECT, full, keyed, placed};
 use super::layouts::*;

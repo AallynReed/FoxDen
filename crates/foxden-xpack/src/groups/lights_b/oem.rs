@@ -1,5 +1,4 @@
-//! OEM wireless keyboard 3554:FA09 (protocol learned from SignalRGB's
-//! OEM_Keyboard_Wireless_Controller.js).
+//! OEM wireless keyboard 3554:FA09.
 
 use super::{KEYBOARD, boxed, det, row};
 use crate::hid::{Io, Proto};

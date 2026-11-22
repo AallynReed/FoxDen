@@ -55,7 +55,7 @@ impl Proto for Kp7 {
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
         frame_pages(colors).iter().try_for_each(|p| io.write(p))
     }
-    // OpenRGB's keepalive thread resends the last frame every 50ms
+    // the keepalive resends the last frame every 50ms
     fn keepalive_ms(&self) -> Option<u64> {
         Some(KEEPALIVE_MS)
     }

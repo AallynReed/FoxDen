@@ -6,7 +6,7 @@ use foxden_core::{Backend, Color, DeviceKind};
 use hidapi::HidApi;
 
 const FAMILY: &str = "asus-monitor";
-/// OpenRGB blocks on hid_read for the LED count; this bounds the wait.
+/// The LED count reply is awaited; this bounds the wait.
 const REPLY_MS: i32 = 1000;
 
 fn packet(head: &[u8]) -> [u8; 65] {

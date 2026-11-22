@@ -1,4 +1,4 @@
-//! Antec Vortex View 360 AIO (protocol learned from SignalRGB's Antec_Vortex_View_360.js).
+//! Antec Vortex View 360 AIO.
 
 use super::super::common::{SMALL_RECT, keyed};
 use crate::fan::{Channel, FanHub, backend};

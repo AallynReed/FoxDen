@@ -1,5 +1,4 @@
-//! LANQ PCDOCK monitor stand ARGB over USB serial (protocol learned from SignalRGB's
-//! PCDOCK_Monitor_Stand.js).
+//! LANQ PCDOCK monitor stand ARGB over USB serial.
 
 use super::link::open_serial;
 use crate::hid::{Driver, Io, Proto, rgb};

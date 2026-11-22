@@ -1,5 +1,4 @@
-//! Device support learned from SignalRGB's plugins: lighting and USB fan control for hardware the
-//! OpenRGB ports don't cover.
+//! Lighting and USB fan control for hardware foxden-hid doesn't cover.
 
 pub mod fan;
 mod groups;
@@ -104,7 +103,7 @@ pub fn fan_backends() -> Vec<Box<dyn FanBackend>> {
 #[cfg(test)]
 mod tests {
     /// Keychron boards on SignalRGB's QMK firmware; stock firmware fails the handshake and falls
-    /// through to the OpenRGB Keychron matcher.
+    /// through to foxden-hid's Keychron matcher.
     const FIRMWARE_GATED: [u16; 1] = [0x3434];
 
     #[test]
@@ -114,7 +113,7 @@ mod tests {
         for a in &ours {
             assert!(
                 !fox.iter().any(|b| (a.vid, a.pid) == (b.vid, b.pid)),
-                "{} {:04x}:{:04x} is an OpenRGB port's",
+                "{} {:04x}:{:04x} is foxden-hid's",
                 a.name,
                 a.vid,
                 a.pid
@@ -143,7 +142,7 @@ mod tests {
         for (v, p, n) in super::other_devices() {
             assert!(
                 !fox_other.iter().any(|f| (f.0, f.1) == (v, p)),
-                "{n} is an OpenRGB port's"
+                "{n} is foxden-hid's"
             );
             assert!(!seen.contains(&(v, p)), "{n} twice");
             seen.push((v, p));
@@ -153,9 +152,9 @@ mod tests {
     /// Uni Hub SL and AL: HID lighting while on the HID driver, the same reports over WinUSB after.
     const HID_OR_WINUSB: [(u16, u16); 2] = [(0x0CF2, 0xA100), (0x0CF2, 0xA101)];
 
-    // Where an OpenRGB port lights a cooler or hub, this crate adds only its fans.
+    // Where foxden-hid lights a cooler or hub, this crate adds only its fans.
     #[test]
-    fn fan_hubs_leave_lighting_to_the_openrgb_ports() {
+    fn fan_hubs_leave_lighting_to_foxden_hid() {
         let fox = foxden_hid::detectors();
         let fox_other = foxden_hid::other_devices();
         let ours = super::detectors();
@@ -165,7 +164,7 @@ mod tests {
             let id = (v, p);
             assert!(
                 !fox_other.iter().any(|f| (f.0, f.1) == id),
-                "{n} is an OpenRGB port's"
+                "{n} is foxden-hid's"
             );
             assert!(!fans.contains(&id), "fan hub {n} twice");
             fans.push(id);

@@ -1,4 +1,4 @@
-//! WLED, LeetDesk and SRGBmods Wifi LC (protocol learned from SignalRGB's WLED.js, leetdesk.js and SRGBmods-WLC.js).
+//! WLED, LeetDesk and SRGBmods Wifi LC.
 
 use super::net::{self, Hit};
 use foxden_core::{Backend, Color, Device, DeviceKind};

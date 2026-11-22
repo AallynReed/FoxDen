@@ -1,4 +1,4 @@
-//! LG UltraGear 38GL950G monitor (protocol learned from SignalRGB's LG_UltraGear_38GL950G.js).
+//! LG UltraGear 38GL950G monitor.
 
 use super::layouts::LG38_POS;
 use super::{MONITOR, boxed, det, placed};

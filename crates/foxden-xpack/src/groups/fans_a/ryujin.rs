@@ -1,4 +1,4 @@
-//! ASUS ROG Ryujin AIO fans and pumps (protocol learned from SignalRGB's Asus/ASUS_Ryujin_AIO_Controller.js).
+//! ASUS ROG Ryujin AIO fans and pumps.
 
 use super::util::{Every, hub_id, iface, le16, open, scan, spun};
 use crate::fan::{Channel, FanHub, backend_on, byte, percent};

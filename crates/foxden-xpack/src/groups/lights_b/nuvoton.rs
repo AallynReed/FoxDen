@@ -1,5 +1,4 @@
-//! Nuvoton keyboards (Drevo Tyrfing v2) (protocol learned from SignalRGB's
-//! Nuvoton_Keyboard2_Controller.js).
+//! Nuvoton keyboards (Drevo Tyrfing v2).
 
 use super::layouts::{NUVO_FULL_MAP, NUVO_FULL_POS, NUVO_TKL_MAP, NUVO_TKL_POS};
 use super::{KEYBOARD, det, placed};

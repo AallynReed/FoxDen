@@ -1,4 +1,4 @@
-//! Twinkly lights (protocol learned from SignalRGB's Twinkly.js).
+//! Twinkly lights.
 
 use super::net;
 use foxden_core::{Backend, Color, Device, DeviceKind};
@@ -21,7 +21,7 @@ const RESEND: Duration = Duration::from_millis(1000);
 const HTTP_TIMEOUT: Duration = Duration::from_millis(400);
 const SQUARES_SKU: &str = "TWQ064STW";
 
-/// Twinkly Squares 8x8 panel, from SignalRGB's Components folder (row-major).
+/// Twinkly Squares 8x8 panel (row-major).
 pub fn squares_8x8() -> Vec<[f32; 2]> {
     (0..64)
         .map(|i| [((i % 8) as f32 + 0.5) / 8.0, ((i / 8) as f32 + 0.5) / 8.0])

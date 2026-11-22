@@ -1,5 +1,4 @@
-//! NZXT Function keyboards: ten lighting zones (protocol learned from SignalRGB's
-//! Nzxt/Peripheral Protocol/NZXT_Function_Keyboard.js).
+//! NZXT Function keyboards: ten lighting zones.
 
 use super::layouts::NZXT_FULL_POS;
 use super::{KEYBOARD, boxed, det, placed};

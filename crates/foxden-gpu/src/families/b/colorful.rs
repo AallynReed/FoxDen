@@ -9,7 +9,7 @@ use super::common::{Driver, Gpu, Io, detect_each, device_id, info, row};
 const PACKET_V2: usize = 122;
 const VULCAN_OCV: u16 = 0x1200;
 const NEPTUNE_OCV: u16 = 0x1301;
-/// SignalRGB's Colorful_Ampere_GPU.js: these Vulcan cards take the short packet with model 01 04.
+/// These Vulcan cards take the short packet with model 01 04.
 const VULCAN_SHORT: [u16; 2] = [0x120B, 0x1201];
 
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
@@ -58,7 +58,7 @@ fn summed(mut pkt: Vec<u8>) -> Vec<u8> {
 impl Driver for Colorful {
     fn setup(&mut self, _io: &Io, _colors: &[Color]) {}
 
-    // ColorfulGPUController::SetDirect
+    // Direct colours
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         let Color(r, g, b) = colors[0];
         let pkt = if self.v2 {
@@ -84,7 +84,7 @@ mod tests {
     const CARD: &str = "iGame GeForce RTX 3070 Advanced OC-V";
     const HELLO: &[u8] = &[0xAA, 0xEF, 0x81, 0x03];
 
-    // TestForColorfulGPU: the handshake write, then a 64-byte read that must echo AA EF 81.
+    // Probe: the handshake write, then a 64-byte read that must echo AA EF 81.
     #[test]
     fn detect_handshake() {
         let bus = Fake::new("NV", ids(COLORFUL, CARD))
@@ -98,7 +98,7 @@ mod tests {
         assert!(run(&[super::detect], &wrong).is_empty());
     }
 
-    // ColorfulGPUController::SetDirect, the 11-byte packet: 0x030E is the sum of the first nine.
+    // Direct colours, the 11-byte packet: 0x030E is the sum of the first nine.
     #[test]
     fn direct_v1() {
         let bus = Fake::new("NV", ids(COLORFUL, CARD))
@@ -111,7 +111,7 @@ mod tests {
         );
     }
 
-    // ColorfulGPUController::SetDirect, the 122-byte packet for the 4070 Vulcan and 4090 Neptune.
+    // Direct colours, the 122-byte packet for the 4070 Vulcan and 4090 Neptune.
     #[test]
     fn direct_v2() {
         let card = "iGame GeForce RTX 4090 Neptune OC-V";

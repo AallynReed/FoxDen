@@ -1,4 +1,4 @@
-//! SpeedLink ORIOS mouse, mousepad and keyboard (protocol learned from SignalRGB's Speedlink_ORIOS_RGB_*.js).
+//! SpeedLink ORIOS mouse, mousepad and keyboard.
 
 use super::common::{open_with, positioned};
 use crate::hid::{Io, Proto, rgb};

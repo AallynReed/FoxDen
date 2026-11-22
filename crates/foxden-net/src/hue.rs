@@ -290,7 +290,7 @@ struct HueLight {
 impl Driver for HueLight {
     fn send(&mut self, colors: &[Color]) -> Result<(), String> {
         let c = colors.first().copied().unwrap_or_default();
-        // PhilipsHueController::SetColor: black goes out once.
+        // Black goes out once.
         let black = c == Color::BLACK;
         if black && self.dark {
             return Ok(());

@@ -198,7 +198,7 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
     build(api, info, d, info.pid, FAMILY)
 }
 
-/// OpenRGB registers the Spatha X dock on the same collection as the 2.4GHz mouse.
+/// The Spatha X dock shares its collection with the 2.4GHz mouse.
 fn spatha_x(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     let mouse = build(api, info, d, info.pid, FAMILY)?;
     let dock = build(api, info, &DOCK_DETECTOR, DOCK, DOCK_FAMILY)?;

@@ -111,7 +111,7 @@ fn kind(pid: u16) -> Kind {
     }
 }
 
-/// protocol_map in SteelSeriesApexController.cpp.
+/// Protocol generation by PID.
 fn base_gen(pid: u16) -> Gen {
     match pid {
         APEX_9_TKL | APEX_9_MINI | APEX_PRO_TKL_2023 => Gen::Gen2,
@@ -353,7 +353,7 @@ fn padded(len: usize, head: &[u8]) -> Vec<u8> {
     v
 }
 
-/// ANSI keymap with the TKL or Mini patch OpenRGB applies for these boards' SKUs.
+/// ANSI keymap with the TKL or Mini patch for these boards' SKUs.
 fn apex_layout(pid: u16) -> (Vec<[f32; 2]>, [u32; 2]) {
     let mut map = ANSI;
     let patch: &[(usize, usize, u8)] = match pid {
@@ -518,7 +518,7 @@ mod tests {
         }
     }
 
-    // SteelSeriesControllerDetect.cpp keyboard lines plus SignalRGB's Apex 5, Pro Mini Gen 3 and Pro Mini Wireless.
+    // Known keyboard ids plus the Apex 5, Pro Mini Gen 3 and Pro Mini Wireless.
     #[test]
     fn detectors() {
         assert_eq!(DETECTORS.len(), 22);

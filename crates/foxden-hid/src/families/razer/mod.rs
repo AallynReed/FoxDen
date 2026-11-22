@@ -69,7 +69,7 @@ fn rect(kind: DeviceKind) -> [f32; 4] {
     }
 }
 
-/// Zones stacked top to bottom, each row of a zone a line across the device, LEDs in OpenRGB's order.
+/// Zones stacked top to bottom, each row of a zone a line across the device, LEDs in order.
 pub fn stacked(id: String, name: String, kind: DeviceKind, zones: &[(u8, u8)]) -> Device {
     let total: usize = zones.iter().map(|&(r, _)| r as usize).sum::<usize>().max(1);
     let widest = zones
@@ -113,8 +113,8 @@ mod tests {
         detectors().into_iter().filter(|d| d.name == name).collect()
     }
 
-    // REGISTER_HID_DETECTOR* lines in RazerControllerDetect.cpp, minus three commented out and the non-Windows Nommo pair,
-    // plus 19 ids from SignalRGB's Razer plugins.
+    // Known detector ids, minus three disabled and the non-Windows Nommo pair,
+    // plus 19 extra ids.
     #[test]
     fn one_detector_per_registered_line() {
         assert_eq!(detectors().len(), 253);

@@ -7,7 +7,7 @@ pub enum Op {
     InsertRow,
 }
 
-/// One key edit as OpenRGB's `keyboard_led` gives it; an empty name is KEY_EN_UNUSED.
+/// One key edit as a `keyboard_led` gives it; an empty name is KEY_EN_UNUSED.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
     pub row: u8,

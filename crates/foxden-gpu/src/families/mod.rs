@@ -18,10 +18,10 @@ pub fn all() -> Vec<Detect> {
 mod tests {
     use std::collections::HashMap;
 
-    /// Cards OpenRGB itself registers with two drivers, each probing its own address.
-    const OPENRGB_TWICE: [[u16; 4]; 1] = [[0x10DE, 0x2489, 0x1458, 0x405A]];
-    /// OpenRGB lists these Blackwell and RX 9000 cards under both Fusion 2 drivers.
-    const OPENRGB_PAIR: [&str; 2] = ["gigabyte_fusion2", "gigabyte_blackwell"];
+    /// Cards registered with two drivers, each probing its own address.
+    const TWO_DRIVERS: [[u16; 4]; 1] = [[0x10DE, 0x2489, 0x1458, 0x405A]];
+    /// Blackwell and RX 9000 cards listed under both Fusion 2 drivers.
+    const FUSION2_PAIR: [&str; 2] = ["gigabyte_fusion2", "gigabyte_blackwell"];
 
     // A card may sit at several addresses within one driver, but only one driver lists it.
     #[test]
@@ -38,8 +38,8 @@ mod tests {
             match owner.insert(ids, family) {
                 Some(other)
                     if other != family
-                        && !OPENRGB_TWICE.contains(&ids)
-                        && !(OPENRGB_PAIR.contains(&other) && OPENRGB_PAIR.contains(&family)) =>
+                        && !TWO_DRIVERS.contains(&ids)
+                        && !(FUSION2_PAIR.contains(&other) && FUSION2_PAIR.contains(&family)) =>
                 {
                     clashes.push(format!("{ids:04x?} {other} / {family}"))
                 }

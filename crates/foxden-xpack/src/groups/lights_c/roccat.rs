@@ -1,4 +1,4 @@
-//! Roccat and Turtle Beach peripherals (protocol learned from SignalRGB's Roccat/*.js and Turtle Beach/*.js plugins).
+//! Roccat and Turtle Beach peripherals.
 
 use super::common::{line, open_with, positioned};
 use crate::hid::{Io, Proto, open_sibling, rgb};

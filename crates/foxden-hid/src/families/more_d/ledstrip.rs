@@ -17,7 +17,7 @@ pub enum LedProtocol {
 }
 
 impl LedProtocol {
-    /// The names OpenRGB's `LEDStripDevices` settings use; `basic_i2c` is not supported.
+    /// The names the `LEDStripDevices` settings use; `basic_i2c` is not supported.
     pub fn from_name(name: &str) -> Option<LedProtocol> {
         match name {
             "keyboard_visualizer" => Some(LedProtocol::KeyboardVisualizer),
@@ -28,7 +28,7 @@ impl LedProtocol {
     }
 }
 
-/// One entry of OpenRGB's `LEDStripDevices` settings. `port` is `COMx`, or `udp:host` with
+/// One entry of the `LEDStripDevices` settings. `port` is `COMx`, or `udp:host` with
 /// `baud` holding the UDP port (Keyboard Visualizer only).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LedStrip {

@@ -1456,7 +1456,7 @@ mod tests {
 
     // QMKKeychronController_Devices: 426 PIDs defined, 394 patches over 171 entry lists, 2617 entries
     #[test]
-    fn patch_table_matches_openrgb() {
+    fn patch_table() {
         assert_eq!(PATCHES.len(), 171);
         assert_eq!(PATCHES.iter().map(|p| p.0.len()).sum::<usize>(), 394);
         assert_eq!(PATCHES.iter().map(|p| p.1.len()).sum::<usize>(), 2617 * 4);

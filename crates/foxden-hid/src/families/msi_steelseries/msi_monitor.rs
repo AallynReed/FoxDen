@@ -26,7 +26,7 @@ pub fn detectors() -> Vec<&'static Detector> {
     DETECTORS.iter().collect()
 }
 
-/// (version, LEDs, fill direction) of the 0x72 layouts in MSIMonitorControllerDetect.cpp.
+/// (version, LEDs, fill direction) of the 0x72 layouts.
 const LAYOUTS_72: &[(u8, usize, u8)] = &[
     (34, 9, LEFT_TO_RIGHT),
     (5, 12, RIGHT_TO_LEFT),

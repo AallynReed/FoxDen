@@ -10,7 +10,7 @@ const DEV: u8 = 0x77;
 const REG_LED0_DIRECT_COLOR: u8 = 0x17;
 const SIGNATURE: [u8; 8] = [0x50, 0x44, 0x41, 0x31, 0, 0, 0, 0];
 
-/// DetectPatriotViperSteelControllers
+/// Detection.
 pub fn detect(
     bus: &SharedBus,
     io: &Io,
@@ -46,10 +46,10 @@ pub fn detect(
 pub struct Steel;
 
 impl Proto for Steel {
-    /// DeviceUpdateMode does nothing.
+    /// Entering the mode does nothing.
     fn start(&mut self, _io: &Io, _zones: &[Vec<Color>]) {}
 
-    /// DeviceUpdateLEDs: ViperRegisterWrite(0x17 + led, r, b, g) per LED.
+    /// LED update: a register write of (0x17 + led, r, b, g) per LED.
     fn frame(&mut self, io: &Io, zones: &[Vec<Color>], _zone: usize) {
         for (led, c) in zones[0].iter().enumerate() {
             io.write_byte_data(DEV, REG_LED0_DIRECT_COLOR + led as u8, c.0);
@@ -64,7 +64,7 @@ mod tests {
     use super::super::spd;
     use super::*;
 
-    // DetectPatriotViperSteelControllers on a blank-JEDEC (0xFF7E) module, then one frame
+    // Detection on a blank-JEDEC (0xFF7E) module, then one frame
     #[test]
     fn detection_and_frame() {
         let mut sim = Sim::default();

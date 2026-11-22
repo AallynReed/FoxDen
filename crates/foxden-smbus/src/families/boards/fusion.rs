@@ -69,7 +69,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_with(&Ctx::real(bus))
 }
 
-/// DetectGigabyteRGBFusionControllers and the RGBFusionController constructor.
+/// Detection and setup.
 fn detect_with(ctx: &Ctx) -> Vec<Box<dyn Backend>> {
     let info = ctx.info();
     if !mobo_bus(&info) || info.pci_subsystem_vendor != GIGABYTE_SUB_VEN {
@@ -114,7 +114,7 @@ mod tests {
         (h, found)
     }
 
-    // TestForGigabyteRGBFusionController + constructor's "enable control" writes.
+    // Probe plus setup's "enable control" writes.
     #[test]
     fn detection() {
         let (h, f) = found(0xC4, 0x1458);
@@ -133,7 +133,7 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // SetMode(Direct) then DeviceUpdateLEDs -> SetLEDColor for both channels.
+    // Direct mode then each channel's LED colour.
     #[test]
     fn direct_frame() {
         let (h, mut f) = found(0xC4, 0x1458);

@@ -9,7 +9,7 @@ use crate::i2c::{SharedBus, lock};
 const RAM_ADDRESSES: [u8; 16] = [
     0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x4F, 0x66, 0x67, 0x39, 0x3A, 0x3B, 0x3C, 0x3D,
 ];
-/// Where SignalRGB's ENE_RAM.js also remaps sticks; probed after the list above, never remapped to.
+/// Where other software also remaps sticks; probed after the list above, never remapped to.
 const RAM_LEFT_BY_OTHERS: [u8; 2] = [0x3E, 0x3F];
 const MOBO_ADDRESSES: [u8; 3] = [0x40, 0x4E, 0x4F];
 
@@ -57,7 +57,7 @@ fn c_str(buf: &[u8]) -> &[u8] {
     buf.split(|&b| b == 0).next().unwrap_or(&[])
 }
 
-/// TestForENESMBusController.
+/// Probe.
 fn test(ctx: &Ctx, addr: u8) -> bool {
     let found = {
         let bus = lock(&ctx.bus);
@@ -117,11 +117,11 @@ struct Chip {
     dev: u8,
     direct_reg: u16,
     led_count: usize,
-    /// LEDs RGBController_ENESMBus::SetupZones lays out: the per-zone counts summed.
+    /// LEDs the zones lay out: the per-zone counts summed.
     leds: usize,
 }
 
-/// The ENESMBusController constructor: version string and config table.
+/// Setup: version string and config table.
 fn chip(ctx: &Ctx, dev: u8) -> Chip {
     let mut name: Vec<u8> = (0..16)
         .map(|i| reg_read(ctx, dev, REG_DEVICE_NAME + i))
@@ -191,7 +191,7 @@ pub fn detect_dram(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     dram(&Ctx::real(bus))
 }
 
-/// DetectENESMBusDRAMControllers.
+/// Finds ENE DRAM.
 fn dram(ctx: &Ctx) -> Vec<Box<dyn Backend>> {
     let mut found = Vec::new();
     if !dram_bus(&ctx.info()) {
@@ -236,7 +236,7 @@ pub fn detect_board(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     board(&Ctx::real(bus), &dmi::read())
 }
 
-/// DetectENESMBusMotherboardControllers.
+/// Finds ENE motherboard controllers.
 fn board(ctx: &Ctx, dmi: &dmi::Dmi) -> Vec<Box<dyn Backend>> {
     let mut found = Vec::new();
     let info = ctx.info();
@@ -265,7 +265,7 @@ pub fn detect_gpu(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     gpu(&Ctx::real(bus))
 }
 
-/// DetectENESMBusGPUControllers, run for each REGISTER_I2C_PCI_DETECTOR whose ids match the bus.
+/// Finds ENE GPU controllers, for each table row whose ids match the bus.
 fn gpu(ctx: &Ctx) -> Vec<Box<dyn Backend>> {
     let info = ctx.info();
     let mut found = Vec::new();
@@ -299,7 +299,7 @@ mod tests {
         vec![format!("rb {addr:02x}"), format!("rbd {addr:02x} 00")]
     }
 
-    // DetectENESMBusDRAMControllers: remap two sticks off 0x77, then test all 16 addresses.
+    // DRAM: remap two sticks off 0x77, then test all 16 addresses.
     #[test]
     fn dram_remaps_and_detects() {
         let mut st = State::default();
@@ -334,7 +334,7 @@ mod tests {
 
     // A stick another program left at 0x3E is found without being remapped.
     #[test]
-    fn dram_finds_sticks_left_at_signalrgb_addresses() {
+    fn dram_finds_sticks_left_by_others() {
         let mut st = State::default();
         st.ene
             .insert(0x3E, Ene::new("DIMM_LED-0103", &[(2, 4), (3, 4)]));
@@ -347,7 +347,7 @@ mod tests {
         assert!(!h.take().iter().any(|op| op.contains("f980")));
     }
 
-    // DetectENESMBusDRAMControllers: the remap skips addresses already in use.
+    // DRAM: the remap skips addresses already in use.
     #[test]
     fn dram_remap_skips_taken_addresses() {
         let mut st = State::default();
@@ -372,7 +372,7 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // TestForENESMBusController: a "Micron" string at 0x1030 rejects the chip.
+    // Probe: a "Micron" string at 0x1030 rejects the chip.
     #[test]
     fn micron_chips_are_skipped() {
         let mut e = Ene::new("DIMM_LED-0102", &[(2, 1), (3, 1)]);
@@ -402,7 +402,7 @@ mod tests {
         assert_eq!(found[0].devices()[0].leds.len(), 4);
     }
 
-    // ENESMBusController constructor: version string to direct register and LED count offset.
+    // Setup: version string to direct register and LED count offset.
     #[test]
     fn version_table() {
         assert_eq!(version_regs(b"LED-0116"), (0x8000, Some(2)));
@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(log[4..9], want.map(String::from));
     }
 
-    // DetectENESMBusMotherboardControllers: three addresses with a 1 ms pause after each.
+    // Motherboard: three addresses with a 1 ms pause after each.
     #[test]
     fn board_detection() {
         let mut st = State::default();
@@ -498,7 +498,7 @@ mod tests {
         assert_eq!(d.kind, DeviceKind::Motherboard);
     }
 
-    // DetectENESMBusMotherboardControllers: other subvendors are not probed.
+    // Motherboard: other subvendors are not probed.
     #[test]
     fn board_needs_asus_subvendor() {
         let mut st = State::default();
@@ -508,9 +508,9 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // REGISTER_I2C_PCI_DETECTOR lines in ENESMBusControllerDetect.cpp, then 41 SignalRGB rows.
+    // 174 base rows, then 41 more.
     #[test]
-    fn gpu_table_matches_openrgb() {
+    fn gpu_table() {
         assert_eq!(ENE_GPUS.len(), 174 + 41);
         assert!(ENE_GPUS.iter().all(|g| g.5 == 0x67 && g.3 == ASUS_SUB_VEN));
         assert_eq!(
@@ -537,7 +537,7 @@ mod tests {
         );
     }
 
-    // DetectENESMBusGPUControllers: only a bus with matching PCI ids is probed, at 0x67.
+    // GPU: only a bus with matching PCI ids is probed, at 0x67.
     #[test]
     fn gpu_detection() {
         let mut st = State::default();

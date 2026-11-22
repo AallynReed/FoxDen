@@ -103,7 +103,7 @@ mod tests {
     use rec::*;
 
     #[test]
-    fn tables_match_openrgb() {
+    fn table_sizes() {
         assert!(MAP.iter().all(|r| r.len() == 24));
         let max = MAP
             .iter()

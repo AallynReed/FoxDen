@@ -23,7 +23,7 @@ fn read_string(io: &Io, a: u8, reg: u16) -> [u8; 16] {
     buf
 }
 
-/// TestForCrucialController
+/// Probe.
 fn test(io: &Io, a: u8) -> bool {
     if io.read_byte(a) < 0 {
         return false;
@@ -38,7 +38,7 @@ fn test(io: &Io, a: u8) -> bool {
         || is_micron(&read_string(io, a, REG_MICRON_CHECK_2)))
 }
 
-/// DetectCrucialControllers for one bus: move modules off 0x27, then probe the address list.
+/// Detection for one bus: move modules off 0x27, then probe the address list.
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     if !is_dram_smbus(lock(bus).info()) {
         return Vec::new();
@@ -102,7 +102,7 @@ impl Crucial {
 }
 
 impl Proto for Crucial {
-    /// DeviceUpdateMode for Direct: SetMode(STATIC), then SetAllColorsEffect.
+    /// Direct mode: static mode, then all colours.
     fn start(&mut self, io: &Io, zones: &[Vec<Color>]) {
         let d = self.dev;
         io.ene_write(d, 0x820F, MODE_STATIC);
@@ -176,7 +176,7 @@ mod tests {
             .collect()
     }
 
-    // DetectCrucialControllers: remap the module at 0x27 to 0x39, then TestForCrucialController
+    // Detection: remap the module at 0x27 to 0x39, then probe
     #[test]
     fn remap_then_probe() {
         let bus = bus(sim(REG_MICRON_CHECK_1));
@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(found[0].devices()[0].id, "smbus:crucial-39");
     }
 
-    // TestForCrucialController falls back to the second "Micron" location
+    // The probe falls back to the second "Micron" location
     #[test]
     fn micron_at_second_location() {
         let mut s = sim(REG_MICRON_CHECK_2);
@@ -237,7 +237,7 @@ mod tests {
         [Ww(a, 0, reg.swap_bytes()), Wbd(a, 1, v)]
     }
 
-    // DeviceUpdateMode(Direct) then DeviceUpdateLEDs -> SendDirectColors
+    // Direct mode then the direct colours
     #[test]
     fn direct_setup_and_frame() {
         let mut d = crucial_at(0x39, false);

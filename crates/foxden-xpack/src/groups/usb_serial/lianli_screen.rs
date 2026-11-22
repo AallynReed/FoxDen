@@ -1,5 +1,4 @@
-//! Lian Li Universal Screen 8.8 LED frame over raw USB (protocol learned from SignalRGB's
-//! Lian_Li_Universal_Screen_88_LED.js).
+//! Lian Li Universal Screen 8.8 LED frame over raw USB.
 
 use super::link::open_bulk;
 use crate::hid::{Driver, Io, Proto, rgb};

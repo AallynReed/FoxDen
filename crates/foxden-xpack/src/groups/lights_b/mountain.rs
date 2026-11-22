@@ -1,5 +1,4 @@
-//! Mountain Macropad and Makalu 67 mouse (protocol learned from SignalRGB's Mountain_Macropad.js
-//! and Mountain_Makalu_67_Mouse.js).
+//! Mountain Macropad and Makalu 67 mouse.
 
 use super::layouts::{MACROPAD_POS, MAKALU_POS};
 use super::{KEYBOARD, MOUSE, boxed, det, placed};

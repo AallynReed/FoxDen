@@ -103,7 +103,7 @@ pub fn open(cfg: &YeelightLight) -> Option<Light> {
     ))
 }
 
-/// Not in OpenRGB: Yeelight's documented SSDP-style search on port 1982.
+/// Yeelight's documented SSDP-style search on port 1982.
 pub const SEARCH: &str = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1982\r\nMAN: \"ssdp:discover\"\r\nST: wifi_bulb\r\n";
 
 /// Address and name from a search reply's `Location: yeelight://ip:port` and `name:` lines.

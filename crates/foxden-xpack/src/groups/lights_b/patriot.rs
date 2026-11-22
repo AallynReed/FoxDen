@@ -1,4 +1,4 @@
-//! Patriot Viper V380 headset (protocol learned from SignalRGB's V380_Headset.js).
+//! Patriot Viper V380 headset.
 
 use super::{HEADSET, boxed, det, row};
 use crate::hid::{Io, Proto};

@@ -1,4 +1,4 @@
-//! Alienware, Antec, A4Tech, ASRock, Attack Shark, Aula, BYTech, Dareu, Dark Project, Drevo and Gigabyte devices (protocol learned from SignalRGB's plugins of those brands).
+//! Alienware, Antec, A4Tech, ASRock, Attack Shark, Aula, BYTech, Dareu, Dark Project, Drevo and Gigabyte devices.
 
 mod alienware;
 mod antec;

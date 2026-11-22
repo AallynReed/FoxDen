@@ -1,6 +1,4 @@
-//! Corsair Commander Core, Commander Core XT and iCUE LINK hub cooling (protocol learned from
-//! SignalRGB's Corsair_Lighting_Commander_Core.js, Corsair_Lighting_Commander_Core_XT.js and
-//! Corsair_ICUE_Link_Hub.js).
+//! Corsair Commander Core, Commander Core XT and iCUE LINK hub cooling.
 
 use super::util::{Cached, ask_strict, device_key, due, fan_id, u16le};
 use crate::fan::{Channel, FanHub, PUMP_MIN, backend_on, percent};

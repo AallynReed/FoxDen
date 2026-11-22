@@ -151,7 +151,7 @@ pub fn open(cfg: &KasaLight) -> Option<Light> {
     ))
 }
 
-/// Not in OpenRGB: the sysinfo query, XORed without its length, broadcast on UDP 9999.
+/// The sysinfo query, XORed without its length, broadcast on UDP 9999.
 pub fn discover() -> Vec<Found> {
     let Some(socket) = net::search_socket(0) else {
         return Vec::new();

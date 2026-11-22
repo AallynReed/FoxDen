@@ -10,7 +10,7 @@ const STATIC: u8 = 0x02;
 /// Static's default brightness 10, from the 1..10 table.
 const BRIGHTNESS: u8 = 0xFF;
 
-/// SetMode in Static (OpenRGB's per-LED mode here); static has no speed value.
+/// SetMode in Static (the per-LED mode here); static has no speed value.
 pub fn set_static(c: Color) -> [u8; 17] {
     let mut b = [0u8; 17];
     b[..12].copy_from_slice(&[

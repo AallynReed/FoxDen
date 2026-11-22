@@ -28,7 +28,7 @@ pub fn direct_mode(on: bool) -> [u8; 65] {
     report(&[0x5A, 0x81, 0x01 + on as u8])
 }
 
-/// SetLedsDirect: OpenRGB never records direct mode as current, so every frame turns it on first.
+/// SetLedsDirect: direct mode is never recorded as current, so every frame turns it on first.
 pub fn direct(c: Color) -> [[u8; 65]; 2] {
     [
         direct_mode(true),

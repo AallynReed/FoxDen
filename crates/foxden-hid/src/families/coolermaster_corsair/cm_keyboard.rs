@@ -271,8 +271,8 @@ const CK550_V2_L: Overlay = overlay(
 );
 const CK552_L: Overlay = overlay(Size::Full, CK552_KEYMAP, &[]);
 
-/// cm_kb_device_list; the Pro L White and the SK653 reuse other keyboards' layouts, as in OpenRGB.
-/// SignalRGB drives the SK620/SK621 like the SK622, and SK650 0x0123 with its layout and the SK652 start-up.
+/// cm_kb_device_list; the Pro L White and the SK653 reuse other keyboards' layouts.
+/// The SK620/SK621 are driven like the SK622, and SK650 0x0123 with its layout and the SK652 start-up.
 fn overlay_for(pid: u16) -> Option<&'static Overlay> {
     Some(match pid {
         PRO_S | PRO_L_WHITE => &MK_PRO_S,
@@ -298,7 +298,7 @@ pub fn control_mode(mode: u8) -> Report {
     report(&[0x41, mode])
 }
 
-/// CMKeyboardV1Controller::SetMode for Direct. OpenRGB maps mode value 2 to Spectrum Cycle, so
+/// CMKeyboardV1Controller::SetMode for Direct. Mode value 2 is Spectrum Cycle, so
 /// selecting Direct sends that effect (speed 0) before manual control takes over.
 pub fn v1_direct_mode() -> [Report; 3] {
     let mut effect = report(&[
@@ -447,7 +447,7 @@ pub fn v1_layout(firmware: &str) -> Layout {
     }
 }
 
-/// CMKeyboardV2Controller::GetKeyboardLayout; OpenRGB's "serial" here is the product string.
+/// CMKeyboardV2Controller::GetKeyboardLayout; the "serial" here is the product string.
 pub fn v2_layout(firmware: &str, product: &str) -> Layout {
     let mut layout = match firmware.as_bytes().get(1) {
         Some(b'3') => Layout::Jis,

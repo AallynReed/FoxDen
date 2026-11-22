@@ -22,7 +22,7 @@ const V2_MODE_RAINBOW: u8 = 0x16;
 const V2_MODE_OFF: u8 = 0x19;
 const V2_SYNC_ON: u8 = 0x01;
 
-// TestForGalaxGPUController; reads land in an unsigned char, so an error is 0xFF.
+// Probe; reads land in an unsigned char, so an error is 0xFF.
 fn present(io: &Io, addr: u8) -> bool {
     let rd = |cmd| io.read(addr, cmd) as u8;
     match addr {
@@ -96,7 +96,7 @@ struct V2 {
 }
 
 impl Driver for V2 {
-    // DeviceUpdateMode for Direct: sync off, static, speed, brightness.
+    // Direct mode: sync off, static, speed, brightness.
     fn setup(&mut self, io: &Io, _: &[Color]) {
         io.write(self.addr, V2_SYNC, 0x00);
         io.write(self.addr, V2_MODE, V2_MODE_STATIC);
@@ -119,7 +119,7 @@ mod tests {
     const V2_CARD: &str = "KFA2 GeForce RTX 4080 SG 1-Click OC";
     const V2_5070: &str = "GALAX GeForce RTX 5070 Ti EX Gamer 1-Click OC";
 
-    // TestForGalaxGPUController at 0x23.
+    // Probe at 0x23.
     #[test]
     fn v1_detect() {
         let bus = Fake::new("NV", ids(GALAX, V1_CARD))
@@ -133,7 +133,7 @@ mod tests {
         assert!(run(&[detect], &bus).is_empty());
     }
 
-    // RGBController_GalaxGPUv1::DeviceUpdateMode (Direct) and DeviceUpdateLEDs.
+    // Direct mode and LEDs.
     #[test]
     fn v1_direct_and_frame() {
         let bus = Fake::new("NV", ids(GALAX, V1_CARD))
@@ -156,7 +156,7 @@ mod tests {
         );
     }
 
-    // TestForGalaxGPUController at 0x50 reads reg 0x01 only after reg 0x00 is 0x01.
+    // Probe at 0x50 reads reg 0x01 only after reg 0x00 is 0x01.
     #[test]
     fn v2_detect_0x50() {
         let bus = Fake::new("NV", ids(GALAX, V2_CARD))
@@ -166,7 +166,7 @@ mod tests {
         assert_eq!(take(), s(&["rd 50 00"]));
     }
 
-    // RGBController_GalaxGPUv2: GetDeviceMode, brightness and speed, DeviceUpdateMode.
+    // v2 setup: device mode, brightness and speed, then the mode change.
     #[test]
     fn v2_direct_and_frame() {
         let bus = Fake::new("NV", ids(GALAX, V2_CARD))
@@ -199,7 +199,7 @@ mod tests {
         );
     }
 
-    // RGBController_GalaxGPUv2::GetDeviceMode: Rainbow leaves Direct at the mode() defaults.
+    // v2 mode read: Rainbow leaves Direct at the mode() defaults.
     #[test]
     fn v2_defaults() {
         let bus = Fake::new("NV", ids(GALAX, V2_5070))

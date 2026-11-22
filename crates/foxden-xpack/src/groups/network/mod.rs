@@ -1,4 +1,4 @@
-//! Wi-Fi and LAN lights that SignalRGB drives through downloaded add-ons and foxden-net lacks
+//! Wi-Fi and LAN lights foxden-net lacks
 //! (Twinkly, Cololight, LeetDesk, WLED, SRGBmods Wifi LC).
 
 mod cololight;

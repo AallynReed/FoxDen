@@ -11,7 +11,7 @@ const RGB_PORT: usize = 4;
 const ARGB_DIRECT: u8 = 0xFE;
 const RGB_STATIC: u8 = 0x05;
 const RGB_OFF: u8 = 0x06;
-/// OpenRGB leaves header sizes to the user, up to 48; FoxDen starts each at 48.
+/// Header sizes are not reported, up to 48; FoxDen starts each at 48.
 const LEDS: usize = 48;
 const FIRMWARE: [&str; 2] = ["A202011171238", "A202105291658"];
 

@@ -5,7 +5,7 @@ use foxden_core::{Backend, Color, Device, DeviceKind};
 use crate::lights::{Dmi, Driver, Light, Pawn};
 
 const LED_COUNT: u64 = 17;
-/// Index of "manual" in the module's effect list, OpenRGB's Direct.
+/// Index of "manual" in the module's effect list.
 const EFFECT_MANUAL: u64 = 7;
 
 struct SteamMachine {
@@ -19,7 +19,7 @@ impl SteamMachine {
         let _ = self.pawn.exec(name, input, 0);
     }
 
-    /// DeviceUpdateMode for Direct.
+    /// Direct mode.
     fn set_mode(&self) {
         let enabled = self.pawn.read("ioctl_get_enabled", &[]).unwrap_or(0) & 0xFF != 0;
         if !enabled {
@@ -48,7 +48,7 @@ impl Driver for SteamMachine {
     }
 }
 
-/// DetectValveSteamMachineControllers and the controller constructor.
+/// Detection and setup.
 pub(crate) fn detect(dmi: &Dmi, open: &dyn Fn() -> Option<Box<dyn Pawn>>) -> Vec<Box<dyn Backend>> {
     let ids = (dmi.manufacturer.as_str(), dmi.product_name.as_str());
     if !matches!(ids, ("OEM", "F7F") | ("Valve", "Fremont")) {
@@ -116,7 +116,7 @@ mod tests {
         assert!(fake::take(&log).is_empty());
     }
 
-    // DeviceUpdateMode(Direct = "manual") then DeviceUpdateLEDs, LEDs reversed.
+    // Direct ("manual") mode then the LEDs, reversed.
     #[test]
     fn direct_frame() {
         let (log, mut found) = run(&fake::dmi("Valve", "", "Fremont"), 0);

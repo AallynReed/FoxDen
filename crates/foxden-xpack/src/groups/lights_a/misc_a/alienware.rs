@@ -1,4 +1,4 @@
-//! Alienware laptop, mouse and monitors (protocol learned from SignalRGB's Alienware_15_R3_Laptop.js, Alienware_AW558_Mouse.js and Alienware_Monitor_Gen1/Gen2/Gen3_Controller.js).
+//! Alienware laptop, mouse and monitors.
 
 use super::super::common::{KEYBOARD_RECT, MOUSE_RECT, SMALL_RECT, full, keyed};
 use crate::hid::{Driver, Io, Proto, on_i, open_io};

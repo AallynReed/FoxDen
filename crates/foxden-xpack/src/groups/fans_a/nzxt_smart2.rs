@@ -1,5 +1,4 @@
-//! NZXT Smart Device V2 and RGB & Fan Controller fans (protocol learned from SignalRGB's
-//! Nzxt/NZXT_Smart_Device_V2_Controller.js).
+//! NZXT Smart Device V2 and RGB & Fan Controller fans.
 
 use super::util::{Every, hub_id, latest, le16, open, scan};
 use crate::fan::{Channel, FanHub, backend_on, percent};

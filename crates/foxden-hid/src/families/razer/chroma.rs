@@ -360,7 +360,7 @@ pub fn argb_buffer(colors: &[Color], sizes: &[u8; 6]) -> Vec<Color> {
     buf
 }
 
-/// What one push sends. The first push takes control the way Direct mode does in OpenRGB.
+/// What one push sends. The first push takes control the way Direct mode does.
 pub fn plan(p: &Params, first: bool, colors: &[Color]) -> Vec<Step> {
     let mut steps = Vec::new();
     if p.matrix == Matrix::ExtendedArgb {
@@ -953,7 +953,7 @@ mod tests {
     }
 
     #[test]
-    fn devices_match_openrgb_led_counts() {
+    fn device_led_counts() {
         assert_eq!(
             device_for("x".into(), "X".into(), &Params::new(0x0241))
                 .leds
@@ -1033,7 +1033,7 @@ mod tests {
         assert_eq!(dock.len(), 4);
     }
 
-    // SignalRGB Razer_Nommo_Speakers.js: Nommo V2 pair uses report id 7 and one 12-LED row.
+    // Nommo V2 pair uses report id 7 and one 12-LED row.
     #[test]
     fn nommo_v2_uses_report_seven() {
         for pid in [NOMMO_V2, NOMMO_V2_PRO] {
@@ -1045,7 +1045,7 @@ mod tests {
         }
     }
 
-    // SignalRGB Razer_Soundbar.js: Leviathan V2 Pro goes to software mode, then two rows of 15.
+    // Leviathan V2 Pro goes to software mode, then two rows of 15.
     #[test]
     fn leviathan_v2_pro_software_mode_then_two_rows() {
         let p = Params::new(LEVIATHAN_V2_PRO);
@@ -1057,9 +1057,9 @@ mod tests {
         assert_eq!(s[3][11], 1);
     }
 
-    // SignalRGB Razer_Modern_Mouse.js / Razer_Modern_Keyboard.js: rows sized from the plugin's LED tables.
+    // Modern mice and keyboards: rows sized from their LED tables.
     #[test]
-    fn signalrgb_devices_led_counts() {
+    fn extra_devices_led_counts() {
         let n = |pid| device_for("x".into(), "X".into(), &Params::new(pid)).leds.len();
         assert_eq!(n(0x00C7), 18);
         assert_eq!(n(0x0096), 2);

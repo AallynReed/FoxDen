@@ -484,7 +484,7 @@ impl Lightspeed {
         self.tried = Instant::now();
     }
 
-    /// OpenRGB's order: software control, RGB power on, then host mode.
+    /// Software control, RGB power on, then host mode.
     fn claim(&self) -> Result<(), String> {
         if let Some((feature, kind)) = self.effects {
             request(&self.hid, &sw_control(self.index, feature, kind, 3, 6))?;
@@ -559,7 +559,7 @@ impl Backend for Lightspeed {
         // drop queued replies so the receiver's input buffer never backs up
         let mut buf = [0u8; 64];
         while matches!(self.hid.read_timeout(&mut buf, 0), Ok(n) if n > 0) {}
-        // each report waits for its acknowledgement, as OpenRGB paces them
+        // each report waits for its acknowledgement
         for report in &reports {
             let mut tries = 0;
             loop {
@@ -607,17 +607,16 @@ mod tests {
 
     const RED: Color = Color(255, 0, 0);
 
-    // Framing from SendStandard in OpenRGB's LogitechHIDPP20Controller.cpp.
     #[test]
-    fn long_report_framing_matches_openrgb_send_standard() {
+    fn long_report_framing() {
         let r = long(0x01, 0x09, 0x10, &[0xAA, 0xBB]);
         assert_eq!(r[..6], [0x11, 0x01, 0x09, 0x17, 0xAA, 0xBB]);
         assert!(r[6..].iter().all(|&b| b == 0));
     }
 
-    // GetFeatureIndex in LogitechHIDPP20Controller.cpp: root feature, function 0, id big-endian.
+    // Root feature, function 0, id big-endian.
     #[test]
-    fn get_feature_matches_openrgb_get_feature_index() {
+    fn get_feature_report() {
         let r = get_feature(0x01, 0x8081);
         assert_eq!(r[..6], [0x11, 0x01, 0x00, 0x07, 0x80, 0x81]);
     }
@@ -648,9 +647,9 @@ mod tests {
         assert_eq!(reply_to(&request, &[]), None);
     }
 
-    // SetSWControl in LogitechHIDPP20Controller.cpp. We differ on 0x8070 by leaving its persist byte 0.
+    // 0x8070 leaves its persist byte 0.
     #[test]
-    fn sw_control_matches_openrgb_set_sw_control() {
+    fn sw_control_report() {
         assert_eq!(
             sw_control(1, 0x0A, Effects::Rgb, 3, 6)[..7],
             [0x11, 0x01, 0x0A, 0x57, 0x01, 0x03, 0x06]
@@ -669,9 +668,9 @@ mod tests {
         );
     }
 
-    // SetZoneEffect in LogitechHIDPP20Controller.cpp, static effect, persist false.
+    // Static effect, persist false.
     #[test]
-    fn set_static_matches_openrgb_set_zone_effect() {
+    fn set_static_report() {
         let r = set_static(1, 0x06, Effects::ColorLed, 1, Color(0x10, 0x20, 0x30));
         assert_eq!(
             r[..10],
@@ -683,9 +682,8 @@ mod tests {
         assert_eq!(off[..10], [0x11, 0x01, 0x0A, 0x17, 0x00, 0x01, 0, 0, 0, 0]);
     }
 
-    // SetPerKeyColors and PerKeyFrameEnd in LogitechHIDPP20Controller.cpp.
     #[test]
-    fn per_key_reports_match_openrgb_set_per_key_colors() {
+    fn per_key_reports() {
         let r = set_keys(1, 0x0B, &[(38, RED), (1, Color(1, 2, 3))]);
         assert_eq!(r[..12], [0x11, 0x01, 0x0B, 0x17, 38, 255, 0, 0, 1, 1, 2, 3]);
         assert!(r[12..].iter().all(|&b| b == 0));
@@ -694,9 +692,8 @@ mod tests {
         assert!(end[4..].iter().all(|&b| b == 0));
     }
 
-    // DiscoverPerKeyZones in LogitechHIDPP20Controller.cpp.
     #[test]
-    fn zone_bitmap_matches_openrgb_discover_per_key_zones() {
+    fn zone_bitmap() {
         assert_eq!(
             zone_page_query(1, 0x0B, 2)[..7],
             [0x11, 0x01, 0x0B, 0x07, 0x00, 0x02, 0x00]

@@ -1,4 +1,4 @@
-//! Gigabyte AORUS Waterforce X AIOs (protocol learned from SignalRGB's GigaByte/Gigabyte_AORUS_Waterforce_X_I.js and _X_II.js).
+//! Gigabyte AORUS Waterforce X AIOs.
 
 use super::util::{Every, cells, hub_id, iface, open, scan, spun};
 use crate::fan::{Channel, FanHub, backend_on};

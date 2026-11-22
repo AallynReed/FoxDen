@@ -1,5 +1,4 @@
-//! Corsair Hydro Platinum, Pro XT and RGB Elite coolers (protocol learned from SignalRGB's
-//! Platinum_Pro_XT_Elite_AIO.js).
+//! Corsair Hydro Platinum, Pro XT and RGB Elite coolers.
 
 use super::util::{Cached, ask, device_key, due, fan_id, u16le};
 use crate::fan::{Channel, FanHub, backend_on, byte};

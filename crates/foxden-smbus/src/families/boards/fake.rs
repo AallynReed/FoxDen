@@ -229,7 +229,7 @@ impl SmBus for Fake {
     }
 }
 
-/// Log lines for OpenRGB's ENERegisterWrite.
+/// Log lines for an ENE register write.
 pub fn ene_w(addr: u8, reg: u16, val: u8) -> Vec<String> {
     vec![
         format!("wwd {addr:02x} 00 {:04x}", reg.swap_bytes()),
@@ -237,7 +237,7 @@ pub fn ene_w(addr: u8, reg: u16, val: u8) -> Vec<String> {
     ]
 }
 
-/// Log lines for OpenRGB's ENERegisterRead.
+/// Log lines for an ENE register read.
 pub fn ene_r(addr: u8, reg: u16) -> Vec<String> {
     vec![
         format!("wwd {addr:02x} 00 {:04x}", reg.swap_bytes()),
@@ -245,7 +245,7 @@ pub fn ene_r(addr: u8, reg: u16) -> Vec<String> {
     ]
 }
 
-/// Log lines for TestForENESMBusController on a chip that passes.
+/// Log lines for an ENE probe on a chip that passes.
 pub fn ene_test(addr: u8) -> Vec<String> {
     let mut v = vec![format!("rb {addr:02x}")];
     v.extend((0xA0..0xB0).map(|i| format!("rbd {addr:02x} {i:02x}")));
@@ -253,7 +253,7 @@ pub fn ene_test(addr: u8) -> Vec<String> {
     v
 }
 
-/// Log lines for the ENESMBusController constructor: version string then config table.
+/// Log lines for ENE setup: version string then config table.
 pub fn ene_ctor(addr: u8) -> Vec<String> {
     (0..16)
         .flat_map(|i| ene_r(addr, 0x1000 + i))

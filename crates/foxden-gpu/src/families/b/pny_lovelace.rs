@@ -9,7 +9,7 @@ use super::common::{Driver, Gpu, Io, detect_each, device_id, row};
 const REG_LIGHTING: u8 = 0x02;
 const MODE_STATIC: u8 = 0x06;
 
-// DetectPNYLovelaceGPUControllers has no probe. LEDs: fan, right, left.
+// No probe. LEDs: fan, right, left.
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_each(bus, PNY_LOVELACE, |bus, card| {
         let dev = row(device_id("pny-lovelace", bus, card.addr), card.name, 3);
@@ -24,7 +24,7 @@ struct Lovelace {
 impl Driver for Lovelace {
     fn setup(&mut self, _: &Io, _: &[Color]) {}
 
-    // DeviceUpdateMode for Direct: SetDirect for each of the three LEDs.
+    // Direct mode: a direct write for each of the three LEDs.
     fn update(&mut self, io: &Io, colors: &[Color], _: Option<&[Color]>) {
         for (i, c) in colors.iter().enumerate() {
             io.write_block(
@@ -41,7 +41,7 @@ mod tests {
     use super::super::fake::{Fake, ids, push, run, s, take};
     use super::*;
 
-    // RGBController_PNYLovelaceGPU::DeviceUpdateMode with Direct active.
+    // Mode change with Direct active.
     #[test]
     fn direct_and_frame() {
         let card = "PNY GeForce RTX 4090 XLR8 VERTO";

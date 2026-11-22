@@ -19,7 +19,7 @@ fn leds_from_status(reply: &[u8]) -> usize {
 }
 
 /// `NZXTHue1Controller::SendPacket` in fixed mode. The second report repeats the start of the
-/// colour data rather than continuing at LED 20, exactly as OpenRGB sends it.
+/// colour data rather than continuing at LED 20.
 fn fixed(colors: &[Color]) -> [Vec<u8>; 2] {
     let data: Vec<u8> = colors.iter().flat_map(|c| [c.1, c.0, c.2]).collect();
     let first = colors.len().min(20);

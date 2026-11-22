@@ -10,7 +10,7 @@ use crate::registry::{Detector, Info};
 
 const VID: u16 = 0x264A;
 const CHANNELS: usize = 5;
-/// OpenRGB starts every header at 0 LEDs; these are its maximums.
+/// Headers report no size; these are the maximums.
 const RIING_LEDS: usize = 20;
 const QUAD_LEDS: usize = 60;
 const TRIO_LEDS: usize = 54;

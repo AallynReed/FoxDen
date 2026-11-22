@@ -1,5 +1,4 @@
-//! Corsair XC7 RGB Elite LCD ring and coolant probe (protocol learned from SignalRGB's
-//! Corsair_XC7_LCD.js).
+//! Corsair XC7 RGB Elite LCD ring and coolant probe.
 
 use crate::fan::{Channel, FanHub, backend};
 use crate::hid::{Driver, Io, Proto, on_i, open_io, rgb};

@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 pub use hue::pair as pair_hue;
 pub use nanoleaf::pair as pair_nanoleaf;
 
-/// Every network and DMX light the user has set up, as OpenRGB keeps them in its settings.
+/// Every network and DMX light the user has set up.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NetConfig {
@@ -388,7 +388,7 @@ impl Backend for NetBackend {
         let mut l = lock(&self.link);
         l.last = colors.to_vec();
         l.at = Instant::now();
-        // Like OpenRGB, a lost packet is not fatal; only a light that stays silent is.
+        // A lost packet is not fatal; only a light that stays silent is.
         match l.driver.send(colors) {
             Ok(()) => l.failures = 0,
             Err(e) => {
@@ -533,7 +533,7 @@ fn flow_rect(index: usize, count: usize, grid: [u32; 2]) -> [f32; 4] {
     ]
 }
 
-/// OpenRGB's integer `rgb2hsv` (qt/hsv.cpp): hue 0..359, or `u32::MAX` for grey.
+/// Integer RGB to HSV: hue 0..359, or `u32::MAX` for grey.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Hsv {
     hue: u32,
@@ -633,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_fill_in_openrgb_defaults() {
+    fn settings_fill_in_defaults() {
         let c: NetConfig =
             serde_json::from_str(r#"{"e131":[{"num_leds":10}],"ddp":[{"ip":"10.0.0.2"}]}"#)
                 .unwrap();

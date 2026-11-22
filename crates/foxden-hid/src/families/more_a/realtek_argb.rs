@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::*;
-use super::realtek::{GET, SET, SYNC_OPENRGB, UNLOCK_ADDR, header, ioctl};
+use super::realtek::{GET, SET, SYNC_HOST, UNLOCK_ADDR, header, ioctl};
 use crate::registry::{Detector, Info};
 use foxden_core::{Backend, Color, DeviceKind};
 use hidapi::HidApi;
@@ -55,7 +55,7 @@ fn argb_num(hdr: &[u8; HDR_SIZE], grp: usize) -> usize {
     u16::from_le_bytes([hdr[32 + grp * 2], hdr[33 + grp * 2]]) as usize
 }
 
-/// device_init, get_support_openrgb, then the reads of the RGBController constructor.
+/// device_init, the sync support query, then the setup reads.
 pub fn detect(io: &mut dyn Io) -> Result<State, String> {
     ioctl(
         io,
@@ -82,7 +82,7 @@ pub fn detect(io: &mut dyn Io) -> Result<State, String> {
     let mut support = [0u8];
     let ok = ioctl(
         io,
-        header(GET, &[0xCC, 0x04, SYNC_OPENRGB], None),
+        header(GET, &[0xCC, 0x04, SYNC_HOST], None),
         &mut support,
         0,
         true,
@@ -148,7 +148,7 @@ impl Proto for Argb {
                 ioctl(io, header(SET, &[0x4C, 0x02], None), &mut hdr, 0, false)?;
             }
             let mut buf: Vec<u8> = zone.iter().flat_map(|c| rgb(*c)).collect();
-            let head = header(SET, &[0x4C, 0x03, SYNC_OPENRGB, grp], Some(n as u32));
+            let head = header(SET, &[0x4C, 0x03, SYNC_HOST, grp], Some(n as u32));
             ioctl(io, head, &mut buf, 0, false)?;
         }
         Ok(())
@@ -244,7 +244,7 @@ mod tests {
         r
     }
 
-    // device_init, get_support_openrgb, get_dev_name with the UUID name, get_fw_ver, SetupZones
+    // device_init, sync support, get_dev_name with the UUID name, get_fw_ver, SetupZones
     #[test]
     fn detection_reads() {
         let mut replies = init_replies();
@@ -323,7 +323,7 @@ mod tests {
         );
     }
 
-    // get_support_openrgb answering 0: the deleted controller hands every group back
+    // sync support answering 0: the deleted controller hands every group back
     #[test]
     fn unsupported_releases() {
         let mut replies = init_replies();

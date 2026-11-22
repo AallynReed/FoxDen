@@ -24,7 +24,7 @@ pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-/// An open COM port, set up the way OpenRGB's `serial_port` opens one.
+/// An open COM port.
 pub struct Serial(HANDLE);
 
 // SAFETY: the handle is only used through `&mut self`.
@@ -228,7 +228,7 @@ fn text(buf: &[u16]) -> String {
     String::from_utf16_lossy(&buf[..end])
 }
 
-/// The SMBIOS baseboard manufacturer, as OpenRGB's DMIInfo reads it.
+/// The SMBIOS baseboard manufacturer.
 pub fn board_manufacturer() -> String {
     use windows_sys::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
     let sub = wide(r"HARDWARE\DESCRIPTION\System\BIOS");

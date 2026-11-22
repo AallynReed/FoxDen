@@ -7,7 +7,7 @@ use hidapi::HidApi;
 
 const FAMILY: &str = "intel-arc-a770le";
 const LOGO: u8 = 0x96;
-/// OpenRGB blocks on hid_read for each reply; a bounded wait keeps a silent card from hanging the engine.
+/// Each reply is awaited; a bounded wait keeps a silent card from hanging the engine.
 const REPLY_MS: i32 = 1000;
 
 fn ids() -> Vec<u8> {

@@ -29,7 +29,7 @@ use windows_sys::core::GUID;
 
 use super::common::Io;
 
-/// What libusb_bulk_transfer waits in OpenRGB.
+/// How long a bulk transfer waits.
 const TIMEOUT_MS: u32 = 1000;
 
 /// A device bound to WinUSB, with the bulk endpoints a driver talks on.

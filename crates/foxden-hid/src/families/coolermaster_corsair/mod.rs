@@ -147,7 +147,7 @@ pub(super) fn read(hid: &HidDevice, ms: i32) -> Result<Vec<u8>, String> {
     Ok(buf[..n].to_vec())
 }
 
-/// Writes a report and waits for the answer, as OpenRGB's write-then-read pairs do.
+/// Writes a report and waits for the answer.
 pub(super) fn exchange(hid: &HidDevice, report: &[u8], ms: i32) -> Result<Vec<u8>, String> {
     write(hid, report)?;
     read(hid, ms)
@@ -181,7 +181,7 @@ pub(super) fn rows(counts: &[usize]) -> Vec<[f32; 2]> {
         .collect()
 }
 
-/// Positions of LEDs `0..count` from an OpenRGB matrix map; LEDs not in it go in a row below.
+/// Positions of LEDs `0..count` from a matrix map; LEDs not in it go in a row below.
 pub(super) fn matrix(map: &[&[u32]], count: usize) -> (Vec<[f32; 2]>, [u32; 2]) {
     let cols = map.iter().map(|r| r.len()).max().unwrap_or(1);
     let mut at: Vec<Option<(usize, usize)>> = vec![None; count];

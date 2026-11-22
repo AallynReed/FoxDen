@@ -1,4 +1,4 @@
-//! Devices behind the ASUS Omni receiver (protocol learned from SignalRGB's ASUS_Omni_Device.js, ASUS_Keyboard_Protocol.js and ASUS_Mouse_Protocol.js).
+//! Devices behind the ASUS Omni receiver.
 
 use super::Linked;
 

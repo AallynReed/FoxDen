@@ -139,7 +139,7 @@ mod tests {
     use super::cards::*;
     use super::fake::{Fake, ids, push, run, take};
 
-    // DetectionManager::RegisterI2CPCIDeviceDetector: one row per line in each *Detect.cpp.
+    // One row per detector.
     #[test]
     fn table_sizes() {
         let sizes = [
@@ -179,7 +179,7 @@ mod tests {
             super::pny_revel::PNY_REVEL.len(),
             super::asrock::ASROCK.len(),
         ];
-        // OpenRGB's counts, then what SignalRGB adds; MSI_V2 hands seven GAMING TRIO cards to msi_trio.
+        // Base counts, then additions; MSI_V2 hands seven GAMING TRIO cards to msi_trio.
         assert_eq!(
             sizes,
             [
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(all, sizes.iter().sum::<usize>());
     }
 
-    // EVGAGPUv1Controller::SetMode and SetColor: a failed write is retried on the next push.
+    // v1 mode and colour: a failed write is retried on the next push.
     #[test]
     fn failed_write_retries_setup() {
         let mut fake = Fake::new("NV", ids(EVGA_PASCAL, "EVGA GeForce GTX 1080 FTW"));

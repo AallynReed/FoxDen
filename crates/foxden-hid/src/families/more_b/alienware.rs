@@ -48,7 +48,7 @@ fn request(head: &[u8]) -> Vec<u8> {
 }
 
 /// `SendHIDReport` followed by `GetResponse`. The 1 s pause tests byte 3, the high byte of a
-/// user-animation subcommand, so every command gets 60 ms as in OpenRGB.
+/// user-animation subcommand, so every command gets 60 ms.
 fn transact(io: &mut dyn Io, b: &[u8]) -> Result<Vec<u8>, String> {
     io.feature(b)?;
     let finish =
@@ -59,7 +59,7 @@ fn transact(io: &mut dyn Io, b: &[u8]) -> Result<Vec<u8>, String> {
     Ok(r)
 }
 
-/// The check OpenRGB makes on most replies: status 3 and not an echo of the request.
+/// The check made on most replies: status 3 and not an echo of the request.
 fn accepted(req: &[u8], resp: &[u8]) -> bool {
     resp[1] == 0x03 && req != resp
 }

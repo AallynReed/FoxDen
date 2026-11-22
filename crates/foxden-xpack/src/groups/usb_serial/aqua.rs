@@ -1,4 +1,4 @@
-//! Aqua Computer lighting over raw USB (protocol learned from SignalRGB's Aqua_Computer_*.js).
+//! Aqua Computer lighting over raw USB.
 
 use super::link::open_bulk;
 use crate::hid::{Driver, Io, Proto};

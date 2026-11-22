@@ -12,7 +12,7 @@ const REPORT_ID: u8 = 4;
 const CHUNK: usize = 56;
 const READ_CAPABILITIES: u8 = 0x03;
 const SEND_DYNAMIC_COLORS: u8 = 0x12;
-/// OpenRGB blocks on hid_read for each reply; this bounds the wait.
+/// Each reply is awaited; this bounds the wait.
 const REPLY_MS: i32 = 1000;
 
 const EVISIONV2_MATRIX: [&[u32]; 6] = [
@@ -190,7 +190,7 @@ mod tests {
     use rec::*;
 
     #[test]
-    fn tables_match_openrgb() {
+    fn table_sizes() {
         for (m, keys) in [
             (&EVISIONV2_MATRIX, &EVISIONV2_MAP[..]),
             (&ENDORFY_MATRIX, &ENDORFY_MAP[..]),

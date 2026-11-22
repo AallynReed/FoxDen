@@ -1,4 +1,4 @@
-//! PNY XLR8 REVEL Lovelace graphics cards (protocol learned from SignalRGB's PNY_XLR8_REVEL_Lovelace_GPU.js).
+//! PNY XLR8 REVEL Lovelace graphics cards.
 
 use foxden_core::{Backend, Color};
 use foxden_smbus::i2c::SharedBus;

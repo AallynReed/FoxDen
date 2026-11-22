@@ -14,7 +14,7 @@ const DIRECT: u8 = 0x01;
 /// Logo, then the LED strip.
 const ZONES: [u8; 2] = [0x00, 0x01];
 
-/// SetDirectMode: resets the zone so it takes direct colours. OpenRGB leaves bytes 5.. unset; these are zero.
+/// SetDirectMode: resets the zone so it takes direct colours. Bytes 5.. are zero.
 pub fn direct_mode(zone: u8) -> [u8; 20] {
     let mut r = [0u8; 20];
     r[..5].copy_from_slice(&[0x11, 0xFF, 0x04, 0xCA, zone]);
@@ -105,13 +105,13 @@ mod tests {
 
     // LogitechG933Controller::SetDirectMode.
     #[test]
-    fn direct_mode_matches_openrgb() {
+    fn direct_mode_bytes() {
         assert_eq!(direct_mode(1)[..6], [0x11, 0xFF, 0x04, 0xCA, 0x01, 0x00]);
     }
 
     // LogitechG933Controller::SendHeadsetMode with LOGITECH_G933_MODE_DIRECT.
     #[test]
-    fn color_matches_openrgb() {
+    fn color_bytes() {
         assert_eq!(
             color(0, Color(7, 8, 9)),
             [

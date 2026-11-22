@@ -1,5 +1,4 @@
-//! LED layouts of Corsair Bragi peripherals (from SignalRGB's Corsair_Bragi_Device.js `DeviceList`
-//! and `ProductIDList`).
+//! LED layouts of Corsair Bragi peripherals.
 
 pub struct Model {
     pub key: &'static str,

@@ -84,7 +84,7 @@ impl Backend for FusionGpu {
         }
         let &color = colors.first().ok_or("no colour")?;
         let bus = lock(&self.bus);
-        // DeviceUpdateMode for Direct: static, speed 0, full brightness.
+        // Direct mode: static, speed 0, full brightness.
         if !self.direct {
             command(
                 bus.as_ref(),
@@ -191,7 +191,6 @@ pub(super) const DEVICES: &[Entry] = &[
     ("Gigabyte GeForce RTX 4060 Ti AERO OC", 0x10DE, 0x2803, 0x1458, 0x4113, 0x71),
     ("Gigabyte GeForce RTX 4070 Ti SUPER AERO OC", 0x10DE, 0x2705, 0x1458, 0x413F, 0x71),
     ("Gigabyte GeForce RTX 4070 Ti SUPER EAGLE OC", 0x10DE, 0x2705, 0x1458, 0x413E, 0x71),
-    // From SignalRGB's Gigabyte_Gen1_GPU.js.
     ("Gigabyte 1070 G1 Gaming", 0x10DE, 0x1B81, 0x1458, 0x3701, 0x48),
     ("Gigabyte 1080 AORUS 8GB", 0x10DE, 0x1B80, 0x1458, 0x377D, 0x47),
     ("Gigabyte 1080 AORUS 8GB", 0x10DE, 0x1B80, 0x1458, 0x377E, 0x47),
@@ -260,7 +259,7 @@ mod tests {
         }
     }
 
-    // GigabyteRGBFusionGPUControllerDetect.cpp has 87 REGISTER_I2C_PCI_DETECTOR lines; SignalRGB adds 29
+    // 87 base rows, then 29 more
     #[test]
     fn table() {
         assert_eq!(DEVICES.len(), 87 + 29);
@@ -278,7 +277,7 @@ mod tests {
         assert!(DEVICES.iter().all(|e| e.1 == 0x10DE));
     }
 
-    // TestForGigabyteRGBFusionGPUController at an ordinary address
+    // Probe at an ordinary address
     #[test]
     fn detection() {
         let (bus, log) = card(info(0x1C81, 0x372B), &[0xAB, 0x14, 0x00, 0x00]).share();
@@ -300,7 +299,7 @@ mod tests {
         );
     }
 
-    // TestForGigabyteRGBFusionGPUController: bad answers, and a failed first write
+    // Probe: bad answers, and a failed first write
     #[test]
     fn detection_rejects() {
         let (bus, log) = card(info(0x1C81, 0x372B), &[0xAB, 0x13, 0, 0]).share();
@@ -315,7 +314,7 @@ mod tests {
         assert_eq!(*log.lock().unwrap(), ["byte 47 ab"]);
     }
 
-    // TestForGigabyteRGBFusionGPUController at 0x62: four extra zero bytes
+    // Probe at 0x62: four extra zero bytes
     #[test]
     fn detection_padded() {
         let (bus, log) = card(info_for(entry(0x62)), &[0xAB, 0x10, 0, 0]).share();
@@ -331,14 +330,14 @@ mod tests {
         assert_eq!(log[8..], ["read 62"; 4]);
     }
 
-    // TestForGigabyteRGBFusionGPUController at 0x48: passes whatever it reads
+    // Probe at 0x48: passes whatever it reads
     #[test]
     fn detection_48() {
         let (bus, log) = Script::new(info_for(entry(0x48))).share();
         let found = detect(&bus);
         assert_eq!(found.len(), 1);
         assert!(found[0].devices()[0].id.ends_with(":48"));
-        // The Rev A1 line shares these ids at 0x47 and is probed first, as OpenRGB runs every match.
+        // The Rev A1 line shares these ids at 0x47 and is probed first, as every match runs.
         let log = log.lock().unwrap();
         assert_eq!(log.len(), 16);
         assert_eq!(
@@ -347,7 +346,7 @@ mod tests {
         );
     }
 
-    // RGBFusionGPUController::SetMode for Direct, then SetColor
+    // Direct mode, then the colour
     #[test]
     fn direct_frames() {
         let (bus, log) = card(info(0x1C81, 0x372B), &[0xAB, 0x14, 0, 0]).share();
@@ -376,7 +375,7 @@ mod tests {
         );
     }
 
-    // RGBFusionGPUController::SetMode and SetColor at 0x62, each padded
+    // Mode and colour at 0x62, each padded
     #[test]
     fn direct_frames_padded() {
         let (bus, log) = card(info_for(entry(0x62)), &[0xAB, 0x10, 0, 0]).share();

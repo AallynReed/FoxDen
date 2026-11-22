@@ -15,7 +15,7 @@ const CORE: u16 = 0x0C1C;
 const CORE2: u16 = 0x0C32;
 const XT: u16 = 0x0C2A;
 const FANS: usize = 6;
-/// OpenRGB starts each fan header at 0 LEDs; 34 is its maximum and the stride of every header.
+/// Fan headers report no size; 34 is the maximum and the stride of every header.
 const FAN_LEDS: usize = 34;
 const REPLY_MS: i32 = 500;
 
@@ -267,7 +267,7 @@ fn layout(zones: &[usize]) -> Vec<[f32; 2]> {
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "corsair commander core", |hid| {
         let (size, counts) = handshake(hid, info.pid)?;
-        // The XT's first zone is the external header, which OpenRGB leaves at 0 LEDs.
+        // The XT's first zone is the external header, which starts at 0 LEDs.
         let pump = if info.pid == XT {
             0
         } else {
@@ -426,7 +426,7 @@ mod tests {
         assert_eq!(led_counts(&res), vec![29, 34, 300]);
     }
 
-    // SetDirectColor: pump packed, fans padded to 34 with zeros (OpenRGB leaves them uninitialised)
+    // SetDirectColor: pump packed, fans padded to 34 with zeros
     #[test]
     fn color_data_pads_fans() {
         let colors: Vec<Color> = (0..5).map(|i| Color(i, 10 + i, 20 + i)).collect();

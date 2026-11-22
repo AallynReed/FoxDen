@@ -1,4 +1,4 @@
-//! Cololight Hexa and Strip (protocol learned from SignalRGB's Cololight.js).
+//! Cololight Hexa and Strip.
 
 use super::net;
 use foxden_core::{Backend, Color, Device, DeviceKind};

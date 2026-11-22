@@ -1,4 +1,4 @@
-//! ASUS keyboard layouts (protocol learned from SignalRGB's ASUS_Keyboard.js device library).
+//! ASUS keyboard layouts.
 
 use super::KbLayout;
 use foxden_hid::registry::Detector;

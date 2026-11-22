@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-/// Baseboard manufacturer and product, as OpenRGB's DMIInfo reports them.
+/// Baseboard manufacturer and product.
 #[derive(Clone, Debug, Default)]
 pub struct Dmi {
     pub manufacturer: String,

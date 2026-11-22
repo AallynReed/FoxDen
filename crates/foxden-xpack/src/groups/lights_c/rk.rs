@@ -1,4 +1,4 @@
-//! Royal Kludge keyboards (protocol learned from SignalRGB's RK_Keyboard_Controller.js).
+//! Royal Kludge keyboards.
 
 mod layouts;
 
@@ -17,7 +17,7 @@ const FIRST_DATA: usize = 61;
 const ZONE_DATA: usize = 62;
 const BUFFER: usize = FIRST_DATA + 6 * ZONE_DATA;
 
-/// A key layout: wire slot and SignalRGB canvas cell per key, in plugin order.
+/// A key layout: wire slot and canvas cell per key.
 pub struct Layout {
     pub w: u32,
     pub h: u32,
@@ -26,7 +26,7 @@ pub struct Layout {
 }
 
 /// Every collection of one interface that shares a usage, tried in order; the one that takes a
-/// report id is remembered for it (SignalRGB picks these by collection number).
+/// report id is remembered for it.
 pub struct Collections {
     devs: Vec<HidDevice>,
     pick: HashMap<u8, usize>,

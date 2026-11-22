@@ -11,16 +11,16 @@ use crate::registry::{Detector, Info};
 const V2_VID: u16 = 0x2023;
 const V4_VID: u16 = 0x2486;
 const YICO_VID: u16 = 0x1368;
-/// OpenRGB starts every channel at 0 LEDs and keeps the count in a byte; this is the count assumed.
+/// Channels report no size and keep the count in a byte; this is the count assumed.
 const CHANNEL_LEDS: usize = 60;
 const V4_FIRST: usize = 316;
 const V4_NEXT: usize = 340;
 const FS_PER_PACKET: usize = 21;
-/// LEDs that fit OpenRGB's RGBData buffers: 24 V4 packets, and 1801 colours for V1/V3.
+/// LEDs that fit the colour buffers: 24 V4 packets, and 1801 colours for V1/V3.
 const V4_MAX_TOTAL: usize = V4_FIRST + 23 * V4_NEXT;
 const FS_MAX_TOTAL: usize = 1800;
 
-/// (pid, channels, LEDs per channel, protocol version) from `DRGBDevices.cpp`.
+/// (pid, channels, LEDs per channel, protocol version).
 const DEVICES: [(u16, usize, usize, u8); 33] = [
     (0x3608, 8, 512, 4),
     (0x3616, 16, 256, 4),
@@ -178,7 +178,7 @@ fn v2(colors: &[Color], zones: &[usize]) -> Vec<Vec<u8>> {
     out
 }
 
-/// The keepalive report: `0x65`, the rest of OpenRGB's uninitialised buffer sent as zeros.
+/// The keepalive report: `0x65`, the rest zeros.
 fn sleep_report() -> Vec<u8> {
     fs_report(&[0x65])
 }
@@ -405,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn default_counts_fit_openrgb_buffers() {
+    fn default_counts_fit_buffers() {
         for &(_, channels, per, version) in &DEVICES {
             let n = CHANNEL_LEDS.min(per);
             assert!(n < 256);

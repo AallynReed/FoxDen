@@ -19,7 +19,7 @@ const MODE_PULSE: u8 = 0x02;
 /// The Direct mode's default brightness.
 const BRIGHTNESS: u8 = 100;
 
-/// TestForGigabyteRGBFusion2DRAMController
+/// Probe.
 fn test(io: &Io, a: u8) -> bool {
     if io.quick(a) < 0 {
         return false;
@@ -51,7 +51,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     ))]
 }
 
-/// RGBFusion2DRAMController, whose LED buffer persists between calls.
+/// The controller, whose LED buffer persists between calls.
 pub struct Fusion {
     led_data: [u8; 32],
     direct_initialized: bool,
@@ -82,7 +82,7 @@ impl Fusion {
 impl Proto for Fusion {
     const START_SENDS_FRAME: bool = true;
 
-    /// DeviceUpdateMode is DeviceUpdateLEDs.
+    /// Entering the mode is an LED update.
     fn start(&mut self, io: &Io, zones: &[Vec<Color>]) {
         self.frame(io, zones, 0);
     }

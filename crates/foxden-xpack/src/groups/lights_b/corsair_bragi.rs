@@ -1,5 +1,4 @@
-//! Corsair Bragi headsets and their slipstream dongles: Virtuoso Max, Void Wireless V2, HS80 Max
-//! (protocol learned from SignalRGB's Corsair_Headset_Controller_Bragi.js).
+//! Corsair Bragi headsets and their slipstream dongles: Virtuoso Max, Void Wireless V2, HS80 Max.
 
 use std::time::Instant;
 

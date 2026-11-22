@@ -6,7 +6,7 @@ use hidapi::HidApi;
 use super::{Driver, Io, at, backend, device, on_ip, on_ipu, open_io};
 use crate::registry::{Detector, Info};
 
-/// `VS_MODE_STATIC`: the monitors have no Direct mode, so OpenRGB drives their two LEDs per LED
+/// `VS_MODE_STATIC`: the monitors have no Direct mode, so their two LEDs are driven per LED
 /// through Static (QC) and Custom (QG). Both modes are AUTOMATIC_SAVE.
 const MODE_STATIC: u8 = 0x01;
 const QG_LEN: usize = 0x20;

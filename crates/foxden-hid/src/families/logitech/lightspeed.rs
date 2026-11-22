@@ -20,7 +20,7 @@ const PAGE_8070: u16 = 0x8070;
 const PAGE_8071: u16 = 0x8071;
 const LED_ON: u16 = 0x0001;
 
-/// A 20-byte HID++ request. OpenRGB's function bytes here carry their own software id, if any.
+/// A 20-byte HID++ request. The function bytes here carry their own software id, if any.
 pub fn long(device: u8, feature: u8, command: u8, data: &[u8]) -> [u8; 20] {
     let mut r = [0u8; 20];
     r[..4].copy_from_slice(&[0x11, device, feature, command]);
@@ -163,7 +163,7 @@ fn rgb_config(hid: &dyn Hid, index: u8, rgb: u8, page: u16) -> BTreeMap<u8, Vec<
         }
     } else if page == PAGE_8071 {
         let (b, _) = request(hid, &long(index, rgb, 0x00, &[0xFF, 0xFF, 0, 0, 0]));
-        // led_response is a uint8_t in OpenRGB
+        // the LED count is kept in a byte
         let count = ((b[5] as u16) << 8 | b[6] as u16) as u8;
         for i in 0..count {
             let (b, _) = request(hid, &long(index, rgb, 0x00, &[i, 0xFF, 0, 0, 0]));
@@ -430,9 +430,9 @@ mod tests {
         r
     }
 
-    // getFeatureIndex, setDirectMode, set8071Effects in LogitechProtocolCommon.cpp.
+    // getFeatureIndex, setDirectMode and set8071Effects requests.
     #[test]
-    fn requests_match_openrgb() {
+    fn request_bytes() {
         assert_eq!(get_feature(0xFF, 0x8070).to_vec(), hex("11 FF 00 01 80 70"));
         assert_eq!(sw_control(0x01, 0x0B).to_vec(), hex("11 01 0B 80 01 01"));
         assert_eq!(
@@ -447,7 +447,7 @@ mod tests {
 
     // logitech_device::setMode for Direct (LED_ON): no speed or brightness, data[12] is the 8071 persistence.
     #[test]
-    fn set_zone_matches_openrgb() {
+    fn set_zone_bytes() {
         let mut node = Node {
             index: 0xFF,
             name: "Mouse".into(),
@@ -471,7 +471,7 @@ mod tests {
 
     // logitech_device::initialiseDevice (getDeviceName, getFeatureIndex, getRGBconfig on 8070).
     #[test]
-    fn wired_8070_discovery_matches_openrgb() {
+    fn wired_8070_discovery() {
         let log = Log::default();
         let hid = Fake::new(log.clone(), mouse_8070);
         let node = discover(None, &hid, 0xFF).unwrap();
@@ -502,7 +502,7 @@ mod tests {
 
     // getRGBconfig on 8071: count with FF FF, LED info with i FF, effects through GET_COUNT (0x00).
     #[test]
-    fn wired_8071_discovery_matches_openrgb() {
+    fn wired_8071_discovery() {
         let log = Log::default();
         let hid = Fake::new(log.clone(), |req: &[u8]| {
             let r = match req[..4] {
@@ -602,7 +602,7 @@ mod tests {
 
     // getWirelessDevice: enable notifications, read the count, fake a reconnect and collect slots.
     #[test]
-    fn paired_matches_openrgb() {
+    fn paired_discovery() {
         let log = Log::default();
         let hid = Fake::new(log.clone(), |req: &[u8]| match req {
             [0x10, 0xFF, 0x81, 0x00, ..] => vec![vec![0x10, 0xFF, 0x81, 0x00, 0x00, 0x00, 0x00]],

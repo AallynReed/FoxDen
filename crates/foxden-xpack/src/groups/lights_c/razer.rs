@@ -1,6 +1,4 @@
-//! Razer misc devices (protocol learned from SignalRGB's Razer_Chroma_Light_Strip_Set.js,
-//! Razer_Blackwidow_Ultimate_2013_2014_Keyboard.js, Razer_Nari_Headset_Controller.js and
-//! Razer_Seiren_V3_Mic.js).
+//! Razer misc devices.
 
 use super::common::{line, open_with, positioned};
 use crate::hid::{Io, Proto, open_sibling};

@@ -39,7 +39,7 @@ fn table(pid: u16, numpad: u8) -> &'static [Layout] {
     }
 }
 
-/// The layout for GetLayout's answer, already cut to a byte as OpenRGB stores it.
+/// The layout for GetLayout's answer, already cut to a byte.
 pub fn pick(table: &'static [Layout], raw: u8) -> Option<&'static Layout> {
     let id = if table.iter().any(|l| l.id == raw % 100) {
         raw % 100

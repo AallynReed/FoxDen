@@ -70,7 +70,7 @@ mod tests {
 
     // LogitechG600Controller::SetMode with Direct's value and speed.
     #[test]
-    fn direct_matches_openrgb() {
+    fn direct_mode_bytes() {
         assert_eq!(direct(Color(1, 2, 3)), [0xF1, 1, 2, 3, 0, 0, 0, 0]);
     }
 

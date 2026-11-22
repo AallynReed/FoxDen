@@ -6,7 +6,7 @@ use foxden_core::{Backend, Color, Device, DeviceKind};
 
 use crate::i2c::{BusInfo, Result, SharedBus, SmBus, lock};
 
-/// OpenRGB's std::this_thread::sleep_for, recorded instead of slept in tests.
+/// A sleep, recorded instead of slept in tests.
 pub fn delay(ms: u64) {
     #[cfg(test)]
     super::fake::log(super::fake::Op::Sleep(ms));
@@ -14,7 +14,7 @@ pub fn delay(ms: u64) {
     std::thread::sleep(std::time::Duration::from_millis(ms));
 }
 
-/// IF_DRAM_SMBUS from pci_ids.h.
+/// Whether DRAM can sit on this bus.
 pub fn is_dram_smbus(info: &BusInfo) -> bool {
     const INTEL: &[u16] = &[
         0x3A30, 0xA123, 0x2085, 0xA2A3, 0xA323, 0x06A3, 0xA3A3, 0x43A3, 0x7AA3, 0x7A23, 0x7F23,
@@ -23,8 +23,8 @@ pub fn is_dram_smbus(info: &BusInfo) -> bool {
         || (info.pci_vendor == 0x8086 && INTEL.contains(&info.pci_device))
 }
 
-/// The bus with i2c_smbus_interface's int results (negative on error), locked per call.
-/// Failures are remembered so a push can report them while still running on like OpenRGB.
+/// The bus with int results (negative on error), locked per call.
+/// Failures are remembered so a push can report them while still running on.
 pub struct Io<'a> {
     bus: &'a SharedBus,
     err: RefCell<Option<String>>,
@@ -105,11 +105,11 @@ impl<'a> Io<'a> {
 
 /// One family's direct-mode protocol over its zones, each zone one Device.
 pub trait Proto: Send {
-    /// OpenRGB's DeviceUpdateMode for the software-control mode.
+    /// Enters the software-control mode.
     fn start(&mut self, io: &Io, zones: &[Vec<Color>]);
-    /// OpenRGB's DeviceUpdateZoneLEDs (DeviceUpdateLEDs for one-zone devices).
+    /// Pushes one zone's colours.
     fn frame(&mut self, io: &Io, zones: &[Vec<Color>], zone: usize);
-    /// DeviceUpdateMode already sends every LED.
+    /// Entering the mode already sends every LED.
     const START_SENDS_FRAME: bool = false;
 }
 

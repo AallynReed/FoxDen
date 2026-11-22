@@ -186,7 +186,7 @@ impl Driver for V2 {
         reg_write(io, self.addr, V2_WRITE_MODE, m, V2_DELAY);
     }
 
-    // DeviceUpdateLEDs: both banks when every LED matches, otherwise the LEDs that changed.
+    // LED update: both banks when every LED matches, otherwise the LEDs that changed.
     fn update(&mut self, io: &Io, colors: &[Color], _: Option<&[Color]>) {
         if colors.windows(2).all(|w| w[0] == w[1]) {
             reg_write(io, self.addr, V2_WRITE_RGB1, rgb(colors[0]), V2_DELAY);
@@ -210,7 +210,7 @@ mod tests {
     const V1_CARD: &str = "PowerColor Red Devil RX6800XT";
     const V2_CARD: &str = "PowerColor Red Devil RX7900XTX";
 
-    // DetectPowerColorRedDevilGPUControllersV1: AMD ADL bus and the V1 magic.
+    // Probe: AMD ADL bus and the V1 magic.
     #[test]
     fn v1_detect() {
         let bus = Fake::new("NVIDIA", ids(POWERCOLOR_V1, V1_CARD))
@@ -225,7 +225,7 @@ mod tests {
         assert_eq!(take(), s(&["rblk 22 90 3"]));
     }
 
-    // RGBController_PowerColorRedDevilV1: GetMode, DeviceUpdateMode, DeviceUpdateLEDs.
+    // V1 setup: mode read, mode change, LEDs.
     #[test]
     fn v1_direct_and_frame() {
         let bus = Fake::new("AMD ADL", ids(POWERCOLOR_V1, V1_CARD))
@@ -301,7 +301,7 @@ mod tests {
         assert!(run(&[detect_v2], &bad.shared()).is_empty());
     }
 
-    // DeviceUpdateMode (Static: sync off, mode), then DeviceUpdateLEDs against colors_copy.
+    // Static mode (sync off, mode), then the LEDs against the last colours.
     #[test]
     fn v2_direct_and_frame() {
         let bus = v2_bus().shared();

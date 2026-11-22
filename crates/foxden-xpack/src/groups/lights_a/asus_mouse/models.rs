@@ -1,4 +1,4 @@
-//! ASUS mouse models (protocol learned from SignalRGB's Asus_Mouse.js device library).
+//! ASUS mouse models.
 
 use super::{Model, Wire};
 use foxden_hid::registry::Detector;

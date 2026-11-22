@@ -8,7 +8,7 @@ use crate::registry::{Detector, Info};
 
 const VID: u16 = 0x1B1C;
 const BLOCK_LEDS: usize = 16;
-/// OpenRGB starts the fan header at 0 LEDs; this is its maximum.
+/// The fan header reports no size; this is its maximum.
 const FAN_LEDS: usize = 32;
 const MAGIC_1: u8 = 0b001;
 const MAGIC_2: u8 = 0b010;
@@ -218,7 +218,7 @@ mod tests {
     use super::super::test_util::bytes;
     use super::*;
 
-    // CRC_TABLE in CorsairHydroPlatinumController.cpp
+    // CRC table
     #[test]
     fn pec_matches_crc_table() {
         assert_eq!(pec(&[0x01]), 0x07);

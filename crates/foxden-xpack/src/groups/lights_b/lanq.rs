@@ -1,4 +1,4 @@
-//! LANQ PCDOCK light strip (protocol learned from SignalRGB's PCDOCK_Light_strip.js).
+//! LANQ PCDOCK light strip.
 
 use super::{STRIP, boxed, det, row};
 use crate::hid::{Io, Proto, rgb};
@@ -7,7 +7,7 @@ use foxden_hid::registry::{Detector, Info};
 use hidapi::HidApi;
 
 const FAMILY: &str = "lanq-pcdock";
-/// SignalRGB sizes the strip from its component list; FoxDen drives a fixed 60.
+/// A fixed 60 LEDs.
 const LEDS: usize = 60;
 const PER_PACKET: usize = 20;
 const LEN: usize = 65;

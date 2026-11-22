@@ -48,7 +48,7 @@ pub struct Zone {
     pub rgswap: bool,
 }
 
-/// READ_HEADER request; OpenRGB writes 65 bytes except for header 1, which it writes as 64.
+/// READ_HEADER request: 65 bytes, except 64 for header 1.
 pub fn read_header(cfg: u8, len: usize) -> Vec<u8> {
     let mut b = vec![0u8; len];
     b[1] = READ_HEADER;

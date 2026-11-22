@@ -1643,7 +1643,7 @@ impl<L: Link> Hidpp<L> {
     }
 
     /// `DeviceUpdateLEDs` in Direct mode. Unchanged colours are skipped unless a first paint
-    /// is still waiting for its retry, which OpenRGB's power thread would run.
+    /// is still waiting for its retry.
     pub fn update(&mut self, zones: &[u16], colors: &[Color], changed: bool) -> Result<(), String> {
         let retry = self.retry_at.is_some_and(|t| Instant::now() >= t);
         if !changed && !retry {

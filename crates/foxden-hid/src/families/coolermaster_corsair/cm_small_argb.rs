@@ -8,7 +8,7 @@ use crate::registry::{Detector, Info};
 
 const TIMEOUT: i32 = 250;
 const DIRECT: u8 = 0xFE;
-/// OpenRGB leaves the header size to the user, up to 48; FoxDen starts at 48.
+/// The header size is not reported, up to 48; FoxDen starts at 48.
 const LEDS: usize = 48;
 const FW0012: &str = "A202104052336";
 

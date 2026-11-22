@@ -1,4 +1,4 @@
-//! Lian Li HydroShift II OLED Curve LED AIO (protocol learned from SignalRGB's Lian_Li_HydroShift_II_OLED_Curve_LED.js).
+//! Lian Li HydroShift II OLED Curve LED AIO.
 
 use super::usb::{self, Shared, Usb, UsbDriver, UsbProto};
 use crate::fan::{Channel, FanHub, with_device};

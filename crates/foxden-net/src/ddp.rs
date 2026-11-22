@@ -43,7 +43,7 @@ fn packets(devices: &[DdpDevice], colors: &[Color], sequence: u8) -> Vec<(usize,
     out
 }
 
-/// `DetectDDPControllers`: devices sharing an address and port make one controller.
+/// Devices sharing an address and port make one controller.
 fn group(devices: &[DdpDevice]) -> Vec<Vec<DdpDevice>> {
     let mut lists: Vec<Vec<DdpDevice>> = Vec::new();
     for (n, dev) in devices.iter().enumerate() {

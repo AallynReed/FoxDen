@@ -1,4 +1,4 @@
-//! Corsair Vanguard 96 keyboard, Bragi lighting controller (protocol learned from SignalRGB's Corsair_Vanguard_96.js).
+//! Corsair Vanguard 96 keyboard, Bragi lighting controller.
 
 use super::super::common::{KEYBOARD_RECT, full, keyed};
 use super::layouts::{VANGUARD, VANGUARD_CELLS};

@@ -13,7 +13,7 @@ const REG_COLOR_B_RED: u8 = 0x70;
 const MODE_STATIC: u8 = 0x01;
 const BRIGHTNESS_DEFAULT: u8 = 0x64;
 
-// DetectEVGATuringGPUControllers has no probe. The constructor's mode read decides whether
+// No probe. The setup's mode read decides whether
 // Direct keeps the card's brightness; the other readbacks only fill the UI.
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_each(bus, EVGA_TURING, |bus, card| {
@@ -90,7 +90,7 @@ mod tests {
 
     const CARD: &str = "EVGA GeForce RTX 2080 SUPER FTW3 Ultra";
 
-    // RGBController_EVGAGPUv2 constructor: GetMode, and the card's brightness when it is static.
+    // Setup: the mode, and the card's brightness when it is static.
     #[test]
     fn detect_reads_mode() {
         let bus = Fake::new("NV", ids(EVGA_TURING, CARD))
@@ -103,7 +103,7 @@ mod tests {
         assert!(log.contains(&"wr 49 6f 30".to_string()));
     }
 
-    // EVGAGPUv2Controller::SetMode (static) then SetColor, default brightness 0x64.
+    // Static mode then the colour, default brightness 0x64.
     #[test]
     fn direct_and_frame() {
         let bus = Fake::new("NV", ids(EVGA_TURING, CARD))

@@ -249,7 +249,7 @@ fn open(ip: &str, sku: &str) -> Option<Light> {
         razer: found.is_some(),
         started: false,
     };
-    // DeviceUpdateMode for Direct: switch razer streaming on.
+    // Direct mode: switch razer streaming on.
     if govee.razer {
         govee.write(&razer_enable()).ok()?;
     }

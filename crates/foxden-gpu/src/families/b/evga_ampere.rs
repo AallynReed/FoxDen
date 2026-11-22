@@ -81,7 +81,7 @@ impl V3 {
 }
 
 impl Driver for V3 {
-    // DeviceUpdateMode: DeviceUpdateLEDs, then SetAllModes(static x4, sync).
+    // Mode change: the LEDs, then every mode set to static x4, synced.
     fn setup(&mut self, io: &Io, colors: &[Color]) {
         self.update(io, colors, None);
         init_card(io, self.addr);
@@ -115,7 +115,7 @@ mod tests {
         Fake::new("NV", ids(EVGA_AMPERE, CARD)).block(0x2D, 0xB1, &[6, 0, 0, 0, 1, 2])
     }
 
-    // DetectEVGAAmpereGPUControllers: no firmware reply, no device.
+    // No firmware reply, no device.
     #[test]
     fn detect_needs_firmware() {
         let bus = Fake::new("NV", ids(EVGA_AMPERE, CARD))
@@ -150,7 +150,7 @@ mod tests {
         assert_eq!(log[0], "wblk 2d c1 04 40 01 02 03");
     }
 
-    // RGBController_EVGAGPUv3::DeviceUpdateMode then per zone SetZone.
+    // Mode change, then each zone's colour.
     #[test]
     fn direct_and_frame() {
         let bus = card()

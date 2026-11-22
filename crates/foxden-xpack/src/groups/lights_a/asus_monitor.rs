@@ -1,4 +1,4 @@
-//! ASUS ROG Swift monitors (protocol learned from SignalRGB's ASUS_Monitor_Controller.js).
+//! ASUS ROG Swift monitors.
 
 use super::common::{SMALL_RECT, full, keyed};
 use crate::hid::{Driver, Io, Proto, open_io};

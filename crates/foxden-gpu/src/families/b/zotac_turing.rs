@@ -40,7 +40,7 @@ struct Turing {
 impl Driver for Turing {
     fn setup(&mut self, _io: &Io, _colors: &[Color]) {}
 
-    // ZotacTuringGPUController::SetMode, then the read back that keeps the controller from hanging
+    // Mode write, then the read back that keeps the controller from hanging
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         let Color(r, g, b) = colors[0];
         let pkt = [
@@ -65,7 +65,7 @@ mod tests {
 
     const CARD: &str = "ZOTAC GAMING GeForce RTX 2080 AMP";
 
-    // TestForZotacTuringGPUController, then GetMode for the initial speed.
+    // Probe, then the mode read for the initial speed.
     #[test]
     fn detect_and_speed() {
         let bus = Fake::new("NV", ids(ZOTAC_TURING, CARD))

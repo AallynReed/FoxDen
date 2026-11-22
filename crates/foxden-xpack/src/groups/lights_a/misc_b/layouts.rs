@@ -1,4 +1,4 @@
-//! Layouts for misc_b (protocol learned from SignalRGB's CoolerMaster, EVGA, EVision and Corsair_Vanguard_96 plugins).
+//! Layouts for misc_b.
 
 pub static CK720: &[u8] = &[
     0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 70, 1, 11, 16, 21, 26, 31, 36, 41, 46, 51,

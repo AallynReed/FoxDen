@@ -1,11 +1,10 @@
-//! The bus interface every SMBus and graphics-card I2C driver uses, shaped like OpenRGB's
-//! i2c_smbus_interface so ported drivers read the same.
+//! The bus interface every SMBus and graphics-card I2C driver uses.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use foxden_core::Backend;
 
-/// PCI identity of the controller behind a bus, which OpenRGB's PCI detectors match on.
+/// PCI identity of the controller behind a bus, which PCI detectors match on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BusInfo {
     pub name: String,

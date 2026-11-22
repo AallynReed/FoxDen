@@ -21,7 +21,7 @@ mod tforce_xtreem;
 
 type DramDetect = fn(&SharedBus, &Io, &mut [&mut Slot], &'static str) -> Vec<Box<dyn Backend>>;
 
-/// REGISTER_I2C_DRAM_DETECTOR rows, in OpenRGB's registration order.
+/// DRAM detectors, in probe order.
 const DRAM_DETECTORS: &[(&str, DramDetect, u16, u8)] = &[
     (
         "Corsair Vengeance RGB DRAM",
@@ -98,7 +98,7 @@ fn detect_dram(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     found
 }
 
-/// The I2C pass (Crucial, Gigabyte) runs before the DRAM pass, as in DetectionManager.
+/// The I2C pass (Crucial, Gigabyte) runs before the DRAM pass.
 pub fn all() -> Vec<Detect> {
     vec![crucial::detect, gigabyte_fusion2::detect, detect_dram]
 }

@@ -1,5 +1,4 @@
-//! Corsair Virtuoso and HS80 RGB headsets (protocol learned from SignalRGB's
-//! Corsair_Headset_Controller.js and Corsair_HS80_RGB_Wired_Gaming_Headset.js).
+//! Corsair Virtuoso and HS80 RGB headsets.
 
 use super::{HEADSET, boxed, det, placed};
 use crate::hid::{Io, Proto, drain, rgb};

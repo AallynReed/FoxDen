@@ -71,8 +71,7 @@ struct EpicX {
 }
 
 impl Driver for EpicX {
-    // DeviceUpdateMode for Direct: SetZoneMode(zone, 9, 0, 0xFF, 0, 0) per zone, then
-    // DeviceUpdateLEDs.
+    // Direct mode: zone mode (9, 0, 0xFF, 0, 0) per zone, then the LEDs.
     fn setup(&mut self, io: &Io, colors: &[Color]) {
         let mut zones = vec![ZONE_FRONT, ZONE_ARROW];
         if self.large {
@@ -88,7 +87,7 @@ impl Driver for EpicX {
         true
     }
 
-    // DeviceUpdateSingleLED (SetLEDDirect) for each changed LED.
+    // Each changed LED is written on its own.
     fn update(&mut self, io: &Io, colors: &[Color], prev: Option<&[Color]>) {
         for i in changed(colors, prev) {
             let (zone, idx) = self.map[i];
@@ -132,7 +131,7 @@ mod tests {
         );
     }
 
-    // RGBController_PNYARGBEpicXGPU::DeviceUpdateMode (Direct) and DeviceUpdateSingleLED.
+    // Direct mode and single-LED writes.
     #[test]
     fn direct_and_frame() {
         let large = Fake::new(

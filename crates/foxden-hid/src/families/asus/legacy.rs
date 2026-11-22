@@ -57,7 +57,7 @@ fn cerberus_report(head: &[u8]) -> [u8; 8] {
     b
 }
 
-/// The Cerberus has no Direct; its per-LED Custom mode is what OpenRGB drives.
+/// The Cerberus has no Direct; its per-LED Custom mode is driven instead.
 struct Cerberus;
 
 impl Proto for Cerberus {

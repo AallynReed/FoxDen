@@ -178,7 +178,7 @@ impl Driver for Horde {
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
         io.send_feature(&horde_colors(colors))?;
-        // OpenRGB reads the 3-byte answer into an uninitialised buffer; report 0x18 stands in.
+        // The 3-byte answer is read into a scratch buffer; report 0x18 stands in.
         let _ = io.get_feature(&mut [0x18, 0, 0]);
         Ok(())
     }
@@ -215,7 +215,7 @@ impl Driver for KoneAimo {
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
         io.send_feature(&kone_aimo_colors(colors))?;
-        // OpenRGB reads the answer into its colour buffer; a scratch buffer keeps byte 1 intact.
+        // A scratch buffer for the answer keeps byte 1 of the colours intact.
         let _ = io.get_feature(&mut [0x0D, 0, 0]);
         Ok(())
     }
@@ -305,7 +305,7 @@ pub fn kone_xp_default_mode() -> [u8; XP_MODE_LEN] {
     b
 }
 
-/// The Direct mode speed OpenRGB holds after reading the device's mode.
+/// The Direct mode speed held after reading the device's mode.
 pub fn kone_xp_direct_speed(read: &[u8; XP_MODE_LEN]) -> u8 {
     if read[30] == XP_DIRECT || !XP_MODES.contains(&read[30]) {
         read[31]
@@ -439,7 +439,7 @@ fn open_kova(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>
 const SENSE_DIRECT: u8 = 0x0B;
 const SENSE_MODES: [u8; 6] = [0x0B, 0x01, 0x0A, 0x03, 0x04, 0x09];
 
-/// SetMode(profile, direct) of the Sense Aimo, with the speed and brightness OpenRGB took from GetMode.
+/// SetMode(profile, direct) of the Sense Aimo, with the speed and brightness taken from GetMode.
 pub fn sense_set_direct(read: &[u8; 19], colors: &[Color]) -> [u8; 19] {
     let (speed, bright) = if read[2] == SENSE_DIRECT || !SENSE_MODES.contains(&read[2]) {
         (read[3], read[4])

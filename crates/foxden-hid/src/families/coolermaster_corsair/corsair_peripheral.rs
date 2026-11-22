@@ -935,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn layouts_match_openrgb_zone_sizes() {
+    fn layout_zone_sizes() {
         let n = |k| layout(k).1.len();
         assert_eq!(n(Kind::Keyboard(Logical::Normal, 0)), 113);
         assert_eq!(n(Kind::Keyboard(Logical::K95Plat, 0)), 139);

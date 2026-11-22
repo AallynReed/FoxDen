@@ -13,7 +13,7 @@ const SET_RGB: u8 = 0x00;
 const IDENTIFY: u8 = 0x5C;
 
 /// SetChannels: header, command, then each channel capped at 254.
-/// OpenRGB writes only `sizeof(char*)` bytes of this; the whole packet is sent here.
+/// The whole packet is sent.
 pub fn channels_packet(colors: &[Color]) -> Vec<u8> {
     let mut b = HEADER.to_vec();
     b.push(SET_RGB);

@@ -43,7 +43,7 @@ pub fn code(zone: u8, idx: u8) -> u8 {
     }
 }
 
-/// Changed keys grouped by colour, ordered like OpenRGB's `std::map<RGBColor, ...>`.
+/// Changed keys grouped by colour, ordered by colour value.
 /// With no previous frame every key counts as changed.
 pub fn by_color(leds: &[(u8, u8)], prev: Option<&[Color]>, new: &[Color]) -> Vec<(Color, Vec<u8>)> {
     let mut groups: BTreeMap<u32, (Color, Vec<u8>)> = BTreeMap::new();
@@ -68,7 +68,7 @@ mod tests {
 
     // The index switch in RGBController_LogitechG915::DeviceUpdateLEDs (same in G815).
     #[test]
-    fn key_codes_match_openrgb() {
+    fn key_codes() {
         assert_eq!(code(KEYBOARD, 0x04), 0x01);
         assert_eq!(code(KEYBOARD, 0x29), 0x26);
         assert_eq!(code(MODIFIERS, 0xE0), 0x68);

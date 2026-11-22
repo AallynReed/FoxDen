@@ -128,13 +128,13 @@ mod tests {
 
     // LogitechGLightsyncController::SetDirectMode(true).
     #[test]
-    fn direct_mode_matches_openrgb() {
+    fn direct_mode_bytes() {
         assert_eq!(direct_mode(), [0x10, 0xFF, 0x0E, 0x8A, 0x01, 0x01, 0x00]);
     }
 
     // LogitechGLightsyncController::UpdateMouseLED for Direct (sent as Static, speed 0).
     #[test]
-    fn zone_matches_openrgb() {
+    fn zone_bytes() {
         assert_eq!(
             zone(0x3C, 0, Color(1, 2, 3))[..11],
             [

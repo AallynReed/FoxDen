@@ -14,7 +14,7 @@ const REG_START: u8 = 0xFF;
 const MODE_DIRECT: u8 = 0x07;
 const SIGNATURE: [u8; 8] = *b"MICSYS_D";
 
-/// DetectPatriotViperControllers
+/// Detection.
 pub fn detect(
     bus: &SharedBus,
     io: &Io,
@@ -63,7 +63,7 @@ impl Proto for Viper {
         register_write(io, REG_MODE, MODE_DIRECT, 0x00, 0x00);
     }
 
-    /// DeviceUpdateLEDs with direct set: the four-argument SetLEDColor per LED.
+    /// LED update with direct set: the four-argument colour write per LED.
     fn frame(&mut self, io: &Io, zones: &[Vec<Color>], _zone: usize) {
         for (led, c) in zones[0].iter().enumerate() {
             register_write(io, REG_LED0_EFFECT_COLOR + led as u8, c.0, c.2, c.1);
@@ -96,9 +96,9 @@ mod tests {
         (bus, found)
     }
 
-    // DetectPatriotViperControllers: write_quick 0x77, then manufacturer bytes 0..7 per slot.
+    // Detection: write_quick 0x77, then manufacturer bytes 0..7 per slot.
     // Each accessor still caches page 1 from its JEDEC read, but the scan of the empty slots left
-    // the EE1004 on page 0, so OpenRGB reads offset 0x61.. of page 0 without a page switch.
+    // the EE1004 on page 0, so offset 0x61.. is read of page 0 without a page switch.
     #[test]
     fn detection_reads_cached_page() {
         let (_, found) = scan_two(true);

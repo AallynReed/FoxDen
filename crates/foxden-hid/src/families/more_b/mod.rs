@@ -281,7 +281,7 @@ pub(super) fn rows(counts: &[usize]) -> (Vec<[f32; 2]>, [u32; 2]) {
     (leds, [width as u32, n as u32])
 }
 
-/// LEDs at their cells of an OpenRGB matrix map (`NA` is empty); others go to `fallback`.
+/// LEDs at their cells of a matrix map (`NA` is empty); others go to `fallback`.
 pub(super) fn matrix(
     map: &[u32],
     width: usize,
@@ -468,8 +468,8 @@ mod tests {
     }
 
     #[test]
-    fn detector_counts_match_openrgb() {
-        // REGISTER_* lines per Detect.cpp; Wooting expands each REGISTER_WOOTING_DETECTOR to three.
+    fn detector_counts() {
+        // Known detector ids; Wooting expands each REGISTER_WOOTING_DETECTOR to three.
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
         assert_eq!(counts, [3, 3, 2, 2, 33, 2, 2, 2, 2]);
         assert_eq!(detectors().len(), 51);

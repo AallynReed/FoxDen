@@ -157,7 +157,7 @@ fn qck(bottom: Color, top: Color) -> Vec<Op> {
     vec![Op::Feature(b), Op::Write(padded(65, &[0x00, 0x0D]))]
 }
 
-/// 12-LED QcK Prism ring (Steelseries_Qck_Prism_Mousepad.js sendColors): 12-byte entries, then the commit.
+/// 12-LED QcK Prism ring: 12-byte entries, then the commit.
 fn qck_prism12(colors: &[Color]) -> Vec<Op> {
     let mut b = vec![0u8; 525];
     b[0x01] = 0x0E;
@@ -172,7 +172,7 @@ fn qck_prism12(colors: &[Color]) -> Vec<Op> {
     vec![Op::Feature(b), Op::Write(padded(65, &[0x00, 0x0D]))]
 }
 
-/// LED positions on the plugin's 5x5 canvas, starting at the left edge and running anticlockwise.
+/// LED positions on a 5x5 canvas, starting at the left edge and running anticlockwise.
 const PRISM12_RING: [(u8, u8); 12] = [
     (0, 2),
     (0, 3),
@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(ops[1], Op::Write(padded(65, &[0, 0x0D])));
     }
 
-    // Steelseries_Qck_Prism_Mousepad.js sendColors.
+    // QcK Prism 12-LED colours.
     #[test]
     fn qck_prism12_bytes() {
         let colors: Vec<Color> = (0..12).map(|i| Color(i + 1, 2, 3)).collect();

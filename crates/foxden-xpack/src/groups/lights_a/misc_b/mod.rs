@@ -1,4 +1,4 @@
-//! Cooler Master, Acer, EVGA, EVision, Flydigi and Corsair Vanguard devices (protocol learned from SignalRGB's plugins of those brands).
+//! Cooler Master, Acer, EVGA, EVision, Flydigi and Corsair Vanguard devices.
 
 mod coolermaster;
 mod evga;

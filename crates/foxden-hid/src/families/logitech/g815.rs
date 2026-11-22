@@ -24,7 +24,7 @@ const MATRIX: [[u8; 27]; 7] = [
     [116, NA, 98, 101, 100, NA, NA, NA, NA, 40, NA, NA, NA, NA, 104, 105, 97, 102, NA, 76, 77, 75, NA, 94, NA, 95, NA],
 ];
 
-/// (zone, index) of each LED in OpenRGB's led_names order.
+/// (zone, index) of each LED in led_names order.
 fn leds() -> Vec<(u8, u8)> {
     let mut v: Vec<_> = keys::usages(0x04, 0x65).collect();
     v.extend(MODIFIER_KEYS);
@@ -104,7 +104,7 @@ pub fn frames(groups: &[(Color, Vec<u8>)]) -> Vec<[u8; 20]> {
 
 pub struct G815 {
     hid: Box<dyn Hid>,
-    /// The 64-byte collection; OpenRGB opens it with the 20-byte one but never writes to it.
+    /// The 64-byte collection, opened with the 20-byte one but never written to.
     _wide: Box<dyn Hid>,
     device: Device,
     leds: Vec<(u8, u8)>,
@@ -197,9 +197,9 @@ mod tests {
         r
     }
 
-    // InitializeDirect, SendSingleLed and SendCommit in LogitechG815Controller.cpp.
+    // Direct setup, single-LED and commit reports.
     #[test]
-    fn direct_setup_matches_openrgb() {
+    fn direct_setup_bytes() {
         assert_eq!(
             direct_setup(),
             vec![
@@ -215,7 +215,7 @@ mod tests {
 
     // RGBController_LogitechG815::DeviceUpdateLEDs: big frames go out as built, little ones every 4 keys.
     #[test]
-    fn frames_match_openrgb_packing() {
+    fn frame_packing() {
         let red = Color(0xFF, 0, 0);
         let blue = Color(0, 0, 0xFF);
         let codes: Vec<u8> = (1..=17).collect();

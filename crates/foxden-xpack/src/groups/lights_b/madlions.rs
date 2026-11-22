@@ -1,4 +1,4 @@
-//! Madlions MAD 68 HE keyboard (protocol learned from SignalRGB's Madlions_MAD_68HE.js).
+//! Madlions MAD 68 HE keyboard.
 
 use super::layouts::{MAD68_MAP, MAD68_POS};
 use super::{KEYBOARD, boxed, by_index, det, placed};

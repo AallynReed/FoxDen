@@ -1,4 +1,4 @@
-//! ASUS keyboards, mouse pads and small Aura peripherals (protocol learned from SignalRGB's ASUS_Keyboard.js, ASUS_TUF_K1.js, ASUS_ROG_Claymore_I.js, ASUS_ROG_Claymore_II.js, Asus_ROG_Balteus.js, Asus_ROG_Balteus_Qi.js, Asus_ROG_Throne_Qi_Stand.js, ASUS_ROG_Spotlight.js and ASUS_ROG_Aura_Sync_Logo_Projector.js).
+//! ASUS keyboards, mouse pads and small Aura peripherals.
 
 mod claymore_layouts;
 mod layouts;

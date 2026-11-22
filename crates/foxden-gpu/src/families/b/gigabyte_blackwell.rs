@@ -42,7 +42,7 @@ impl Layout {
         }
     }
 
-    /// Hardware zones DeviceUpdateLEDs sends, more than the card shows, as GCC does.
+    /// Hardware zones the LED update sends, more than the card shows, as GCC does.
     fn hw_zones(self) -> u8 {
         match self {
             Layout::Single => 1,
@@ -63,7 +63,7 @@ impl Layout {
     }
 }
 
-/// TestForGigabyteRGBFusion2BlackwellGPUController
+/// Probe.
 fn test_for(io: &Io, addr: u8) -> bool {
     let mut probe = [0u8; 64];
     probe[..2].copy_from_slice(&[0x10, 0x01]);
@@ -133,12 +133,12 @@ pub fn detect_master_5090d_ice(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
 struct Blackwell {
     addr: u8,
     layout: Layout,
-    /// RGBFusion2BlackwellGPUController::zone_color, never cleared.
+    /// Zone colours, never cleared.
     zone_color: [Color; HW_ZONES],
 }
 
 impl Blackwell {
-    // RGBFusion2BlackwellGPUController::SetZone and SetMode; the speed is never set, sent as 0.
+    // Zone and mode writes; the speed is never set, sent as 0.
     fn zone(&mut self, io: &Io, hw: u8, colors: &[Color; FAN_LEDS], count: u8) {
         let mode = match self.layout {
             Layout::Master5090dIce => MODE_STATIC,
@@ -170,7 +170,7 @@ impl Blackwell {
 impl Driver for Blackwell {
     fn setup(&mut self, _io: &Io, _colors: &[Color]) {}
 
-    // RGBController_RGBFusion2BlackwellGPU::DeviceUpdateLEDs; colours and count carry across zones
+    // LED update; colours and count carry across zones
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         let zones = self.layout.zones();
         let mut cfg = [Color::BLACK; FAN_LEDS];
@@ -216,7 +216,7 @@ mod tests {
         format!("wraw 75 {}", hex.join(" "))
     }
 
-    // TestForGigabyteRGBFusion2BlackwellGPUController: 01, 01 or 02, 01.
+    // Probe: 01, 01 or 02, 01.
     #[test]
     fn detect_reply() {
         let t = FUSION2_BLACKWELL_GAMING;

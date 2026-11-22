@@ -1,6 +1,4 @@
-//! ThermalTake Riing, Riing Plus, Riing Trio and LEDBOX controllers (protocol learned from
-//! SignalRGB's ThermalTake_Riing_Plus.js, ThermalTake_Ring_Controller.js,
-//! ThermalTake_LEDBOX_Standard.js and ThermalTake_LEDBOX_0x213Cf.js).
+//! ThermalTake Riing, Riing Plus, Riing Trio and LEDBOX controllers.
 
 use super::util::{Cached, ask, device_key, due, fan_id, u16le};
 use crate::fan::{Channel, FanHub, backend_on};

@@ -7,7 +7,7 @@ pub const VID: u16 = 0x1462;
 pub const PID: u16 = 0x7D99;
 
 const ID: &str = "hid:msi-7d99";
-/// On-board LEDs, which come first in a direct frame (OpenRGB's 7D99 row).
+/// On-board LEDs, which come first in a direct frame.
 const ONBOARD_LEDS: usize = 6;
 /// LEDs per addressable header while all headers share one direct frame.
 pub const HEADER_LEDS: usize = 40;
@@ -141,10 +141,8 @@ impl Backend for Board {
 mod tests {
     use super::*;
 
-    // Offsets from FeaturePacket_185 in OpenRGB's MSIMotherboardCommon.h, values from
-    // enable_per_led_msg in MSIMotherboard185Controller.cpp.
     #[test]
-    fn enable_direct_matches_openrgb_185_controller() {
+    fn enable_direct_packet() {
         let p = enable_direct();
         let expect = [
             (0, 0x52),
@@ -192,9 +190,8 @@ mod tests {
         assert_eq!(p[75..78], [0, 0, 0]);
     }
 
-    // FeaturePacket_PerLED_185 and the slot order set up in MSIMotherboard185Controller's constructor.
     #[test]
-    fn direct_frame_matches_openrgb_per_led_packet() {
+    fn per_led_frame() {
         let mut colors = vec![Color::BLACK; LED_COUNT];
         colors[0] = Color(9, 9, 9);
         colors[6] = Color(1, 2, 3);
@@ -215,7 +212,7 @@ mod tests {
         assert!(p[5 + 87 * 3..].iter().all(|&b| b == 0));
     }
 
-    // DetectMSIMotherboardControllers in MSIMotherboardControllerDetect.cpp picks the generation this way.
+    // Detection picks the generation this way.
     #[test]
     fn only_the_185_byte_generation_is_accepted() {
         assert!(is_185(185));

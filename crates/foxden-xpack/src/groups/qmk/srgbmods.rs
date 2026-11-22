@@ -1,4 +1,4 @@
-//! SRGBmods LED Controller v2 and Wifi LC bridges (protocol learned from SignalRGB's SRGBmods_LC_v2.js, SRGBmods_Wifi_LC_WLED.js and SRGBmods_Wifi_LC_Nanoleaf.js).
+//! SRGBmods LED Controller v2 and Wifi LC bridges.
 
 use crate::hid::{Driver, Io, Proto, drain, on_i, open_io, rgb};
 use foxden_core::{Backend, Color, Device, DeviceKind};
@@ -7,7 +7,7 @@ use hidapi::HidApi;
 
 const FAMILY: &str = "srgbmods";
 const VID: u16 = 0x16D0;
-/// LEDs given to each channel; SignalRGB sizes channels from the components the user adds.
+/// LEDs given to each channel.
 const CHANNEL_LEDS: usize = 60;
 const FIRMWARE_VERSION: u8 = 0xCC;
 const COLORS: u8 = 0xAA;

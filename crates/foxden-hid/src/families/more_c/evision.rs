@@ -11,7 +11,7 @@ const EVISION_VID: u16 = 0x320F;
 const PAGE: i32 = 0xFF1C;
 const LEDS: usize = 126;
 const CHUNK: usize = 0x36;
-/// OpenRGB blocks on hid_read after every write; this bounds the wait.
+/// The reply after every write is awaited; this bounds the wait.
 const REPLY_MS: i32 = 1000;
 
 const MAP: [&[u32]; 6] = [
@@ -209,7 +209,7 @@ mod tests {
     use rec::*;
 
     #[test]
-    fn map_matches_openrgb() {
+    fn map_size() {
         assert!(MAP.iter().all(|r| r.len() == 23));
         let max = MAP
             .iter()

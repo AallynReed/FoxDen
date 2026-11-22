@@ -12,7 +12,7 @@ const REG_GREEN: u8 = 0x0A;
 const REG_BLUE: u8 = 0x0B;
 const MODE_CUSTOM: u8 = 0x01;
 
-// DetectEVGAPascalGPUControllers checks only port_id, which is always 1 on Windows buses.
+// Only port_id is checked, which is always 1 on Windows buses.
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_each(bus, EVGA_PASCAL, |bus, card| {
         let dev = row(device_id("evga-v1", bus, card.addr), card.name, 1);
@@ -42,7 +42,7 @@ mod tests {
     use super::super::fake::{Fake, ids, push, run, s, take};
     use super::*;
 
-    // DetectEVGAPascalGPUControllers: no probe, a device per matching card.
+    // No probe, a device per matching card.
     #[test]
     fn detect_without_probe() {
         let bus = Fake::new("NV", ids(EVGA_PASCAL, "EVGA GeForce GTX 1080 FTW")).shared();
@@ -53,7 +53,7 @@ mod tests {
         assert!(run(&[detect], &other).is_empty());
     }
 
-    // RGBController_EVGAGPUv1::DeviceUpdateMode (SetMode custom) then DeviceUpdateLEDs (SetColor).
+    // Custom mode, then the colours.
     #[test]
     fn direct_and_frame() {
         let bus = Fake::new("NV", ids(EVGA_PASCAL, "EVGA GeForce GTX 1070 FTW")).shared();

@@ -1,4 +1,4 @@
-//! Lian Li Uni Fan controllers over vendor control transfers (protocol learned from SignalRGB's Lian_Li_Uni_Fans.js, Lian_Li_Uni_Fans_SL_1.2.js and Lian_Li_Uni_Fans_AL_1.1.js).
+//! Lian Li Uni Fan controllers over vendor control transfers.
 
 use super::usb::{self, Shared, Usb, UsbDriver, UsbProto, pause};
 use crate::fan::{Channel, FanHub, backend, percent, with_device};

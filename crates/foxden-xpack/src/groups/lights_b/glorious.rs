@@ -1,5 +1,4 @@
-//! Glorious Model O and Model D Wireless mice, on the dongle and on the cable (protocol learned from
-//! SignalRGB's Glorious_Model_O_Wireless*.js and Glorious_Model_D_Wireless*.js).
+//! Glorious Model O and Model D Wireless mice, on the dongle and on the cable.
 
 use super::{MOUSE, boxed, det, placed};
 use crate::hid::{Io, Proto, rgb};

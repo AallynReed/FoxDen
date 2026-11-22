@@ -35,9 +35,9 @@ pub fn detectors() -> Vec<&'static Detector> {
 mod tests {
     use super::*;
 
-    // REGISTER_HID_DETECTOR* lines per Detect.cpp, plus SignalRGB's Royuan 0x4002 and miniStreak Speed
+    // Known detector ids, plus Royuan 0x4002 and miniStreak Speed
     #[test]
-    fn detector_counts_match_openrgb() {
+    fn detector_counts() {
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
         assert_eq!(counts, [9, 6, 5, 5, 3, 3, 1, 4]);
         assert_eq!(detectors().len(), 36);

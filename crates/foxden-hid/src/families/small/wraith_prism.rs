@@ -11,7 +11,7 @@ const IDS: [u8; 17] = [
     0x00, 0x01, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x10, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A,
     0x09,
 ];
-/// OpenRGB blocks on hid_read for each reply; a bounded wait keeps a silent cooler from hanging.
+/// Each reply is awaited; a bounded wait keeps a silent cooler from hanging.
 const REPLY_MS: i32 = 1000;
 
 fn packet(head: &[u8]) -> [u8; 65] {

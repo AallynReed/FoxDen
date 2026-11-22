@@ -11,7 +11,7 @@ const VID: u16 = 0x0B05;
 const REPLY_MS: i32 = 1000;
 const LEDS_PER_PACKET: u16 = 0x14;
 const MODE_DIRECT: u8 = 0xFF;
-/// OpenRGB starts addressable headers at 0 LEDs until the user sizes them.
+/// Addressable headers report no size; this is the count assumed.
 const DEFAULT_HEADER_LEDS: usize = 60;
 /// AURA_ADDRESSABLE_MAX_LEDS.
 const MAX_HEADER_LEDS: usize = 120;

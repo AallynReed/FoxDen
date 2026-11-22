@@ -92,7 +92,7 @@ fn lightbar_packets(ids: &[u8], colors: &[Color]) -> Vec<Op> {
     ops
 }
 
-/// GE66 11UH lightbar (Steelseries_Laptop_Lightbar.js setStreamFrame): one 0x0C report of [id, r, g, b].
+/// GE66 11UH lightbar stream frame: one 0x0C report of [id, r, g, b].
 fn stream_packet(ids: &[u8], colors: &[Color]) -> Vec<u8> {
     let mut buf = vec![0u8; 525];
     buf[1] = 0x0C;
@@ -153,7 +153,7 @@ fn klc_map() -> Vec<Option<usize>> {
         .collect()
 }
 
-/// OpenRGB picks the model by SMBIOS; every listed model shares the keyboard, and each lightbar PID belongs to one model.
+/// The model is picked by SMBIOS; every listed model shares the keyboard, and each lightbar PID belongs to one model.
 fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, String> {
     let (kind, ids, dev_kind, layout) = match info.pid {
         A18_KLC | GE68HX_KEYBOARD => (
@@ -288,11 +288,11 @@ mod tests {
     fn keyboard_layout_covers_every_key() {
         let (leds, grid) = matrix(KLC_IDS.len(), 6, 23, &klc_map());
         assert_eq!(leds.len(), 102);
-        // ISO backslash (LED 99) is not in the OpenRGB matrix and gets its own row
+        // ISO backslash (LED 99) is not in the matrix and gets its own row
         assert_eq!(grid, [23, 7]);
     }
 
-    // MSILaptopControllerDetect.cpp REGISTER_HID_DETECTOR_I lines plus SignalRGB's two GE66 lightbars.
+    // Known laptop ids plus the two GE66 lightbars.
     #[test]
     fn detectors() {
         assert_eq!(DETECTORS.len(), 6);
@@ -303,7 +303,7 @@ mod tests {
         );
     }
 
-    // Steelseries_Laptop_Lightbar.js: GE66 11UH stream start once, then one 0x0C frame per push.
+    // GE66 11UH stream start once, then one 0x0C frame per push.
     #[test]
     fn ge66_stream_frames() {
         let mut l = Laptop {

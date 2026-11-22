@@ -1,4 +1,4 @@
-//! Gigabyte AORUS Master / Xtreme Ampere cards (protocol learned from SignalRGB's GigaByte/Gigabyte_Gen3_GPU.js).
+//! Gigabyte AORUS Master / Xtreme Ampere cards.
 
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_smbus::i2c::SharedBus;

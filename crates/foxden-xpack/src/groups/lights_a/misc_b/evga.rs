@@ -1,4 +1,4 @@
-//! EVGA X15/X17 mice (protocol learned from SignalRGB's X-15_Mouse.js and X-17_Mouse.js).
+//! EVGA X15/X17 mice.
 
 use super::super::common::{MOUSE_RECT, full, keyed};
 use crate::hid::{Driver, Io, Proto, open_io};

@@ -1,4 +1,4 @@
-//! Xiaohua keyboards (protocol learned from SignalRGB's Xiaohua_Keyboard_Controller.js).
+//! Xiaohua keyboards.
 
 use super::common::{open_with, positioned};
 use crate::hid::{Io, Proto, rgb};

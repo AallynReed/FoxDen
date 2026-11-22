@@ -1,6 +1,4 @@
-//! HyperX Pulsefire FPS Pro (0x1729), Haste Wireless and Haste 2 mice (protocol learned from
-//! SignalRGB's HyperX_Pulsefire_FPS_Pro.js, HyperX_PulseFire_Haste_Wireless_Mouse.js and
-//! HyperX_Pulsefire_Haste_2_Mouse.js).
+//! HyperX Pulsefire FPS Pro (0x1729), Haste Wireless and Haste 2 mice.
 
 use super::{MOUSE, boxed, det, placed};
 use crate::hid::{Io, Proto, drain, rgb};

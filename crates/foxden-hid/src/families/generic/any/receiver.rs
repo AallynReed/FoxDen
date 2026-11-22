@@ -128,7 +128,7 @@ pub fn path_key(path: &str) -> String {
     key
 }
 
-/// Wireless PIDs whose slots stay with an OpenRGB legacy detector, enabled by default.
+/// Wireless PIDs whose slots stay with a legacy detector, enabled by default.
 pub fn legacy(pid: u16) -> bool {
     matches!(
         pid,

@@ -10,7 +10,7 @@ use crate::registry::{Detector, Info};
 
 const VID: u16 = 0x1B1C;
 const CHANNELS: usize = 2;
-/// OpenRGB starts each channel at 0 LEDs (max 204); this is the count assumed here.
+/// Channels report no size (max 204); this is the count assumed here.
 const LEDS: usize = 60;
 const MAX_LEDS: usize = 204;
 const READ: Op = Op::Read(17, 15);

@@ -1,4 +1,4 @@
-//! SONIX keyboards: AULA, AJAZZ, Dark Project, Attack Shark, Kisnt (protocol learned from SignalRGB's SONIX_Keyboard_Controller_2.js).
+//! SONIX keyboards: AULA, AJAZZ, Dark Project, Attack Shark, Kisnt.
 
 mod layouts;
 

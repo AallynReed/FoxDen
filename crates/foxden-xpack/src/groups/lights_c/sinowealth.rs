@@ -1,4 +1,4 @@
-//! Sinowealth keyboards, Redragon and others (protocol learned from SignalRGB's Sinowealth_Keyboard_Controller2.js).
+//! Sinowealth keyboards, Redragon and others.
 
 mod layouts;
 

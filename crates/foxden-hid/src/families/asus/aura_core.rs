@@ -152,7 +152,7 @@ impl Proto for Core {
 }
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    // OpenRGB builds both drivers on 0x1866; one handle per device here, so a known SCAR 17 goes to the laptop driver
+    // Both drivers match 0x1866; one handle per device here, so a known SCAR 17 goes to the laptop driver
     if info.pid == 0x1866 && super::aura_core_laptop::known() {
         return Err("left to the Aura Core laptop driver".into());
     }

@@ -1,5 +1,5 @@
 //! Lighting group B: Corsair headsets, Glorious wireless mice, HyperX mice, and
-//! smaller vendors (protocols learned from SignalRGB's plugins).
+//! smaller vendors.
 
 mod corsair_bragi;
 mod corsair_headset;

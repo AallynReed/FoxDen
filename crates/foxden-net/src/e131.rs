@@ -108,7 +108,7 @@ impl E131 {
         }
     }
 
-    /// `DeviceUpdateLEDs`: fills each device's channels across its universes.
+    /// Fills each device's channels across its universes.
     fn fill(&mut self, colors: &[Color]) {
         let mut color_idx = 0;
         for d in &self.devices {
@@ -173,7 +173,7 @@ fn controller(devices: Vec<E131Device>) -> Option<Light> {
     }
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
     let _ = socket.set_multicast_ttl_v4(1);
-    // OpenRGB adds the address to group names; it stays out so error reports never carry it.
+    // The address stays out of group names so error reports never carry it.
     let name = if devices.len() == 1 {
         first.name.clone()
     } else {

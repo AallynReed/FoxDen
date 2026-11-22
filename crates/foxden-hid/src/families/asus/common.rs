@@ -203,7 +203,7 @@ pub fn cells(
     dev
 }
 
-/// LEDs placed by an OpenRGB matrix map: `map[row][col]` is an LED index or `NA`.
+/// LEDs placed by a matrix map: `map[row][col]` is an LED index or `NA`.
 pub fn mapped(
     info: &Info,
     family: &str,
@@ -291,7 +291,7 @@ pub fn stacked(
     cells(info, family, d, kind, cols, zones.len().max(1) as u32, &at)
 }
 
-/// Several backends behind one detector, for a collection OpenRGB builds two controllers on.
+/// Several backends behind one detector, for a collection that carries two controllers.
 pub struct Both(pub Vec<Box<dyn Backend>>);
 
 impl Backend for Both {

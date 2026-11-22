@@ -121,7 +121,7 @@ impl Fake {
     }
 }
 
-/// A Raptor Lake SMBus, which passes OpenRGB's IF_DRAM_SMBUS check.
+/// A Raptor Lake SMBus, which passes the IF_DRAM_SMBUS check.
 pub fn intel() -> BusInfo {
     BusInfo {
         name: "fake".into(),

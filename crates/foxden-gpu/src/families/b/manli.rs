@@ -13,7 +13,7 @@ const VERSION_QUERY: [u8; 8] = [REG_RGB, 0xF1, 0, 0, 0, 0, 0, 0];
 /// MANLI_GPU_CONFIG: controller versions with at least one zone.
 const VERSIONS: [&str; 1] = ["N675M-1018"];
 
-/// ManliGPUController::ReadVersion
+/// Version read.
 fn version(io: &Io, addr: u8) -> Option<String> {
     if !io.raw_write(addr, &VERSION_QUERY) {
         return None;
@@ -43,7 +43,7 @@ struct Manli {
 impl Driver for Manli {
     fn setup(&mut self, _io: &Io, _colors: &[Color]) {}
 
-    // RGBController_ManliGPU::DeviceUpdateMode in Static, the closest it has to direct
+    // Static mode, the closest it has to direct
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         let Color(r, g, b) = colors[0];
         let mut pkt = [0u8; 30];
@@ -63,7 +63,7 @@ mod tests {
     const CARD: &str = "MANLI GeForce RTX 4090 Gallardo";
     const QUERY: &str = "wraw 49 a0 f1 00 00 00 00 00 00";
 
-    // DetectManliGPUControllers, then ReadVersion in the constructor; unknown versions are dropped.
+    // Detection, then the version read; unknown versions are dropped.
     #[test]
     fn detect_version() {
         let bus = Fake::new("NV", ids(MANLI, CARD))
@@ -77,7 +77,7 @@ mod tests {
         assert!(run(&[super::detect], &other).is_empty());
     }
 
-    // ManliGPUController::SendCommand: on, mode, colour, speed 0 and brightness 100 at 0xA0.
+    // Command: on, mode, colour, speed 0 and brightness 100 at 0xA0.
     #[test]
     fn static_frame() {
         let bus = Fake::new("NV", ids(MANLI, CARD))

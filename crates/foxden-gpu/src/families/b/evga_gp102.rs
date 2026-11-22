@@ -66,7 +66,7 @@ struct Gp102 {
 }
 
 impl Gp102 {
-    // EVGAGP102Controller::SetColor.
+    // Colour write.
     fn set_color(io: &Io, z: &Zone, c: Color) {
         io.write(z.addr, REG_CMD, CMD_BEGIN);
         io.write(z.addr, REG_CMD, CMD_COLOR);
@@ -101,7 +101,7 @@ mod tests {
 
     const KINGPIN: &str = "EVGA GeForce GTX 1080 Ti K|NGP|N";
 
-    // EVGAGP102Controller::IsValid: up to three reads per zone, stopping at 0x1F or 0x91.
+    // Validity check: up to three reads per zone, stopping at 0x1F or 0x91.
     #[test]
     fn detect_zones() {
         let bus = Fake::new("NV", ids(EVGA_GP102, KINGPIN))
@@ -121,7 +121,7 @@ mod tests {
         assert!(run(&[detect], &none).is_empty());
     }
 
-    // RGBController_EVGAGP102::DeviceUpdateMode, then DeviceUpdateZoneLEDs for changed zones.
+    // Mode change, then the zones that changed.
     #[test]
     fn direct_and_frame() {
         let bus = Fake::new("NV", ids(EVGA_GP102, KINGPIN))

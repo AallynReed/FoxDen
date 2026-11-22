@@ -1,4 +1,4 @@
-//! Lenovo Legion graphics cards (protocol learned from SignalRGB's Lenovo_Legion_GPU.js).
+//! Lenovo Legion graphics cards.
 
 use std::time::Duration;
 

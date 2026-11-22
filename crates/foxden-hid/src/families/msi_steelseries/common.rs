@@ -4,7 +4,7 @@ use foxden_core::{Backend, Color, Device, DeviceKind};
 use hidapi::HidDevice;
 use std::time::Duration;
 
-/// One transfer, in the order OpenRGB makes it.
+/// One transfer, in the order made.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Op {
     Feature(Vec<u8>),
@@ -131,7 +131,7 @@ pub fn rows(zones: &[usize]) -> (Vec<[f32; 2]>, [u32; 2]) {
     (leds, [cols as u32, n as u32])
 }
 
-/// LEDs placed by an OpenRGB matrix map (row-major, `None` for gaps); LEDs missing from it go on an extra row.
+/// LEDs placed by a matrix map (row-major, `None` for gaps); LEDs missing from it go on an extra row.
 pub fn matrix(
     count: usize,
     height: usize,

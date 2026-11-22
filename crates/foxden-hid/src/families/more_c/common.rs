@@ -177,7 +177,7 @@ pub fn cells(
     dev
 }
 
-/// LEDs placed by an OpenRGB matrix map: `map[row][col]` is an LED index or `NA`.
+/// LEDs placed by a matrix map: `map[row][col]` is an LED index or `NA`.
 pub fn mapped(
     info: &Info,
     family: &str,

@@ -1,4 +1,4 @@
-//! Keyboard layouts for misc_a (protocol learned from SignalRGB's Aula_Win_HE_Controller.js, BYTech_Keyboard_Controller.js, Dareu_Cool68_Keyboard.js, DarkProject ALU87A.js and DREVO_BladeMaster_TE_88K.js).
+//! Keyboard layouts for misc_a.
 
 pub static AULA_WIN60: (&[u8], &[[u8; 2]]) = (
     &[

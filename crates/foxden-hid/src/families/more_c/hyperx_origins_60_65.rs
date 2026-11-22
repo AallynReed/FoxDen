@@ -74,7 +74,7 @@ mod tests {
     use rec::*;
 
     #[test]
-    fn maps_match_openrgb() {
+    fn map_sizes() {
         assert_eq!(MAP_60.iter().map(|r| r.len()).sum::<usize>(), 5 * 14);
         assert_eq!(MAP_65.iter().map(|r| r.len()).sum::<usize>(), 5 * 15);
         let max = |m: &[&[u32]]| {

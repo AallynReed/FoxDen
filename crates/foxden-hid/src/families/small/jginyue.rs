@@ -6,7 +6,7 @@ use foxden_core::{Backend, Color, Device, DeviceKind};
 use hidapi::HidApi;
 
 const FAMILY: &str = "jginyue";
-/// OpenRGB leaves header sizes to the user; FoxDen starts both headers at their 100-LED maximum.
+/// Header sizes are not reported; FoxDen starts both headers at their 100-LED maximum.
 const HEADER_LEDS: usize = 100;
 const RG_DEFAULT: u8 = 0x01;
 

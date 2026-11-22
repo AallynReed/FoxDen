@@ -354,7 +354,7 @@ pub(super) fn rows(counts: &[usize]) -> (Vec<[f32; 2]>, [u32; 2]) {
     (leds, [width as u32, n as u32])
 }
 
-/// LEDs at their cells of an OpenRGB matrix map (`u32::MAX` is empty); others go to `fallback`.
+/// LEDs at their cells of a matrix map (`u32::MAX` is empty); others go to `fallback`.
 pub(super) fn matrix(
     map: &[u32],
     width: usize,
@@ -485,8 +485,8 @@ mod tests {
     }
 
     #[test]
-    fn detector_counts_match_openrgb() {
-        // REGISTER_* lines per Detect.cpp, Mousemat counting only its _WIN32 line, plus SignalRGB's
+    fn detector_counts() {
+        // Known detector ids, Mousemat counting only its Windows id, plus
         // six NZXT boards and the Quadcast S 0x171D.
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
         assert_eq!(

@@ -12,7 +12,7 @@ pub const GET: [u8; 31] = [
 ];
 pub const END: [u8; 13] = [0x58, 0x53, 0x42, 0x53, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-pub const SYNC_OPENRGB: u8 = 6;
+pub const SYNC_HOST: u8 = 6;
 pub const UNLOCK_ADDR: u32 = 0xAC00_4000;
 
 /// usb_hid_get_report: the data report id and length that fit `len` bytes.

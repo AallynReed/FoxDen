@@ -19,7 +19,7 @@ const V3_REG_EXTERNAL_CONTROL: u8 = 0x0F;
 const V3_REG_RED: u8 = 0x1A;
 const V3_MODE_CUSTOM: u8 = 0x06;
 
-// TestForSapphireGPUController.
+// Probe.
 fn present(bus: &SharedBus, card: &Card) -> bool {
     let i = info(bus);
     if i.pci_vendor == AMD_GPU_VEN && !is_amd_gpu_i2c_bus(&i) {
@@ -75,7 +75,7 @@ struct V1 {
 }
 
 impl Driver for V1 {
-    // DeviceUpdateMode for Static: SetMode then SetBrightness.
+    // Static mode: mode then brightness.
     fn setup(&mut self, io: &Io, _: &[Color]) {
         io.write(self.addr, V1_REG_MODE, V1_MODE_CUSTOM);
         io.write(self.addr, V1_REG_BRIGHTNESS, self.brightness);
@@ -91,7 +91,7 @@ struct V3 {
 }
 
 impl Driver for V3 {
-    // DeviceUpdateMode for Static: external control off, then the custom mode.
+    // Static mode: external control off, then the custom mode.
     fn setup(&mut self, io: &Io, _: &[Color]) {
         io.write(self.addr, V3_REG_EXTERNAL_CONTROL, 0);
         io.write(self.addr, V3_REG_MODE, V3_MODE_CUSTOM);
@@ -110,7 +110,7 @@ mod tests {
     const V1_CARD: &str = "Sapphire Radeon RX Vega 56/64 Nitro+";
     const V3_CARD: &str = "Sapphire Radeon RX 7900 XTX Nitro+";
 
-    // TestForSapphireGPUController: an AMD card needs the ADL bus, then a byte read.
+    // Probe: an AMD card needs the ADL bus, then a byte read.
     #[test]
     fn detect_needs_amd_bus() {
         let bus = Fake::new("NVIDIA", ids(SAPPHIRE_V3, V3_CARD))
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(take(), s(&["rb 28"]));
     }
 
-    // RGBController_SapphireNitroGlowV1: ReadConfiguration, DeviceUpdateMode, DeviceUpdateLEDs.
+    // V1 setup: configuration read, mode, LEDs.
     #[test]
     fn v1_direct_and_frame() {
         let bus = Fake::new("AMD ADL", ids(SAPPHIRE_V1, V1_CARD))
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(push(&mut b, &[Color(1, 2, 3)])[1], "wr 55 01 02");
     }
 
-    // RGBController_SapphireNitroGlowV3::DeviceUpdateMode (Static) then DeviceUpdateLEDs.
+    // V3 static mode then the LEDs.
     #[test]
     fn v3_direct_and_frame() {
         let bus = Fake::new("AMD ADL", ids(SAPPHIRE_V3, V3_CARD))

@@ -1,7 +1,4 @@
-//! ThermalTake Argent peripherals, DPSG PSU, LEDBOX Pacific and Level 20 desk (protocol learned from
-//! SignalRGB's ThermalTake_Argent_Mouse_Bungee.js, Thermaltake_Argent_MP1_Mousepad.js,
-//! ThermalTake_E1_Headphone_Stand.js, Thermaltake_HS1_Headphone_Stand.js, Thermaltake_DPSG_PSU.js,
-//! ThermalTake_LEDBOX_Pacific_Controller.js and ThermalTake_Level20_Desk.js).
+//! ThermalTake Argent peripherals, DPSG PSU, LEDBOX Pacific and Level 20 desk.
 
 use super::common::{open_with, positioned};
 use crate::hid::{Io, Proto, on_i};

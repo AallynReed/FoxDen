@@ -1,4 +1,4 @@
-//! Lian Li Uni Fan controllers SL Infinity, SL V2 and AL V2, fan side (protocol learned from SignalRGB's LianLi_SL_Infinity.js, Lian_Li_Uni_Fans_SL_V2.js and Lian_Li_Uni_Fans_AL_V2.js).
+//! Lian Li Uni Fan controllers SL Infinity, SL V2 and AL V2, fan side.
 
 use super::usb::{self, Shared};
 use crate::fan::{Channel, FanHub, backend_on, percent};

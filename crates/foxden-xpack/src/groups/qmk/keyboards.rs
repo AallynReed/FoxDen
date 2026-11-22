@@ -1,4 +1,4 @@
-//! QMK keyboards on SignalRGB firmware (protocol learned from SignalRGB's SRGBmods QMK plugins, e.g. Keychron_Q1v1_QMK_ANSI_Keyboard.js).
+//! QMK keyboards on SignalRGB firmware.
 
 use super::boards::{BOARDS, LAYOUTS};
 use crate::hid::{Driver, Io, Proto, drain, open_io, open_sibling, read_until, rgb};
@@ -40,7 +40,7 @@ pub struct Board {
     pub by_id: &'static [(u8, u16)],
 }
 
-/// The bytes after the command echo; hidapi drops report id 0, SignalRGB keeps it.
+/// The bytes after the command echo; hidapi drops report id 0.
 fn reply(r: &[u8], cmd: u8) -> Option<&[u8]> {
     match r {
         [c, rest @ ..] if *c == cmd => Some(rest),

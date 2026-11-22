@@ -11,7 +11,7 @@ const TYPE_SET_COLORS: u32 = 3;
 const TYPE_MODE: u32 = 5;
 const TYPE_KEYBOARD: u32 = 43;
 const MODE_DIRECT: [u8; 4] = [228, 0, 0, 0];
-/// KeyboardType::WITHOUT_NUMPAD, less the +1 OpenRGB adds.
+/// Keyboard type without numpad.
 const WITHOUT_NUMPAD: u8 = 2;
 const SIGN: [u8; 4] = [83, 69, 67, 85];
 const COLORS_OFFSET: usize = 25;
@@ -30,7 +30,7 @@ trait Bios: Send {
 struct Wmi;
 
 impl Bios for Wmi {
-    /// A fresh connection per call, as OpenRGB's execute does; WMI connections are tied to a thread.
+    /// A fresh connection per call; WMI connections are tied to a thread.
     fn execute(
         &self,
         command: u32,
@@ -149,7 +149,7 @@ pub fn detect() -> Vec<Box<dyn Backend>> {
     detect_with(Box::new(Wmi))
 }
 
-/// DetectHPOmenLaptopWMIControllers: lighting supported, and the 4-zone keyboard without a numpad.
+/// Lighting supported, and the 4-zone keyboard without a numpad.
 fn detect_with(bios: Box<dyn Bios>) -> Vec<Box<dyn Backend>> {
     let first = |command, kind| {
         bios.execute(command, kind, &[], true)
@@ -239,7 +239,7 @@ mod tests {
         assert!(found.is_empty());
     }
 
-    // DeviceUpdateMode(Direct) then setColors: read, colors[3 - i] at 25 + 3i, write back.
+    // Direct mode then the colours: read, colors[3 - i] at 25 + 3i, write back.
     #[test]
     fn direct_frame() {
         let (log, mut found) = run(1, 2);

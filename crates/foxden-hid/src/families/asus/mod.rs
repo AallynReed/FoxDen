@@ -54,9 +54,9 @@ pub fn others() -> Vec<Box<dyn Backend>> {
 mod tests {
     use super::*;
 
-    // REGISTER_HID_DETECTOR* lines per Detect.cpp; the Spatha X Dock shares the 2.4GHz mouse's line
+    // Known detector ids; the Spatha X Dock shares the 2.4GHz mouse's line
     #[test]
-    fn detector_counts_match_openrgb() {
+    fn detector_counts() {
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
         assert_eq!(counts, [11, 6, 3, 2, 3, 2, 43, 3, 29, 3, 2, 3]);
         assert_eq!(detectors().len(), 109 - 1 + 2);

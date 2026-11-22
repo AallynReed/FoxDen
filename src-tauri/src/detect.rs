@@ -65,7 +65,7 @@ pub struct Found {
     pub bus: Bus,
     /// Engine id of the device FoxDen's own driver offers for it, or [`GPU`] for a graphics card.
     pub native: Option<&'static str>,
-    /// Brand OpenRGB has drivers for.
+    /// Brand with lighting drivers.
     pub brand: Option<&'static str>,
     /// No lighting, but a vendor channel such as a wireless receiver's: listed for its battery.
     pub wireless: bool,
@@ -110,7 +110,7 @@ const NATIVE: &[(u16, u16, &str, &str, &str)] = &[
     ),
 ];
 
-/// USB vendor ids OpenRGB has lighting drivers for, checked against its detectors and usb.ids.
+/// USB vendor ids with lighting drivers.
 const VENDORS: &[(u16, &str)] = &[
     (0x03F0, "HyperX"),
     (0x0414, "Gigabyte"),
@@ -141,7 +141,7 @@ const BOARDS: &[(&str, &str)] = &[
     ("asrock", "ASRock"),
 ];
 
-/// Memory makers with lit modules OpenRGB drives.
+/// Memory makers with lit modules.
 const MEMORY: &[(&str, &str)] = &[
     ("corsair", "Corsair"),
     ("crucial", "Crucial"),
@@ -159,7 +159,7 @@ const MEMORY: &[(&str, &str)] = &[
     ("lexar", "Lexar"),
 ];
 
-/// PCI subsystem vendors of the card makers in OpenRGB's pci_ids.h.
+/// PCI subsystem vendors of lit graphics card makers.
 const CARD_MAKERS: &[(u16, &str)] = &[
     (0x1043, "ASUS"),
     (0x10B0, "Gainward"),
@@ -300,7 +300,7 @@ const ONBOARD_ONLY: &[&str] = &["usb:0951:172d"];
 /// Devices of FoxDen's ported families, matched on vendor and product id.
 const PORTED: &str = "hid:";
 
-/// The OpenRGB ports' HID devices, then foxden-xpack's.
+/// foxden-hid's HID devices, then foxden-xpack's.
 fn devices() -> Vec<(u16, u16, &'static str)> {
     let mut list = foxden_hid::family_devices();
     for d in foxden_xpack::detectors() {

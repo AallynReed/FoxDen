@@ -16,7 +16,7 @@ const MODE_STATIC: u8 = 0x01;
 const BRIGHTNESS_MAX: u8 = 0x63;
 const ZONES: u32 = 5;
 
-/// TestForGigabyteRGBFusion2GPUController
+/// Probe.
 fn test_for(io: &Io, addr: u8) -> bool {
     io.raw_write(addr, &[0xAB, 0, 0, 0, 0, 0, 0, 0]);
     match io.raw_read(addr, 4) {
@@ -49,12 +49,12 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
 
 struct Fusion2 {
     addr: u8,
-    /// RGBFusion2GPUController::zone_color, never cleared.
+    /// Zone colours, never cleared.
     zone_color: [Color; 4],
 }
 
 impl Fusion2 {
-    // RGBFusion2GPUController::SetMode for Direct; DeviceUpdateLEDs never sets the speed, sent as 0.
+    // Direct mode; the LED update never sets the speed, sent as 0.
     fn zone(&mut self, io: &Io, zone: u8, c: Color) {
         if zone < 4 {
             self.zone_color[zone as usize] = c;
@@ -83,7 +83,7 @@ impl Fusion2 {
 impl Driver for Fusion2 {
     fn setup(&mut self, _io: &Io, _colors: &[Color]) {}
 
-    // RGBController_RGBFusion2GPU::DeviceUpdateLEDs: every zone, every time
+    // LED update: every zone, every time
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         for (zone, &c) in colors.iter().enumerate() {
             self.zone(io, zone as u8, c);
@@ -104,7 +104,7 @@ mod tests {
             .shared()
     }
 
-    // TestForGigabyteRGBFusion2GPUController: AB first, and not an all-AB echo.
+    // Probe: AB first, and not an all-AB echo.
     #[test]
     fn detect_reply() {
         assert_eq!(
@@ -116,7 +116,7 @@ mod tests {
         assert!(run(&[super::detect], &bus(&[0, 0, 0, 0])).is_empty());
     }
 
-    // RGBFusion2GPUController::SetMode for zones 0 to 4 in static at brightness 0x63.
+    // Mode for zones 0 to 4 in static at brightness 0x63.
     #[test]
     fn direct_zones() {
         let mut b = run(&[super::detect], &bus(&[0xAB, 0x10, 0x01, 0x02])).remove(0);

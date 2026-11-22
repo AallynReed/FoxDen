@@ -142,7 +142,7 @@ pub fn open(cfg: &NanoleafPanel) -> Option<Light> {
     ))
 }
 
-/// `NanoleafController::Pair`, retried while the user holds the power button.
+/// Pairing, retried while the user holds the power button.
 pub fn pair(ip: &str, port: u16) -> Result<NanoleafPanel, String> {
     local(ip)?;
     let start = Instant::now();

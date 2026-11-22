@@ -69,9 +69,9 @@ pub fn matchers() -> Vec<&'static Matcher> {
 mod tests {
     use super::*;
 
-    // Windows REGISTER_HID_DETECTOR* lines per Detect.cpp
+    // Known Windows detector ids
     #[test]
-    fn detector_counts_match_openrgb() {
+    fn detector_counts() {
         let counts: Vec<usize> = sets().iter().map(|s| s.len()).collect();
         assert_eq!(
             counts,

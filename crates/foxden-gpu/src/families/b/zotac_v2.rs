@@ -13,7 +13,7 @@ const SYNC_SYNCHRONIZED: u8 = 0x01;
 const MODE_STATIC: u8 = 0x00;
 const DIR_RIGHT: u8 = 0x01;
 const MODE_FLASH: u8 = 0x04;
-/// Effect modes RGBController_ZotacV2GPU registers besides Static and Flash.
+/// Effect modes besides Static and Flash.
 const EFFECTS: [u8; 10] = [0x01, 0x02, 0x03, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x17, 0x18];
 
 /// ZOTAC_V2_GPU_CONFIG: controller version, zone count, external LED strip.
@@ -32,7 +32,7 @@ const CONFIGS: [(&str, u8, bool); 12] = [
     ("N675A-1062", 5, true),
 ];
 
-/// ZotacV2GPUController::ReadVersion
+/// Version read.
 fn version(io: &Io, addr: u8) -> String {
     if !io.raw_write(addr, &[REG_RGB, 0xF1, 0, 0, 0, 0, 0, 0]) {
         return String::new();
@@ -92,7 +92,7 @@ struct V2 {
 }
 
 impl V2 {
-    // ZotacV2GPUController::SendCommand
+    // Command write.
     fn send(&self, io: &Io, idle_active: u8, zone: u8, sync: u8, cfg: [u8; 7]) {
         let [mode, r, g, b, speed, brightness, direction] = cfg;
         let pkt = [
@@ -125,7 +125,7 @@ impl V2 {
 impl Driver for V2 {
     fn setup(&mut self, _io: &Io, _colors: &[Color]) {}
 
-    // RGBController_ZotacV2GPU::DeviceUpdateMode in Static: on, then idle and active configs
+    // Static mode: on, then idle and active configs
     fn update(&mut self, io: &Io, colors: &[Color], _prev: Option<&[Color]>) {
         let Color(r, g, b) = colors[0];
         self.send(io, 0, 0, 0, [0; 7]);

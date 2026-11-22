@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //!
-//! A baseline JPEG of one colour, byte for byte what OpenRGB's `stbi_write_jpg_to_func` writes at
+//! A baseline JPEG of one colour, byte for byte what `stbi_write_jpg_to_func` writes at
 //! quality 95 (4:4:4, standard Huffman tables): every 8x8 block has only a DC value.
 
 const ZIGZAG: [usize; 64] = [

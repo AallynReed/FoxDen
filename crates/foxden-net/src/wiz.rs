@@ -88,7 +88,7 @@ pub fn open(cfg: &WizLight) -> Option<Light> {
     ))
 }
 
-/// Not in OpenRGB: Wiz lights answer getSystemConfig sent to the broadcast address.
+/// Wiz lights answer getSystemConfig sent to the broadcast address.
 pub fn discover() -> Vec<Found> {
     let Some(socket) = net::search_socket(0) else {
         return Vec::new();

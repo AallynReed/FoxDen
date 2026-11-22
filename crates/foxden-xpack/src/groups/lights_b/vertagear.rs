@@ -1,5 +1,4 @@
-//! Vertagear RGB LED upgrade kits (chair): two 40-LED channels on an NZXT-made controller
-//! (protocol learned from SignalRGB's Nzxt/Vertagear_RGB_LED_Upgrade_Kits.js).
+//! Vertagear RGB LED upgrade kits (chair): two 40-LED channels on an NZXT-made controller.
 
 use super::{STRIP, boxed, det};
 use crate::hid::{Io, Proto};

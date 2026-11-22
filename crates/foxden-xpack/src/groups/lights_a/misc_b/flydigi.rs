@@ -1,4 +1,4 @@
-//! Flydigi Wireless Charger Dock 2 Pro (protocol learned from SignalRGB's Flydigi_Dock_2_Pro.js).
+//! Flydigi Wireless Charger Dock 2 Pro.
 
 use super::super::common::{SMALL_RECT, placed};
 use crate::hid::{Driver, Io, Proto, drain, open_io};

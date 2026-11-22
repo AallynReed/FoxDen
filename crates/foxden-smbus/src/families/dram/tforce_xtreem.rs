@@ -17,7 +17,7 @@ const REG_I2C_ADDRESS: u16 = 0xE0F9;
 const REG_COLORS_DIRECT: u16 = 0xE100;
 const APPLY_VAL: u8 = 0x01;
 
-/// TestForTForceXtreemController
+/// Probe.
 fn test(io: &Io, a: u8) -> bool {
     let mut res = io.read_byte(a);
     if res < 0 {
@@ -29,7 +29,7 @@ fn test(io: &Io, a: u8) -> bool {
     (0x90..0xA1).all(|i| io.read_byte_data(a, i) == i as i32 - 0x80)
 }
 
-/// DetectTForceXtreemControllers: move each module off 0x77, then probe the address list.
+/// Detection: move each module off 0x77, then probe the address list.
 pub fn detect(
     bus: &SharedBus,
     io: &Io,
@@ -156,7 +156,7 @@ mod tests {
         ops
     }
 
-    // DetectTForceXtreemControllers: remap slots 0 and 1 to 0x70 and 0x71, then probe the list
+    // Detection: remap slots 0 and 1 to 0x70 and 0x71, then probe the list
     #[test]
     fn remap_then_probe() {
         let bus = bus(sim_with_remap(2));

@@ -1,4 +1,4 @@
-//! Creative Sound BlasterX Katana (protocol learned from SignalRGB's Creative_Sound_BlasterX_Katana_Soundbar.js).
+//! Creative Sound BlasterX Katana.
 
 use super::common::{line, open_with};
 use crate::hid::{Io, Proto};

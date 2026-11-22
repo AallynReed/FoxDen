@@ -128,14 +128,14 @@ impl Illumination {
         }
     }
 
-    // NVIDIAIlluminationV1Controller::getControl
+    // Control read
     fn get(&mut self) -> Result<(), String> {
         *self.params = Params::zeroed();
         self.params.version = VERSION;
         self.control(false)
     }
 
-    // NVIDIAIlluminationV1Controller::setZone for NVIDIA_ILLUMINATION_DIRECT
+    // Zone write in direct mode
     fn zone(&mut self, zone: usize, c: Color, brightness: u8) -> Result<(), String> {
         let got = self.get();
         let rgbw_as_rgb = self.rgbw_as_rgb;
@@ -179,7 +179,7 @@ impl Backend for Illumination {
         vec![self.device.clone()]
     }
 
-    // RGBController_NVIDIAIlluminationV1::DeviceUpdateZoneLEDs for each zone that changed
+    // Zone update for each zone that changed
     fn push(&mut self, device_id: &str, colors: &[Color]) -> Result<(), String> {
         if device_id != self.device.id {
             return Err(format!("unknown device {device_id}"));

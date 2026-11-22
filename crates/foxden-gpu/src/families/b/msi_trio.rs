@@ -1,4 +1,4 @@
-//! MSI RTX 50 GAMING TRIO cards, per LED (protocol learned from SignalRGB's MSI_GPU_Blackwell.js).
+//! MSI RTX 50 GAMING TRIO cards, per LED.
 
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_smbus::i2c::SharedBus;

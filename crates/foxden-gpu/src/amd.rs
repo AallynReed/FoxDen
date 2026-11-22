@@ -422,7 +422,7 @@ mod tests {
         assert_eq!(seen[1], (40, 1, 0x8E, 0, 2, 100, 1, vec![0xAB]));
     }
 
-    // i2c_smbus_interface::i2c_smbus_read_byte_data: a nonzero status is a failed read
+    // a nonzero status is a failed read
     #[test]
     fn errors() {
         let (b, _) = bus(vec![0], -1);

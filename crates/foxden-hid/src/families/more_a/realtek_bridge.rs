@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::*;
-use super::realtek::{GET, SET, SYNC_OPENRGB, UNLOCK_ADDR, header, ioctl};
+use super::realtek::{GET, SET, SYNC_HOST, UNLOCK_ADDR, header, ioctl};
 use crate::registry::{Detector, Info};
 use foxden_core::{Backend, Color, DeviceKind};
 use hidapi::HidApi;
@@ -35,7 +35,7 @@ fn appctl(io: &mut dyn Io, on: u8) -> Result<bool, String> {
     )
 }
 
-/// RealtekBridgeController constructor, get_support_openrgb and get_fw_ver, in OpenRGB's order.
+/// Bridge setup, sync support and get_fw_ver, in that order.
 pub fn detect(io: &mut dyn Io) -> Result<State, String> {
     ioctl(
         io,
@@ -53,7 +53,7 @@ pub fn detect(io: &mut dyn Io) -> Result<State, String> {
     let mut support = [0u8];
     let ok = ioctl(
         io,
-        header(GET, &[0xCC, 0x04, SYNC_OPENRGB], None),
+        header(GET, &[0xCC, 0x04, SYNC_HOST], None),
         &mut support,
         0,
         true,
@@ -89,7 +89,7 @@ impl Proto for Bridge {
             ioctl(io, header(SET, &[0x4C, 0x02], None), &mut hdr, 0, false)?;
         }
         let mut buf: Vec<u8> = colors.iter().flat_map(|c| rgb(*c)).collect();
-        let head = header(SET, &[0x4C, 0x03, SYNC_OPENRGB], Some(colors.len() as u32));
+        let head = header(SET, &[0x4C, 0x03, SYNC_HOST], Some(colors.len() as u32));
         checked(ioctl(io, head, &mut buf, 0, false)?, "set_direct")
     }
 
@@ -142,7 +142,7 @@ mod tests {
         h
     }
 
-    // RealtekBridgeController constructor, get_support_openrgb, get_fw_ver
+    // bridge setup, sync support, get_fw_ver
     #[test]
     fn detection_reads() {
         let replies = vec![
@@ -177,7 +177,7 @@ mod tests {
         assert_eq!(rec.left(), 0);
     }
 
-    // get_support_openrgb answering 0: the detector deletes the controller, whose destructor releases
+    // sync support answering 0: the detector deletes the controller, whose destructor releases
     #[test]
     fn unsupported_bridge() {
         let mut replies = vec![vec![1], OK.to_vec()];

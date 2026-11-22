@@ -33,7 +33,7 @@ fn probe_v1(bus: &SharedBus, card: &Card) -> Option<Box<dyn Backend>> {
             matched = false;
         }
     }
-    // OpenRGB tests the s32 result of the quick write as a bool, so only a failed write passes.
+    // The s32 result of the quick write is tested as a bool, so only a failed write passes.
     let pass = matched || (card.addr == 0x08 && !io.quick_ok(card.addr));
     pass.then(|| {
         let dev = row(device_id("palit-v1", bus, card.addr), card.name, 1);
@@ -115,7 +115,7 @@ mod tests {
             .fold(f, |f, (i, &l)| f.byte(0x08, 0x07 + i as u8, &[l]))
     }
 
-    // TestForPalitGPUv1Controller: reads all five letters, no quick write once they match.
+    // v1 probe: reads all five letters, no quick write once they match.
     #[test]
     fn v1_detect_by_string() {
         let bus = palit_string(Fake::new("NV", GTX1080)).shared();
@@ -128,7 +128,7 @@ mod tests {
         );
     }
 
-    // TestForPalitGPUv1Controller: the Gainward fallback passes only when the quick write fails.
+    // v1 probe: the Gainward fallback passes only when the quick write fails.
     #[test]
     fn v1_gainward_quick_fallback() {
         let bus = Fake::new("NV", GAINWARD_1080).shared();
@@ -144,7 +144,7 @@ mod tests {
         assert!(run(&[detect_v1], &ok.shared()).is_empty());
     }
 
-    // RGBController_PalitGPUv1::DeviceUpdateLEDs -> SetLEDColors.
+    // v1 LED update.
     #[test]
     fn v1_frame() {
         let bus = palit_string(Fake::new("NV", GTX1080)).shared();
@@ -157,7 +157,7 @@ mod tests {
         assert!(push(&mut b, &[Color(1, 2, 3)]).is_empty());
     }
 
-    // TestForPalitGPUv2Controller: reg 0x00 must be 0 and the mode below 5.
+    // v2 probe: reg 0x00 must be 0 and the mode below 5.
     #[test]
     fn v2_detect() {
         let bus = Fake::new("NV", RTX3080_PALIT)
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(run(&[detect_v2], &failed.shared()).len(), 1);
     }
 
-    // RGBController_PalitGPUv2::DeviceUpdateMode (SetDirect) then DeviceUpdateLEDs.
+    // v2 direct mode then the LEDs.
     #[test]
     fn v2_direct_and_frame() {
         let bus = Fake::new("NV", RTX3080_PALIT)
@@ -215,7 +215,7 @@ mod tests {
         );
     }
 
-    // DetectionManager::BackgroundDetectI2CPCIDevices: all four PCI ids must match first.
+    // All four PCI ids must match first.
     #[test]
     fn other_cards_ignored() {
         let bus = palit_string(Fake::new("NV", [0x10DE, 0x1B80, 0x10DE, 0x0001])).shared();

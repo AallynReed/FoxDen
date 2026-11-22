@@ -146,7 +146,7 @@ mod tests {
     use rec::*;
 
     #[test]
-    fn tables_match_openrgb() {
+    fn table_sizes() {
         assert_eq!(KEYS.len(), 106);
         let mut seen: Vec<u32> = FULL_MAP.iter().flat_map(|r| r.iter().copied()).collect();
         seen.retain(|&v| v != NA);

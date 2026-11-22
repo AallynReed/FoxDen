@@ -6,7 +6,7 @@ use foxden_smbus::i2c::{SharedBus, SmBus, lock};
 use super::{Entry, RECT, matching};
 
 const AMD_GPU_VEN: u16 = 0x1002;
-/// i2c_amd_gpu.h RECOGNIZED_I2C_BUS_NAMES.
+/// Bus names an AMD card may sit on.
 const AMD_BUS_NAMES: [&str; 3] = [
     "AMD ADL",
     "AMDGPU DM i2c OEM bus",
@@ -19,7 +19,7 @@ const REG_BLUE: u8 = 0x06;
 const REG_MODE: u8 = 0x07;
 const MODE_STATIC: u8 = 1;
 
-/// A failed read is the s32 -1 OpenRGB truncates to a byte.
+/// A failed read is the s32 -1 truncated to a byte.
 fn read(bus: &dyn SmBus, addr: u8, reg: u8) -> u8 {
     bus.read_byte_data(addr, reg).unwrap_or(0xFF)
 }
@@ -42,7 +42,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
         if !test_for(guard.as_ref(), addr) {
             continue;
         }
-        // RGBController_AuraGPU reads the colour in SetupZones, then the mode.
+        // Setup reads the colour, then the mode.
         for reg in [REG_RED, REG_GREEN, REG_BLUE, REG_MODE] {
             read(guard.as_ref(), addr, reg);
         }
@@ -82,7 +82,7 @@ impl Backend for AuraGpu {
         }
         let &color = colors.first().ok_or("no colour")?;
         let bus = lock(&self.bus);
-        // DeviceUpdateMode for Direct: Static, without the apply register.
+        // Direct mode: Static, without the apply register.
         if !self.direct {
             bus.write_byte_data(self.addr, REG_MODE, MODE_STATIC)?;
             self.direct = true;
@@ -174,7 +174,6 @@ pub(super) const DEVICES: &[Entry] = &[
     ("ASUS ROG STRIX Radeon RX 5700 XT Gaming OC", 0x1002, 0x731F, 0x1043, 0x04E2, 0x2A),
     ("ASUS ROG STRIX Radeon RX 5700 XT Gaming OC", 0x1002, 0x731F, 0x1043, 0x05C1, 0x2A),
     ("ASUS ROG STRIX Radeon RX 5700 XT Gaming OC", 0x1002, 0x731F, 0x1043, 0x05C3, 0x2A),
-    // From SignalRGB's ASUS_Legacy_GPU.js.
     ("ASUS GTX 1050Ti Strix Gaming OC", 0x10DE, 0x1C82, 0x1043, 0x864B, 0x29),
     ("ASUS GTX 1060 Strix Gaming", 0x10DE, 0x1C03, 0x1043, 0x854A, 0x29),
     ("ASUS GTX 1080 Strix Gaming OC", 0x10DE, 0x1B80, 0x1043, 0x8593, 0x29),
@@ -227,7 +226,7 @@ mod tests {
         s
     }
 
-    // AsusAuraGPUControllerDetect.cpp has 74 REGISTER_I2C_PCI_DETECTOR lines; SignalRGB adds 24
+    // 74 base rows, then 24 more
     #[test]
     fn table() {
         assert_eq!(DEVICES.len(), 74 + 24);
@@ -241,7 +240,7 @@ mod tests {
         )));
     }
 
-    // TestForAsusAuraGPUController and the RGBController_AuraGPU constructor
+    // Probe, then the setup reads
     #[test]
     fn detection_reads() {
         let info = strix_2080("Nvidia NvAPI I2C on GPU 0");
@@ -265,7 +264,7 @@ mod tests {
         );
     }
 
-    // TestForAsusAuraGPUController: wrong magic, and absent device read as 0xFF
+    // Probe: wrong magic, and absent device read as 0xFF
     #[test]
     fn detection_rejects() {
         let (bus, log) = card(strix_2080("x"), 0x2A, [0x15, 0x88]).share();
@@ -278,7 +277,7 @@ mod tests {
         assert!(log.lock().unwrap().is_empty());
     }
 
-    // TestForAsusAuraGPUController: AMD cards only on a recognised bus (is_amd_gpu_i2c_bus)
+    // Probe: AMD cards only on a recognised bus
     #[test]
     fn amd_bus_name() {
         let vega = |name: &str| BusInfo {
@@ -295,7 +294,7 @@ mod tests {
         assert_eq!(detect(&bus).len(), 1);
     }
 
-    // RGBController_AuraGPU::DeviceUpdateMode (Direct) then DeviceUpdateLEDs
+    // Direct mode, then the LEDs
     #[test]
     fn direct_frames() {
         let (bus, log) = card(strix_2080("x"), 0x2A, [0x15, 0x89]).share();

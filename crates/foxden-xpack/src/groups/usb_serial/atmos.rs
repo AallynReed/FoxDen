@@ -1,5 +1,4 @@
-//! Cooler Master Atmos II Pixel LED matrix (protocol learned from SignalRGB's
-//! CoolerMaster_Atmos_II_Pixel_LCD.js).
+//! Cooler Master Atmos II Pixel LED matrix.
 
 use crate::hid::{Driver, Io, Proto, open_io, rgb};
 use foxden_core::{Backend, Color, Device, DeviceKind};

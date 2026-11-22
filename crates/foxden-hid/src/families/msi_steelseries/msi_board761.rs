@@ -5,7 +5,7 @@ use crate::registry::{Detector, Info};
 use foxden_core::{Backend, Color, DeviceKind};
 use hidapi::HidDevice;
 
-/// LEDs given to each JAF/JARGB header in place of OpenRGB's user-sized zones.
+/// LEDs given to each JAF/JARGB header in place of user-sized zones.
 const HEADER_LEDS: usize = 40;
 const SETUP_SIZE: usize = 290;
 const FRAME_SIZE: usize = 727;
@@ -112,7 +112,7 @@ impl Proto for Gen761 {
     }
 }
 
-/// The SMBIOS baseboard product, which OpenRGB's DMIInfo prefixes with "MSI ".
+/// The SMBIOS baseboard product, prefixed with "MSI ".
 #[cfg(windows)]
 fn board_product() -> Option<String> {
     use std::ffi::c_void;

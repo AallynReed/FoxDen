@@ -42,7 +42,7 @@ pub fn colours(bar: bool, colors: &[Color]) -> Vec<Out> {
             .collect();
     }
     let mut frame = [0u8; 65];
-    // 22 LEDs need 67 bytes; OpenRGB overruns its 65-byte buffer, so the last LED keeps only red here
+    // 22 LEDs need 67 bytes of a 65-byte report, so the last LED keeps only red
     for (i, c) in colors.iter().enumerate() {
         for (k, v) in [c.0, c.2, c.1].into_iter().enumerate() {
             if let Some(b) = frame.get_mut(1 + 3 * i + k) {

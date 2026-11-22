@@ -1,5 +1,4 @@
-//! Nuvoton keyboards and the Lian Li TL fan controller on 0416:7372 (protocol learned from SignalRGB's
-//! Nuvoton/Nuvoton_Controller.js).
+//! Nuvoton keyboards and the Lian Li TL fan controller on 0416:7372.
 
 use super::nuvoton_layouts::MODELS;
 use super::util::{Every, be16, cells, hub_id, open, scan};

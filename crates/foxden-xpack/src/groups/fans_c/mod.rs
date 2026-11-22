@@ -1,4 +1,4 @@
-//! Lian Li fan controllers and AIOs: Uni Fan hubs, Galahad II, HydroShift II (protocols learned from SignalRGB's Lian Li plugins).
+//! Lian Li fan controllers and AIOs: Uni Fan hubs, Galahad II, HydroShift II.
 
 mod galahad;
 mod hydroshift;

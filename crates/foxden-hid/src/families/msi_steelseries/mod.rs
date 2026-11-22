@@ -35,7 +35,7 @@ pub fn detectors() -> Vec<&'static Detector> {
 
 #[cfg(test)]
 mod tests {
-    // One detector per REGISTER_HID_DETECTOR* line ported, plus the ids added from SignalRGB.
+    // One detector per known id, plus the extra ids.
     #[test]
     fn detector_count() {
         assert_eq!(super::detectors().len(), 194 + 28 + 19);

@@ -182,7 +182,7 @@ pub fn rows(id: String, name: &str, kind: DeviceKind, counts: &[usize]) -> Devic
 
 pub const NA: u32 = u32::MAX;
 
-/// LEDs placed by an OpenRGB matrix map (`map[row * width + col]`); unmapped ones go below it.
+/// LEDs placed by a matrix map (`map[row * width + col]`); unmapped ones go below it.
 pub fn mapped(
     id: String,
     name: &str,

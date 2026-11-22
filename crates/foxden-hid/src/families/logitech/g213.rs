@@ -82,7 +82,7 @@ mod tests {
 
     // LogitechG213Controller::SetDirect.
     #[test]
-    fn direct_matches_openrgb() {
+    fn direct_mode_bytes() {
         assert_eq!(
             direct(3, Color(0x10, 0x20, 0x30)),
             [

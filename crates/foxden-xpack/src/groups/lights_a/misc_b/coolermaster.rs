@@ -1,4 +1,4 @@
-//! Cooler Master CK720, CK721, MK850, MP860 and the Acer P09-600 fan hub (protocol learned from SignalRGB's CoolerMaster_CK720_Keyboard.js, CoolerMaster_CK721_Keyboard.js, CoolerMaster_Mk850_Keyboard.js, CoolerMaster_MP860_Mat.js and ACER_P09-600_Controller.js).
+//! Cooler Master CK720, CK721, MK850, MP860 and the Acer P09-600 fan hub.
 
 use super::super::common::{KEYBOARD_RECT, MOUSE_RECT, SMALL_RECT, full, keyed};
 use super::layouts::*;
