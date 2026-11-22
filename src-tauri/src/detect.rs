@@ -790,7 +790,7 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         return (
             Route::Native,
             State::Active,
-            "Driven by FoxDen's own driver.".into(),
+            "FoxDen controls its lighting.".into(),
         );
     }
     if live
