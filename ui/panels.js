@@ -1445,14 +1445,25 @@ function detectedRow(item) {
   }
   {
     const info = el("button", { type: "button", className: "send-info" }, sendIcon(), "Send device info");
-    info.onclick = () => showInfo(item);
+    info.onclick = () => showInfo(item, info);
     row.append(info);
   }
   return row;
 }
 
-async function showInfo(item) {
-  const text = await call("device_info", { id: item.id, name: item.name });
+async function showInfo(item, button) {
+  const label = button.lastChild;
+  button.disabled = true;
+  button.classList.add("busy");
+  label.textContent = "Reading device…";
+  let text;
+  try {
+    text = await call("device_info", { id: item.id, name: item.name });
+  } finally {
+    button.disabled = false;
+    button.classList.remove("busy");
+    label.textContent = "Send device info";
+  }
   if (text === undefined) return;
   $("info-text").value = text;
   setText($("info-status"), "");

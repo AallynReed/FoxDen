@@ -1738,3 +1738,13 @@ body.wide #panel-settings > .span {
   width: 14px;
   height: 14px;
 }
+
+.send-info.busy svg {
+  animation: send-info-wait 0.9s steps(2) infinite;
+}
+
+@keyframes send-info-wait {
+  50% {
+    opacity: 0.3;
+  }
+}
