@@ -373,6 +373,15 @@ impl Link {
             .ok()
     }
 
+    /// Receiver long register read, such as 0xB5 pairing information.
+    fn long_register(&self, reg: u8, sub: u8) -> Result<Vec<u8>, String> {
+        match self.send(DIRECT, 0x83, reg, &[sub], true, Duration::from_millis(500)) {
+            Some(Ok(p)) => Ok(p),
+            Some(Err(code)) => Err(error(code)),
+            None => Err("no answer".into()),
+        }
+    }
+
     fn battery_20(&self, idx: u8, pid: u16) -> Option<Reading> {
         if let Some(f) = self.feature(idx, UNIFIED_BATTERY)
             && let Some(r) = self.call(idx, f, 1, &[]).and_then(|p| unified(&p))
@@ -578,11 +587,35 @@ pub fn diagnose(pid: u16) -> Vec<String> {
     if link.short.is_none() && link.long.is_none() {
         return out;
     }
+    if let Some(r) = link.register(DIRECT, 0x02) {
+        out.push(format!("receiver connections: {}", hex(&r[..3.min(r.len())])));
+    }
+    for n in 0..6u8 {
+        let pairing = link.long_register(0xB5, 0x20 + n);
+        let name = link.long_register(0xB5, 0x40 + n);
+        let line = match (pairing, name) {
+            (Err(a), Err(_)) => format!("pairing {}: {}", n + 1, a),
+            (pairing, name) => {
+                let mut line = format!("pairing {}:", n + 1);
+                if let Ok(p) = &pairing
+                    && p.len() >= 8
+                {
+                    line += &format!(" wpid {:02x}{:02x}, {}", p[3], p[4], kind(p[7] & 0x0F));
+                }
+                if let Ok(p) = &name {
+                    let len = (*p.get(1).unwrap_or(&0) as usize).min(p.len().saturating_sub(2));
+                    line += &format!(" \"{}\"", String::from_utf8_lossy(&p[2..2 + len]));
+                }
+                line + &format!(" ({})", pairing.map_or_else(|e| e, |p| hex(&p)))
+            }
+        };
+        out.push(line);
+    }
     for idx in (1..=6).chain([DIRECT]) {
         match link.ping(idx) {
-            // 0x01 means an HID++ 1.0 device answered; other errors mean an empty slot.
-            None => {}
-            Some(Err(code)) if code != 0x01 => {}
+            None => out.push(format!("{idx:#04x}: no answer")),
+            // 0x01 means an HID++ 1.0 device answered; other errors come from the receiver.
+            Some(Err(code)) if code != 0x01 => out.push(format!("{idx:#04x}: {}", error(code))),
             Some(Err(code)) => {
                 let mut line = format!("{idx:#04x}: HID++ 1.0 (error {code:#04x})");
                 for reg in [0x0D, 0x07] {
@@ -619,6 +652,35 @@ pub fn diagnose(pid: u16) -> Vec<String> {
         }
     }
     out
+}
+
+fn kind(k: u8) -> &'static str {
+    match k {
+        1 => "keyboard",
+        2 => "mouse",
+        3 => "numpad",
+        4 => "presenter",
+        8 => "trackball",
+        9 => "touchpad",
+        _ => "other kind",
+    }
+}
+
+fn error(code: u8) -> String {
+    let what = match code {
+        0x02 => "invalid address",
+        0x03 => "invalid value",
+        0x04 => "connect failed",
+        0x05 => "too many devices",
+        0x06 => "already exists",
+        0x07 => "busy",
+        0x08 => "unknown device",
+        0x09 => "resource error",
+        0x0A => "request unavailable",
+        0x0B => "invalid parameter",
+        _ => "error",
+    };
+    format!("{what} ({code:#04x})")
 }
 
 pub fn poll_logitech(ctx: &mut Ctx) {
