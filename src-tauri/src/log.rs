@@ -100,6 +100,8 @@ pub async fn open_logs(app: AppHandle) -> Result<(), String> {
         .inner_size(760.0, 480.0)
         .min_inner_size(420.0, 260.0)
         .data_directory(crate::config::webview_dir())
+        // Every window in one data folder must share the browser flags, or WebView2 refuses it.
+        .additional_browser_args(crate::BROWSER_ARGS)
         .build()
         .map(|_| ())
         .map_err(|e| e.to_string())

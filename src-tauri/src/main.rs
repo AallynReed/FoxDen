@@ -33,7 +33,7 @@ use tauri::{Manager, RunEvent, WebviewWindowBuilder};
 use state::{AppState, Shared, lock};
 
 /// WebView2 flags: wry's defaults, which this replaces, plus no Edge background traffic and a lighter footprint.
-const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,AutofillServerCommunication,OptimizationHints,MediaRouter,BackForwardCache,SpareRendererForSitePerProcess      --disable-background-networking --disable-component-update --disable-domain-reliability      --disable-client-side-phishing-detection --disable-sync --no-pings --metrics-recording-only      --renderer-process-limit=1 --disable-extensions --disable-gpu-shader-disk-cache      --js-flags=--max-old-space-size=256";
+pub const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,AutofillServerCommunication,OptimizationHints,MediaRouter,BackForwardCache,SpareRendererForSitePerProcess      --disable-background-networking --disable-component-update --disable-domain-reliability      --disable-client-side-phishing-detection --disable-sync --no-pings --metrics-recording-only      --renderer-process-limit=1 --disable-extensions --disable-gpu-shader-disk-cache      --js-flags=--max-old-space-size=256";
 
 /// The main window, made when it is first shown. Closing it to the tray destroys it, so the
 /// web view's processes and memory go with it; the app keeps running without them.
