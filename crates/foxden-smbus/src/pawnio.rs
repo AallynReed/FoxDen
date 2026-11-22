@@ -4,7 +4,8 @@ use foxden_pawnio::{Module, SMBUS_I801, SMBUS_NCT6793, SMBUS_PIIX4, SharedLock};
 
 /// Shared with other SMBus software so two programs never interleave transfers.
 const BUS_MUTEX: &str = r"Global\Access_SMBUS.HTP.Method";
-const SLEEP_ALWAYS: u64 = 2;
+/// Polls without sleeping: a sleep waits for a timer tick, up to 15 ms a transfer.
+const BUSY_WAIT: u64 = 0;
 
 const READ: u64 = 1;
 const WRITE: u64 = 0;
@@ -63,7 +64,7 @@ impl Bus {
     }
 
     fn new(module: Module, name: &str, port: Option<u64>) -> Bus {
-        let _ = module.execute("ioctl_set_sleep_mode", &[SLEEP_ALWAYS], 0);
+        let _ = module.execute("ioctl_set_sleep_mode", &[BUSY_WAIT], 0);
         // The module reports the controller's PCI ids, which PCI detectors match on.
         let mut info = crate::i2c::BusInfo {
             name: name.into(),
