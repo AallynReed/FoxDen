@@ -8,12 +8,6 @@
     "resources": {
       "../target/release/foxden-service.exe": "foxden-service.exe",
       "../packaging/PawnIO_setup.exe": "PawnIO_setup.exe",
-      "../packaging/vbcable/VBCABLE_Setup_x64.exe": "vbcable/VBCABLE_Setup_x64.exe",
-      "../packaging/vbcable/vbMmeCable64_win10.inf": "vbcable/vbMmeCable64_win10.inf",
-      "../packaging/vbcable/vbaudio_cable64_win10.cat": "vbcable/vbaudio_cable64_win10.cat",
-      "../packaging/vbcable/vbaudio_cable64_win10.sys": "vbcable/vbaudio_cable64_win10.sys",
-      "../packaging/vbcable/vbaudio_cable64arm_win10.sys": "vbcable/vbaudio_cable64arm_win10.sys",
-      "../packaging/vbcable/readme.txt": "vbcable/readme.txt",
       "../LICENSE": "LICENSE.txt"
     },
     "windows": {

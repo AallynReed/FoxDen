@@ -9,10 +9,8 @@ Files and asks for administrator rights once. `installer-hooks.nsh` then:
 - stops the service before an update and removes it on uninstall
 - on uninstall, removes VB-CABLE only if FoxDen installed it
 
-VB-Audio's VB-CABLE (donationware, https://vb-audio.com/Cable/) ships unmodified in the
-`vbcable` folder but is not installed with FoxDen. It is installed only when the user turns on the
-virtual microphone on the Audio tab. `fetch-vbcable.ps1` downloads the pack, checks its SHA-256 and
-copies the x64 Windows 10 files into `packaging/vbcable`.
+FoxDen does not ship VB-Audio's VB-CABLE. For the virtual microphone the user installs it from
+https://vb-audio.com/Cable/; FoxDen then finds it by hardware id, renames its endpoints and uses it.
 
 ## Releases
 
@@ -44,7 +42,6 @@ further update can reach installed copies.
 
 ```powershell
 Invoke-WebRequest https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe -OutFile packaging/PawnIO_setup.exe
-./packaging/fetch-vbcable.ps1
 $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content <path to the key> -Raw
 $env:CARGO_ENCODED_RUSTFLAGS = "--remap-path-prefix=$env:USERPROFILE=~"
 cargo tauri build --config packaging/tauri.bundle.json

@@ -1270,20 +1270,16 @@ pub fn mixer_set(mixer: State<'_, Mixer>, change: Change) -> Result<View, String
     Ok(mixer.view())
 }
 
-/// Installs VB-CABLE through the service, or with an administrator prompt when there is none,
-/// then turns the virtual mic on.
+/// Uses a VB-CABLE the user installed from VB-Audio: names it through the service, then turns
+/// the virtual mic on. FoxDen does not ship VB-Audio's files.
 #[tauri::command(async)]
 pub fn virtual_mic_install(mixer: State<'_, Mixer>) -> Result<View, String> {
     foxden_vcable::com_init();
-    let before = foxden_vcable::defaults();
-    let text = vmic_action("install")?;
-    crate::log::info("audio", format!("virtual mic: {text}"));
-    // VB-Audio's setup makes VB-CABLE the default playback and recording device.
-    match foxden_vcable::restore(&before) {
-        Ok(0) => {}
-        Ok(n) => crate::log::info("audio", format!("put back {n} default devices")),
-        Err(e) => crate::log::warn("audio", format!("default devices not put back: {e}")),
+    if !foxden_vcable::driver_present() {
+        return Err("VB-CABLE is not installed yet. Install it from VB-Audio's page, then press Check again.".into());
     }
+    let text = vmic_action("rename")?;
+    crate::log::info("audio", format!("virtual mic: {text}"));
     mixer.apply(Change::VirtualMic { on: true })?;
     Ok(mixer.view())
 }

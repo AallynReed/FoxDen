@@ -493,7 +493,7 @@
     }
     vm.install.onclick = async () => {
       vm.install.disabled = true;
-      say(vm.progress, "Installing VB-CABLE. Windows asks for administrator rights.");
+      say(vm.progress, "Looking for VB-CABLE…");
       try {
         take(await invoke("virtual_mic_install"));
         vm.sheet.close();
