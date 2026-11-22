@@ -90,6 +90,8 @@ fn version_regs(version: &[u8]) -> (u16, Option<usize>) {
         | b"AUMA0-E6K5-0008" | b"AUMA0-E6K5-1113" | b"AUMA0-E6K5-1114" => {
             (REG_COLORS_DIRECT_V2, Some(CONFIG_LED_COUNT_0107))
         }
+        // Unlisted versions: the newer colour registers for the E6K5 family, the first ones otherwise.
+        v if v.windows(4).any(|w| w == b"E6K5") => (REG_COLORS_DIRECT_V2, None),
         _ => (REG_COLORS_DIRECT, None),
     }
 }
@@ -133,7 +135,11 @@ fn chip(ctx: &Ctx, dev: u8) -> Chip {
         ctx: ctx.clone(),
         dev,
         direct_reg,
-        led_count: count_at.map_or(0, |i| config[i] as usize),
+        // An unlisted version takes the larger of the two count bytes.
+        led_count: count_at.map_or_else(
+            || config[CONFIG_LED_COUNT].max(config[CONFIG_LED_COUNT_0107]) as usize,
+            |i| config[i] as usize,
+        ),
         leds: (0..NUM_ZONES).map(|z| config[3 + z] as usize).sum(),
     }
 }
@@ -384,14 +390,16 @@ mod tests {
         assert_eq!(log[..want.len()], want[..]);
     }
 
-    // ENESMBusController constructor: an unknown version has led_count 0, so DRAM is not added.
+    // An unlisted version takes its LED count from the config table.
     #[test]
-    fn unknown_versions_have_no_leds() {
+    fn unknown_versions_count_from_the_config() {
         let mut st = State::default();
         st.ene
-            .insert(0x70, Ene::new("SOMETHING-ELSE", &[(2, 4), (3, 4)]));
+            .insert(0x70, Ene::new("SOMETHING-ELSE", &[(2, 3), (3, 4)]));
         let h = fake::bus(fake::info(0x1022, 0x790B, 0, 0), st);
-        assert!(dram(&h.ctx).is_empty());
+        let found = dram(&h.ctx);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].devices()[0].leds.len(), 4);
     }
 
     // ENESMBusController constructor: version string to direct register and LED count offset.
@@ -402,6 +410,7 @@ mod tests {
         assert_eq!(version_regs(b"AUMA0-E6K5-1114"), (0x8100, Some(3)));
         assert_eq!(version_regs(b"AUMA0-E8K4-0101"), (0x8000, Some(2)));
         assert_eq!(version_regs(b"X"), (0x8000, None));
+        assert_eq!(version_regs(b"AUMA0-E6K5-9999"), (0x8100, None));
     }
 
     fn one_chip(version: &str, block_writes_fail: bool) -> (fake::Handle, Box<dyn Backend>) {
