@@ -812,7 +812,10 @@ mod tests {
                     }
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
-                    Control::Keys | Control::KeyColours => assert!(value.is_array()),
+                    Control::Keys | Control::KeyColours | Control::Stops => {
+                        assert!(value.is_array())
+                    }
+                    Control::Sensor => assert!(value.is_string()),
                     Control::Choice { options } => {
                         assert!(
                             options.contains(&value.as_str().unwrap()),

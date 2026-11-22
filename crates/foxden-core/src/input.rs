@@ -1,5 +1,6 @@
 use crate::Color;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 pub const AUDIO_BANDS: usize = 16;
 
@@ -51,6 +52,24 @@ pub struct Inputs {
     pub presses: Vec<Press>,
     /// Each lit keyboard on the canvas: its rect, and whether it has a number pad.
     pub keyboards: Vec<([f32; 4], bool)>,
+    /// Temperatures in °C by sensor id.
+    pub temperatures: BTreeMap<String, f32>,
+}
+
+/// Eases each reading toward `latest` with time constant `tau` seconds. New sensors start at their
+/// reading and sensors that went quiet are dropped.
+pub fn ease_readings(
+    eased: &mut BTreeMap<String, f32>,
+    latest: &[(String, f32)],
+    dt: f32,
+    tau: f32,
+) {
+    let k = 1.0 - (-dt.max(0.0) / tau.max(1e-3)).exp();
+    eased.retain(|id, _| latest.iter().any(|(l, _)| l == id));
+    for (id, value) in latest.iter().filter(|(_, v)| v.is_finite()) {
+        let now = eased.entry(id.clone()).or_insert(*value);
+        *now += (value - *now) * k;
+    }
 }
 
 #[cfg(test)]
@@ -67,5 +86,20 @@ mod tests {
         assert_eq!(frame.sample(0.1, 0.5), Color(1, 0, 0));
         assert_eq!(frame.sample(1.0, 1.0), Color(2, 0, 0));
         assert_eq!(ScreenFrame::default().sample(0.5, 0.5), Color::BLACK);
+    }
+
+    #[test]
+    fn readings_ease_toward_the_newest() {
+        let mut eased = BTreeMap::new();
+        ease_readings(&mut eased, &[("cpu".into(), 40.0)], 0.03, 0.3);
+        assert_eq!(eased["cpu"], 40.0);
+        ease_readings(&mut eased, &[("cpu".into(), 80.0)], 0.1, 0.3);
+        assert!(eased["cpu"] > 40.0 && eased["cpu"] < 60.0);
+        for _ in 0..40 {
+            ease_readings(&mut eased, &[("cpu".into(), 80.0)], 0.03, 0.3);
+        }
+        assert!((eased["cpu"] - 80.0).abs() < 1.0);
+        ease_readings(&mut eased, &[("gpu".into(), f32::NAN)], 0.03, 0.3);
+        assert!(eased.is_empty());
     }
 }

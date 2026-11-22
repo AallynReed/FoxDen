@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use foxden_audio::AudioCapture;
 use foxden_core::{
     Backend, DeviceKind, Effect, EffectInfo, Engine, Frame, Inputs, KeyInfo, Layer, Post, PostInfo,
-    key_layout, presses_on,
+    ease_readings, key_layout, presses_on,
 };
 use foxden_openrgb::OpenRgbBackend;
 use foxden_screen::ScreenCapture;
@@ -33,6 +33,8 @@ const CLOCK_WRAP: f64 = 21_600.0;
 const RELEASE: Duration = Duration::from_secs(2);
 /// How long the last black frame may take on the way out.
 const LAST_FRAME: Duration = Duration::from_millis(500);
+/// Time constant, in seconds, of the easing toward a new temperature reading.
+const TEMP_EASE: f32 = 0.3;
 /// Backend groups in the order their devices are listed.
 /// When, after start, an empty boards-and-memory group is probed again.
 const BOARD_RETRIES: [Duration; 4] = [
@@ -791,6 +793,7 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
     thread::spawn(move || {
         let start = Instant::now();
         let mut next = start;
+        let mut eased_at = start;
         let mut last: Vec<Frame> = Vec::new();
         let mut still = 0u32;
         let mut inputs = Inputs::default();
@@ -824,6 +827,16 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                 .as_ref()
                 .map(|c| c.frame())
                 .unwrap_or_default();
+
+            let now = Instant::now();
+            let dt = now.duration_since(eased_at).as_secs_f32();
+            eased_at = now;
+            ease_readings(
+                &mut inputs.temperatures,
+                &crate::fans::temperatures(),
+                dt,
+                TEMP_EASE,
+            );
 
             let changed = audio_changed || screen_changed || keys_changed;
             // The engine only queues the frame here; each backend sends it on its own thread.

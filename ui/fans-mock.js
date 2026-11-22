@@ -149,6 +149,12 @@
     return null;
   }
 
+  // For the lighting mock's temperature effect.
+  mock.reading = (id) => {
+    const sensor = svc.running && svc.sensors.find((s) => s.id === id);
+    return sensor ? sensor.value : null;
+  };
+
   Object.assign(mock.commands, {
     get_fans: () => state(),
     set_fan_config({ config }) {

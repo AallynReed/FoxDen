@@ -858,6 +858,148 @@ function paintField(param, id) {
   );
 }
 
+// The service's temperature sensors, for effects that follow one.
+const fanLive = { service: "", sensors: [], asked: false };
+const MAX_STAGES = 8;
+
+function watchFans() {
+  if (fanLive.asked) return;
+  fanLive.asked = true;
+  const take = (fans) => {
+    if (!fans) return;
+    fanLive.service = fans.service;
+    fanLive.sensors = (fans.sensors || []).filter((s) => s.kind !== "power");
+    for (const field of document.querySelectorAll(".field.sensor")) field.refresh();
+  };
+  listen("fans", (e) => take(e.payload));
+  invoke("get_fans").then(take, () => {});
+}
+
+function sensorField(param, id, target) {
+  watchFans();
+  const select = el("select", { id });
+  const status = el("p", { className: "hint", id: id + "-status", role: "status" });
+  const row = el("div", { className: "field sensor" }, el("label", { htmlFor: id, textContent: param.label }), select, status);
+  let chosen = "";
+
+  row.refresh = () => {
+    const options = fanLive.sensors.map((s) => [s.id, s.name]);
+    if (!options.some(([sid]) => sid === chosen)) options.push([chosen, chosen || "None"]);
+    const key = JSON.stringify(options);
+    if (select.dataset.key !== key) {
+      select.dataset.key = key;
+      select.replaceChildren(...options.map(([value, name]) => el("option", { value, textContent: name })));
+    }
+    if (!busy(select)) select.value = chosen;
+    const sensor = fanLive.sensors.find((s) => s.id === chosen);
+    let text = "";
+    if (state.snap && !state.snap.settings.fans_module) text = "Turn on the Fans module to read temperatures.";
+    else if (fanLive.service && fanLive.service !== "running") text = "Start the service in the Fans tab to read temperatures.";
+    else if (fanLive.service && (!sensor || sensor.value == null)) text = "No reading from this sensor. The coldest stage is shown.";
+    else if (sensor) text = "Now " + sensor.value.toFixed(1) + " °C";
+    setText(status, text);
+  };
+  select.show = (value) => {
+    chosen = typeof value === "string" ? value : "";
+    row.refresh();
+  };
+  select.oninput = () => {
+    chosen = select.value;
+    queueEffect(param.name, chosen, target);
+    row.refresh();
+  };
+  select.dataset.param = param.name;
+  select.setAttribute("aria-describedby", status.id);
+  return row;
+}
+
+// Temperature stages: a temperature and a colour each, blended between neighbours.
+function stopsField(param, id, target) {
+  const list = el("div", { className: "stages" });
+  const problem = el("p", { className: "problem", id: id + "-problem", hidden: true });
+  const add = el("button", { type: "button", id: id + "-add", textContent: "Add stage" });
+  const box = el("div", { className: "stops" }, el("div", { className: "field" }, el("span", { id: id + "-label", textContent: param.label }), add), list, problem);
+  let stops = [];
+  let rows = [];
+
+  const send = () => queueEffect(param.name, stops.map((s) => ({ temp: s.temp, color: [...s.color] })), target);
+
+  function stageRow(i) {
+    const field = colourField({ name: param.name, label: "Stage " + (i + 1) }, id + "-" + i, (rgb) => {
+      stops[i].color = rgb;
+      send();
+    });
+    const swatch = field.querySelector(".swatch");
+    field.querySelector("label").className = "sr-only";
+    const temp = el("input", { type: "number", className: "exact", id: id + "-" + i + "-temp", min: 0, max: 150, step: 1 });
+    temp.setAttribute("aria-label", "Stage " + (i + 1) + " temperature in °C");
+    explain(temp, problem);
+    revert(temp, () => (temp.value = stops[i].temp));
+    temp.oninput = () => {
+      const v = Number(temp.value);
+      const ok = temp.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= 150;
+      flag(temp, ok ? "" : "Enter a temperature from 0 to 150 °C.");
+      if (!ok) return;
+      stops[i].temp = v;
+      send();
+    };
+    temp.onblur = () => {
+      if (!temp.hasAttribute("aria-invalid")) temp.value = stops[i].temp;
+    };
+    const remove = el("button", { type: "button", className: "remove", textContent: "Remove" });
+    remove.setAttribute("aria-label", "Remove stage " + (i + 1));
+    remove.onclick = () => {
+      if (stops.length < 2) return;
+      stops.splice(i, 1);
+      send();
+      build();
+      const next = rows[Math.min(i, rows.length - 1)];
+      (next && !next.remove.disabled ? next.remove : add).focus();
+    };
+    const controls = el("div", { className: "row" });
+    swatch.replaceWith(controls);
+    controls.append(el("span", { className: "percent" }, temp, "°C"), swatch, remove);
+    return { field, temp, swatch, remove };
+  }
+
+  function build() {
+    if (picker && box.contains(document.activeElement)) picker.close();
+    rows = stops.map((_, i) => stageRow(i));
+    list.replaceChildren(...rows.map((r) => r.field));
+    fill();
+  }
+
+  function fill() {
+    rows.forEach((r, i) => {
+      put(r.temp, stops[i].temp);
+      r.swatch.show(stops[i].color);
+      r.remove.disabled = stops.length < 2;
+    });
+    add.disabled = stops.length >= MAX_STAGES;
+  }
+
+  add.onclick = () => {
+    if (stops.length >= MAX_STAGES) return;
+    const last = [...stops].sort((a, b) => a.temp - b.temp).pop() || { temp: 50, color: [255, 0, 0] };
+    stops.push({ temp: Math.min(last.temp + 10, 150), color: [...last.color] });
+    send();
+    build();
+    rows[rows.length - 1].temp.focus();
+  };
+
+  box.show = (value) => {
+    if (!Array.isArray(value)) return;
+    const count = stops.length;
+    stops = value.map((s) => ({ temp: s.temp, color: [...s.color] }));
+    if (count !== stops.length || !rows.length) build();
+    else fill();
+  };
+  box.dataset.param = param.name;
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-labelledby", id + "-label");
+  return box;
+}
+
 function paramRow(param, target = "effect") {
   const control = param.control;
   const id = (target === "layer" ? "layer-param-" : "param-") + param.name;
@@ -865,6 +1007,8 @@ function paramRow(param, target = "effect") {
   if (control.type === "color") return colourField(param, id, target);
   if (control.type === "keys") return keysField(param, id);
   if (control.type === "key_colours") return paintField(param, id);
+  if (control.type === "sensor") return sensorField(param, id, target);
+  if (control.type === "stops") return stopsField(param, id, target);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
   if (control.type === "range") {
@@ -1716,6 +1860,12 @@ function paramProblem(control, value) {
     return ok ? "" : "three whole numbers from 0 to 255";
   }
   if (control.type === "toggle") return typeof value === "boolean" ? "" : "true or false";
+  if (control.type === "sensor") return typeof value === "string" ? "" : "a sensor id in quotes";
+  if (control.type === "stops") {
+    const stage = (v) => v && typeof v.temp === "number" && Number.isFinite(v.temp) && !paramProblem({ type: "color" }, v.color);
+    const ok = Array.isArray(value) && value.length >= 1 && value.length <= MAX_STAGES && value.every(stage);
+    return ok ? "" : "a list of 1 to 8 stages, each with a temperature and a colour";
+  }
   return (control.options || []).includes(value) ? "" : "one of " + (control.options || []).join(", ");
 }
 

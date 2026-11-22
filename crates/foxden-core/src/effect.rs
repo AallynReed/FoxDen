@@ -90,6 +90,35 @@ pub enum Effect {
         saturation: f32,
         brightness: f32,
     },
+    Temperature {
+        sensor: String,
+        stops: Vec<Stop>,
+    },
+}
+
+/// A colour shown at a temperature in °C.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Stop {
+    pub temp: f32,
+    pub color: Color,
+}
+
+/// The colour at `temp` on the gradient through `stops`, held at the ends. Black without stops.
+pub fn stop_color(stops: &[Stop], temp: f32) -> Color {
+    let mut sorted: Vec<Stop> = stops.iter().copied().filter(|s| s.temp.is_finite()).collect();
+    sorted.sort_by(|a, b| a.temp.total_cmp(&b.temp));
+    let (Some(first), Some(last)) = (sorted.first(), sorted.last()) else {
+        return Color::BLACK;
+    };
+    if temp.is_nan() || temp <= first.temp {
+        return first.color;
+    }
+    if temp >= last.temp {
+        return last.color;
+    }
+    let i = sorted.partition_point(|s| s.temp <= temp);
+    let (a, b) = (sorted[i - 1], sorted[i]);
+    a.color.lerp(b.color, (temp - a.temp) / (b.temp - a.temp))
 }
 
 /// How the UI edits one parameter.
@@ -110,6 +139,10 @@ pub enum Control {
     Keys,
     /// A colour for each of some keyboard keys.
     KeyColours,
+    /// The id of a temperature sensor.
+    Sensor,
+    /// A list of `Stop`s.
+    Stops,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -133,6 +166,8 @@ const VIOLET: Color = Color(150, 60, 255);
 const CYAN: Color = Color(0, 200, 255);
 const NAVY: Color = Color(0, 12, 40);
 const WHITE: Color = Color(255, 255, 255);
+const GREEN: Color = Color(0, 200, 80);
+const RED: Color = Color(255, 0, 0);
 
 pub(crate) fn range(
     name: &'static str,
@@ -413,6 +448,27 @@ impl Effect {
                     range("brightness", "Brightness", 0.2, 3.0, 0.05),
                 ],
             },
+            EffectInfo {
+                label: "Temperature",
+                default: Effect::Temperature {
+                    sensor: "cpu/package".into(),
+                    stops: [(40.0, CYAN), (60.0, GREEN), (75.0, ORANGE), (85.0, RED)]
+                        .map(|(temp, color)| Stop { temp, color })
+                        .to_vec(),
+                },
+                params: vec![
+                    ParamInfo {
+                        name: "sensor",
+                        label: "Sensor",
+                        control: Control::Sensor,
+                    },
+                    ParamInfo {
+                        name: "stops",
+                        label: "Stages",
+                        control: Control::Stops,
+                    },
+                ],
+            },
         ]
     }
 
@@ -432,6 +488,10 @@ impl Effect {
     /// `x`, `y` in 0..=1 on the canvas (`y` = 1 is the bottom), `t` in seconds.
     pub fn sample(&self, x: f32, y: f32, t: f32, inputs: &Inputs) -> Color {
         match *self {
+            Effect::Temperature {
+                ref sensor,
+                ref stops,
+            } => stop_color(stops, inputs.temperatures.get(sensor).copied().unwrap_or(f32::NAN)),
             Effect::None => Color::BLACK,
             Effect::Static { color } => color,
             Effect::Breathing { color, speed } => color.scale(0.5 - 0.5 * (t * speed * 2.0).cos()),
@@ -616,6 +676,7 @@ mod tests {
                 },
             ],
             keyboards: Vec::new(),
+            temperatures: [("cpu/package".to_string(), 70.0)].into(),
         }
     }
 
@@ -685,7 +746,10 @@ mod tests {
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
                     Control::Choice { .. } => assert!(value.is_string()),
-                    Control::Keys | Control::KeyColours => assert!(value.is_array()),
+                    Control::Keys | Control::KeyColours | Control::Stops => {
+                        assert!(value.is_array())
+                    }
+                    Control::Sensor => assert!(value.is_string()),
                 }
             }
         }
@@ -694,7 +758,7 @@ mod tests {
     #[test]
     fn catalog_labels_and_kinds_are_unique() {
         let catalog = Effect::catalog();
-        assert_eq!(catalog.len(), 17);
+        assert_eq!(catalog.len(), 18);
         for (i, a) in catalog.iter().enumerate() {
             for b in &catalog[i + 1..] {
                 assert_ne!(a.label, b.label);
@@ -744,6 +808,7 @@ mod tests {
             "audio_spectrum",
             "audio_pulse",
             "screen_ambience",
+            "temperature",
         ];
         assert_eq!(kinds, expected);
     }
@@ -1156,5 +1221,81 @@ mod tests {
         assert!(grey.0 == grey.1 && grey.1 == grey.2, "{grey:?}");
         assert_eq!(sample(1.0, 2.0), Color(240, 200, 160));
         assert_eq!(sample(1.0, 3.0), Color(255, 255, 240));
+    }
+
+    fn stops(list: &[(f32, Color)]) -> Vec<Stop> {
+        list.iter().map(|&(temp, color)| Stop { temp, color }).collect()
+    }
+
+    #[test]
+    fn stops_are_sorted_before_use() {
+        let (blue, red) = (Color(0, 0, 255), Color(255, 0, 0));
+        let list = stops(&[(80.0, red), (40.0, blue)]);
+        assert_eq!(stop_color(&list, 30.0), blue);
+        assert_eq!(stop_color(&list, 90.0), red);
+        assert_eq!(stop_color(&list, 60.0), Color(128, 0, 128));
+    }
+
+    #[test]
+    fn stops_hold_their_colour_outside_the_range() {
+        let list = stops(&[(40.0, Color(0, 200, 255)), (85.0, Color(255, 0, 0))]);
+        assert_eq!(stop_color(&list, -20.0), Color(0, 200, 255));
+        assert_eq!(stop_color(&list, 40.0), Color(0, 200, 255));
+        assert_eq!(stop_color(&list, 85.0), Color(255, 0, 0));
+        assert_eq!(stop_color(&list, 150.0), Color(255, 0, 0));
+        assert_eq!(stop_color(&list, f32::NAN), Color(0, 200, 255));
+    }
+
+    #[test]
+    fn stops_blend_only_their_neighbours() {
+        let list = stops(&[
+            (40.0, Color(0, 0, 0)),
+            (60.0, Color(200, 0, 0)),
+            (80.0, Color(200, 200, 0)),
+        ]);
+        assert_eq!(stop_color(&list, 50.0), Color(100, 0, 0));
+        assert_eq!(stop_color(&list, 60.0), Color(200, 0, 0));
+        assert_eq!(stop_color(&list, 70.0), Color(200, 100, 0));
+        assert_eq!(stop_color(&list, 75.0), Color(200, 150, 0));
+    }
+
+    #[test]
+    fn odd_stops_never_panic() {
+        assert_eq!(stop_color(&[], 50.0), Color::BLACK);
+        let same = stops(&[(60.0, Color(1, 1, 1)), (60.0, Color(9, 9, 9))]);
+        for t in [59.0, 60.0, 61.0] {
+            stop_color(&same, t);
+        }
+        let odd = stops(&[(f32::NAN, Color(5, 5, 5)), (50.0, Color(7, 7, 7))]);
+        assert_eq!(stop_color(&odd, 10.0), Color(7, 7, 7));
+    }
+
+    #[test]
+    fn temperature_follows_its_sensor_or_shows_the_coldest_stop() {
+        let e = Effect::Temperature {
+            sensor: "cpu/package".into(),
+            stops: stops(&[(85.0, Color(255, 0, 0)), (40.0, Color(0, 200, 255))]),
+        };
+        assert_eq!(at(&e, 0.5, 0.5, 0.0), Color(0, 200, 255));
+        let hot = Inputs {
+            temperatures: [("cpu/package".to_string(), 90.0), ("gpu0/temp".to_string(), 20.0)].into(),
+            ..Inputs::default()
+        };
+        assert_eq!(e.sample(0.1, 0.9, 3.0, &hot), Color(255, 0, 0));
+        assert_eq!(e.sample(0.1, 0.9, 3.0, &hot), e.sample(0.8, 0.2, 9.0, &hot));
+    }
+
+    #[test]
+    fn temperature_settings_round_trip_through_json() {
+        let json = r#"{"kind":"temperature","sensor":"gpu0/temp","stops":[{"temp":30.0,"color":[1,2,3]},{"temp":70.5,"color":[4,5,6]}]}"#;
+        let e: Effect = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            e,
+            Effect::Temperature {
+                sensor: "gpu0/temp".into(),
+                stops: stops(&[(30.0, Color(1, 2, 3)), (70.5, Color(4, 5, 6))]),
+            }
+        );
+        assert_eq!(serde_json::to_string(&e).unwrap(), json);
     }
 }

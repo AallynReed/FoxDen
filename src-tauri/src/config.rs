@@ -442,6 +442,38 @@ mod tests {
     }
 
     #[test]
+    fn temperature_stages_survive_a_profile_save() {
+        let dir = scratch("temperature");
+        let effect = Effect::Temperature {
+            sensor: "gpu0/temp".into(),
+            stops: vec![
+                foxden_core::Stop {
+                    temp: 35.5,
+                    color: Color(0, 0, 255),
+                },
+                foxden_core::Stop {
+                    temp: 90.0,
+                    color: Color(255, 0, 0),
+                },
+            ],
+        };
+        let profile = Profile {
+            effect: effect.clone(),
+            layers: Vec::new(),
+            overrides: BTreeMap::from([("hid:ram0".to_string(), effect.clone())]),
+            brightness: 1.0,
+        };
+        let config = Config {
+            effect,
+            profiles: BTreeMap::from([("Heat".to_string(), profile)]),
+            ..Default::default()
+        };
+        save(&dir, &config).unwrap();
+        assert_eq!(load(&dir), config);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn older_effects_become_layers() {
         let dir = scratch("ripple");
         let ripple = r#"{"kind":"key_ripple","color":[1,2,3],"background":[4,5,6],"speed":1.5,"width":0.05,"fade":1.0}"#;

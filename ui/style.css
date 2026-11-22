@@ -985,6 +985,33 @@ button.tile[aria-pressed="true"] {
   grid-template-columns: subgrid;
 }
 
+.stops {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.stages .field {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.stages .remove {
+  margin-left: auto;
+}
+
+.field.sensor .hint {
+  grid-column: 1 / -1;
+}
+
 .target {
   outline: 2px solid var(--accent);
   outline-offset: 4px;

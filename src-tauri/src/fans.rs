@@ -42,6 +42,8 @@ static APP: OnceLock<AppHandle> = OnceLock::new();
 /// The Fans module switch.
 static ON: AtomicBool = AtomicBool::new(true);
 static PENDING: Mutex<Pending> = Mutex::new(Pending::Nothing);
+/// The latest temperature readings, for lighting that follows them.
+static TEMPS: Mutex<Vec<(String, f32)>> = Mutex::new(Vec::new());
 
 /// Work owed to the service once it answers.
 #[derive(Clone, Debug, PartialEq)]
@@ -78,11 +80,13 @@ pub fn start(app: &AppHandle, on: bool, backup: Option<FanConfig>) {
         loop {
             settle();
             if !ON.load(Ordering::Relaxed) {
+                lock(&TEMPS).clear();
                 hubs_follow(tick(false, &LINK.client).1);
                 thread::sleep(Duration::from_secs(1));
                 continue;
             }
             let state = poll(false);
+            *lock(&TEMPS) = temperatures_in(&state);
             gpu_fan(
                 state
                     .fans
@@ -161,6 +165,26 @@ fn poll(force: bool) -> FanState {
         }
     }
     state
+}
+
+fn temperatures_in(state: &FanState) -> Vec<(String, f32)> {
+    if state.service != Service::Running {
+        return Vec::new();
+    }
+    state
+        .sensors
+        .iter()
+        .filter(|s| s.kind == foxden_fan::Kind::Temperature)
+        .filter_map(|s| Some((s.id.clone(), s.value?)))
+        .collect()
+}
+
+/// Temperatures by sensor id while the Fans module is on and the service answers.
+pub fn temperatures() -> Vec<(String, f32)> {
+    if !ON.load(Ordering::Relaxed) {
+        return Vec::new();
+    }
+    lock(&TEMPS).clone()
 }
 
 /// What the worker asks the service.
@@ -414,5 +438,27 @@ mod tests {
         // A service that answers but fails a config read still owns the hubs, as `hubs` sees it.
         assert!(tick(true, &fake(true, Service::Error)).1);
         assert!(!tick(true, &fake(false, Service::Error)).1);
+    }
+
+    #[test]
+    fn lighting_gets_only_temperatures_that_read() {
+        let sensor = |id: &str, value: Option<f32>, kind| foxden_fan::SensorStatus {
+            id: id.into(),
+            name: id.into(),
+            value,
+            kind,
+        };
+        let mut state = FanState {
+            service: Service::Running,
+            sensors: vec![
+                sensor("cpu/package", Some(55.0), foxden_fan::Kind::Temperature),
+                sensor("disk/0", None, foxden_fan::Kind::Temperature),
+                sensor("psu/power", Some(300.0), foxden_fan::Kind::Power),
+            ],
+            ..FanState::default()
+        };
+        assert_eq!(temperatures_in(&state), vec![("cpu/package".to_string(), 55.0)]);
+        state.service = Service::Error;
+        assert!(temperatures_in(&state).is_empty());
     }
 }

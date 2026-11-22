@@ -132,6 +132,21 @@
       range("saturation", "Saturation", 0, 3, 0.05),
       range("brightness", "Brightness", 0.2, 3, 0.05),
     ),
+    entry(
+      "Temperature",
+      {
+        kind: "temperature",
+        sensor: "cpu/package",
+        stops: [
+          { temp: 40, color: CYAN },
+          { temp: 60, color: [0, 200, 80] },
+          { temp: 75, color: ORANGE },
+          { temp: 85, color: [255, 0, 0] },
+        ],
+      },
+      { name: "sensor", label: "Sensor", control: { type: "sensor" } },
+      { name: "stops", label: "Stages", control: { type: "stops" } },
+    ),
   ];
 
 
@@ -278,6 +293,16 @@
   // Stands in for the desktop: slow bands of colour, brighter towards the bottom.
   const screen = (x, y, t) => mul(hsv(0.6 + 0.15 * Math.sin(t * 0.4 + x * 3) + y * 0.2), 0.3 + 0.7 * y);
 
+  // The same gradient as stop_color in effect.rs.
+  function stopColour(stops, temp) {
+    const s = stops.filter((p) => Number.isFinite(p.temp)).sort((a, b) => a.temp - b.temp);
+    if (!s.length) return [0, 0, 0];
+    if (temp == null || temp <= s[0].temp) return s[0].color;
+    if (temp >= s[s.length - 1].temp) return s[s.length - 1].color;
+    const i = s.findIndex((p) => p.temp > temp);
+    return mix(s[i - 1].color, s[i].color, (temp - s[i - 1].temp) / (s[i].temp - s[i - 1].temp));
+  }
+
   function sample(e, x, y, t, sound) {
     switch (e.kind) {
       case "none":
@@ -345,6 +370,10 @@
         const c = screen(x, y, t);
         const grey = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
         return c.map((v) => (grey + (v - grey) * e.saturation) * e.brightness);
+      }
+      case "temperature": {
+        const read = state.settings.fans_module && window.__foxMock.reading;
+        return stopColour(e.stops, read ? read(e.sensor) : null);
       }
       default:
         return [0, 0, 0];
