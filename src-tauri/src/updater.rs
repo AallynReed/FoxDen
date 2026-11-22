@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::state::{Shared, lock};
@@ -44,16 +43,6 @@ pub fn due(auto: bool, put_off: bool, idle: bool, waited: Duration) -> bool {
     auto && !put_off && (idle || waited >= GRACE)
 }
 
-pub fn toast_text(version: &str, auto: bool) -> String {
-    if auto {
-        format!(
-            "Version {version} is available. It installs in a minute, or once FoxDen is in the tray."
-        )
-    } else {
-        format!("Version {version} is available")
-    }
-}
-
 pub fn start(app: &AppHandle, shared: Shared) {
     if cfg!(debug_assertions) {
         fake(app);
@@ -79,7 +68,7 @@ async fn wait_and_install(app: &AppHandle, info: &Info) {
     if !info.auto || std::mem::replace(&mut *guard(&WAITING), true) {
         return;
     }
-    let toasted = Instant::now();
+    let found = Instant::now();
     loop {
         let put_off = guard(&LATER).as_deref() == Some(info.version.as_str());
         let idle = app
@@ -88,24 +77,12 @@ async fn wait_and_install(app: &AppHandle, info: &Info) {
         if put_off || *guard(&INSTALLING) {
             break;
         }
-        if due(true, put_off, idle, toasted.elapsed()) {
+        if due(true, put_off, idle, found.elapsed()) {
             if let Err(e) = install(app).await {
                 crate::log::warn(
                     "updates",
                     format!("installing {} failed: {e}", info.version),
                 );
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title(crate::i18n::tr(app, "FoxDen update"))
-                    .body(crate::i18n::tr(
-                        app,
-                        &format!(
-                            "Version {} could not be installed. Try again from Settings.",
-                            info.version
-                        ),
-                    ))
-                    .show();
             }
             break;
         }
@@ -133,12 +110,6 @@ fn fake(app: &AppHandle) {
 
 fn announce(app: &AppHandle, info: &Info) {
     let _ = app.emit("update", info);
-    let _ = app
-        .notification()
-        .builder()
-        .title(crate::i18n::tr(app, "FoxDen update"))
-        .body(crate::i18n::tr(app, &toast_text(&info.version, info.auto)))
-        .show();
 }
 
 /// Asks GitHub; a newer release is announced once per version.
@@ -240,9 +211,4 @@ mod tests {
         assert!(!due(false, false, true, GRACE));
     }
 
-    #[test]
-    fn the_toast_says_what_will_happen() {
-        assert!(toast_text("0.4.0", true).starts_with("Version 0.4.0 is available."));
-        assert_eq!(toast_text("0.4.0", false), "Version 0.4.0 is available");
-    }
 }
