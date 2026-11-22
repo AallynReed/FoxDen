@@ -12,11 +12,12 @@ pub fn encode(prefix: &str, body: &impl Serialize) -> String {
     format!("{prefix}{}", URL_SAFE_NO_PAD.encode(json))
 }
 
-/// Reads a code made by `encode` with field `v` set to 1. `what` names the code in errors.
+/// Reads a code made by `encode` with field `v` from 1 to `newest`. `what` names the code in errors.
 pub fn decode<T: DeserializeOwned>(
     code: &str,
     prefix: &str,
     max: usize,
+    newest: u64,
     what: &str,
 ) -> Result<T, String> {
     let code = code.trim();
@@ -32,7 +33,7 @@ pub fn decode<T: DeserializeOwned>(
         .map_err(|_| damaged())?;
     let value: serde_json::Value = serde_json::from_slice(&json).map_err(|_| damaged())?;
     match value.get("v").and_then(|v| v.as_u64()) {
-        Some(1) => {}
+        Some(v) if (1..=newest).contains(&v) => {}
         Some(_) => return Err("This code comes from a newer FoxDen; update to use it".into()),
         None => return Err(damaged()),
     }

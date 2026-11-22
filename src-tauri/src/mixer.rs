@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use foxden_mixer::Channel;
+use foxden_mixer::chain::{Processing, Reduction};
 use foxden_mixer::dsp::{self, Band, FilterType};
 use foxden_mixer::park::{self, AppState, Parker, Plan, RunningApp};
 use foxden_mixer::router::{
@@ -29,6 +30,8 @@ const GATE_DB: f32 = -50.0;
 const FOLLOW_RETRY: Duration = Duration::from_secs(10);
 const AUTO_EVERY: Duration = Duration::from_secs(2);
 const STOP_WAIT: Duration = Duration::from_secs(8);
+const MONITOR_VOLUME: f32 = 0.5;
+const GAME_SIDES: [Channel; 3] = [Channel::Game, Channel::Media, Channel::Aux];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -44,6 +47,7 @@ pub struct ChannelConfig {
     pub muted: bool,
     pub eq_on: bool,
     pub eq: Vec<Band>,
+    pub processing: Processing,
 }
 
 impl Default for ChannelConfig {
@@ -64,6 +68,7 @@ impl ChannelConfig {
             muted: false,
             eq_on: false,
             eq: dsp::default_bands(),
+            processing: Processing::default(),
         }
     }
 }
@@ -93,6 +98,12 @@ pub struct AudioConfig {
     pub no_auto: Vec<String>,
     /// Saved and imported sound profiles; the built-in ones are not stored.
     pub profiles: Vec<Profile>,
+    /// Hear the mic on the mixer's output.
+    pub monitor: bool,
+    pub monitor_volume: f32,
+    pub master_processing: Processing,
+    /// Channels on the game side of the chat mix.
+    pub game_side: Vec<Channel>,
 }
 
 impl Default for AudioConfig {
@@ -113,6 +124,10 @@ impl Default for AudioConfig {
             auto: Vec::new(),
             no_auto: Vec::new(),
             profiles: Vec::new(),
+            monitor: false,
+            monitor_volume: MONITOR_VOLUME,
+            master_processing: Processing::default(),
+            game_side: vec![Channel::Game],
         }
     }
 }
@@ -148,6 +163,7 @@ impl AudioConfig {
                 if c.is_capture() {
                     ch.apps.clear();
                 }
+                ch.processing = ch.processing.clean(c.is_capture());
                 ch.apps.retain(|a| {
                     let k = park::lower(a);
                     !a.trim().is_empty() && !seen.contains(&k) && {
@@ -161,6 +177,12 @@ impl AudioConfig {
         self.master = finite(self.master, 1.0).clamp(0.0, 1.0);
         self.chat_mix = finite(self.chat_mix, 0.0).clamp(-1.0, 1.0);
         self.gate_db = finite(self.gate_db, GATE_DB).clamp(-90.0, 0.0);
+        self.monitor_volume = finite(self.monitor_volume, MONITOR_VOLUME).clamp(0.0, 1.0);
+        self.master_processing = self.master_processing.clean(false);
+        self.game_side = GAME_SIDES
+            .into_iter()
+            .filter(|c| self.game_side.contains(c))
+            .collect();
         self.priority = std::mem::take(&mut self.priority).tidy();
         let placed = self.apps_anywhere();
         for list in [&mut self.auto, &mut self.no_auto] {
@@ -214,6 +236,7 @@ impl AudioConfig {
             .channels
             .iter()
             .filter(|c| c.on && !c.source.is_empty())
+            .filter(|c| self.monitor || !c.channel.is_capture())
             .map(|c| DeviceRoute {
                 channel: c.channel,
                 source: c.source.clone(),
@@ -254,9 +277,29 @@ impl AudioConfig {
             s.set_volume(c.channel, c.volume);
             s.set_muted(c.channel, c.muted);
             s.set_eq(c.channel, c.eq_on, c.eq.clone());
+            s.set_processing(Some(c.channel), c.processing);
         }
+        s.set_processing(None, self.master_processing);
         s.gate = self.gate();
+        s.monitor = self.monitor_gain();
+        s.game_side = self.sides();
         s
+    }
+
+    fn monitor_gain(&self) -> f32 {
+        if self.monitor {
+            self.monitor_volume
+        } else {
+            0.0
+        }
+    }
+
+    fn sides(&self) -> [bool; 5] {
+        let mut out = [false; 5];
+        for c in &self.game_side {
+            out[c.index()] = true;
+        }
+        out
     }
 
     fn gate(&self) -> Option<f32> {
@@ -325,6 +368,19 @@ pub enum Change {
     /// Lets auto-assign place this app again.
     AllowAuto {
         exe: String,
+    },
+    /// `channel` null is the master.
+    Processing {
+        channel: Option<Channel>,
+        processing: Processing,
+    },
+    Monitor {
+        on: bool,
+        volume: f32,
+    },
+    /// Channels on the game side of the chat mix.
+    MixSides {
+        channels: Vec<Channel>,
     },
     ApplyProfile {
         channel: Channel,
@@ -950,6 +1006,32 @@ impl Mixer {
                     self.controls().gate = cfg.gate();
                     false
                 }
+                Change::Processing {
+                    channel,
+                    processing,
+                } => {
+                    let p = processing.clean(channel.is_some_and(|c| c.is_capture()));
+                    match channel {
+                        Some(c) => cfg.channel(c).processing = p,
+                        None => cfg.master_processing = p,
+                    }
+                    self.controls().set_processing(channel, p);
+                    false
+                }
+                Change::Monitor { on, volume } => {
+                    let was = cfg.monitor;
+                    cfg.monitor = on;
+                    cfg.monitor_volume = finite(volume, MONITOR_VOLUME).clamp(0.0, 1.0);
+                    self.controls().monitor = cfg.monitor_gain();
+                    let mic = cfg.channel(Channel::ChatCapture);
+                    running && was != on && mic.on && !mic.source.is_empty()
+                }
+                Change::MixSides { channels } => {
+                    cfg.game_side = channels;
+                    *cfg = std::mem::take(cfg).tidy();
+                    self.controls().game_side = cfg.sides();
+                    false
+                }
                 Change::AutoAssign { on } => {
                     cfg.auto_assign = on;
                     false
@@ -978,6 +1060,10 @@ impl Mixer {
                         ch.volume = v;
                         self.controls().set_volume(channel, v);
                     }
+                    if let Some(proc) = p.processing {
+                        ch.processing = proc;
+                        self.controls().set_processing(Some(channel), proc);
+                    }
                     if let Some(g) = p.gate {
                         (cfg.gate_on, cfg.gate_db) = (g.on, g.db);
                         self.controls().gate = cfg.gate();
@@ -997,6 +1083,7 @@ impl Mixer {
                             bands: ch.eq,
                         }),
                         volume: Some(ch.volume),
+                        processing: Some(ch.processing),
                         gate: (kind == Kind::Mic).then_some(Gate {
                             on: gate_on,
                             db: gate_db,
@@ -1154,6 +1241,18 @@ impl Mixer {
         }
     }
 
+    /// The output assigned apps are parked on, while the mixer runs.
+    pub fn parking(&self) -> Option<String> {
+        if !self.guard().running {
+            return None;
+        }
+        self.parked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sink
+            .clone()
+    }
+
     pub fn priority(&self) -> crate::priority::PriorityConfig {
         self.guard().config.priority.clone()
     }
@@ -1307,13 +1406,31 @@ fn vmic_action(action: &str) -> Result<String, String> {
     }
 }
 
-/// Peak level of each channel since the last call, in [`Channel::ALL`] order.
+#[derive(Serialize)]
+pub struct Levels {
+    peaks: [f32; 5],
+    /// Per channel in [`Channel::ALL`] order, then master.
+    reduction: [Reduction; 6],
+}
+
+/// Peak level and gain reduction of each channel since the last call, in [`Channel::ALL`] order.
 #[tauri::command]
-pub fn get_mixer_levels(mixer: State<'_, Mixer>) -> [f32; 5] {
+pub fn get_mixer_levels(mixer: State<'_, Mixer>) -> Levels {
     let mut c = mixer.controls();
     let peaks = Channel::ALL.map(|ch| c.peak(ch));
+    let mut reduction = [Reduction::default(); 6];
+    for (n, ch) in Channel::ALL.iter().enumerate() {
+        reduction[n] = c.reduction[ch.index()];
+    }
+    reduction[5] = c.reduction[5];
     c.peaks = [0.0; 5];
-    peaks
+    for r in c.reduction.iter_mut() {
+        *r = Reduction {
+            agc: r.agc,
+            ..Default::default()
+        };
+    }
+    Levels { peaks, reduction }
 }
 
 #[cfg(test)]
@@ -1395,6 +1512,67 @@ mod tests {
         assert_eq!(c.channels[3].apps, ["a.exe"]);
         assert!(c.channels[4].apps.is_empty());
         assert_eq!(c.chat_mix, 0.0);
+    }
+
+    #[test]
+    fn the_mic_plays_on_the_output_only_while_monitored() {
+        let mut c = routed("Speakers", "Game cable", true);
+        let mic = c.channel(Channel::ChatCapture);
+        (mic.source, mic.on) = ("Microphone".into(), true);
+        assert_eq!(c.spec().unwrap().routes.len(), 1);
+        assert_eq!(c.state().monitor, 0.0);
+        c.monitor = true;
+        c.monitor_volume = 0.3;
+        assert_eq!(c.spec().unwrap().routes.len(), 2);
+        assert!((c.state().monitor - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn mix_sides_keep_known_channels_and_reach_the_gains() {
+        let mut c = AudioConfig {
+            game_side: vec![
+                Channel::Aux,
+                Channel::ChatRender,
+                Channel::Media,
+                Channel::ChatCapture,
+            ],
+            chat_mix: 1.0,
+            ..AudioConfig::default()
+        }
+        .tidy();
+        assert_eq!(c.game_side, [Channel::Media, Channel::Aux]);
+        let s = c.state();
+        assert!(s.gain(Channel::Media) < 1e-6);
+        assert!(
+            (s.gain(Channel::Game) - 1.0).abs() < 1e-6,
+            "Game left out follows nothing"
+        );
+        c.game_side = vec![Channel::Game];
+        assert!((c.state().gain(Channel::Media) - 1.0).abs() < 1e-6);
+        assert_eq!(AudioConfig::default().game_side, [Channel::Game]);
+    }
+
+    #[test]
+    fn processing_is_cleaned_per_channel() {
+        let mut c = AudioConfig::default();
+        let p = &mut c.channel(Channel::Media).processing;
+        p.denoise.on = true;
+        p.limiter.ceiling_db = 40.0;
+        c.channel(Channel::ChatCapture).processing.denoise.on = true;
+        let c = c.tidy();
+        assert!(!c.channels[2].processing.denoise.on);
+        assert_eq!(c.channels[2].processing.limiter.ceiling_db, 0.0);
+        assert!(c.channels[4].processing.denoise.on);
+        let ch: Change = serde_json::from_str(
+            r#"{"kind":"processing","channel":null,"processing":{"limiter":{"on":true}}}"#,
+        )
+        .unwrap();
+        assert!(
+            matches!(ch, Change::Processing { channel: None, processing } if processing.limiter.on && processing.limiter.ceiling_db == -1.0)
+        );
+        let ch: Change =
+            serde_json::from_str(r#"{"kind":"mix_sides","channels":["game","media"]}"#).unwrap();
+        assert!(matches!(ch, Change::MixSides { .. }));
     }
 
     #[test]

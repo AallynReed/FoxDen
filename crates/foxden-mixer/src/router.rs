@@ -9,9 +9,10 @@ use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 
 use crate::Result;
 use crate::capture::{self, AppCapture};
+use crate::chain::{MicChain, OutputChain, Processing, Reduction};
 use crate::channel::Channel;
 use crate::chatmix;
-use crate::dsp::{Band, Equalizer, Gate, default_bands};
+use crate::dsp::{Band, Equalizer, default_bands};
 
 const MAX_BUFFER_MS: usize = 200;
 
@@ -25,6 +26,8 @@ pub struct MixState {
     pub chat_mix: f32,
     /// Game and chat gains from a headset's ChatMix dial; it replaces `chat_mix` while set.
     pub dial: Option<(f32, f32)>,
+    /// Channels that take the game side of the chat mix, by index; chat is the other side.
+    pub game_side: [bool; 5],
     pub eq: [Vec<Band>; 5],
     pub eq_enabled: [bool; 5],
     eq_version: u64,
@@ -32,6 +35,13 @@ pub struct MixState {
     pub gate: Option<f32>,
     /// Peak level per channel since the last read, 0..1.
     pub peaks: [f32; 5],
+    pub processing: [Processing; 5],
+    pub master_processing: Processing,
+    proc_version: u64,
+    /// Gain of the mic on the mixer's output, 0 when monitoring is off.
+    pub monitor: f32,
+    /// Per channel since the last read, then master.
+    pub reduction: [Reduction; 6],
 }
 
 impl Default for MixState {
@@ -43,11 +53,17 @@ impl Default for MixState {
             master_muted: false,
             chat_mix: 0.0,
             dial: None,
+            game_side: [true, false, false, false, false],
             eq: std::array::from_fn(|_| default_bands()),
             eq_enabled: [false; 5],
             eq_version: 0,
             gate: None,
             peaks: [0.0; 5],
+            processing: Default::default(),
+            master_processing: Processing::default(),
+            proc_version: 0,
+            monitor: 0.0,
+            reduction: Default::default(),
         }
     }
 }
@@ -71,11 +87,21 @@ impl MixState {
         self.eq_version += 1;
     }
 
+    /// `None` is the master.
+    pub fn set_processing(&mut self, c: Option<Channel>, p: Processing) {
+        match c {
+            Some(c) => self.processing[c.index()] = p,
+            None => self.master_processing = p,
+        }
+        self.proc_version += 1;
+    }
+
     fn gains(&self) -> [f32; 5] {
         let mut out = [0.0; 5];
         for c in Channel::ALL {
             out[c.index()] = self.gain(c);
         }
+        out[Channel::ChatCapture.index()] *= self.monitor;
         out
     }
 
@@ -87,8 +113,9 @@ impl MixState {
         }
         let (game, chat) = self.dial.unwrap_or_else(|| chatmix::gains(self.chat_mix));
         let mix = match c {
-            Channel::Game => game,
             Channel::ChatRender => chat,
+            Channel::ChatCapture => 1.0,
+            c if self.game_side[c.index()] => game,
             _ => 1.0,
         };
         let master = if c.is_capture() {
@@ -279,12 +306,18 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
     let mut used = [false; 5];
     let mut eqs: [Equalizer; 5] = Default::default();
     let mut eq_version = u64::MAX;
+    let mut proc_version = u64::MAX;
     let mut gains = [1f32; 5];
     let mut gate_at = None;
-    let mut gate = Gate::new(rate, chans);
     let mic = Channel::ChatCapture.index();
+    let off = Processing::default();
+    let mut outs: [OutputChain; 5] = std::array::from_fn(|_| OutputChain::new(rate, chans, &off));
+    let mut master = OutputChain::new(rate, chans, &off);
+    let mut mic_chain = MicChain::new(rate, chans, &off);
     let mut pending_peaks = [0f32; 5];
+    let mut pending_gr = [Reduction::default(); 6];
     let mut scratch: Vec<f32> = Vec::new();
+    let mut mixed: Vec<f32> = Vec::new();
     dev.build_output_stream(
         config,
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
@@ -293,13 +326,26 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
                 gate_at = s.gate;
                 if eq_version != s.eq_version {
                     for (i, eq) in eqs.iter_mut().enumerate() {
-                        *eq = if s.eq_enabled[i] {
+                        let e = if s.eq_enabled[i] {
                             Equalizer::new(&s.eq[i], rate, chans)
                         } else {
                             Equalizer::default()
                         };
+                        if i == mic {
+                            mic_chain.eq = e;
+                        } else {
+                            *eq = e;
+                        }
                     }
                     eq_version = s.eq_version;
+                }
+                if proc_version != s.proc_version {
+                    for (o, p) in outs.iter_mut().zip(&s.processing) {
+                        o.set(p);
+                    }
+                    mic_chain.set(&s.processing[mic]);
+                    master.set(&s.master_processing);
+                    proc_version = s.proc_version;
                 }
             }
             for (sum, u) in sums.iter_mut().zip(used.iter_mut()) {
@@ -320,13 +366,18 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
                 used[i] = true;
             }
             let mut peaks = pending_peaks;
+            let mut gr = pending_gr;
             for i in 0..5 {
                 if !used[i] {
                     continue;
                 }
-                eqs[i].process(&mut sums[i]);
-                if let (true, Some(t)) = (i == mic, gate_at) {
-                    gate.process(&mut sums[i], t);
+                if i == mic {
+                    mic_chain.process(&mut sums[i], gate_at);
+                    gr[i].merge(mic_chain.take_meter());
+                } else {
+                    eqs[i].process(&mut sums[i]);
+                    outs[i].process(&mut sums[i]);
+                    gr[i].merge(outs[i].take_meter());
                 }
                 let g = gains[i];
                 for s in sums[i].iter_mut() {
@@ -334,8 +385,14 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
                     peaks[i] = peaks[i].max(s.abs());
                 }
             }
-            for (n, d) in data.iter_mut().enumerate() {
-                let m: f32 = (0..5).filter(|&i| used[i]).map(|i| sums[i][n]).sum();
+            mixed.clear();
+            mixed.extend(
+                (0..data.len())
+                    .map(|n| (0..5).filter(|&i| used[i]).map(|i| sums[i][n]).sum::<f32>()),
+            );
+            master.process(&mut mixed);
+            gr[5].merge(master.take_meter());
+            for (d, m) in data.iter_mut().zip(&mixed) {
                 *d = T::from_sample(m.clamp(-1.0, 1.0));
             }
             match ctl.try_lock() {
@@ -343,9 +400,13 @@ fn output_stream<T: SizedSample + FromSample<f32>>(
                     for (p, n) in s.peaks.iter_mut().zip(peaks) {
                         *p = p.max(n);
                     }
+                    for (r, n) in s.reduction.iter_mut().zip(gr) {
+                        r.merge(n);
+                    }
                     pending_peaks = [0.0; 5];
+                    pending_gr = [Reduction::default(); 6];
                 }
-                Err(_) => pending_peaks = peaks,
+                Err(_) => (pending_peaks, pending_gr) = (peaks, gr),
             }
         },
         |e| eprintln!("output stream: {e}"),
@@ -404,12 +465,13 @@ fn mic_stream<T: SizedSample + FromSample<f32>>(
     let rate = config.sample_rate.0 as f32;
     let chans = config.channels as usize;
     let i = Channel::ChatCapture.index();
-    let mut eq = Equalizer::default();
+    let mut chain = MicChain::new(rate, chans, &Processing::default());
     let mut eq_version = u64::MAX;
+    let mut proc_version = u64::MAX;
     let mut gain = 1f32;
     let mut gate_at = None;
-    let mut gate = Gate::new(rate, chans);
     let mut pending_peak = 0f32;
+    let mut pending_gr = Reduction::default();
     let mut work: Vec<f32> = Vec::new();
     dev.build_output_stream(
         config,
@@ -418,12 +480,16 @@ fn mic_stream<T: SizedSample + FromSample<f32>>(
                 gain = s.gain(Channel::ChatCapture);
                 gate_at = s.gate;
                 if eq_version != s.eq_version {
-                    eq = if s.eq_enabled[i] {
+                    chain.eq = if s.eq_enabled[i] {
                         Equalizer::new(&s.eq[i], rate, chans)
                     } else {
                         Equalizer::default()
                     };
                     eq_version = s.eq_version;
+                }
+                if proc_version != s.proc_version {
+                    chain.set(&s.processing[i]);
+                    proc_version = s.proc_version;
                 }
             }
             work.clear();
@@ -432,10 +498,9 @@ fn mic_stream<T: SizedSample + FromSample<f32>>(
                 work.extend(b.drain(..n));
             }
             work.resize(data.len(), 0.0);
-            eq.process(&mut work);
-            if let Some(t) = gate_at {
-                gate.process(&mut work, t);
-            }
+            chain.process(&mut work, gate_at);
+            let mut gr = pending_gr;
+            gr.merge(chain.take_meter());
             let mut peak = pending_peak;
             for (d, s) in data.iter_mut().zip(&work) {
                 let v = (s * gain).clamp(-1.0, 1.0);
@@ -445,9 +510,11 @@ fn mic_stream<T: SizedSample + FromSample<f32>>(
             match ctl.try_lock() {
                 Ok(mut s) => {
                     s.peaks[i] = s.peaks[i].max(peak);
+                    s.reduction[i].merge(gr);
                     pending_peak = 0.0;
+                    pending_gr = Reduction::default();
                 }
-                Err(_) => pending_peak = peak,
+                Err(_) => (pending_peak, pending_gr) = (peak, gr),
             }
         },
         |e| eprintln!("virtual mic stream: {e}"),
@@ -602,11 +669,25 @@ mod tests {
         assert!(s.gain(Channel::Game) < 1e-6);
         assert!((s.gain(Channel::ChatRender) - 1.0).abs() < 1e-6);
         assert_eq!(s.gain(Channel::Media), 1.0);
+        s.game_side[Channel::Media.index()] = true;
+        assert!(s.gain(Channel::Media) < 1e-6, "media follows the game side");
+        s.dial = Some((0.25, 1.0));
+        assert!((s.gain(Channel::Media) - 0.25).abs() < 1e-6);
+        assert!((s.gain(Channel::Game) - 0.25).abs() < 1e-6);
+        s.dial = None;
+        s.game_side[Channel::Media.index()] = false;
         s.set_muted(Channel::Media, true);
         assert_eq!(s.gain(Channel::Media), 0.0);
         s.master = 0.5;
         assert!((s.gain(Channel::ChatRender) - 0.5).abs() < 1e-6);
         assert_eq!(s.gain(Channel::ChatCapture), 1.0);
+        assert_eq!(
+            s.gains()[Channel::ChatCapture.index()],
+            0.0,
+            "not monitored"
+        );
+        s.monitor = 0.5;
+        assert_eq!(s.gains()[Channel::ChatCapture.index()], 0.5);
     }
 
     #[test]

@@ -24,6 +24,7 @@ mod share;
 mod state;
 mod tray;
 mod updater;
+mod volumes;
 
 use std::sync::{Arc, Mutex};
 
@@ -167,6 +168,10 @@ fn main() {
             mixer::get_mixer_levels,
             mixer::virtual_mic_install,
             mixer::virtual_mic_remove,
+            volumes::get_volumes,
+            volumes::set_app_volume,
+            volumes::set_device_volume,
+            volumes::make_default_device,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start FoxDen");

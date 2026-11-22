@@ -243,6 +243,7 @@ fn sync(app: &AppHandle, shown: &mut HashMap<String, Shown>, wanted: HashMap<Str
                     let _ = tray.set_tooltip(Some(&s.tip));
                     continue;
                 }
+                forget_icon(guid(&k));
                 let built = TrayIconBuilder::new()
                     .with_id(format!("{PREFIX}{k}"))
                     .with_icon(image)
@@ -258,6 +259,16 @@ fn sync(app: &AppHandle, shown: &mut HashMap<String, Shown>, wanted: HashMap<Str
             }
         });
     });
+}
+
+/// Removes an icon a force-closed FoxDen left behind under the same identity, so it is not shown twice.
+fn forget_icon(guid: u128) {
+    use windows_sys::Win32::UI::Shell::{NIF_GUID, NIM_DELETE, NOTIFYICONDATAW, Shell_NotifyIconW};
+    let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+    nid.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
+    nid.uFlags = NIF_GUID;
+    nid.guidItem = windows_sys::core::GUID::from_u128(guid);
+    unsafe { Shell_NotifyIconW(NIM_DELETE, &nid) };
 }
 
 /// A fixed identity per device, so Windows remembers whether its icon sits on the taskbar.

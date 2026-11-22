@@ -731,3 +731,265 @@ input[type="range"].aud-vert::-webkit-slider-thumb {
   height: 28px;
   font-size: 12px;
 }
+
+.aud-ctl .aud-fxbtn {
+  margin-left: 0;
+}
+
+.aud-fxbtn[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  clip-path: var(--cut);
+}
+
+/* Which channels the chat mix sets against Chat. */
+.aud-sides {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.aud-sides .aud-end {
+  margin-right: 4px;
+}
+
+.aud-sides button {
+  height: 24px;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.aud-sides button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+  clip-path: var(--cut);
+}
+
+.aud-sides button[aria-pressed="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+/* Processing drawer: one row per block. */
+.aud-proc-preset {
+  margin-left: auto;
+}
+
+.aud-procbox .aud-eqhead .check {
+  margin-left: 0;
+}
+
+#panel-audio .aud-proc-preset select {
+  width: auto;
+  height: 28px;
+  font-size: 12px;
+}
+
+.aud-procbox > .aud-empty {
+  margin-bottom: 6px;
+}
+
+.aud-proc-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+@container (min-width: 900px) {
+  .aud-proc-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.aud-proc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  background: var(--field);
+}
+
+.aud-proc-row[hidden] {
+  display: none;
+}
+
+.aud-proc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.aud-proc-head .aud-empty {
+  white-space: nowrap;
+}
+
+.aud-proc-row.off .aud-proc-ctl input[type="range"] {
+  opacity: 0.5;
+}
+
+.aud-gr {
+  position: relative;
+  flex: 1 1 60px;
+  max-width: 140px;
+  height: 6px;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.aud-gr span {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: right;
+}
+
+.aud-gr.agc span.up {
+  transform-origin: left;
+  background: var(--text);
+}
+
+.aud-grnum {
+  min-width: 8ch;
+}
+
+.aud-proc-ctl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 2px 14px;
+}
+
+.aud-pslider {
+  display: grid;
+  grid-template-columns: 9ch minmax(60px, 1fr) 9ch;
+  align-items: center;
+  gap: 6px;
+}
+
+.aud-procbox:not(.adv) .aud-adv {
+  display: none;
+}
+
+/* Apps and Devices panels, side by side when there is room. */
+.aud-vols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+@container (min-width: 1000px) {
+  .aud-vols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.aud-vpanel summary .aud-tag {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+.aud-vbody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.aud-vnote {
+  margin: 0;
+}
+
+.aud-vhead {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.aud-vlist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aud-vrow2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px minmax(110px, 160px) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  font-size: 12px;
+}
+
+.aud-vrow2.chosen {
+  border-left: 3px solid var(--accent);
+  padding-left: 6px;
+}
+
+.aud-vrow2.special .aud-vsub {
+  color: var(--text);
+}
+
+.aud-vrow2.idle .aud-chipname {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.aud-vname {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.aud-vsub {
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aud-vrow2 .aud-vol {
+  gap: 4px;
+}
+
+.aud-vrow2 > .aud-small:not([hidden]) {
+  grid-column: auto;
+}
+
+@container (max-width: 560px) {
+  .aud-vrow2 {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .aud-vrow2 .aud-meter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .aud-vrow2 .aud-vol {
+    grid-column: 1 / 2;
+  }
+}

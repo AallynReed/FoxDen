@@ -278,6 +278,11 @@ impl Gate {
         }
     }
 
+    /// Mostly shut, so level-following blocks should hold still.
+    pub fn closed(&self) -> bool {
+        self.open < 0.5
+    }
+
     /// Gates interleaved samples in place; `threshold` is a linear level.
     pub fn process(&mut self, samples: &mut [f32], threshold: f32) {
         for frame in samples.chunks_mut(self.channels) {
@@ -293,6 +298,9 @@ impl Gate {
                 (0.0, self.release)
             };
             self.open += (target - self.open) * speed;
+            if self.open < 1e-20 {
+                self.open = 0.0;
+            }
             for s in frame.iter_mut() {
                 *s *= self.open;
             }

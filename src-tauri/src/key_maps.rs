@@ -54,7 +54,7 @@ pub fn encode(m: &KeyMap) -> String {
 
 /// Reads a share code. It is only ever data: checked, clamped and bounded.
 pub fn decode(code: &str) -> Result<KeyMap, String> {
-    let s: Share = share::decode(code, PREFIX, MAX_CODE, "key map")?;
+    let s: Share = share::decode(code, PREFIX, MAX_CODE, 1, "key map")?;
     let mut map = Vec::new();
     for (hex, keys) in s.c.into_iter().take(MAX_KEYS) {
         let [c] = from_hex(&hex)

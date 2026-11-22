@@ -2,13 +2,17 @@
 //! single apps captured with Windows' process loopback.
 
 pub mod capture;
+pub mod chain;
 pub mod channel;
 pub mod chatmix;
+pub mod denoise;
 pub mod dsp;
+pub mod dynamics;
 pub mod park;
 pub mod presets;
 pub mod router;
 pub mod system;
+pub mod volumes;
 
 pub use channel::Channel;
 

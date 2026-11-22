@@ -24,7 +24,7 @@ use windows::core::{GUID, HRESULT, HSTRING, IUnknown, Interface, PCWSTR, h, impl
 
 use crate::Result;
 
-fn err(e: windows::core::Error) -> String {
+pub(crate) fn err(e: windows::core::Error) -> String {
     e.message().to_string()
 }
 
@@ -33,11 +33,11 @@ pub fn com_init() {
     let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
 }
 
-fn enumerator() -> Result<IMMDeviceEnumerator> {
+pub(crate) fn enumerator() -> Result<IMMDeviceEnumerator> {
     unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) }.map_err(err)
 }
 
-fn name_of(dev: &IMMDevice) -> String {
+pub(crate) fn name_of(dev: &IMMDevice) -> String {
     unsafe {
         dev.OpenPropertyStore(STGM_READ)
             .and_then(|s| s.GetValue(&PKEY_Device_FriendlyName))
@@ -46,7 +46,7 @@ fn name_of(dev: &IMMDevice) -> String {
     .unwrap_or_default()
 }
 
-fn id_of(dev: &IMMDevice) -> Result<String> {
+pub(crate) fn id_of(dev: &IMMDevice) -> Result<String> {
     unsafe {
         let id = dev.GetId().map_err(err)?;
         let out = id.to_string().map_err(|e| e.to_string());

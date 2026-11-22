@@ -14,6 +14,11 @@
     ["chatCapture", "Mic"],
   ];
   const APP_CHANNELS = CHANNELS.filter(([id]) => id !== "chatCapture");
+  const SIDES = [
+    ["game", "Game"],
+    ["media", "Media"],
+    ["aux", "Aux"],
+  ];
   const LABEL = Object.fromEntries(CHANNELS);
   const FREQS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
   const PRESETS = [
@@ -30,6 +35,8 @@
   const timers = new Map();
   let mix = null;
   let eqChannel = null;
+  let procTarget = null;
+  let reduction = [];
   let watching = false;
   let shown = [0, 0, 0, 0, 0];
 
@@ -154,19 +161,47 @@
       later(key, () => send(input.value / 100));
     };
     const note = el("span", { className: "aud-dial", textContent: "Set by the headset's ChatMix dial", hidden: true });
+    const sides = el("div", { className: "aud-sides", role: "group" });
+    sides.setAttribute("aria-label", "Channels mixed against Chat");
+    const sideButtons = SIDES.map(([id, text]) => {
+      const b = el("button", { type: "button", textContent: text });
+      b.setAttribute("aria-pressed", "false");
+      b.onclick = () => {
+        touch("sides");
+        const now = new Set(mix.config.game_side || []);
+        if (now.has(id)) now.delete(id);
+        else now.add(id);
+        mix.config.game_side = SIDES.map(([x]) => x).filter((x) => now.has(x));
+        showSides(mix.config.game_side);
+        later("sides", () => sendMix({ kind: "mix_sides", channels: mix.config.game_side }));
+      };
+      b.dataset.id = id;
+      return b;
+    });
+    sides.append(el("span", { className: "aud-end", textContent: "Mix against" }), ...sideButtons);
+    const sideEnd = el("span", { className: "aud-end", textContent: "Game" });
+    function showSides(list) {
+      sideButtons.forEach((b) => b.setAttribute("aria-pressed", String(list.includes(b.dataset.id))));
+      const names = SIDES.filter(([x]) => list.includes(x)).map(([, t]) => t);
+      setText(sideEnd, names.length ? names.join(" + ") : "Nothing");
+    }
     const row = el(
       "div",
       { className: "aud-chat" },
       el("label", { className: "aud-name", htmlFor: "aud-chatmix", textContent: "Chat mix" }),
-      el("span", { className: "aud-end", textContent: "Game" }),
+      sideEnd,
       input,
       el("span", { className: "aud-end", textContent: "Chat" }),
       out,
+      sides,
       note,
     );
     let dial = null;
     return {
       row,
+      sides(list) {
+        if (!held("sides")) showSides(list || ["game"]);
+      },
       show(b) {
         if (dial || held(key) || b == null) return;
         input.value = Math.round(b * 100);
@@ -394,7 +429,18 @@
     s.eqOn.setAttribute("aria-label", label + " EQ on");
     s.eqOn.title = "EQ on or off";
     s.eqOn.onchange = () => sendEq(id, s.eqOn.checked);
-    return el("div", { className: "aud-foot" }, meter, s.vol.row, el("div", { className: "aud-ctl" }, s.mute, s.eqBtn, s.eqOn));
+    s.fxBtn = fxButton(id, label);
+    return el("div", { className: "aud-foot" }, meter, s.vol.row, el("div", { className: "aud-ctl" }, s.mute, s.eqBtn, s.fxBtn, s.eqOn));
+  }
+
+  function fxButton(id, label) {
+    const b = el("button", { type: "button", className: "aud-eqbtn aud-fxbtn", textContent: "FX" });
+    b.setAttribute("aria-controls", "aud-proc");
+    b.setAttribute("aria-expanded", "false");
+    b.setAttribute("aria-label", "Edit " + label + " processing");
+    b.title = "Compressor, limiter and other processing";
+    b.onclick = () => openProc(procTarget === id ? null : id);
+    return b;
   }
 
   function appStrip(id, label) {
@@ -426,7 +472,7 @@
       const [kind, ...rest] = s.source.value.split(":");
       sendMix({ kind: "route", channel: id, source: rest.join(":"), loopback: kind === "out", on: !!s.source.value });
     };
-    s.empty = el("p", { className: "aud-empty", textContent: "Pick a microphone to mix it in." });
+    s.empty = el("p", { className: "aud-empty", textContent: "Pick a microphone." });
     s.profile = profileSelect((name) => applyProfile(id, name), "Apply a mic profile");
     return (s.node = el(
       "section",
@@ -461,12 +507,27 @@
     };
     vm.gate.onchange = sendGate;
     vm.level.oninput = sendGate;
+    vm.mon = el("input", { type: "checkbox", className: "switch", id: "aud-mon" });
+    vm.monVol = el("input", { type: "range", min: 0, max: 100, step: 1 });
+    vm.monVol.setAttribute("aria-label", "Monitor volume");
+    vm.monOut = el("span", { className: "aud-num" });
+    const sendMon = () => {
+      touch("mon");
+      setText(vm.monOut, vm.monVol.value + "%");
+      mix.config.monitor = vm.mon.checked;
+      mix.config.monitor_volume = vm.monVol.value / 100;
+      later("mon", () => sendMix({ kind: "monitor", on: vm.mon.checked, volume: vm.monVol.value / 100 }));
+    };
+    vm.mon.onchange = sendMon;
+    vm.monVol.oninput = sendMon;
     return el(
       "div",
       { className: "aud-vmic" },
       el("div", { className: "aud-vrow" }, el("label", { className: "aud-name", htmlFor: "aud-vmic", textContent: "Virtual mic" }), vm.sw),
       vm.note,
       el("div", { className: "aud-gate" }, el("label", { className: "check" }, vm.gate, "Gate"), vm.level, vm.levelOut),
+      el("div", { className: "aud-vrow" }, el("label", { className: "aud-name", htmlFor: "aud-mon", textContent: "Hear myself" }), vm.mon),
+      el("div", { className: "aud-vol" }, vm.monVol, vm.monOut),
     );
   }
 
@@ -553,6 +614,12 @@
       setText(vm.levelOut, Math.round(cfg.gate_db) + " dB");
     }
     vm.level.disabled = !cfg.gate_on;
+    if (!held("mon")) {
+      vm.mon.checked = !!cfg.monitor;
+      vm.monVol.value = Math.round((cfg.monitor_volume ?? 0.5) * 100);
+      setText(vm.monOut, vm.monVol.value + "%");
+    }
+    vm.monVol.disabled = !cfg.monitor;
     setText(vm.state, !v.installed ? "Not installed" : !v.ready ? "Restart Windows to finish" : v.ours ? "Installed by FoxDen" : "Installed");
     vm.remove.hidden = !v.ours;
   }
@@ -566,7 +633,7 @@
       { className: "aud-strip aud-master" },
       el("div", { className: "aud-head" }, el("h3", { id: "aud-h-master", textContent: "Master" })),
       mx.masterOut,
-      el("div", { className: "aud-foot" }, el("span", { className: "aud-meter aud-blank" }), mx.master.row, el("div", { className: "aud-ctl" }, mx.masterMute)),
+      el("div", { className: "aud-foot" }, el("span", { className: "aud-meter aud-blank" }), mx.master.row, el("div", { className: "aud-ctl" }, mx.masterMute, (mx.masterFx = fxButton("master", "Master")))),
     );
   }
 
@@ -643,6 +710,7 @@
       s.mute.show(c.muted);
       s.eqOn.checked = c.eq_on;
       s.eqBtn.setAttribute("aria-expanded", String(eqChannel === id));
+      s.fxBtn.setAttribute("aria-expanded", String(procTarget === id));
       if (id === "chatCapture") {
         if (!held("r" + id)) {
           const list = [["", "None"], ...mix.inputs.map((i) => ["in:" + i, i])];
@@ -669,6 +737,7 @@
         "",
       );
     }
+    mx.masterFx.setAttribute("aria-expanded", String(procTarget === "master"));
     mx.master.show(cfg.master);
     mx.masterMute.show(cfg.master_muted);
     setText(mx.masterOut, cfg.output ? "Plays on " + cfg.output : "Pick an output above.");
@@ -809,7 +878,7 @@
     if (p) return p;
     const c = chan(eqChannel);
     const cfg = mix.config;
-    return { name: pf.name.value.trim() || LABEL[eqChannel] + " sound", kind, eq: { on: c.eq_on, bands: c.eq }, volume: c.volume, gate: kind === "mic" ? { on: cfg.gate_on, db: cfg.gate_db } : null };
+    return { name: pf.name.value.trim() || LABEL[eqChannel] + " sound", kind, eq: { on: c.eq_on, bands: c.eq }, volume: c.volume, gate: kind === "mic" ? { on: cfg.gate_on, db: cfg.gate_db } : null, processing: c.processing };
   }
 
   async function copyCode() {
@@ -861,6 +930,7 @@
   }
 
   function openEq(id) {
+    if (id) openProc(null, true);
     eqChannel = id;
     mx.eqBox.hidden = !id;
     renderMixer();
@@ -927,6 +997,200 @@
     const pts = curve.map((db, n) => (n / (curve.length - 1)) * 100 + "," + (30 - (Math.max(-DB_RANGE, Math.min(DB_RANGE, db)) / DB_RANGE) * 30));
     mx.line.setAttribute("points", pts.join(" "));
     mx.plot.classList.toggle("off", !c.eq_on);
+  }
+
+  // ---- Processing ----
+
+  const db = (v) => signed(v) + " dB";
+  const BLOCKS = [
+    { id: "denoise", name: "Noise suppression", mic: true, hint: "Adds 20 ms of delay.", sliders: [["strength", "Strength", 0, 1, 0.01, (v) => Math.round(v * 100) + "%"]] },
+    {
+      id: "agc",
+      name: "Level stabilizer",
+      mic: true,
+      meter: "agc",
+      sliders: [
+        ["target_db", "Target", -40, -6, 0.5, db],
+        ["max_gain_db", "Max boost", 0, 30, 0.5, db],
+        ["max_cut_db", "Max cut", 0, 30, 0.5, db, true],
+        ["speed_db", "Speed", 0.5, 60, 0.5, (v) => v.toFixed(1) + " dB/s", true],
+        ["floor_db", "Hold below", -80, -20, 1, db, true],
+      ],
+    },
+    {
+      id: "comp",
+      name: "Compressor",
+      meter: "comp",
+      sliders: [
+        ["threshold_db", "Threshold", -60, 0, 0.5, db],
+        ["ratio", "Ratio", 1, 20, 0.1, (v) => v.toFixed(1) + ":1"],
+        ["makeup_db", "Makeup", 0, 24, 0.5, db],
+        ["attack_ms", "Attack", 0.1, 200, 0.1, (v) => v.toFixed(1) + " ms", true],
+        ["release_ms", "Release", 10, 2000, 1, (v) => Math.round(v) + " ms", true],
+        ["knee_db", "Knee", 0, 24, 0.5, db, true],
+      ],
+      check: ["auto_makeup", "Auto makeup"],
+    },
+    { id: "deesser", name: "De-esser", mic: true, meter: "deess", sliders: [["frequency", "Frequency", 3000, 10000, 100, (v) => hz(v) + " Hz"], ["amount_db", "Amount", 0, 24, 0.5, db]] },
+    { id: "limiter", name: "Limiter", meter: "limit", sliders: [["ceiling_db", "Ceiling", -24, 0, 0.1, (v) => signed(v) + " dBFS"], ["release_ms", "Release", 5, 2000, 1, (v) => Math.round(v) + " ms", true]] },
+  ];
+  const pc = { rows: {} };
+
+  function procOf(target) {
+    if (!mix) return null;
+    if (target === "master") return mix.config.master_processing;
+    const c = chan(target);
+    return c ? c.processing : null;
+  }
+
+  function sendProc() {
+    const p = procOf(procTarget);
+    if (!p) return;
+    const key = "proc" + procTarget;
+    touch(key);
+    const change = { kind: "processing", channel: procTarget === "master" ? null : procTarget, processing: JSON.parse(JSON.stringify(p)) };
+    later(key, () => sendMix(change));
+    renderProc();
+  }
+
+  function buildProc() {
+    mx.procTitle = el("h2", { id: "aud-proc-title" });
+    mx.procAdv = el("input", { type: "checkbox", id: "aud-proc-adv" });
+    mx.procAdv.onchange = () => mx.procBox.classList.toggle("adv", mx.procAdv.checked);
+    mx.procClose = el("button", { type: "button", className: "aud-small", textContent: "Close" });
+    mx.procClose.onclick = () => openProc(null);
+    mx.procPreset = profileSelect(applyProcPreset, "Apply a processing preset");
+    mx.procNote = el("p", { className: "aud-empty", role: "status", hidden: true });
+    const list = el("div", { className: "aud-proc-list" });
+    for (const b of BLOCKS) {
+      const ui = (pc.rows[b.id] = { sliders: {} });
+      ui.on = el("input", { type: "checkbox", className: "switch", id: "aud-p-" + b.id });
+      ui.on.onchange = () => {
+        const p = procOf(procTarget);
+        if (!p) return;
+        p[b.id].on = ui.on.checked;
+        sendProc();
+      };
+      const head = el("div", { className: "aud-proc-head" }, ui.on, el("label", { className: "aud-name", htmlFor: ui.on.id, textContent: b.name }));
+      if (b.hint) head.append(el("span", { className: "aud-empty", textContent: b.hint }));
+      if (b.meter) {
+        ui.fill = el("span");
+        const bar = el("span", { className: "aud-gr" + (b.meter === "agc" ? " agc" : "") }, ui.fill);
+        bar.setAttribute("aria-hidden", "true");
+        ui.gr = el("span", { className: "aud-num aud-grnum", title: b.meter === "agc" ? "Gain applied now" : "Gain reduction" });
+        head.append(bar, ui.gr);
+      }
+      const ctl = el("div", { className: "aud-proc-ctl" });
+      for (const [field, text, lo, hi, step, fmt, adv] of b.sliders) {
+        const id = "aud-p-" + b.id + "-" + field;
+        const input = el("input", { type: "range", min: lo, max: hi, step, id });
+        const out = el("span", { className: "aud-num" });
+        input.oninput = () => {
+          const p = procOf(procTarget);
+          if (!p) return;
+          p[b.id][field] = +input.value;
+          setText(out, fmt(+input.value));
+          sendProc();
+        };
+        ui.sliders[field] = { input, out, fmt };
+        ctl.append(el("div", { className: "aud-pslider" + (adv ? " aud-adv" : "") }, el("label", { className: "aud-label", htmlFor: id, textContent: text }), input, out));
+      }
+      if (b.check) {
+        const [field, text] = b.check;
+        ui.check = el("input", { type: "checkbox" });
+        ui.check.onchange = () => {
+          const p = procOf(procTarget);
+          if (!p) return;
+          p[b.id][field] = ui.check.checked;
+          sendProc();
+        };
+        ctl.append(el("label", { className: "check aud-adv" }, ui.check, text));
+      }
+      ui.node = el("div", { className: "aud-proc-row" }, head, ctl);
+      list.append(ui.node);
+    }
+    mx.procBox = el(
+      "section",
+      { className: "box aud-eqbox aud-procbox", id: "aud-proc", hidden: true },
+      el(
+        "div",
+        { className: "aud-eqhead" },
+        mx.procTitle,
+        el("span", { className: "aud-proc-preset" }, mx.procPreset),
+        el("label", { className: "check" }, mx.procAdv, "Advanced"),
+        mx.procClose,
+      ),
+      mx.procNote,
+      list,
+    );
+    mx.procBox.setAttribute("aria-labelledby", "aud-proc-title");
+  }
+
+  function openProc(id, quiet) {
+    procTarget = id;
+    mx.procBox.hidden = !id;
+    if (id && eqChannel) {
+      eqChannel = null;
+      mx.eqBox.hidden = true;
+    }
+    if (quiet) return;
+    renderMixer();
+    if (id) mx.procBox.scrollIntoView({ block: "nearest" });
+  }
+
+  const presetsFor = (kind) => profilesFor(kind).filter((p) => p.processing);
+
+  function applyProcPreset(name) {
+    const kind = procTarget === "chatCapture" ? "mic" : "output";
+    const p = presetsFor(kind).find((x) => x.name === name);
+    if (!p) return;
+    if (procTarget === "master") {
+      mix.config.master_processing = JSON.parse(JSON.stringify(p.processing));
+      sendProc();
+    } else sendMix({ kind: "apply_profile", channel: procTarget, profile: p });
+  }
+
+  function renderProc() {
+    if (!procTarget || !mix) return;
+    const p = procOf(procTarget);
+    if (!p) return;
+    const mic = procTarget === "chatCapture";
+    const label = procTarget === "master" ? "Master" : LABEL[procTarget];
+    setText(mx.procTitle, label + " processing");
+    options(mx.procPreset, [["", mic ? "Mic preset" : "Preset"], ...presetsFor(mic ? "mic" : "output").map((x) => [x.name, x.name])], "", "");
+    say(mx.procNote, mic ? "Order: noise suppression, gate, level stabilizer, compressor, de-esser, EQ, limiter, then volume." : procTarget === "master" ? "Works on the whole mix, after every channel's volume." : "");
+    for (const b of BLOCKS) {
+      const ui = pc.rows[b.id];
+      ui.node.hidden = b.mic && !mic;
+      const v = p[b.id];
+      if (!v || ui.node.hidden) continue;
+      ui.on.checked = !!v.on;
+      ui.node.classList.toggle("off", !v.on);
+      for (const field in ui.sliders) {
+        const s = ui.sliders[field];
+        if (document.activeElement !== s.input) s.input.value = v[field];
+        setText(s.out, s.fmt(+v[field]));
+      }
+      if (ui.check) ui.check.checked = !!v[b.check[0]];
+    }
+    paintProcMeters();
+  }
+
+  function paintProcMeters() {
+    if (!procTarget || !mx.procBox || mx.procBox.hidden) return;
+    const n = procTarget === "master" ? 5 : CHANNELS.findIndex(([id]) => id === procTarget);
+    const r = reduction[n] || {};
+    const p = procOf(procTarget) || {};
+    for (const b of BLOCKS) {
+      if (!b.meter) continue;
+      const ui = pc.rows[b.id];
+      const on = p[b.id] && p[b.id].on && mix.running;
+      const v = on ? r[b.meter] || 0 : 0;
+      ui.fill.style.transform = "scaleX(" + Math.min(1, Math.abs(v) / 24).toFixed(3) + ")";
+      ui.fill.classList.toggle("up", v > 0);
+      const cut = Math.abs(v) < 0.05 ? "0.0" : "−" + Math.abs(v).toFixed(1);
+      setText(ui.gr, on ? (b.meter === "agc" ? signed(+v.toFixed(1)) : cut) + " dB" : "–");
+    }
   }
 
   // ---- Advanced ----
@@ -1033,12 +1297,16 @@
     if (mix) {
       for (const c of view.config.channels) {
         const old = mix.config.channels.find((x) => x.channel === c.channel);
+        if (old && held("proc" + c.channel)) c.processing = old.processing;
         if (old && held("eq" + c.channel)) {
           c.eq = old.eq;
           c.eq_on = old.eq_on;
         }
       }
     }
+    if (mix && held("procmaster")) view.config.master_processing = mix.config.master_processing;
+    if (mix && held("mon")) Object.assign(view.config, { monitor: mix.config.monitor, monitor_volume: mix.config.monitor_volume });
+    if (mix && held("sides")) view.config.game_side = mix.config.game_side;
     mix = view;
     renderMixer();
   }
@@ -1067,10 +1335,12 @@
     mx.output.disabled = !!mix.following;
     mx.output.title = mix.following ? "Picked by the output priority" : "";
     mx.chat.show(cfg.chat_mix);
+    mx.chat.sides(cfg.game_side);
     renderStrips();
     renderVmic();
     renderAdvanced();
     renderEq();
+    renderProc();
   }
 
   // Level meters, while the routes play and the tab is shown.
@@ -1078,12 +1348,17 @@
     if (!mix || !mix.running || !visible()) {
       if (shown.some((v) => v > 0)) {
         shown = shown.map(() => 0);
+        reduction = [];
+        paintProcMeters();
         paintLevels();
       }
       return;
     }
     try {
-      const peaks = await invoke("get_mixer_levels");
+      const lv = await invoke("get_mixer_levels");
+      const peaks = lv.peaks || [];
+      reduction = lv.reduction || [];
+      paintProcMeters();
       shown = shown.map((v, n) => Math.max(peaks[n] || 0, v * 0.8));
       paintLevels();
     } catch {
@@ -1114,13 +1389,14 @@
   const strips = el("div", { className: "aud-strips" }, pair, appStrip("media", "Media"), appStrip("aux", "Aux"), micStrip(), masterStrip());
   for (const node of strips.querySelectorAll(".aud-strip")) node.setAttribute("aria-labelledby", node.querySelector("h3").id);
   buildEq();
+  buildProc();
   const mixer = el("section", { className: "box aud-mixer" }, el("h2", { textContent: "Mixer" }), top, buildPriority(), mx.problem, strips);
   listen("audio-priority", (e) => {
     takePriority(e.payload);
     if (mix) loadMixer(false);
   });
   loadPriority();
-  root.replaceChildren(el("div", { className: "aud-page" }, mixer, mx.eqBox, buildAdvanced()));
+  root.replaceChildren(el("div", { className: "aud-page" }, mixer, mx.eqBox, mx.procBox, ...(window.__foxAudioPanels ? window.__foxAudioPanels.build(() => mix, () => pr.view) : []), buildAdvanced()));
 
   buildSheet();
   new MutationObserver(watch).observe(root, { attributes: true, attributeFilter: ["hidden"] });
