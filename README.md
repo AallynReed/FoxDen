@@ -72,12 +72,20 @@ OpenRGB can optionally drive anything else through its server.
 
 - Effects, including audio, screen and key-press reactive ones
 - Layers over the background with blend modes and opacity, dragged into order
-- Chosen keys in your own colours, and layers that show only while a game or app is open or in front
+- Key colours: paint any key or whole groups (WASD, arrows, F-keys, number pad) in your own colours,
+  saved as key maps you can share with a short code
+- Layers that show only while a game or app is open or in front, for keybinds
 - Layout editor that draws keyboards, mice, RAM, fans and boards as their real shapes, plus per-device backgrounds and profiles
 - Fan curves for motherboard headers, coolers, fan hubs and AMD graphics cards, with zero RPM
-- Battery levels of wireless mice, keyboards, headsets and controllers as tray icons, for over 100 brands
-- Audio mixer: send each app to a Game, Chat, Media or Aux channel with its own volume, EQ and chat
-  mix, no virtual driver needed; a headset's ChatMix dial drives the mix
+- Battery levels of wireless mice, keyboards, headsets and controllers as tray icons, for over 100
+  brands, with low battery notifications
+- Audio mixer: Game, Chat, Media and Aux channels with their own volume, EQ and chat mix, no virtual
+  driver needed; Discord, browsers, music players and games are sorted into channels automatically,
+  and a headset's ChatMix dial drives the mix
+- Output priority: put your headset first and your speakers second, and FoxDen switches when the
+  headset turns off or on
+- Sound profiles for channels and the microphone, shared with a short code
+- A processed virtual microphone through VB-Audio's VB-CABLE, installed by you
 - Headset settings for SteelSeries Arctis Nova headsets (sidetone, mic volume, limiter, auto-off)
 - LED strips and network lights
 - Lighting and Fans modules you can switch off
