@@ -129,6 +129,103 @@ pub fn set_eq(f: &Found, bands: &[i32]) -> Result<(), String> {
     send(f, f.model.eq(bands)?, f.model.save(None))
 }
 
+/// Base stations with ChatMix reports switched on, and whether FoxDen is quitting.
+static CHATMIX_ON: Mutex<(Vec<(String, Coll)>, bool)> = Mutex::new((Vec::new(), false));
+const CHATMIX_READ: Duration = Duration::from_millis(10);
+
+fn chatmix_write(dev: &Dev, m: &Model, on: bool) -> bool {
+    let Some(frame) = m.chatmix_switch(on) else {
+        return false;
+    };
+    let _turn = foxden_core::hid_turn::take();
+    dev.write(&frame)
+}
+
+/// Keeps a base station's ChatMix reports on while it lives, and the dial's last position.
+pub struct ChatMix {
+    pub key: String,
+    model: Model,
+    dev: Dev,
+    /// The interface's other collections: the dial may report on any of them.
+    others: Vec<Dev>,
+    connected: bool,
+    last: Option<(u8, u8)>,
+}
+
+impl ChatMix {
+    /// `None` for models without ChatMix reports, or when the base did not take the switch.
+    pub fn open(f: &Found) -> Option<Self> {
+        f.model.chatmix_switch(true)?;
+        let c = Self {
+            key: f.key.clone(),
+            model: f.model,
+            dev: Dev::open(&f.coll)?,
+            others: enumerate()
+                .iter()
+                .filter(|c| {
+                    (c.vid, c.pid, c.iface) == (f.coll.vid, f.coll.pid, f.coll.iface)
+                        && c.path != f.coll.path
+                })
+                .filter_map(Dev::open_read_only)
+                .collect(),
+            connected: true,
+            last: None,
+        };
+        c.enable().then_some(c)
+    }
+
+    /// Switches the reports on again, as after the base or the PC slept.
+    pub fn enable(&self) -> bool {
+        let mut on = CHATMIX_ON.lock().unwrap_or_else(|e| e.into_inner());
+        if on.1 || !chatmix_write(&self.dev, &self.model, true) {
+            return false;
+        }
+        if !on.0.iter().any(|(k, _)| *k == self.key) {
+            on.0.push((self.key.clone(), self.dev.coll.clone()));
+        }
+        true
+    }
+
+    /// Reads what the base pushed since the last call. A headset coming back on gets the reports
+    /// switched on again.
+    pub fn poll(&mut self, connected: bool) -> Option<(u8, u8)> {
+        if connected && !self.connected {
+            self.enable();
+        }
+        self.connected = connected;
+        for dev in std::iter::once(&self.dev).chain(&self.others) {
+            for _ in 0..64 {
+                let Some(r) = dev.read(CHATMIX_READ) else {
+                    break;
+                };
+                if let Some(v) = proto::chatmix_report(&self.model, &r) {
+                    self.last = Some(v);
+                }
+            }
+        }
+        self.last
+    }
+}
+
+impl Drop for ChatMix {
+    fn drop(&mut self) {
+        let mut on = CHATMIX_ON.lock().unwrap_or_else(|e| e.into_inner());
+        on.0.retain(|(k, _)| *k != self.key);
+        chatmix_write(&self.dev, &self.model, false);
+    }
+}
+
+/// Switches ChatMix reports off on every base that has them on, and keeps them off. Called on exit.
+pub fn chatmix_off() {
+    let mut on = CHATMIX_ON.lock().unwrap_or_else(|e| e.into_inner());
+    on.1 = true;
+    for (_, coll) in on.0.drain(..) {
+        if let (Some(m), Some(dev)) = (proto::any_model(coll.vid, coll.pid), Dev::open(&coll)) {
+            chatmix_write(&dev, &m, false);
+        }
+    }
+}
+
 /// When each headset takes commands again after a save.
 static BUSY: Mutex<Vec<(String, Instant)>> = Mutex::new(Vec::new());
 

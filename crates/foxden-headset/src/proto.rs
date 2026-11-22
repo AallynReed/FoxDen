@@ -367,6 +367,11 @@ impl Model {
         }
     }
 
+    /// Turns the base station's ChatMix reports on or off. The base does not store it.
+    pub fn chatmix_switch(&self, on: bool) -> Option<Vec<u8>> {
+        (self.family == Family::NovaPro).then(|| vec![self.id(), 0x49, on as u8])
+    }
+
     /// The first bytes a reply to `req` starts with.
     pub fn reply_head<'a>(&self, req: &'a [u8]) -> &'a [u8] {
         if self.id() == 0 { &req[1..] } else { req }
@@ -450,6 +455,12 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
             })
         }
     }
+}
+
+/// Game and chat from a report the Nova Pro base pushes when its ChatMix dial turns.
+pub fn chatmix_report(m: &Model, r: &[u8]) -> Option<(u8, u8)> {
+    (m.family == Family::NovaPro && r.len() >= 4 && matches!(r[0], 0x06 | 0x07) && r[1] == 0x45)
+        .then(|| (r[2].min(100), r[3].min(100)))
 }
 
 fn bool_value(c: Control, b: u8) -> Option<(Control, i32)> {
@@ -685,5 +696,33 @@ mod tests {
         let s = status(&p, &r).unwrap();
         assert_eq!((s.battery, s.charging), (Some(50), true));
         assert_eq!(p.reply_head(&[0x06, 0xB0]), &[0x06, 0xB0]);
+    }
+
+    #[test]
+    fn nova_pro_chatmix() {
+        let p = model(0x12E0).unwrap();
+        assert_eq!(p.chatmix_switch(true), Some(vec![0x06, 0x49, 0x01]));
+        assert_eq!(p.chatmix_switch(false), Some(vec![0x06, 0x49, 0x00]));
+        assert_eq!(
+            model(0x12E5).unwrap().chatmix_switch(true),
+            Some(vec![0x06, 0x49, 0x01])
+        );
+        assert_eq!(nova7().chatmix_switch(true), None);
+        let mut r = [0u8; 64];
+        r[..4].copy_from_slice(&[0x07, 0x45, 64, 32]);
+        assert_eq!(chatmix_report(&p, &r), Some((64, 32)));
+        r[0] = 0x06;
+        assert_eq!(chatmix_report(&p, &r), Some((64, 32)));
+        assert_eq!(chatmix_report(&p, &[0x07, 0x45, 0, 100]), Some((0, 100)));
+        assert_eq!(
+            chatmix_report(&p, &[0x07, 0x45, 200, 101]),
+            Some((100, 100))
+        );
+        assert_eq!(chatmix_report(&p, &[0x07, 0x25, 10, 0]), None);
+        assert_eq!(chatmix_report(&p, &[0x07, 0x31, 2, 20]), None);
+        assert_eq!(chatmix_report(&p, &[0x06, 0xB0, 0, 0]), None);
+        assert_eq!(chatmix_report(&p, &[0x05, 0x45, 50, 50]), None);
+        assert_eq!(chatmix_report(&p, &[0x07, 0x45, 50]), None);
+        assert_eq!(chatmix_report(&nova7(), &[0x07, 0x45, 50, 50]), None);
     }
 }

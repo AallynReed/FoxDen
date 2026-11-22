@@ -879,6 +879,10 @@ impl Mixer {
         self.controls.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    pub fn running(&self) -> bool {
+        self.guard().running
+    }
+
     /// Hands the chat mix to a headset's dial, as game and chat in 0..=100, or back to the slider.
     pub fn set_dial(&self, dial: Option<(u8, u8)>) {
         self.controls().dial = dial.map(|(g, c)| (f32::from(g) / 100.0, f32::from(c) / 100.0));

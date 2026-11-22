@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use foxden_headset::{Control, EQ_MAX, EQ_MIN, Found, Shape};
+use foxden_headset::{ChatMix, Control, EQ_MAX, EQ_MIN, Found, Shape};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -235,6 +235,7 @@ const FIND_EVERY: Duration = Duration::from_secs(5);
 pub fn spawn_dial(app: AppHandle) {
     thread::spawn(move || {
         let mut found: Vec<Found> = Vec::new();
+        let mut mixes: Vec<ChatMix> = Vec::new();
         let mut plugged: Option<u64> = None;
         let mut checked: Option<Instant> = None;
         loop {
@@ -243,11 +244,30 @@ pub fn spawn_dial(app: AppHandle) {
                 let now = foxden_battery::hid::fingerprint();
                 if plugged != Some(now) {
                     found = foxden_headset::find();
+                    mixes.retain(|m| found.iter().any(|f| f.key == m.key) && m.enable());
                     plugged = Some(now);
                 }
                 checked = Some(Instant::now());
             }
-            let statuses: Vec<_> = found.iter().map(foxden_headset::status).collect();
+            // Bases that only report their dial when asked to are asked while the mixer plays.
+            let mixing = app
+                .try_state::<crate::mixer::Mixer>()
+                .is_some_and(|m| m.running());
+            if !mixing {
+                mixes.clear();
+            }
+            let mut statuses: Vec<_> = found.iter().map(foxden_headset::status).collect();
+            for (f, s) in found.iter().zip(statuses.iter_mut()) {
+                if mixing && !mixes.iter().any(|m| m.key == f.key) {
+                    mixes.extend(ChatMix::open(f));
+                }
+                if let Some(m) = mixes.iter_mut().find(|m| m.key == f.key) {
+                    let dial = m.poll(s.as_ref().is_some_and(|s| s.connected));
+                    if let Some(s) = s {
+                        s.chatmix = dial;
+                    }
+                }
+            }
             crate::priority::set_headsets(
                 found
                     .iter()

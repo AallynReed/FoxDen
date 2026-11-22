@@ -218,6 +218,7 @@ fn main() {
             if let Some(mixer) = handle.try_state::<mixer::Mixer>() {
                 mixer.shutdown();
             }
+            foxden_headset::chatmix_off();
             state::shutdown(&shared);
         }
     });
