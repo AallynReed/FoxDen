@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/SeagateController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::*;
 use super::scsi::{self, Scsi};

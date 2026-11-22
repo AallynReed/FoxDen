@@ -1,4 +1,5 @@
-//! Ported from OpenRGB Controllers/*Controller (GPL-2.0-or-later): the network and DMX detectors.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! : the network and DMX detectors.
 
 mod ddp;
 mod dmx;

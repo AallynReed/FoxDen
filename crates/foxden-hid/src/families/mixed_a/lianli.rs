@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/LianLiController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::time::Duration;
 

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB pci_ids/pci_ids.h and the SMBus motherboard detectors (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::sync::Arc;
 use std::time::Duration;

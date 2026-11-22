@@ -1,4 +1,5 @@
-//! Ported from OpenRGB Controllers/NanoleafController (GPL-2.0-or-later): its HTTP calls and net_port.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! : its HTTP calls and net_port.
 
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};

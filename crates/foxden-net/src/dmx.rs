@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/DMXController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::io::Write;
 use std::thread;

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/GigabyteCastor3Controller (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::{Driver, Op, Plan, run};
 use crate::registry::{Detector, Info};

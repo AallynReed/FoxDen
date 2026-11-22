@@ -1,4 +1,4 @@
-//! Ported from OpenRGB (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use foxden_smbus::i2c::{BusInfo, Detect};
 

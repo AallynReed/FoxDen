@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/ (shared HID plumbing for the mixed_a drivers) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::time::{Duration, Instant};
 

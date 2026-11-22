@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/RazerController/RazerController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::{Matrix, Model, model, stacked};
 use crate::registry::{Detector, Info};

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/ (Das Keyboard, ViewSonic, Clevo, Wooting, Cougar, SRGBmods, Klipsch, Alienware) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::thread;
 use std::time::{Duration, Instant};

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/LenovoControllers/LenovoDevices.h (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::NA;
 

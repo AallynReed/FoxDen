@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/SteelSeriesController (Rival 3, Aerox, Rival 5 controllers) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::{Driver, Op, Proto, device, line};
 use crate::registry::{Detector, Info};

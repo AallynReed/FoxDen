@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/LogitechController/LogitechControllerDetect.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 mod astro_a50;
 mod g203l;

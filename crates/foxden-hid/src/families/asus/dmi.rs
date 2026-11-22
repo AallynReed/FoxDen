@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/AsusAuraUSBController and AsusAuraCoreController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /// A value under HKLM\HARDWARE\DESCRIPTION\System\BIOS.
 #[cfg(windows)]

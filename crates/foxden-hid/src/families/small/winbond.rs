@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/WinbondGamingKeyboardController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::*;
 use super::klm::{EXTRA, FN_ROW, FULL, Key, Klm, Layout, MAIN, NUMPAD, Op as KeyOp, SIXTY, TKL, k};

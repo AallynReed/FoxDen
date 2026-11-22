@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/MSIMonitorController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::{Driver, Op, Proto, device, line};
 use crate::registry::{Detector, Info};

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/GigabyteRGBFusionGPUController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_smbus::i2c::{Result, SharedBus, SmBus, lock};

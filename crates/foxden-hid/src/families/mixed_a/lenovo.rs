@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/LenovoControllers and Controllers/LenovoMotherboardController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use foxden_core::{Backend, Color, DeviceKind};
 use hidapi::HidApi;

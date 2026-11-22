@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/GaiZongGaiKeyboardController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::f32::consts::PI;
 

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/ElgatoLightStripController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::thread;
 use std::time::Duration;

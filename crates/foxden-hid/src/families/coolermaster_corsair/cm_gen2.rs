@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/CoolerMasterController/CMARGBGen2A1Controller (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};

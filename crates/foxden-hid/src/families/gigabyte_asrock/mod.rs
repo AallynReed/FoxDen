@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/Gigabyte*Controller and Controllers/ASRockPolychromeUSBController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 mod aorus_case;
 mod aorus_laptop;

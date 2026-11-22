@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/PhilipsWizController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::net::UdpSocket;
 use std::time::Duration;

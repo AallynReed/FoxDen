@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/ASRockPolychromeUSBController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::{Driver, Op, Plan, rows};
 use crate::registry::{Detector, Info};

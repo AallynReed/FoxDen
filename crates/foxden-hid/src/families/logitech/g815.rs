@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/LogitechController/LogitechG815Controller (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use hidapi::HidApi;

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB DetectionManager.cpp (I2C and DRAM detector passes) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use foxden_core::Backend;
 

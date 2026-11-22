@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/GoveeController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, UdpSocket};

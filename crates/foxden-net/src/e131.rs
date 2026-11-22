@@ -1,4 +1,5 @@
-//! Ported from OpenRGB Controllers/E131Controller (GPL-2.0-or-later), with libe131's packet layout.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! , with libe131's packet layout.
 
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::Duration;

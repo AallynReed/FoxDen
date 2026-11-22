@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers (AsusAuraUSB, AsusLegacyUSB, AsusAuraCore, AsusTUFLaptop) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::registry::Detector;
 use foxden_core::Backend;

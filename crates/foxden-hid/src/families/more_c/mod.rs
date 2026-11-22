@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers (HyperX, MSI and Alienware keyboards, EVision, A4Tech, Holtek, QMK, Creative) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::registry::{Detector, Matcher};
 

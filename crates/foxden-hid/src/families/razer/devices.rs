@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/RazerController/RazerDevices.cpp and RazerControllerDetect.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::{Matrix, Model, chroma, hanbo, kraken, kraken_v3, kraken_v4};
 use crate::registry::Detector;

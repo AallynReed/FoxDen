@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/SteelSeriesController (Apex, Apex M, Apex 3, old Apex controllers) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::{Driver, Op, Proto, device, line, matrix};
 use crate::registry::{Detector, Info};

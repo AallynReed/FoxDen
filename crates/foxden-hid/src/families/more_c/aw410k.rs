@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/AlienwareKeyboardController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::*;
 use crate::registry::{Detector, Info};

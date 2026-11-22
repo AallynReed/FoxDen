@@ -1,4 +1,4 @@
-//! Ported from OpenRGB SPDAccessor/ (SPDDetector, SPDWrapper, DDR4/DDR5DirectAccessor) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::{Io, delay};
 

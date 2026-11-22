@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/LogitechController/LogitechHIDPP20Controller (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::sync::{Arc, Mutex};
 

@@ -9,6 +9,7 @@
       "../target/release/foxden-service.exe": "foxden-service.exe",
       "../packaging/PawnIO_setup.exe": "PawnIO_setup.exe",
       "../LICENSE": "LICENSE.txt",
+      "../NOTICE": "NOTICE.txt",
       "../THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt"
     },
     "windows": {

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/LogitechController/LogitechG915Controller/RGBController_LogitechG915.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::collections::BTreeMap;
 

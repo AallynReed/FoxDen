@@ -1,4 +1,5 @@
-//! SMBus device families ported from OpenRGB, each in its own folder.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! SMBus device families, each in its own folder.
 
 use crate::i2c::Detect;
 

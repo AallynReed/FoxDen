@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/AsusAuraGPUController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_smbus::i2c::{SharedBus, SmBus, lock};

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/AOCKeyboardController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::*;
 use super::klm::{FULL, Klm, Layout};

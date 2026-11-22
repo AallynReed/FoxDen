@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers (GaiZhongGai, Royuan, Sony, Anne Pro 2, Mountain, Realtek, Fnatic) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::registry::Detector;
 

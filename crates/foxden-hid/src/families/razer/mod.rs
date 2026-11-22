@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/RazerController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 mod chroma;
 mod devices;

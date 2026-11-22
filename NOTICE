@@ -1,0 +1,649 @@
+FoxDen
+Copyright (C) 2026 Aallyn
+
+FoxDen is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License, version 2 or (at your option) any later version. See LICENSE.
+
+Code derived from OpenRGB
+-------------------------
+
+Parts of FoxDen's device drivers were translated to Rust from OpenRGB
+(https://gitlab.com/CalcProgrammer1/OpenRGB),
+Copyright (C) Adam Honse and the OpenRGB contributors,
+licensed under the GNU General Public License, version 2 or later.
+
+These files were modified for FoxDen in 2026. Each one is listed with the OpenRGB
+sources it was derived from.
+
+crates/foxden-gpu/src/amd.rs
+    i2c_smbus/Windows/i2c_smbus_amdadl.cpp
+crates/foxden-gpu/src/families/a/asus_aura.rs
+    Controllers/AsusAuraGPUController
+crates/foxden-gpu/src/families/a/fake.rs
+    i2c_smbus/i2c_smbus.h
+crates/foxden-gpu/src/families/a/gigabyte_fusion.rs
+    Controllers/GigabyteRGBFusionGPUController
+crates/foxden-gpu/src/families/a/mod.rs
+    shared family code
+crates/foxden-gpu/src/families/b/cards.rs
+    Controllers/*GPUController/*Detect.cpp and pci_ids/pci_ids.h
+crates/foxden-gpu/src/families/b/colorful.rs
+    Controllers/ColorfulGPUController
+crates/foxden-gpu/src/families/b/colorful_turing.rs
+    Controllers/ColorfulTuringGPUController
+crates/foxden-gpu/src/families/b/common.rs
+    DetectionManager.cpp and i2c_smbus/i2c_amd_gpu.h
+crates/foxden-gpu/src/families/b/evga_ampere.rs
+    Controllers/EVGAAmpereGPUController
+crates/foxden-gpu/src/families/b/evga_gp102.rs
+    Controllers/EVGAGP102GPUController
+crates/foxden-gpu/src/families/b/evga_pascal.rs
+    Controllers/EVGAPascalGPUController
+crates/foxden-gpu/src/families/b/evga_turing.rs
+    Controllers/EVGATuringGPUController
+crates/foxden-gpu/src/families/b/fake.rs
+    i2c_smbus/i2c_smbus.h
+crates/foxden-gpu/src/families/b/galax.rs
+    Controllers/GalaxGPUController
+crates/foxden-gpu/src/families/b/gigabyte_blackwell.rs
+    Controllers/GigabyteRGBFusion2BlackwellGPUController
+crates/foxden-gpu/src/families/b/gigabyte_fusion2.rs
+    Controllers/GigabyteRGBFusion2GPUController
+crates/foxden-gpu/src/families/b/manli.rs
+    Controllers/ManliGPUController
+crates/foxden-gpu/src/families/b/mod.rs
+    Controllers/*GPUController
+crates/foxden-gpu/src/families/b/msi.rs
+    Controllers/MSIGPUController
+crates/foxden-gpu/src/families/b/palit.rs
+    Controllers/PalitGPUController
+crates/foxden-gpu/src/families/b/pny_epicx.rs
+    Controllers/PNYARGBEpicXGPUController
+crates/foxden-gpu/src/families/b/pny_lovelace.rs
+    Controllers/PNYLovelaceGPUController
+crates/foxden-gpu/src/families/b/powercolor.rs
+    Controllers/PowerColorGPUController
+crates/foxden-gpu/src/families/b/sapphire.rs
+    Controllers/SapphireGPUController
+crates/foxden-gpu/src/families/b/zotac_blackwell.rs
+    Controllers/ZotacBlackwellGPUController
+crates/foxden-gpu/src/families/b/zotac_turing.rs
+    Controllers/ZotacTuringGPUController
+crates/foxden-gpu/src/families/b/zotac_v2.rs
+    Controllers/ZotacV2GPUController
+crates/foxden-gpu/src/families/mod.rs
+    Controllers/*GPUController (detection lists)
+crates/foxden-gpu/src/illumination.rs
+    Controllers/NVIDIAIlluminationController
+crates/foxden-gpu/src/nvidia.rs
+    i2c_smbus/Windows/i2c_smbus_nvapi.cpp and dependencies/NVFC/nvapi.cpp
+crates/foxden-hid/src/families/asus/ally.rs
+    Controllers/AsusAuraUSBController/AsusROGAllyController
+crates/foxden-hid/src/families/asus/aura_core.rs
+    Controllers/AsusAuraCoreController/AsusAuraCoreController
+crates/foxden-hid/src/families/asus/aura_core_laptop.rs
+    Controllers/AsusAuraCoreController/AsusAuraCoreLaptopController
+crates/foxden-hid/src/families/asus/aura_keyboard.rs
+    Controllers/AsusAuraUSBController/AsusAuraKeyboardController
+crates/foxden-hid/src/families/asus/aura_monitor.rs
+    Controllers/AsusAuraUSBController/AsusAuraMonitorController
+crates/foxden-hid/src/families/asus/aura_mouse.rs
+    Controllers/AsusAuraUSBController/AsusAuraMouseController
+crates/foxden-hid/src/families/asus/aura_usb.rs
+    Controllers/AsusAuraUSBController/AsusAuraUSBController
+crates/foxden-hid/src/families/asus/common.rs
+    Controllers (shared shell for the ASUS HID families)
+crates/foxden-hid/src/families/asus/coolers.rs
+    Controllers/AsusAuraUSBController/AsusAuraRyuoAIOController and AsusROGStrixLCController
+crates/foxden-hid/src/families/asus/dmi.rs
+    Controllers/AsusAuraUSBController and AsusAuraCoreController
+crates/foxden-hid/src/families/asus/headset_stand.rs
+    Controllers/AsusAuraUSBController/AsusAuraHeadsetStandController
+crates/foxden-hid/src/families/asus/kb_layouts.rs
+    Controllers/AsusAuraUSBController/AsusAuraKeyboardController
+crates/foxden-hid/src/families/asus/laptop_layouts.rs
+    Controllers/AsusAuraCoreController/AsusAuraCoreLaptopController
+crates/foxden-hid/src/families/asus/legacy.rs
+    Controllers/AsusLegacyUSBController
+crates/foxden-hid/src/families/asus/mod.rs
+    Controllers (AsusAuraUSB, AsusLegacyUSB, AsusAuraCore, AsusTUFLaptop)
+crates/foxden-hid/src/families/asus/mouse_gen1.rs
+    Controllers/AsusAuraUSBController/AsusAuraMouseGen1Controller
+crates/foxden-hid/src/families/asus/mousemat.rs
+    Controllers/AsusAuraUSBController/AsusAuraMousematController
+crates/foxden-hid/src/families/asus/tuf_laptop.rs
+    Controllers/AsusTUFLaptopController
+crates/foxden-hid/src/families/coolermaster_corsair/cm_argb.rs
+    Controllers/CoolerMasterController/CMARGBController
+crates/foxden-hid/src/families/coolermaster_corsair/cm_gd160.rs
+    Controllers/CoolerMasterController/CMGD160Controller
+crates/foxden-hid/src/families/coolermaster_corsair/cm_gen2.rs
+    Controllers/CoolerMasterController/CMARGBGen2A1Controller
+crates/foxden-hid/src/families/coolermaster_corsair/cm_keyboard.rs
+    Controllers/CoolerMasterController/CMKeyboardController
+crates/foxden-hid/src/families/coolermaster_corsair/cm_mm.rs
+    Controllers/CoolerMasterController/CMMMController
+crates/foxden-hid/src/families/coolermaster_corsair/cm_mm711.rs
+    Controllers/CoolerMasterController/CMMM711Controller
+crates/foxden-hid/src/families/coolermaster_corsair/cm_mm712.rs
+    Controllers/CoolerMasterController/CMMM712Controller
+crates/foxden-hid/src/families/coolermaster_corsair/cm_monitor.rs
+    Controllers/CoolerMasterController/CMMonitorController
+crates/foxden-hid/src/families/coolermaster_corsair/cm_mp750.rs
+    Controllers/CoolerMasterController/CMMP750Controller
+crates/foxden-hid/src/families/coolermaster_corsair/cm_r6000.rs
+    Controllers/CoolerMasterController/CMR6000Controller
+crates/foxden-hid/src/families/coolermaster_corsair/cm_rgb.rs
+    Controllers/CoolerMasterController/CMRGBController
+crates/foxden-hid/src/families/coolermaster_corsair/cm_small_argb.rs
+    Controllers/CoolerMasterController/CMSmallARGBController
+crates/foxden-hid/src/families/coolermaster_corsair/corsair_k55_xt.rs
+    Controllers/CorsairPeripheralController/CorsairK55RGBPROXTController.cpp
+crates/foxden-hid/src/families/coolermaster_corsair/corsair_peripheral.rs
+    Controllers/CorsairPeripheralController
+crates/foxden-hid/src/families/coolermaster_corsair/corsair_v2.rs
+    Controllers/CorsairPeripheralV2Controller
+crates/foxden-hid/src/families/coolermaster_corsair/corsair_void.rs
+    Controllers/CorsairVoidController
+crates/foxden-hid/src/families/coolermaster_corsair/klm.rs
+    KeyboardLayoutManager/KeyboardLayoutManager.cpp
+crates/foxden-hid/src/families/coolermaster_corsair/mod.rs
+    Controllers/CoolerMasterController, CorsairPeripheralController, CorsairPeripheralV2Controller and CorsairVoidController
+crates/foxden-hid/src/families/generic/any/hidpp20.rs
+    Controllers/LogitechController/LogitechHIDPP20Controller
+crates/foxden-hid/src/families/generic/any/hidpp20_tests.rs
+    Controllers/LogitechController/LogitechHIDPP20Controller
+crates/foxden-hid/src/families/generic/any/lamparray.rs
+    Controllers/HIDLampArrayController
+crates/foxden-hid/src/families/generic/any/mod.rs
+    Controllers/HIDLampArrayController and Controllers/LogitechController
+crates/foxden-hid/src/families/generic/any/receiver.rs
+    Controllers/LogitechController/LogitechProtocolCommon.cpp
+crates/foxden-hid/src/families/generic/mod.rs
+    shared family code
+crates/foxden-hid/src/families/gigabyte_asrock/aorus_case.rs
+    Controllers/GigabyteAorusPCCaseController
+crates/foxden-hid/src/families/gigabyte_asrock/aorus_laptop.rs
+    Controllers/GigabyteAorusLaptopController
+crates/foxden-hid/src/families/gigabyte_asrock/aorus_mouse.rs
+    Controllers/GigabyteAorusMouseController
+crates/foxden-hid/src/families/gigabyte_asrock/atc800.rs
+    Controllers/GigabyteAorusCPUCoolerController
+crates/foxden-hid/src/families/gigabyte_asrock/castor3.rs
+    Controllers/GigabyteCastor3Controller
+crates/foxden-hid/src/families/gigabyte_asrock/fusion2.rs
+    Controllers/GigabyteRGBFusion2USBController
+crates/foxden-hid/src/families/gigabyte_asrock/mod.rs
+    Controllers/Gigabyte*Controller and Controllers/ASRockPolychromeUSBController
+crates/foxden-hid/src/families/gigabyte_asrock/polychrome.rs
+    Controllers/ASRockPolychromeUSBController
+crates/foxden-hid/src/families/logitech/g203l.rs
+    Controllers/LogitechController/LogitechG203LController
+crates/foxden-hid/src/families/logitech/g213.rs
+    Controllers/LogitechController/LogitechG213Controller
+crates/foxden-hid/src/families/logitech/g600.rs
+    Controllers/LogitechController/LogitechG600Controller
+crates/foxden-hid/src/families/logitech/g815.rs
+    Controllers/LogitechController/LogitechG815Controller
+crates/foxden-hid/src/families/logitech/g915.rs
+    Controllers/LogitechController/LogitechG915Controller
+crates/foxden-hid/src/families/logitech/g933.rs
+    Controllers/LogitechController/LogitechG933Controller
+crates/foxden-hid/src/families/logitech/keys.rs
+    Controllers/LogitechController/LogitechG915Controller/RGBController_LogitechG915.cpp
+crates/foxden-hid/src/families/logitech/lightspeed.rs
+    Controllers/LogitechController/LogitechProtocolCommon.cpp and LogitechLightspeedController
+crates/foxden-hid/src/families/logitech/lightsync.rs
+    Controllers/LogitechController/LogitechGLightsyncController
+crates/foxden-hid/src/families/logitech/mod.rs
+    Controllers/LogitechController/LogitechControllerDetect.cpp
+crates/foxden-hid/src/families/logitech/x56.rs
+    Controllers/LogitechController/LogitechX56Controller
+crates/foxden-hid/src/families/mixed_a/common.rs
+    Controllers/ (shared HID plumbing for the mixed_a drivers)
+crates/foxden-hid/src/families/mixed_a/lenovo.rs
+    Controllers/LenovoControllers and Controllers/LenovoMotherboardController
+crates/foxden-hid/src/families/mixed_a/lenovo_gen7.rs
+    Controllers/LenovoControllers/LenovoUSBController_Gen7_8
+crates/foxden-hid/src/families/mixed_a/lenovo_zones.rs
+    Controllers/LenovoControllers/LenovoDevices.h
+crates/foxden-hid/src/families/mixed_a/lianli.rs
+    Controllers/LianLiController
+crates/foxden-hid/src/families/mixed_a/mod.rs
+    Controllers/RoccatController, SinowealthController, LianLiController, LenovoControllers and LenovoMotherboardController
+crates/foxden-hid/src/families/mixed_a/roccat.rs
+    Controllers/RoccatController
+crates/foxden-hid/src/families/mixed_a/sinowealth.rs
+    Controllers/SinowealthController
+crates/foxden-hid/src/families/mixed_a/vulcan.rs
+    Controllers/RoccatController/RoccatVulcanKeyboardController
+crates/foxden-hid/src/families/mixed_a/vulcan_layouts.rs
+    Controllers/RoccatController/RoccatVulcanKeyboardController/RoccatVulcanKeyboardLayouts.h
+crates/foxden-hid/src/families/mixed_b/cherry.rs
+    Controllers/CherryKeyboardController
+crates/foxden-hid/src/families/mixed_b/corsair_commander_core.rs
+    Controllers/CorsairCommanderCoreController
+crates/foxden-hid/src/families/mixed_b/corsair_hydro_platinum.rs
+    Controllers/CorsairHydroPlatinumController
+crates/foxden-hid/src/families/mixed_b/corsair_icue_link.rs
+    Controllers/CorsairICueLinkController
+crates/foxden-hid/src/families/mixed_b/corsair_lighting_node.rs
+    Controllers/CorsairLightingNodeController
+crates/foxden-hid/src/families/mixed_b/drgb.rs
+    Controllers/DRGBController
+crates/foxden-hid/src/families/mixed_b/hyperx_microphone.rs
+    Controllers/HyperXMicrophoneController
+crates/foxden-hid/src/families/mixed_b/hyperx_microphone_v2.rs
+    Controllers/HyperXMicrophoneV2Controller
+crates/foxden-hid/src/families/mixed_b/hyperx_mouse.rs
+    Controllers/HyperXMouseController
+crates/foxden-hid/src/families/mixed_b/hyperx_mousemat.rs
+    Controllers/HyperXMousematController
+crates/foxden-hid/src/families/mixed_b/mod.rs
+    Controllers/ (Thermaltake, NZXT, Corsair, HyperX, DRGB, Nollie, Cherry, Redragon)
+crates/foxden-hid/src/families/mixed_b/nollie.rs
+    Controllers/NollieController
+crates/foxden-hid/src/families/mixed_b/nzxt_hue1.rs
+    Controllers/NZXTHue1Controller
+crates/foxden-hid/src/families/mixed_b/nzxt_hue2.rs
+    Controllers/NZXTHue2Controller
+crates/foxden-hid/src/families/mixed_b/nzxt_kraken.rs
+    Controllers/NZXTKrakenController
+crates/foxden-hid/src/families/mixed_b/nzxt_mouse.rs
+    Controllers/NZXTMouseController
+crates/foxden-hid/src/families/mixed_b/redragon.rs
+    Controllers/RedragonController
+crates/foxden-hid/src/families/mixed_b/thermaltake_poseidon.rs
+    Controllers/ThermaltakePoseidonZRGBController
+crates/foxden-hid/src/families/mixed_b/thermaltake_riing.rs
+    Controllers/ThermaltakeRiingController
+crates/foxden-hid/src/families/mod.rs
+    Controllers (detection lists)
+crates/foxden-hid/src/families/more_a/annepro2.rs
+    Controllers/AnnePro2Controller
+crates/foxden-hid/src/families/more_a/common.rs
+    Controllers (shared shell for the more_a HID families)
+crates/foxden-hid/src/families/more_a/fnatic.rs
+    Controllers/FnaticStreakController
+crates/foxden-hid/src/families/more_a/gaizhonggai.rs
+    Controllers/GaiZongGaiKeyboardController
+crates/foxden-hid/src/families/more_a/klm.rs
+    KeyboardLayoutManager/KeyboardLayoutManager.cpp
+crates/foxden-hid/src/families/more_a/mod.rs
+    Controllers (GaiZhongGai, Royuan, Sony, Anne Pro 2, Mountain, Realtek, Fnatic)
+crates/foxden-hid/src/families/more_a/mountain.rs
+    Controllers/MountainKeyboardController
+crates/foxden-hid/src/families/more_a/realtek.rs
+    Controllers/RealtekBridgeController and Controllers/RealtekARGBController usb_hid_ioctl
+crates/foxden-hid/src/families/more_a/realtek_argb.rs
+    Controllers/RealtekARGBController
+crates/foxden-hid/src/families/more_a/realtek_bridge.rs
+    Controllers/RealtekBridgeController
+crates/foxden-hid/src/families/more_a/royuan.rs
+    Controllers/RoyuanKeyboardController
+crates/foxden-hid/src/families/more_a/sony.rs
+    Controllers/SonyGamepadController
+crates/foxden-hid/src/families/more_b/alienware.rs
+    Controllers/AlienwareController
+crates/foxden-hid/src/families/more_b/clevo.rs
+    Controllers/ClevoKeyboardController
+crates/foxden-hid/src/families/more_b/cougar.rs
+    Controllers/CougarController
+crates/foxden-hid/src/families/more_b/das.rs
+    Controllers/DasKeyboardController
+crates/foxden-hid/src/families/more_b/klipsch.rs
+    Controllers/KlipschLuminaController
+crates/foxden-hid/src/families/more_b/mod.rs
+    Controllers/ (Das Keyboard, ViewSonic, Clevo, Wooting, Cougar, SRGBmods, Klipsch, Alienware)
+crates/foxden-hid/src/families/more_b/srgbmods.rs
+    Controllers/SRGBmodsController
+crates/foxden-hid/src/families/more_b/viewsonic.rs
+    Controllers/ViewSonicController
+crates/foxden-hid/src/families/more_b/wooting.rs
+    Controllers/WootingKeyboardController
+crates/foxden-hid/src/families/more_c/aw3423dwf.rs
+    Controllers/AlienwareMonitorController
+crates/foxden-hid/src/families/more_c/aw410k.rs
+    Controllers/AlienwareKeyboardController
+crates/foxden-hid/src/families/more_c/aw510k.rs
+    Controllers/AlienwareKeyboardController
+crates/foxden-hid/src/families/more_c/aw_monitor.rs
+    Controllers/AlienwareMonitorController
+crates/foxden-hid/src/families/more_c/bloody_b820r.rs
+    Controllers/A4TechController
+crates/foxden-hid/src/families/more_c/bloody_mouse.rs
+    Controllers/A4TechController
+crates/foxden-hid/src/families/more_c/common.rs
+    Controllers (shared shell for the more_c HID families)
+crates/foxden-hid/src/families/more_c/creative_xg6.rs
+    Controllers/CreativeController
+crates/foxden-hid/src/families/more_c/evision.rs
+    Controllers/EVisionKeyboardController
+crates/foxden-hid/src/families/more_c/evision_v2.rs
+    Controllers/EVisionKeyboardController
+crates/foxden-hid/src/families/more_c/holtek_a070.rs
+    Controllers/HoltekController
+crates/foxden-hid/src/families/more_c/holtek_a1fa.rs
+    Controllers/HoltekController
+crates/foxden-hid/src/families/more_c/hyperx_alloy_elite.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/hyperx_alloy_elite2.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/hyperx_alloy_fps.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/hyperx_eve1800.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/hyperx_origins.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/hyperx_origins2_65.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/hyperx_origins_60_65.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/hyperx_origins_core.rs
+    Controllers/HyperXKeyboardController
+crates/foxden-hid/src/families/more_c/mod.rs
+    Controllers (HyperX, MSI and Alienware keyboards, EVision, A4Tech, Holtek, QMK, Creative)
+crates/foxden-hid/src/families/more_c/msi_clutch.rs
+    Controllers/MSIClutchController
+crates/foxden-hid/src/families/more_c/msi_kb1565.rs
+    Controllers/MSIKeyboardController
+crates/foxden-hid/src/families/more_c/msi_mystic64.rs
+    Controllers/MSIKeyboardController
+crates/foxden-hid/src/families/more_c/qmk_keychron.rs
+    Controllers/QMKController
+crates/foxden-hid/src/families/more_c/qmk_vial.rs
+    Controllers/QMKController
+crates/foxden-hid/src/families/more_d/arctic.rs
+    Controllers/ArcticController
+crates/foxden-hid/src/families/more_d/blinkytape.rs
+    Controllers/BlinkyTapeController
+crates/foxden-hid/src/families/more_d/common.rs
+    Controllers (shared shell for the more_d families)
+crates/foxden-hid/src/families/more_d/corsair_hydro.rs
+    Controllers/CorsairHydroController
+crates/foxden-hid/src/families/more_d/corsair_hydro2.rs
+    Controllers/CorsairHydro2Controller
+crates/foxden-hid/src/families/more_d/dygma_raise.rs
+    Controllers/DygmaRaiseController
+crates/foxden-hid/src/families/more_d/evga_keyboard.rs
+    Controllers/EVGAUSBController/EVGAKeyboardController
+crates/foxden-hid/src/families/more_d/evga_mouse.rs
+    Controllers/EVGAUSBController/EVGAMouseController
+crates/foxden-hid/src/families/more_d/evga_x12.rs
+    Controllers/EVGAUSBController/EVGAX12Controller
+crates/foxden-hid/src/families/more_d/hyte_mousemat.rs
+    Controllers/HYTEMousematController
+crates/foxden-hid/src/families/more_d/hyte_nexus.rs
+    Controllers/HYTENexusController
+crates/foxden-hid/src/families/more_d/jginyue_v2.rs
+    Controllers/JGINYUEInternalUSBV2Controller
+crates/foxden-hid/src/families/more_d/ledstrip.rs
+    Controllers/LEDStripController
+crates/foxden-hid/src/families/more_d/mod.rs
+    Controllers/ (Corsair Hydro, Dygma Raise, EVGA USB, NZXT Hue+, HYTE, Arctic, JGINYUE V2, Seagate, Skydimo serial, Thrustmaster Sol, BlinkyTape, LED strips)
+crates/foxden-hid/src/families/more_d/nzxt_hue_plus.rs
+    Controllers/NZXTHuePlusController
+crates/foxden-hid/src/families/more_d/scsi.rs
+    scsiapi/scsiapi_windows.c
+crates/foxden-hid/src/families/more_d/seagate.rs
+    Controllers/SeagateController
+crates/foxden-hid/src/families/more_d/serial.rs
+    serial_port and find_usb_serial_port
+crates/foxden-hid/src/families/more_d/skydimo_serial.rs
+    Controllers/SkydimoSerialController
+crates/foxden-hid/src/families/more_d/thrustmaster_sol.rs
+    Controllers/ThrustmasterSolController
+crates/foxden-hid/src/families/more_d/winusb.rs
+    dependencies/libusb device access
+crates/foxden-hid/src/families/msi_steelseries/common.rs
+    Controllers/MSIMotherboardController and Controllers/SteelSeriesController
+crates/foxden-hid/src/families/msi_steelseries/mod.rs
+    Controllers/MSI*Controller and Controllers/SteelSeriesController
+crates/foxden-hid/src/families/msi_steelseries/msi_3zone.rs
+    Controllers/MSI3ZoneController
+crates/foxden-hid/src/families/msi_steelseries/msi_board.rs
+    Controllers/MSIMotherboardController
+crates/foxden-hid/src/families/msi_steelseries/msi_board761.rs
+    Controllers/MSIMotherboardController/MSIMotherboard761Controller
+crates/foxden-hid/src/families/msi_steelseries/msi_laptop.rs
+    Controllers/MSILaptopController
+crates/foxden-hid/src/families/msi_steelseries/msi_monitor.rs
+    Controllers/MSIMonitorController
+crates/foxden-hid/src/families/msi_steelseries/msi_optix.rs
+    Controllers/MSIOptixController
+crates/foxden-hid/src/families/msi_steelseries/msi_vigor.rs
+    Controllers/MSIVigorController
+crates/foxden-hid/src/families/msi_steelseries/ss_apex.rs
+    Controllers/SteelSeriesController (Apex, Apex M, Apex 3, old Apex controllers)
+crates/foxden-hid/src/families/msi_steelseries/ss_audio_mat.rs
+    Controllers/SteelSeriesController (Siberia, Arctis 5, Arctis Nova 3, QCK Prism controllers)
+crates/foxden-hid/src/families/msi_steelseries/ss_rival.rs
+    Controllers/SteelSeriesController/SteelSeriesRivalController and SteelSeriesSenseiController
+crates/foxden-hid/src/families/msi_steelseries/ss_rival3.rs
+    Controllers/SteelSeriesController (Rival 3, Aerox, Rival 5 controllers)
+crates/foxden-hid/src/families/razer/chroma.rs
+    Controllers/RazerController/RazerController
+crates/foxden-hid/src/families/razer/devices.rs
+    Controllers/RazerController/RazerDevices.cpp and RazerControllerDetect.cpp
+crates/foxden-hid/src/families/razer/hanbo.rs
+    Controllers/RazerController/RazerHanboController
+crates/foxden-hid/src/families/razer/kraken.rs
+    Controllers/RazerController/RazerKrakenController
+crates/foxden-hid/src/families/razer/kraken_v3.rs
+    Controllers/RazerController/RazerKrakenV3Controller
+crates/foxden-hid/src/families/razer/kraken_v4.rs
+    Controllers/RazerController/RazerKrakenV4Controller
+crates/foxden-hid/src/families/razer/mod.rs
+    Controllers/RazerController
+crates/foxden-hid/src/families/small/acer_nitro.rs
+    Controllers/AcerNitroHidKeyboardController
+crates/foxden-hid/src/families/small/aoc_keyboard.rs
+    Controllers/AOCKeyboardController
+crates/foxden-hid/src/families/small/aoc_mouse.rs
+    Controllers/AOCMouseController
+crates/foxden-hid/src/families/small/aoc_mousemat.rs
+    Controllers/AOCMousematController
+crates/foxden-hid/src/families/small/areson.rs
+    Controllers/AresonController
+crates/foxden-hid/src/families/small/asus_monitor.rs
+    Controllers/AsusMonitorController
+crates/foxden-hid/src/families/small/clevo_lightbar.rs
+    Controllers/ClevoLightbarController
+crates/foxden-hid/src/families/small/common.rs
+    Controllers (shared shell for the small HID families)
+crates/foxden-hid/src/families/small/cryorig.rs
+    Controllers/CryorigH7QuadLumiController
+crates/foxden-hid/src/families/small/darkproject.rs
+    Controllers/DarkProject
+crates/foxden-hid/src/families/small/dreamcheeky.rs
+    Controllers/DreamCheekyController
+crates/foxden-hid/src/families/small/ducky.rs
+    Controllers/DuckyKeyboardController
+crates/foxden-hid/src/families/small/edifier.rs
+    Controllers/EdifierHaloController
+crates/foxden-hid/src/families/small/ek.rs
+    Controllers/EKController
+crates/foxden-hid/src/families/small/gamesir.rs
+    Controllers/GameSirController
+crates/foxden-hid/src/families/small/hp_omen30l.rs
+    Controllers/HPOmen30LController
+crates/foxden-hid/src/families/small/hyte.rs
+    Controllers/HYTEKeyboardController
+crates/foxden-hid/src/families/small/instant_mouse.rs
+    Controllers/InstantMouseController
+crates/foxden-hid/src/families/small/intel_arc.rs
+    Controllers/IntelArcA770LEController
+crates/foxden-hid/src/families/small/ionico.rs
+    Controllers/IonicoController
+crates/foxden-hid/src/families/small/jginyue.rs
+    Controllers/JGINYUEInternalUSBController
+crates/foxden-hid/src/families/small/keychron.rs
+    Controllers/KeychronKeyboardController
+crates/foxden-hid/src/families/small/keyrox.rs
+    Controllers/RedSquareKeyroxController
+crates/foxden-hid/src/families/small/klm.rs
+    KeyboardLayoutManager/KeyboardLayoutManager.cpp
+crates/foxden-hid/src/families/small/laview.rs
+    Controllers/LaviewTechnologyController
+crates/foxden-hid/src/families/small/lego_toypad.rs
+    Controllers/LegoDimensionsToypadBaseController
+crates/foxden-hid/src/families/small/lexip.rs
+    Controllers/LexipMouseController
+crates/foxden-hid/src/families/small/lg_monitor.rs
+    Controllers/LGMonitorController
+crates/foxden-hid/src/families/small/lightsalt.rs
+    Controllers/LightSaltController
+crates/foxden-hid/src/families/small/luxafor.rs
+    Controllers/LuxaforController
+crates/foxden-hid/src/families/small/madcatz.rs
+    Controllers/MadCatzCyborgController
+crates/foxden-hid/src/families/small/mintaka.rs
+    Controllers/MintakaKeyboardController
+crates/foxden-hid/src/families/small/mnt.rs
+    Controllers/MNTKeyboardController
+crates/foxden-hid/src/families/small/mod.rs
+    Controllers (small HID families)
+crates/foxden-hid/src/families/small/n5312a.rs
+    Controllers/N5312AController
+crates/foxden-hid/src/families/small/nvidia_esa.rs
+    Controllers/NvidiaESAController
+crates/foxden-hid/src/families/small/oks.rs
+    Controllers/OKSController
+crates/foxden-hid/src/families/small/patriot_viper.rs
+    Controllers/PatriotViperMouseController
+crates/foxden-hid/src/families/small/robobloq.rs
+    Controllers/RobobloqLightStripController
+crates/foxden-hid/src/families/small/sayo.rs
+    Controllers/SayoDeviceController
+crates/foxden-hid/src/families/small/skydimo.rs
+    Controllers/SkydimoHIDController
+crates/foxden-hid/src/families/small/skyloong.rs
+    Controllers/SkyloongController
+crates/foxden-hid/src/families/small/tecknet.rs
+    Controllers/TecknetController
+crates/foxden-hid/src/families/small/thingm.rs
+    Controllers/ThingMController
+crates/foxden-hid/src/families/small/trust.rs
+    Controllers/TrustController
+crates/foxden-hid/src/families/small/turtlebeach_kp7.rs
+    Controllers/TurtleBeachKP7Controller
+crates/foxden-hid/src/families/small/valkyrie.rs
+    Controllers/ValkyrieKeyboardController
+crates/foxden-hid/src/families/small/winbond.rs
+    Controllers/WinbondGamingKeyboardController
+crates/foxden-hid/src/families/small/witmod.rs
+    Controllers/WitmodKeyboardController
+crates/foxden-hid/src/families/small/wraith_prism.rs
+    Controllers/AMDWraithPrismController
+crates/foxden-hid/src/families/small/wushi.rs
+    Controllers/WushiController
+crates/foxden-hid/src/families/small/xpg_summoner.rs
+    Controllers/XPGSummonerKeyboardController
+crates/foxden-hid/src/families/small/zalman.rs
+    Controllers/ZalmanZSyncController
+crates/foxden-hid/src/families/small/zet.rs
+    Controllers/ZETKeyboardController
+crates/foxden-hid/src/families/streamdeck/jpeg.rs
+    Controllers/StreamDeckController
+crates/foxden-hid/src/families/streamdeck/mod.rs
+    Controllers/StreamDeckController
+crates/foxden-hid/src/hidpp.rs
+    LogitechHIDPP20Controller.cpp
+crates/foxden-hid/src/msi.rs
+    MSIMotherboardCommon.h
+crates/foxden-hid/src/registry.rs
+    DetectionManager.cpp and the REGISTER_HID_DETECTOR lists
+crates/foxden-net/src/ddp.rs
+    Controllers/DDPController
+crates/foxden-net/src/dmx.rs
+    Controllers/DMXController
+crates/foxden-net/src/e131.rs
+    Controllers/E131Controller
+crates/foxden-net/src/elgato_key_light.rs
+    Controllers/ElgatoKeyLightController
+crates/foxden-net/src/elgato_light_strip.rs
+    Controllers/ElgatoLightStripController
+crates/foxden-net/src/espurna.rs
+    Controllers/EspurnaController
+crates/foxden-net/src/govee.rs
+    Controllers/GoveeController
+crates/foxden-net/src/hue.rs
+    Controllers/PhilipsHueController
+crates/foxden-net/src/kasa.rs
+    Controllers/KasaSmartController
+crates/foxden-net/src/lib.rs
+    Controllers/*Controller
+crates/foxden-net/src/lifx.rs
+    Controllers/LIFXController
+crates/foxden-net/src/nanoleaf.rs
+    Controllers/NanoleafController
+crates/foxden-net/src/net.rs
+    Controllers/NanoleafController
+crates/foxden-net/src/wiz.rs
+    Controllers/PhilipsWizController
+crates/foxden-net/src/yeelight.rs
+    Controllers/YeelightController
+crates/foxden-smbus/src/corsair.rs
+    Controllers/CorsairDRAMController
+crates/foxden-smbus/src/families/boards/asrock.rs
+    Controllers/ASRockSMBusController
+crates/foxden-smbus/src/families/boards/dmi.rs
+    dmiinfo/dmiinfo.cpp
+crates/foxden-smbus/src/families/boards/ene.rs
+    Controllers/ENESMBusController
+crates/foxden-smbus/src/families/boards/ene_gpus.rs
+    Controllers/ENESMBusController/ENESMBusControllerDetect.cpp
+crates/foxden-smbus/src/families/boards/evga.rs
+    Controllers/EVGASMBusController
+crates/foxden-smbus/src/families/boards/fake.rs
+    i2c_smbus/i2c_smbus.h
+crates/foxden-smbus/src/families/boards/fusion.rs
+    Controllers/GigabyteRGBFusionController
+crates/foxden-smbus/src/families/boards/fusion2.rs
+    Controllers/GigabyteRGBFusion2SMBusController
+crates/foxden-smbus/src/families/boards/mod.rs
+    pci_ids/pci_ids.h and the SMBus motherboard detectors
+crates/foxden-smbus/src/families/dram/common.rs
+    i2c_smbus/i2c_smbus.cpp and RGBController.cpp
+crates/foxden-smbus/src/families/dram/corsair_vengeance.rs
+    Controllers/CorsairVengeanceController
+crates/foxden-smbus/src/families/dram/crucial.rs
+    Controllers/CrucialController
+crates/foxden-smbus/src/families/dram/fake.rs
+    i2c_smbus/i2c_smbus.h
+crates/foxden-smbus/src/families/dram/gigabyte_fusion2.rs
+    Controllers/GigabyteRGBFusion2DRAMController
+crates/foxden-smbus/src/families/dram/hyperx.rs
+    Controllers/HyperXDRAMController
+crates/foxden-smbus/src/families/dram/kingston_fury.rs
+    Controllers/KingstonFuryDRAMController
+crates/foxden-smbus/src/families/dram/mod.rs
+    DetectionManager.cpp (I2C and DRAM detector passes)
+crates/foxden-smbus/src/families/dram/patriot_viper.rs
+    Controllers/PatriotViperController
+crates/foxden-smbus/src/families/dram/patriot_viper_steel.rs
+    Controllers/PatriotViperSteelController
+crates/foxden-smbus/src/families/dram/spd.rs
+    SPDAccessor/ (SPDDetector, SPDWrapper, DDR4/DDR5DirectAccessor)
+crates/foxden-smbus/src/families/dram/tforce_xtreem.rs
+    Controllers/TForceXtreemController
+crates/foxden-smbus/src/families/mod.rs
+    Controllers (SMBus detection lists)
+crates/foxden-superio/src/gigabyte_sio.rs
+    Controllers/GigabyteSuperIORGBController
+crates/foxden-superio/src/lights.rs
+    super_io/super_io_pawnio.cpp and dmiinfo/dmiinfo.cpp
+crates/foxden-superio/src/msi_rgb.rs
+    Controllers/MSIRGBController
+crates/foxden-superio/src/valve.rs
+    Controllers/ValveSteamMachineController
+crates/foxden-wmi/src/hp_omen.rs
+    Controllers/HPOmenLaptopController
+crates/foxden-wmi/src/lib.rs
+    Controllers/HPOmenLaptopController
+
+PawnIO modules
+--------------
+
+The bundled PawnIO modules (crates/foxden-pawnio/modules) are licensed under the
+GNU Lesser General Public License, version 2.1. See https://pawnio.eu.

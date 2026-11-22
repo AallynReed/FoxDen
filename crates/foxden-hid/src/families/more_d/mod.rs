@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/ (Corsair Hydro, Dygma Raise, EVGA USB, NZXT Hue+, HYTE, Arctic, JGINYUE V2, Seagate, Skydimo serial, Thrustmaster Sol, BlinkyTape, LED strips) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::sync::Mutex;
 

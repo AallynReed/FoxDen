@@ -1,4 +1,4 @@
-//! Ported from OpenRGB i2c_smbus/Windows/i2c_smbus_nvapi.cpp and dependencies/NVFC/nvapi.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::ffi::{CStr, c_void};
 use std::mem::size_of;

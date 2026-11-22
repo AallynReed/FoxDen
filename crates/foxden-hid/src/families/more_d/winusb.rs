@@ -1,4 +1,5 @@
-//! Ported from OpenRGB's libusb device access (GPL-2.0-or-later): WinUSB in place of UsbDK.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! USB device access through WinUSB.
 
 use std::ptr::{null, null_mut};
 

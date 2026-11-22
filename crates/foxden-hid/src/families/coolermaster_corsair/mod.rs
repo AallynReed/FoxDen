@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/CoolerMasterController, CorsairPeripheralController, CorsairPeripheralV2Controller and CorsairVoidController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 mod cm_argb;
 mod cm_gd160;

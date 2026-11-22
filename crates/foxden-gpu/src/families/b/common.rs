@@ -1,4 +1,4 @@
-//! Ported from OpenRGB DetectionManager.cpp and i2c_smbus/i2c_amd_gpu.h (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::cell::RefCell;
 use std::time::Duration;

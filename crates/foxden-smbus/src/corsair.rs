@@ -1,5 +1,5 @@
-//! Corsair DRAM lighting (Vengeance RGB, Dominator), ported from OpenRGB's CorsairDRAMController
-//! (GPL-2.0-or-later, Adam Honse and contributors).
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! Corsair DRAM lighting (Vengeance RGB, Dominator).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

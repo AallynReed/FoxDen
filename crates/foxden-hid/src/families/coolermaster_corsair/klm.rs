@@ -1,4 +1,4 @@
-//! Ported from OpenRGB KeyboardLayoutManager/KeyboardLayoutManager.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /// One key: matrix position, the value the device indexes it by, and whether it has a name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

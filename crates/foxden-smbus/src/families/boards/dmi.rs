@@ -1,4 +1,4 @@
-//! Ported from OpenRGB dmiinfo/dmiinfo.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /// Baseboard manufacturer and product, as OpenRGB's DMIInfo reports them.
 #[derive(Clone, Debug, Default)]

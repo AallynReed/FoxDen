@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/AsusAuraUSBController/AsusAuraRyuoAIOController and AsusROGStrixLCController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::aura_usb::base;
 use super::common::*;

@@ -1,4 +1,5 @@
-//! Ported from OpenRGB Controllers/PhilipsHueController (GPL-2.0-or-later), with its hueplusplus REST calls.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! , with its hueplusplus REST calls.
 
 use std::thread;
 use std::time::{Duration, Instant};

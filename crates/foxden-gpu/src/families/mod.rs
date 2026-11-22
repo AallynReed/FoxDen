@@ -1,4 +1,5 @@
-//! Graphics card families ported from OpenRGB, each in its own folder.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! Graphics card families, each in its own folder.
 
 use foxden_smbus::i2c::Detect;
 

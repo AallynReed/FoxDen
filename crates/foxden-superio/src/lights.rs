@@ -1,4 +1,4 @@
-//! Ported from OpenRGB super_io/super_io_pawnio.cpp and dmiinfo/dmiinfo.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use foxden_core::{Backend, Color, Device};
 use foxden_pawnio::{LEDS_VALVE, LPC_IO, Module, SharedLock};

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/CorsairPeripheralV2Controller (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::thread::sleep;
 use std::time::Duration;

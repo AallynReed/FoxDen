@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/ENESMBusController/ENESMBusControllerDetect.cpp (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 /// Every REGISTER_I2C_PCI_DETECTOR line: name, vendor, device, subvendor, subdevice, address.
 pub const ENE_GPUS: &[(&str, u16, u16, u16, u16, u8)] = &[

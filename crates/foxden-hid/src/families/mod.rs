@@ -1,4 +1,5 @@
-//! Device families ported from OpenRGB, each in its own folder.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! Device families, each in its own folder.
 
 use crate::registry::{Detector, Matcher};
 use foxden_core::Backend;

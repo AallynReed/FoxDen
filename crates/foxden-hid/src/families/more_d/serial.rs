@@ -1,4 +1,4 @@
-//! Ported from OpenRGB serial_port and find_usb_serial_port (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use std::ptr::{null, null_mut};
 

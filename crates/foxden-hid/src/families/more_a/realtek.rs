@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/RealtekBridgeController and Controllers/RealtekARGBController usb_hid_ioctl (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::common::Io;
 

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers/RazerController/RazerHanboController (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use super::model;
 use crate::registry::{Detector, Info};

@@ -1,4 +1,4 @@
-//! Ported from OpenRGB Controllers (shared shell for the ASUS HID families) (GPL-2.0-or-later).
+// SPDX-License-Identifier: GPL-2.0-or-later
 
 use crate::port::Port;
 use crate::registry::{Detector, Info, Open};

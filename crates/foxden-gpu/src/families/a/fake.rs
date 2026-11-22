@@ -1,4 +1,5 @@
-//! Ported from OpenRGB i2c_smbus/i2c_smbus.h (GPL-2.0-or-later). A scripted bus for tests.
+// SPDX-License-Identifier: GPL-2.0-or-later
+//! A scripted bus for tests.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
