@@ -19,6 +19,8 @@ use windows_sys::Win32::System::Threading::{
 };
 
 pub const SMBUS_I801: &[u8] = include_bytes!("../modules/SmbusI801.bin");
+pub const SMBUS_PIIX4: &[u8] = include_bytes!("../modules/SmbusPIIX4.bin");
+pub const SMBUS_NCT6793: &[u8] = include_bytes!("../modules/SmbusNCT6793.bin");
 pub const LPC_IO: &[u8] = include_bytes!("../modules/LpcIO.bin");
 pub const INTEL_MSR: &[u8] = include_bytes!("../modules/IntelMSR.bin");
 pub const LEDS_VALVE: &[u8] = include_bytes!("../modules/LedsValve.bin");

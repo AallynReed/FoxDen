@@ -1,6 +1,6 @@
-//! The Intel chipset SMBus through PawnIO. Bus calls from OpenRGB's i2c_smbus_pawnio.cpp.
+//! The chipset SMBus controllers (Intel, AMD, Nuvoton SuperIO) through PawnIO.
 
-use foxden_pawnio::{Module, SMBUS_I801, SharedLock};
+use foxden_pawnio::{Module, SMBUS_I801, SMBUS_NCT6793, SMBUS_PIIX4, SharedLock};
 
 /// Shared with other SMBus software so two programs never interleave transfers.
 const BUS_MUTEX: &str = r"Global\Access_SMBUS.HTP.Method";
@@ -17,32 +17,63 @@ pub struct Bus {
     module: Module,
     lock: SharedLock,
     info: crate::i2c::BusInfo,
+    /// The AMD controller has two ports behind one set of registers; this bus's port is chosen before each transfer.
+    port: Option<u64>,
 }
 
 impl Bus {
-    /// Opens the Intel SMBus. Fails without PawnIO, without administrator rights or on another chipset.
+    /// The first SMBus found. Fails without PawnIO, without administrator rights or without a known controller.
     pub fn open() -> Result<Bus, String> {
-        let module = Module::open(SMBUS_I801).map_err(|e| format!("no Intel SMBus here ({e})"))?;
-        let _ = module.execute("ioctl_set_sleep_mode", &[SLEEP_ALWAYS], 0);
-        // The i801 module reports the controller's PCI ids, which PCI detectors match on.
-        let info = match module.execute("ioctl_identity", &[0], 3) {
-            Ok(out) if out.len() == 3 => crate::i2c::BusInfo {
-                name: "Intel SMBus".into(),
-                pci_vendor: out[2] as u16,
-                pci_device: (out[2] >> 16) as u16,
-                pci_subsystem_vendor: (out[2] >> 32) as u16,
-                pci_subsystem_device: (out[2] >> 48) as u16,
-            },
-            _ => crate::i2c::BusInfo {
-                name: "Intel SMBus".into(),
-                ..Default::default()
-            },
+        Self::open_all()?.into_iter().next().ok_or_else(|| "no SMBus here".into())
+    }
+
+    /// Every SMBus this PC has: Intel, both AMD ports, and the Nuvoton SuperIO one.
+    pub fn open_all() -> Result<Vec<Bus>, String> {
+        let mut buses = Vec::new();
+        let mut why = Vec::new();
+        let mut add = |name: &str, code: &[u8], port: Option<u64>| match Module::open(code) {
+            Ok(module) => {
+                if let Some(p) = port
+                    && module.execute("ioctl_piix4_port_sel", &[p], 1).is_err()
+                {
+                    why.push(format!("{name}: no such port"));
+                    return;
+                }
+                buses.push(Bus::new(module, name, port));
+            }
+            Err(e) => why.push(format!("{name}: {e}")),
         };
-        Ok(Bus {
+        add("Intel SMBus", SMBUS_I801, None);
+        add("AMD SMBus port 0", SMBUS_PIIX4, Some(0));
+        add("AMD SMBus port 1", SMBUS_PIIX4, Some(1));
+        add("Nuvoton SMBus", SMBUS_NCT6793, None);
+        if buses.is_empty() {
+            return Err(format!("no SMBus here ({})", why.join("; ")));
+        }
+        Ok(buses)
+    }
+
+    fn new(module: Module, name: &str, port: Option<u64>) -> Bus {
+        let _ = module.execute("ioctl_set_sleep_mode", &[SLEEP_ALWAYS], 0);
+        // The module reports the controller's PCI ids, which PCI detectors match on.
+        let mut info = crate::i2c::BusInfo {
+            name: name.into(),
+            ..Default::default()
+        };
+        if let Ok(out) = module.execute("ioctl_identity", &[0], 3)
+            && out.len() == 3
+        {
+            info.pci_vendor = out[2] as u16;
+            info.pci_device = (out[2] >> 16) as u16;
+            info.pci_subsystem_vendor = (out[2] >> 32) as u16;
+            info.pci_subsystem_device = (out[2] >> 48) as u16;
+        }
+        Bus {
             module,
             lock: SharedLock::new(BUS_MUTEX),
             info,
-        })
+            port,
+        }
     }
 
     /// One SMBus transfer. `data` is the 34-byte i2c_smbus_data union.
@@ -66,7 +97,12 @@ impl Bus {
         );
         let out = self
             .lock
-            .run(|| self.module.execute("ioctl_smbus_xfer", &input, 5))?;
+            .run(|| {
+                if let Some(p) = self.port {
+                    self.module.execute("ioctl_piix4_port_sel", &[p], 1)?;
+                }
+                self.module.execute("ioctl_smbus_xfer", &input, 5)
+            })?;
         for (i, value) in out.iter().enumerate().take(5) {
             data[i * 8..i * 8 + 8].copy_from_slice(&value.to_le_bytes());
         }

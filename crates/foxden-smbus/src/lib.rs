@@ -12,14 +12,16 @@ use foxden_core::Backend;
 
 pub use pawnio::Bus;
 
-/// Every SMBus lighting device found, or the reason the bus could not be opened.
+/// Every SMBus lighting device found on every bus, or the reason no bus could be opened.
 pub fn probe() -> Result<Vec<Box<dyn Backend>>, String> {
-    let shared = Arc::new(Mutex::new(Bus::open()?));
-    let mut found = corsair::probe(shared.clone());
-    // The ported families share the bus through the common interface.
-    let bus: i2c::SharedBus = Arc::new(Mutex::new(Box::new(Bus::open()?) as Box<dyn i2c::SmBus>));
-    for detect in families::all() {
-        found.extend(detect(&bus));
+    let mut found = Vec::new();
+    // Corsair memory talks to the bus directly; the ported families go through the common interface.
+    for (bus, own) in Bus::open_all()?.into_iter().zip(Bus::open_all()?) {
+        found.extend(corsair::probe(Arc::new(Mutex::new(own))));
+        let shared: i2c::SharedBus = Arc::new(Mutex::new(Box::new(bus) as Box<dyn i2c::SmBus>));
+        for detect in families::all() {
+            found.extend(detect(&shared));
+        }
     }
     Ok(found)
 }
