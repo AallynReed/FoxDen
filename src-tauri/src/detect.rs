@@ -311,6 +311,11 @@ fn ported(vendor: u16, product: u16) -> Option<&'static str> {
         .map(|d| d.2)
 }
 
+/// A headset whose battery and settings FoxDen handles with its own code.
+fn headset(vendor: u16, product: u16) -> bool {
+    vendor == 0x1038 && foxden_headset::proto::model(product).is_some()
+}
+
 /// One entry per USB device we recognise, however many HID collections it shows.
 pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
     let mut found = Vec::new();
@@ -332,12 +337,14 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
         let known = NATIVE.iter().find(|n| (n.0, n.1) == (vendor, product));
         // Plain gear without lighting is left out, unless it has a vendor channel that may carry
         // its battery, such as a wireless receiver; that stays so its info can be sent.
-        let unlit = known.is_none() && family.is_none() && brand.is_some_and(|b| unlit_usb(vendor, b, label));
+        let unlit = known.is_none()
+            && family.is_none()
+            && brand.is_some_and(|b| unlit_usb(vendor, b, label));
         let vendor_channel = parts.iter().any(|d| d.usage_page >= 0xFF00);
-        if unlit && !vendor_channel {
+        if unlit && !vendor_channel && !headset(vendor, product) {
             continue;
         }
-        let wireless = unlit;
+        let wireless = unlit || headset(vendor, product);
         let name = match (known, family, brand) {
             (Some(n), _, _) => n.2.to_string(),
             (None, Some(f), _) => f.to_string(),
@@ -790,7 +797,18 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         return (Route::Native, State::Available, note.into());
     }
     if found.wireless {
-        let note = "No lighting. If it has a battery, its level shows in the tray.";
+        let ids = found
+            .id
+            .strip_prefix("usb:")
+            .and_then(|i| i.split_once(':'));
+        let is_headset = ids.is_some_and(|(v, p)| {
+            matches!((u16::from_str_radix(v, 16), u16::from_str_radix(p, 16)), (Ok(v), Ok(p)) if headset(v, p))
+        });
+        let note = if is_headset {
+            "Its battery shows in the tray and its settings are under Headset above. It has no lighting."
+        } else {
+            "No lighting. If it has a battery, its level shows in the tray."
+        };
         return (Route::None, State::Battery, note.into());
     }
     if ONBOARD_ONLY.contains(&found.id.as_str()) {
@@ -880,10 +898,10 @@ mod tests {
             hid(0x046D, 0xC539, 0x0001, 0x0006, "USB Receiver", true),
             hid(0x03F0, 0x0B8B, 0xFF90, 0x00FF, "HyperX SoloCast", true),
             hid(0x046D, 0xC547, 0xFF00, 0x0001, "USB Receiver", true),
-            hid(0x1038, 0x22A1, 0xFF00, 0x0001, "Arctis Nova 7", true),
+            hid(0x1038, 0x1FFE, 0xFF00, 0x0001, "Arctis Nova 7", true),
             hid(0x046D, 0xC539, 0xFFBC, 0x0088, "USB Receiver", true),
             hid(0x046D, 0xC547, 0x0001, 0x0006, "USB Receiver", true),
-            hid(0x1038, 0x22A1, 0xFFC0, 0x0001, "Arctis Nova 7", true),
+            hid(0x1038, 0x1FFE, 0xFFC0, 0x0001, "Arctis Nova 7", true),
             hid(
                 0x2565,
                 0x0578,
@@ -892,7 +910,7 @@ mod tests {
                 "MSI FORCE GC300 WIRELESS",
                 true,
             ),
-            hid(0x1038, 0x22A1, 0x000C, 0x0001, "Arctis Nova 7", true),
+            hid(0x1038, 0x1FFE, 0x000C, 0x0001, "Arctis Nova 7", true),
             hid(0x046D, 0xC539, 0xFF00, 0x0002, "USB Receiver", true),
             hid(0x1462, 0x7D99, 0x0001, 0x0000, "MYSTIC LIGHT", true),
             hid(0x046D, 0xC232, 0x0001, 0x0006, "", false),
@@ -944,7 +962,7 @@ mod tests {
                 "usb:03f0:0b8b",
                 "usb:046d:c539",
                 "usb:046d:c547",
-                "usb:1038:22a1",
+                "usb:1038:1ffe",
                 "usb:1462:7d99"
             ]
         );
@@ -1006,7 +1024,7 @@ mod tests {
 
     #[test]
     fn plugging_devices_reloads_only_enabled_native_drivers() {
-        let quiet = print(&[(0x1038, 0x22A1)], false);
+        let quiet = print(&[(0x1038, 0x1FFE)], false);
         let headset_gone = print(&[], false);
         let mouse = print(&[(0x046D, 0xC539)], false);
 
@@ -1234,6 +1252,20 @@ mod tests {
     }
 
     #[test]
+    fn a_supported_headset_is_not_called_unsupported() {
+        let found = usb(&[hid(0x1038, 0x22A1, 0xFFC0, 0x0001, "Arctis Nova 7", true)]);
+        let both = settings(true, true);
+        let live = Live {
+            settings: &both,
+            driven: Vec::new(),
+            openrgb_on: false,
+        };
+        let row = &resolve(&found, &live)[0];
+        assert_eq!(row.state, State::Battery);
+        assert!(row.note.contains("Headset"));
+    }
+
+    #[test]
     fn hardware_without_lighting_is_left_out() {
         let office = vec![
             hid(0x046D, 0xC077, 0x0001, 0x0002, "USB Optical Mouse", true),
@@ -1250,7 +1282,12 @@ mod tests {
         ];
         let found = usb(&office);
         // Receivers without lighting stay, for their battery and device info.
-        assert!(found.iter().filter(|f| f.wireless).all(|f| f.id.contains("c52b") || f.id.contains("c53f")));
+        assert!(
+            found
+                .iter()
+                .filter(|f| f.wireless)
+                .all(|f| f.id.contains("c52b") || f.id.contains("c53f"))
+        );
         let ids: Vec<String> = found.into_iter().map(|f| f.id).collect();
         assert_eq!(
             ids,
@@ -1370,7 +1407,7 @@ mod tests {
             (line("usb:046d:c539").route, line("usb:046d:c539").state),
             (Route::Native, State::Available)
         );
-        for id in ["usb:1038:22a1", "memory:x", "gpu:1002:7550"] {
+        for id in ["usb:1038:1ffe", "memory:x", "gpu:1002:7550"] {
             assert_eq!(
                 (line(id).route, line(id).state),
                 (Route::None, State::Unsupported)
@@ -1439,7 +1476,7 @@ mod tests {
         );
         assert!(line("usb:1462:7d99").note.contains("could not open"));
         assert_eq!(
-            (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
+            (line("usb:1038:1ffe").route, line("usb:1038:1ffe").state),
             (Route::None, State::Unsupported)
         );
         assert_eq!(
@@ -1547,7 +1584,7 @@ mod tests {
         let list = resolve(&found, &live);
         let line = |id: &str| list.iter().find(|d| d.id == id).unwrap();
         assert_eq!(
-            (line("usb:1038:22a1").route, line("usb:1038:22a1").state),
+            (line("usb:1038:1ffe").route, line("usb:1038:1ffe").state),
             (Route::None, State::Unsupported)
         );
         assert_eq!(line("network:openrgb").state, State::Active);
