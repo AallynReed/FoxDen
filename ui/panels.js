@@ -2062,6 +2062,7 @@ function wireStrips() {
 
 function renderSettings(snap) {
   for (const input of document.querySelectorAll("[data-setting]")) put(input, snap.settings[input.dataset.setting]);
+  $("set-battery-alerts").disabled = !snap.settings.battery_tray;
   $("openrgb-server").hidden = !snap.settings.openrgb_enabled;
   renderNetwork(snap);
   renderStrips(snap);

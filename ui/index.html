@@ -143,7 +143,16 @@
             <label for="set-fans">Fans</label>
             <input type="checkbox" class="switch" id="set-fans" data-setting="fans_module" aria-describedby="modules-hint" />
           </div>
-          <p class="hint" id="modules-hint">With both off, FoxDen removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time.</p>
+          <div class="field">
+            <label for="set-battery">Batteries</label>
+            <input type="checkbox" class="switch" id="set-battery" data-setting="battery_tray" aria-describedby="battery-hint" />
+          </div>
+          <div class="field sub">
+            <label for="set-battery-alerts">Low battery notifications</label>
+            <input type="checkbox" class="switch" id="set-battery-alerts" data-setting="battery_alerts" />
+          </div>
+          <p class="hint" id="battery-hint">Batteries shows wireless devices' levels in the tray. Off, FoxDen stops checking them.</p>
+          <p class="hint" id="modules-hint">With Lighting and Fans both off, FoxDen removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time.</p>
           <p class="hint" id="modules-outcome" role="status" hidden></p>
         </section>
 
@@ -248,14 +257,6 @@
           <div class="field">
             <label for="set-tray">Close to tray</label>
             <input type="checkbox" class="switch" id="set-tray" data-setting="close_to_tray" />
-          </div>
-          <div class="field">
-            <label for="set-battery">Battery levels in the tray</label>
-            <input type="checkbox" class="switch" id="set-battery" data-setting="battery_tray" />
-          </div>
-          <div class="field">
-            <label for="set-battery-alerts">Low battery notifications</label>
-            <input type="checkbox" class="switch" id="set-battery-alerts" data-setting="battery_alerts" />
           </div>
           <div class="field">
             <label for="set-minimised">Start minimised</label>

@@ -957,6 +957,12 @@ button.tile[aria-pressed="true"] {
   min-height: 32px;
 }
 
+/* An option that belongs to the switch above it. */
+.field.sub {
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+}
+
 .field.range,
 #params {
   grid-template-columns: auto minmax(0, 1fr) auto;
