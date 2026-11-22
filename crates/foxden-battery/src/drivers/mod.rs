@@ -20,7 +20,7 @@ mod bt;
 mod cherry;
 mod chimera;
 mod coolermaster;
-mod corsair;
+pub(crate) mod corsair;
 mod dareu;
 mod darkrim;
 mod darmoshark;

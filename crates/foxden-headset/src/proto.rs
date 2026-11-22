@@ -1,4 +1,5 @@
-//! Frames and replies of the SteelSeries Arctis Nova headsets. Pure: no device access.
+//! Frames and replies of the SteelSeries Arctis Nova headsets, and the controls of Corsair Bragi
+//! headsets. Pure: no device access.
 
 use serde::{Deserialize, Serialize};
 
@@ -10,23 +11,36 @@ pub enum Family {
     Nova7Gen2,
     Nova5,
     NovaPro,
+    /// Corsair headsets: every setting is a Bragi property.
+    Bragi,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Model {
+    pub vid: u16,
     pub pid: u16,
     pub name: &'static str,
     pub family: Family,
     /// The 7P's dial is its sidetone; the command does nothing there.
     pub sidetone: bool,
+    /// Bragi only: highest sidetone level, microphone level and noise cancelling.
+    pub sidetone_max: u8,
+    pub mic: bool,
+    pub anc: bool,
+    pub wireless: bool,
 }
 
 const fn m(pid: u16, name: &'static str, family: Family, sidetone: bool) -> Model {
     Model {
+        vid: 0x1038,
         pid,
         name,
         family,
         sidetone,
+        sidetone_max: 0,
+        mic: false,
+        anc: false,
+        wireless: true,
     }
 }
 
@@ -56,6 +70,31 @@ pub fn model(pid: u16) -> Option<Model> {
     MODELS.iter().copied().find(|m| m.pid == pid)
 }
 
+/// A headset FoxDen has settings for, SteelSeries or Corsair.
+pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
+    match vid {
+        0x1038 => model(pid),
+        0x1B1C => {
+            let row = foxden_battery::corsair_catalog::corsair(pid)?;
+            let receiver = foxden_battery::corsair_catalog::served(row);
+            let c = receiver.unwrap_or(row);
+            let has = c.sidetone > 0 || c.mic || c.anc;
+            (c.bragi && c.kind == foxden_battery::Kind::Headset && has).then_some(Model {
+                vid,
+                pid,
+                name: c.name.strip_prefix("Corsair ").unwrap_or(c.name),
+                family: Family::Bragi,
+                sidetone: c.sidetone > 0,
+                sidetone_max: c.sidetone,
+                mic: c.mic,
+                anc: c.anc,
+                wireless: c.wireless || receiver.is_some(),
+            })
+        }
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Control {
@@ -67,6 +106,7 @@ pub enum Control {
     BtPowerOn,
     BtCall,
     EqPreset,
+    Anc,
 }
 
 impl Control {
@@ -80,6 +120,7 @@ impl Control {
             Control::BtPowerOn => "bt_power_on",
             Control::BtCall => "bt_call",
             Control::EqPreset => "eq_preset",
+            Control::Anc => "anc",
         }
     }
 }
@@ -151,6 +192,14 @@ pub enum Save {
 pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
+    pub fn brand(&self) -> &'static str {
+        if self.vid == 0x1B1C {
+            "Corsair"
+        } else {
+            "SteelSeries"
+        }
+    }
+
     /// Report id of every frame: 0 on the unnumbered Nova collections, 6 on the Nova Pro base station.
     fn id(&self) -> u8 {
         if self.family == Family::NovaPro {
@@ -203,6 +252,23 @@ impl Model {
                 (Control::AutoOff, minutes()),
                 (Control::MicLed, levels()),
             ]),
+            Family::Bragi => {
+                if self.sidetone {
+                    out.push((
+                        Control::Sidetone,
+                        Shape::Steps {
+                            min: 0,
+                            max: self.sidetone_max as i32,
+                        },
+                    ));
+                }
+                if self.mic {
+                    out.push((Control::MicVolume, Shape::Steps { min: 0, max: 100 }));
+                }
+                if self.anc {
+                    out.push((Control::Anc, Shape::Switch));
+                }
+            }
             Family::NovaPro => out.extend([
                 (Control::Sidetone, levels()),
                 (
@@ -249,6 +315,7 @@ impl Model {
             (_, Control::BtPowerOn) => 0xB2,
             (_, Control::BtCall) => 0xB3,
             (_, Control::EqPreset) => 0x2E,
+            (_, Control::Anc) => return Err(format!("{} has no {} setting", self.name, c.id())),
         };
         let byte = match (self.family, c) {
             (Family::Nova5, Control::MicLed) => NOVA5_LED[v as usize],
@@ -274,7 +341,7 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5 => Save::None,
+            Family::Nova5 | Family::Bragi => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
         }
@@ -366,6 +433,7 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
+        Family::Bragi => None,
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;
@@ -445,6 +513,18 @@ mod tests {
                 .any(|(c, _)| *c == Control::Sidetone)
         );
         assert_eq!(model(0x12E0).unwrap().collection(), (4, None));
+    }
+
+    #[test]
+    fn corsair_headsets_come_from_the_table() {
+        let hs80 = any_model(0x1B1C, 0x0A69).unwrap();
+        assert_eq!((hs80.family, hs80.brand()), (Family::Bragi, "Corsair"));
+        let ids: Vec<_> = hs80.controls().into_iter().map(|c| c.0).collect();
+        assert!(ids.contains(&Control::Sidetone) && ids.contains(&Control::MicVolume));
+        let receiver = any_model(0x1B1C, 0x0A6B).unwrap();
+        assert_eq!((receiver.name, receiver.wireless), ("HS80", true));
+        assert!(any_model(0x1B1C, 0x1B2D).is_none());
+        assert_eq!(any_model(0x1038, 0x22A1).unwrap().brand(), "SteelSeries");
     }
 
     #[test]

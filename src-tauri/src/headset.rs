@@ -73,7 +73,7 @@ fn view(f: &Found, saved: &Saved) -> View {
         .collect();
     View {
         key: f.key.clone(),
-        name: format!("SteelSeries {}", f.model.name),
+        name: format!("{} {}", f.model.brand(), f.model.name),
         answered: reading.status.is_some(),
         connected: status.connected,
         battery: status.battery,

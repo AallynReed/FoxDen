@@ -1,11 +1,13 @@
 //! Battery levels of wireless mice, keyboards, headsets and controllers.
 
+pub mod corsair_catalog;
 mod ctx;
 mod drivers;
 pub mod hid;
 pub mod util;
 
 pub use ctx::Ctx;
+pub use drivers::corsair::Channel as Bragi;
 
 /// Read-only HID++ answers of a Logitech receiver and its devices, for device reports.
 pub fn logitech_diagnose(pid: u16) -> Vec<String> {

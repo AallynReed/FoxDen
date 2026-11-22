@@ -1,4 +1,5 @@
-//! Settings of SteelSeries wireless headsets, sent over their own HID protocol.
+//! Settings of SteelSeries wireless headsets over their own HID protocol, and of Corsair headsets
+//! as Bragi properties.
 
 pub mod proto;
 
@@ -6,10 +7,9 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use foxden_battery::Bragi;
 use foxden_battery::hid::{Coll, Dev, enumerate};
-pub use proto::{Control, EQ_BANDS, EQ_CUSTOM, EQ_MAX, EQ_MIN, Model, Save, Shape, Status};
-
-const VID: u16 = 0x1038;
+pub use proto::{Control, EQ_BANDS, EQ_CUSTOM, EQ_MAX, EQ_MIN, Family, Model, Save, Shape, Status};
 const WAIT: Duration = Duration::from_secs(1);
 
 /// A supported headset's receiver or base station.
@@ -24,18 +24,21 @@ pub struct Found {
 pub fn find() -> Vec<Found> {
     let mut out: Vec<Found> = Vec::new();
     for c in enumerate() {
-        if c.vid != VID || c.out_len == 0 {
+        if c.out_len == 0 {
             continue;
         }
-        let Some(model) = proto::model(c.pid) else {
+        let Some(model) = proto::any_model(c.vid, c.pid) else {
             continue;
         };
-        let (iface, usage) = model.collection();
-        let fits = match usage {
-            Some((page, usage)) => c.page == page && c.usage == usage,
-            None => c.iface == iface,
+        let fits = if model.family == Family::Bragi {
+            Bragi::fits(&c)
+        } else {
+            match model.collection() {
+                (_, Some((page, usage))) => c.page == page && c.usage == usage,
+                (iface, None) => c.iface == iface,
+            }
         };
-        let key = format!("{VID:04X}:{:04X}", c.pid);
+        let key = format!("{:04X}:{:04X}", c.vid, c.pid);
         if fits && !out.iter().any(|f| f.key == key) {
             out.push(Found {
                 key,
@@ -67,6 +70,9 @@ pub struct Reading {
 }
 
 pub fn read(f: &Found) -> Option<Reading> {
+    if f.model.family == Family::Bragi {
+        return bragi::read(f, true);
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -86,6 +92,9 @@ pub fn read(f: &Found) -> Option<Reading> {
 
 /// Just the status: battery, power and the ChatMix dial. Cheap enough to ask often.
 pub fn status(f: &Found) -> Option<Status> {
+    if f.model.family == Family::Bragi {
+        return bragi::read(f, false)?.status;
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -109,6 +118,9 @@ fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {
 
 /// Sets one control. A settled save, if the model has one, is left to [`save`].
 pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
+    if f.model.family == Family::Bragi {
+        return bragi::set(f, c, v);
+    }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }
 
@@ -148,4 +160,102 @@ pub fn save(f: &Found) -> Result<(), String> {
     busy.retain(|(k, _)| *k != f.key);
     busy.push((f.key.clone(), until));
     Ok(())
+}
+
+mod bragi {
+    use super::*;
+
+    const BATTERY: u8 = 0x0F;
+    const CHARGE: u8 = 0x10;
+    const SIDETONE_MUTED: u8 = 0x46;
+    const SIDETONE: u8 = 0x47;
+    const MIC: u8 = 0x8F;
+    const ANC: u8 = 0xD1;
+
+    /// The headset behind a receiver answers as 0x09; a cabled one, or the headset itself, as 0x08.
+    /// The receiver also answers as 0x08, so a wireless model counts there only with a battery.
+    fn target(ch: &mut Bragi, m: &Model) -> Option<(u8, Option<u32>)> {
+        if m.wireless {
+            for t in [0x09, 0x08] {
+                if let Some(level) = ch.get(t, BATTERY).filter(|l| *l <= 1000) {
+                    return Some((t, Some(level)));
+                }
+            }
+            None
+        } else {
+            ch.get(0x08, 0x13)
+                .map(|_| (0x08, ch.get(0x08, BATTERY).filter(|l| *l <= 1000)))
+        }
+    }
+
+    pub fn read(f: &Found, settings: bool) -> Option<Reading> {
+        let mut ch = Bragi::open(&f.coll)?;
+        let Some((t, level)) = target(&mut ch, &f.model) else {
+            return Some(Reading {
+                status: Some(Status::default()),
+                values: Vec::new(),
+            });
+        };
+        let charge = level.and(ch.get(t, CHARGE));
+        let mut values = Vec::new();
+        if settings {
+            let m = &f.model;
+            if m.sidetone {
+                let muted = ch.get(t, SIDETONE_MUTED) == Some(1);
+                let level = ch.get(t, SIDETONE).filter(|v| *v <= m.sidetone_max as u32);
+                if muted {
+                    values.push((Control::Sidetone, 0));
+                } else if let Some(v) = level {
+                    values.push((Control::Sidetone, v as i32));
+                }
+            }
+            if m.mic
+                && let Some(v) = ch.get(t, MIC).filter(|v| *v <= 100)
+            {
+                values.push((Control::MicVolume, v as i32));
+            }
+            if m.anc
+                && let Some(v) = ch.get(t, ANC).filter(|v| *v <= 1)
+            {
+                values.push((Control::Anc, v as i32));
+            }
+        }
+        Some(Reading {
+            status: Some(Status {
+                connected: true,
+                battery: level.map(|l| ((l + 5) / 10).min(100) as u8),
+                charging: matches!(charge, Some(1 | 3)),
+                chatmix: None,
+                values: Vec::new(),
+            }),
+            values,
+        })
+    }
+
+    pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
+        let shape = f
+            .model
+            .controls()
+            .into_iter()
+            .find(|(k, _)| *k == c)
+            .map(|(_, s)| s);
+        if !shape.is_some_and(|s| s.accepts(v)) {
+            return Err(format!("{v} is out of range for {}", c.id()));
+        }
+        let mut ch = Bragi::open(&f.coll).ok_or("the headset could not be opened")?;
+        let (t, _) = target(&mut ch, &f.model).ok_or("the headset is switched off")?;
+        let v = v as u32;
+        let took = match c {
+            Control::Sidetone if v == 0 => ch.set(t, SIDETONE_MUTED, 1),
+            Control::Sidetone => ch.set(t, SIDETONE_MUTED, 0) && ch.set(t, SIDETONE, v),
+            Control::MicVolume => ch.set(t, MIC, v),
+            Control::Anc => ch.set(t, ANC, v),
+            _ => return Err(format!("{} has no {} setting", f.model.name, c.id())),
+        };
+        if took {
+            Ok(())
+        } else {
+            Err("the headset did not take the setting".into())
+        }
+    }
 }

@@ -588,7 +588,10 @@ pub fn diagnose(pid: u16) -> Vec<String> {
         return out;
     }
     if let Some(r) = link.register(DIRECT, 0x02) {
-        out.push(format!("receiver connections: {}", hex(&r[..3.min(r.len())])));
+        out.push(format!(
+            "receiver connections: {}",
+            hex(&r[..3.min(r.len())])
+        ));
     }
     for n in 0..6u8 {
         let pairing = link.long_register(0xB5, 0x20 + n);

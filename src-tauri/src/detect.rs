@@ -319,7 +319,7 @@ fn ported(vendor: u16, product: u16) -> Option<&'static str> {
 
 /// A headset whose battery and settings FoxDen handles with its own code.
 fn headset(vendor: u16, product: u16) -> bool {
-    vendor == 0x1038 && foxden_headset::proto::model(product).is_some()
+    foxden_headset::proto::any_model(vendor, product).is_some()
 }
 
 /// One entry per USB device we recognise, however many HID collections it shows.
@@ -351,9 +351,15 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
             continue;
         }
         let wireless = unlit || headset(vendor, product);
+        let listed = (vendor == 0x1B1C)
+            .then(|| foxden_battery::corsair_catalog::corsair(product))
+            .flatten();
         let name = match (known, family, brand) {
             (Some(n), _, _) => n.2.to_string(),
             (None, Some(f), _) => f.to_string(),
+            (None, None, _) if listed.is_some() => {
+                listed.map(|c| c.name.to_string()).unwrap_or_default()
+            }
             (None, None, Some(b)) => titled(b, label),
             (None, None, None) => label.to_string(),
         };
@@ -365,7 +371,12 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
                 (None, Some(f)) if BOARD_CONTROLLERS.iter().any(|b| f.starts_with(b)) => {
                     "motherboard"
                 }
-                _ => usb_kind(label, &parts),
+                _ => match listed.map(|c| c.kind) {
+                    Some(foxden_battery::Kind::Keyboard) => "keyboard",
+                    Some(foxden_battery::Kind::Mouse) => "mouse",
+                    Some(foxden_battery::Kind::Headset) => "headset",
+                    _ => usb_kind(label, &parts),
+                },
             },
             bus: Bus::Usb,
             native: known.map(|n| n.4).or(family.map(|_| PORTED)),
@@ -1572,7 +1583,11 @@ mod tests {
         let list = line(&on, vec![("hid", &card)]);
         assert_eq!((list[0].0, list[0].1), (Route::Native, State::Active));
         assert_eq!((list[1].0, list[1].1), (Route::None, State::Unsupported));
-        assert!(list[1].2.contains("does not control lighting"), "{}", list[1].2);
+        assert!(
+            list[1].2.contains("does not control lighting"),
+            "{}",
+            list[1].2
+        );
         let list = line(&on, Vec::new());
         assert_eq!((list[0].0, list[0].1), (Route::Native, State::Available));
         let off = settings(false, false);

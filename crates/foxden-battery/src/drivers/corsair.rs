@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use crate::hid::Dev;
+use crate::corsair_catalog::{corsair, served};
+use crate::hid::{Coll, Dev};
 use crate::util::{clamp100, guess_kind, hex4, kind_from_collections};
 use crate::{Battery, Ctx, Kind};
 
@@ -147,11 +148,14 @@ enum Get {
     Failed,
 }
 
-/// A Bragi GET reply, or `None` for notifications and replies meant for another sender.
-fn parse_bragi(r: &[u8], short: bool, target: u8) -> Option<Get> {
+const GET: u8 = 0x02;
+const SET: u8 = 0x01;
+
+/// A Bragi reply to `cmd`, or `None` for notifications and replies meant for another sender.
+fn parse_bragi(r: &[u8], short: bool, target: u8, cmd: u8) -> Option<Get> {
     let o = usize::from(!short);
     let source = if target == 0x08 { 0x00 } else { 0x01 };
-    if r.len() < o + 7 || r[o] != source || r[o + 1] != 0x02 {
+    if r.len() < o + 7 || r[o] != source || r[o + 1] != cmd {
         return None;
     }
     if r[o + 2] != 0 {
@@ -167,21 +171,47 @@ fn parse_bragi(r: &[u8], short: bool, target: u8) -> Option<Get> {
 
 /// One open Bragi channel. Older firmware puts a 02 before the target, newer receivers don't;
 /// `short` holds whichever answered first on this handle.
-struct Channel {
+pub struct Channel {
     dev: Dev,
     numbered: bool,
     short: Option<bool>,
 }
 
 impl Channel {
-    fn get(&mut self, target: u8, prop: u8) -> Option<u32> {
+    /// The Bragi collection of a Corsair device, when `c` is one.
+    pub fn open(c: &Coll) -> Option<Channel> {
+        Some(Channel {
+            dev: Dev::open(c)?,
+            numbered: c.out_len == 64,
+            short: None,
+        })
+    }
+
+    /// Whether `c` looks like a Bragi collection.
+    pub fn fits(c: &Coll) -> bool {
+        c.vid == VID
+            && c.page == 0xFF42
+            && matches!(c.out_len, 64 | 65)
+            && matches!(c.in_len, 64 | 65)
+    }
+
+    pub fn get(&mut self, target: u8, prop: u8) -> Option<u32> {
+        self.ask(target, GET, prop, None)
+    }
+
+    /// Changes one property; `true` once the device says it took it.
+    pub fn set(&mut self, target: u8, prop: u8, value: u32) -> bool {
+        self.ask(target, SET, prop, Some(value)).is_some()
+    }
+
+    fn ask(&mut self, target: u8, cmd: u8, prop: u8, value: Option<u32>) -> Option<u32> {
         let tries: &[bool] = match self.short {
             Some(true) => &[true],
             Some(false) => &[false],
             None => &[false, true],
         };
         for &short in tries {
-            if let Some(v) = self.send(short, target, prop) {
+            if let Some(v) = self.send(short, target, cmd, prop, value) {
                 self.short = Some(short);
                 return Some(v);
             }
@@ -189,19 +219,23 @@ impl Channel {
         None
     }
 
-    fn send(&self, short: bool, target: u8, prop: u8) -> Option<u32> {
-        let req: &[u8] = match (short, self.numbered) {
-            (true, _) => &[0x00, target, 0x02, prop],
-            (false, true) => &[0x02, target, 0x02, prop],
-            (false, false) => &[0x00, 0x02, target, 0x02, prop],
+    fn send(&self, short: bool, target: u8, cmd: u8, prop: u8, value: Option<u32>) -> Option<u32> {
+        let mut req = match (short, self.numbered) {
+            (true, _) => vec![0x00, target, cmd, prop],
+            (false, true) => vec![0x02, target, cmd, prop],
+            (false, false) => vec![0x00, 0x02, target, cmd, prop],
         };
+        if let Some(v) = value {
+            req.push(0x00);
+            req.extend(v.to_le_bytes());
+        }
         let _turn = foxden_core::hid_turn::take();
         self.dev.flush();
-        if !self.dev.write(req) {
+        if !self.dev.write(&req) {
             return None;
         }
         match self.dev.read_until(Duration::from_millis(300), |r| {
-            parse_bragi(r, short, target)
+            parse_bragi(r, short, target, cmd)
         })? {
             Get::Value(v) => Some(v),
             Get::Failed => None,
@@ -210,7 +244,7 @@ impl Channel {
 }
 
 fn poll_bragi(ctx: &mut Ctx, pid: u16) {
-    let known = BRAGI_PIDS.contains(&pid);
+    let known = BRAGI_PIDS.contains(&pid) || corsair(pid).is_some_and(|c| c.bragi);
     let colls = ctx.find(VID, pid, |c| {
         let sizes = matches!(c.out_len, 64 | 65) && matches!(c.in_len, 64 | 65);
         sizes && (c.page == 0xFF42 || (known && (c.page >= 0xFF00 || c.iface == 4)))
@@ -237,18 +271,32 @@ fn poll_bragi(ctx: &mut Ctx, pid: u16) {
             let Some(level @ 0..=1000) = level else {
                 continue;
             };
-            let mut name = if c.product.is_empty() {
-                "Corsair wireless device".to_string()
-            } else {
-                c.product.clone()
+            let listed = corsair(pid).and_then(|c| {
+                if c.kind == Kind::Other {
+                    served(c)
+                } else {
+                    Some(c)
+                }
+            });
+            let mut name = match listed {
+                Some(l) => l.name.to_string(),
+                None if c.product.is_empty() => "Corsair wireless device".to_string(),
+                None => c.product.clone(),
             };
-            let mut kind = guess_kind(&name);
+            let mut kind = listed.map_or_else(|| guess_kind(&name), |l| l.kind);
             if target != 0x08
                 && let Some(dev_pid) = bragi.get(target, 0x12)
             {
                 if let Some(&(_, n, k)) = PAIRED.iter().find(|m| m.0 == dev_pid) {
                     name = n.into();
                     kind = k;
+                } else if let Some(l) = u16::try_from(dev_pid)
+                    .ok()
+                    .and_then(corsair)
+                    .filter(|l| l.kind != Kind::Other)
+                {
+                    name = l.name.into();
+                    kind = l.kind;
                 } else if dev_pid >> 8 == 0x0A {
                     kind = Kind::Headset;
                     if c.product.contains("Receiver") {
@@ -335,12 +383,16 @@ mod tests {
     fn bragi_replies_match_source_and_framing() {
         let prefixed = [0x02, 0x01, 0x02, 0x00, 0xE8, 0x03, 0, 0];
         assert!(matches!(
-            parse_bragi(&prefixed, false, 0x09),
+            parse_bragi(&prefixed, false, 0x09, GET),
             Some(Get::Value(1000))
         ));
-        assert!(parse_bragi(&prefixed, false, 0x08).is_none());
+        assert!(parse_bragi(&prefixed, false, 0x08, GET).is_none());
+        assert!(parse_bragi(&prefixed, false, 0x09, SET).is_none());
         let plain = [0x00, 0x02, 0x05, 0, 0, 0, 0];
-        assert!(matches!(parse_bragi(&plain, true, 0x08), Some(Get::Failed)));
-        assert!(parse_bragi(&[0x00, 0x01, 0, 0, 0, 0, 0], true, 0x08).is_none());
+        assert!(matches!(
+            parse_bragi(&plain, true, 0x08, GET),
+            Some(Get::Failed)
+        ));
+        assert!(parse_bragi(&[0x00, 0x01, 0, 0, 0, 0, 0], true, 0x08, GET).is_none());
     }
 }
