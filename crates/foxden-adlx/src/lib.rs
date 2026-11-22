@@ -28,6 +28,17 @@ fn check(result: i32, what: &str) -> Result<(), String> {
     }
 }
 
+/// Runs a call that hands back an object; only a success with an object counts.
+fn take(what: &str, call: impl FnOnce(*mut Obj) -> i32) -> Result<Obj, String> {
+    let mut out = std::mem::MaybeUninit::<Obj>::uninit();
+    check(call(out.as_mut_ptr()), what)?;
+    let obj = unsafe { out.assume_init() };
+    if obj.is_null() {
+        return Err(format!("{what} gave nothing back"));
+    }
+    Ok(obj)
+}
+
 unsafe fn release(obj: Obj) {
     if !obj.is_null() {
         let f: extern "system" fn(Obj) -> i32 = unsafe { method(obj, 1) };
@@ -84,23 +95,19 @@ impl Card {
             let init = GetProcAddress(dll, c"ADLXInitialize".as_ptr().cast())
                 .ok_or("no ADLXInitialize")?;
             let init: extern "C" fn(u64, *mut Obj) -> i32 = std::mem::transmute(init);
-            let mut system: Obj = null_mut();
-            check(init(VERSION, &mut system), "ADLXInitialize")?;
+            let system = take("ADLXInitialize", |o| init(VERSION, o))?;
 
             let get_gpus: GetObj = method(system, 1);
-            let mut gpus: Obj = null_mut();
-            check(get_gpus(system, &mut gpus), "GetGPUs")?;
+            let gpus = take("GetGPUs", |o| get_gpus(system, o))?;
             let get_tuning: GetObj = method(system, 8);
-            let mut tuning: Obj = null_mut();
-            check(get_tuning(system, &mut tuning), "GetGPUTuningServices")?;
+            let tuning = take("GetGPUTuningServices", |o| get_tuning(system, o))?;
 
             let size: ListSize = method(gpus, 3);
             let at: ListAt = method(gpus, 11);
             for i in 0..size(gpus) {
-                let mut gpu: Obj = null_mut();
-                if at(gpus, i, &mut gpu) != OK {
+                let Ok(gpu) = take("GPU", |o| at(gpus, i, o)) else {
                     continue;
-                }
+                };
                 let supported_fn: extern "system" fn(Obj, Obj, *mut u8) -> i32 = method(tuning, 10);
                 let mut supported = 0u8;
                 if supported_fn(tuning, gpu, &mut supported) != OK || supported == 0 {
@@ -108,13 +115,12 @@ impl Card {
                     continue;
                 }
                 let get_fan: extern "system" fn(Obj, Obj, *mut Obj) -> i32 = method(tuning, 16);
-                let mut iface: Obj = null_mut();
-                check(get_fan(tuning, gpu, &mut iface), "GetManualFanTuning")?;
+                let iface = take("GetManualFanTuning", |o| get_fan(tuning, gpu, o))?;
                 let query: extern "system" fn(Obj, *const u16, *mut Obj) -> i32 = method(iface, 2);
-                let mut fan: Obj = null_mut();
-                let queried = query(iface, wide("IADLXManualFanTuning").as_ptr(), &mut fan);
+                let name = wide("IADLXManualFanTuning");
+                let fan = take("QueryInterface", |o| query(iface, name.as_ptr(), o));
                 release(iface);
-                check(queried, "QueryInterface")?;
+                let fan = fan?;
                 let ranges: extern "system" fn(Obj, *mut Range, *mut Range) -> i32 = method(fan, 3);
                 let (mut speed_range, mut temperature_range) = (Range::default(), Range::default());
                 check(
@@ -141,9 +147,7 @@ impl Card {
 
     fn states(&self) -> Result<Obj, String> {
         let get: GetObj = unsafe { method(self.fan, 4) };
-        let mut list: Obj = null_mut();
-        check(get(self.fan, &mut list), "GetFanTuningStates")?;
-        Ok(list)
+        take("GetFanTuningStates", |o| get(self.fan, o))
     }
 
     pub fn curve(&self) -> Result<Vec<Point>, String> {
@@ -160,8 +164,7 @@ impl Card {
             let size: ListSize = method(list, 3);
             let at: ListAt = method(list, 11);
             for (i, p) in (0..size(list)).zip(points) {
-                let mut state: Obj = null_mut();
-                if at(list, i, &mut state) == OK {
+                if let Ok(state) = take("state", |o| at(list, i, o)) {
                     let set_speed: extern "system" fn(Obj, i32) -> i32 = method(state, 4);
                     let set_temp: extern "system" fn(Obj, i32) -> i32 = method(state, 6);
                     set_speed(state, p.speed);
@@ -200,8 +203,7 @@ unsafe fn read_list(list: Obj) -> Vec<Point> {
     let at: ListAt = unsafe { method(list, 11) };
     let mut points = Vec::new();
     for i in 0..size(list) {
-        let mut state: Obj = null_mut();
-        if at(list, i, &mut state) == OK {
+        if let Ok(state) = take("state", |o| at(list, i, o)) {
             let get_speed: extern "system" fn(Obj, *mut i32) -> i32 = unsafe { method(state, 3) };
             let get_temp: extern "system" fn(Obj, *mut i32) -> i32 = unsafe { method(state, 5) };
             let (mut speed, mut temperature) = (0, 0);

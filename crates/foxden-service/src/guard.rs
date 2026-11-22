@@ -161,11 +161,15 @@ fn read(path: &Path) -> Result<Access, String> {
         (access.here, access.inside) = (u32::MAX, u32::MAX);
     }
     for index in 0..size.AceCount {
-        let mut entry = null_mut();
-        if unsafe { GetAce(list, index, &mut entry) } == 0 {
+        let mut out = std::mem::MaybeUninit::uninit();
+        let entry = match unsafe { GetAce(list, index, out.as_mut_ptr()) } {
+            0 => None,
+            _ => Some(unsafe { out.assume_init() }).filter(|e: &*mut _| !e.is_null()),
+        };
+        let Some(entry) = entry else {
             (access.here, access.inside) = (u32::MAX, u32::MAX);
             break;
-        }
+        };
         let header = unsafe { *entry.cast::<ACE_HEADER>() };
         // An entry of a kind not known here is taken to give everything away.
         let (rights, holder): (u32, PSID) = match header.AceType {
