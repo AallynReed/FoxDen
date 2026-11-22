@@ -1429,7 +1429,7 @@ function detectedRow(item) {
   const [mark, label] = STATES[item.state] || ["none", words(item.state)];
   const route = ROUTES[item.route];
   const tag = el("span", { className: "state" });
-  const about = [KINDS[item.kind] || words(item.kind), BUSES[item.bus], route && route[0]];
+  const about = [KINDS[item.kind] || words(item.kind), BUSES[item.bus], item.route === "native" ? "FoxDen" : route && route[0]];
   setState(tag, mark, label);
   const row = el(
     "li",
