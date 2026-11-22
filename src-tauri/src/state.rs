@@ -1083,6 +1083,7 @@ mod tests {
             bus: Bus::Usb,
             native: None,
             brand: Some("Corsair"),
+            wireless: false,
         }];
         state.config.settings.openrgb_enabled = true;
         let json = serde_json::to_value(state.snapshot()).unwrap();

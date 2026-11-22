@@ -55,6 +55,7 @@ pub fn spawn(app: AppHandle, shared: Shared) {
     thread::spawn(move || {
         let mut known: HashMap<String, (Battery, Instant)> = HashMap::new();
         let mut steps: HashMap<String, Step> = HashMap::new();
+        let mut logged: HashMap<String, String> = HashMap::new();
         let mut shown: HashMap<String, Shown> = HashMap::new();
         let mut last: Option<Instant> = None;
         let mut plugged = foxden_battery::hid::fingerprint();
@@ -72,6 +73,9 @@ pub fn spawn(app: AppHandle, shared: Shared) {
                 let polled = foxden_battery::poll();
                 crate::priority::set_batteries(&polled);
                 merge(&mut known, polled, now);
+                for line in log_changes(&mut logged, &known) {
+                    crate::log::info("battery", line);
+                }
                 let warn = lock(&shared).config.settings.battery_alerts;
                 for (title, body) in alerts(&mut steps, &known) {
                     if warn {
@@ -136,6 +140,59 @@ fn alerts(
         };
         out.push((b.name.clone(), body));
     }
+    out
+}
+
+/// How a device reads in the log: its level in steps of ten, so small drifts are not logged.
+fn summary(b: &Battery) -> String {
+    let level = match b.percent {
+        Some(p) => format!("about {}%", (u32::from(p) + 5) / 10 * 10),
+        None if !b.level.is_empty() => b.level.clone(),
+        None => "level unknown".into(),
+    };
+    let state = if b.full {
+        ", full"
+    } else if b.charging {
+        ", charging"
+    } else if b.asleep {
+        ", asleep"
+    } else {
+        ""
+    };
+    format!(
+        "{}: {level}{state}, {}",
+        b.name,
+        if b.via.is_empty() {
+            "connected"
+        } else {
+            &b.via
+        }
+    )
+}
+
+/// Log lines for devices that appeared, changed or went away since the last poll.
+fn log_changes(
+    logged: &mut HashMap<String, String>,
+    known: &HashMap<String, (Battery, Instant)>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for (key, (b, _)) in known {
+        let now = summary(b);
+        if logged.get(key) != Some(&now) {
+            out.push(now.clone());
+            logged.insert(key.clone(), now);
+        }
+    }
+    logged.retain(|key, last| {
+        let keep = known.contains_key(key);
+        if !keep {
+            out.push(format!(
+                "{} is gone",
+                last.split(':').next().unwrap_or(last)
+            ));
+        }
+        keep
+    });
     out
 }
 
@@ -486,6 +543,23 @@ mod tests {
             percent,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_log_follows_steps_not_every_percent() {
+        let mut logged = HashMap::new();
+        let t = Instant::now();
+        let at = |p| HashMap::from([("m".to_string(), (device("m", Some(p)), t))]);
+        assert_eq!(
+            log_changes(&mut logged, &at(81)),
+            ["Mouse: about 80%, connected"]
+        );
+        assert!(log_changes(&mut logged, &at(79)).is_empty());
+        assert_eq!(
+            log_changes(&mut logged, &at(64)),
+            ["Mouse: about 60%, connected"]
+        );
+        assert_eq!(log_changes(&mut logged, &HashMap::new()), ["Mouse is gone"]);
     }
 
     #[test]

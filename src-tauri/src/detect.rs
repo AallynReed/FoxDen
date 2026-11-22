@@ -41,6 +41,8 @@ pub enum State {
     Active,
     Available,
     Unsupported,
+    /// No lighting; listed for its battery.
+    Battery,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -65,6 +67,8 @@ pub struct Found {
     pub native: Option<&'static str>,
     /// Brand OpenRGB has drivers for.
     pub brand: Option<&'static str>,
+    /// No lighting, but a vendor channel such as a wireless receiver's: listed for its battery.
+    pub wireless: bool,
 }
 
 /// USB devices with a driver in foxden-hid: ids, name, kind, engine device id.
@@ -326,10 +330,14 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
             continue;
         }
         let known = NATIVE.iter().find(|n| (n.0, n.1) == (vendor, product));
-        if known.is_none() && family.is_none() && brand.is_some_and(|b| unlit_usb(vendor, b, label))
-        {
+        // Plain gear without lighting is left out, unless it has a vendor channel that may carry
+        // its battery, such as a wireless receiver; that stays so its info can be sent.
+        let unlit = known.is_none() && family.is_none() && brand.is_some_and(|b| unlit_usb(vendor, b, label));
+        let vendor_channel = parts.iter().any(|d| d.usage_page >= 0xFF00);
+        if unlit && !vendor_channel {
             continue;
         }
+        let wireless = unlit;
         let name = match (known, family, brand) {
             (Some(n), _, _) => n.2.to_string(),
             (None, Some(f), _) => f.to_string(),
@@ -349,6 +357,7 @@ pub fn usb(hid: &[HidInfo]) -> Vec<Found> {
             bus: Bus::Usb,
             native: known.map(|n| n.4).or(family.map(|_| PORTED)),
             brand,
+            wireless,
         });
     }
     found
@@ -402,6 +411,7 @@ fn board(b: &BaseBoard) -> Option<Found> {
         bus: Bus::Board,
         native: None,
         brand: Some(brand),
+        wireless: false,
     })
 }
 
@@ -479,6 +489,7 @@ fn module(m: &PhysicalMemory) -> Option<Found> {
         bus: Bus::Memory,
         native: None,
         brand: Some(brand),
+        wireless: false,
     })
 }
 
@@ -523,6 +534,7 @@ fn card(v: &VideoController) -> Option<Found> {
         bus: Bus::Gpu,
         native: foxden_gpu::known(ids).then_some(GPU),
         brand,
+        wireless: false,
     })
 }
 
@@ -776,6 +788,10 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
             "FoxDen has its own driver for this, still experimental. Switch on native drivers in Settings."
         };
         return (Route::Native, State::Available, note.into());
+    }
+    if found.wireless {
+        let note = "No lighting. If it has a battery, its level shows in the tray.";
+        return (Route::None, State::Battery, note.into());
     }
     if ONBOARD_ONLY.contains(&found.id.as_str()) {
         let note = "Its lighting is set on the device itself, with Fn key combinations. It has no way for software to control it.";
@@ -1232,14 +1248,19 @@ mod tests {
             hid(0x1532, 0x0FFE, 0x0001, 0x0002, "Razer Viper", true),
             hid(0x1B1C, 0x0FFE, 0x0001, 0x0006, "Keyboard", true),
         ];
-        let ids: Vec<String> = usb(&office).into_iter().map(|f| f.id).collect();
+        let found = usb(&office);
+        // Receivers without lighting stay, for their battery and device info.
+        assert!(found.iter().filter(|f| f.wireless).all(|f| f.id.contains("c52b") || f.id.contains("c53f")));
+        let ids: Vec<String> = found.into_iter().map(|f| f.id).collect();
         assert_eq!(
             ids,
             [
                 "usb:046d:c0fc",
                 "usb:046d:c0fe",
                 "usb:046d:c0ff",
+                "usb:046d:c52b",
                 "usb:046d:c539",
+                "usb:046d:c53f",
                 "usb:1532:0ffe"
             ]
         );
@@ -1313,6 +1334,7 @@ mod tests {
             bus,
             native: None,
             brand,
+            wireless: false,
         }
     }
 
