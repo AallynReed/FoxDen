@@ -833,6 +833,7 @@ impl Drop for Running {
 pub fn hardware() -> Vec<Box<dyn FanBackend>> {
     foxden_hid::port::share(&foxden_xpack::combined());
     let usb = thread::spawn(foxden_xpack::fan_backends);
+    let laptop = thread::spawn(foxden_wmi::fans);
     let mut backends = foxden_hwmon::backends();
     let amd_card = backends
         .iter_mut()
@@ -840,13 +841,15 @@ pub fn hardware() -> Vec<Box<dyn FanBackend>> {
     backends.extend(foxden_superio::backends());
     // A USB hub that never answers costs only the USB fans, not the whole listing.
     let deadline = Instant::now() + LISTING / 2;
-    while !usb.is_finished() && Instant::now() < deadline {
+    while !(usb.is_finished() && laptop.is_finished()) && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(5));
     }
-    if usb.is_finished()
-        && let Ok(more) = usb.join()
-    {
-        backends.extend(more);
+    for found in [usb, laptop] {
+        if found.is_finished()
+            && let Ok(more) = found.join()
+        {
+            backends.extend(more);
+        }
     }
     if amd_card {
         backends.push(Box::new(RelayBackend));

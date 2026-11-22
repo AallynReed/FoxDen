@@ -1459,6 +1459,7 @@ name = "foxden-wmi"
 version = "0.16.0"
 dependencies = [
  "foxden-core",
+ "foxden-fan",
  "wmi",
 ]
 

@@ -49,7 +49,9 @@
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
   const trim = (v) => String(Math.round(v * 10) / 10);
   const percent = (v) => Math.round(v * 100) + "%";
-  const reading = (v) => (v == null ? "no reading" : v.toFixed(1) + " °C");
+  const reading = (v, kind) => (v == null ? "no reading" : kind === "power" ? Math.round(v) + " W" : v.toFixed(1) + " °C");
+  // Only temperatures can drive a curve.
+  const temps = () => live.sensors.filter((s) => s.kind !== "power");
   const speed = (v) => (v == null ? "no speed signal" : v.toLocaleString("en-GB") + " rpm");
   const pump = (name) => /\bpump\b/i.test(name);
   const source = (id) => (SOURCES.find(([p]) => p.test(id)) || [null, "Other"])[1];
@@ -232,7 +234,7 @@
 
   function hottest(curve) {
     let best = null;
-    for (const s of live.sensors) {
+    for (const s of temps()) {
       if (curve.sensors.includes(s.id) && s.value != null && (!best || s.value > best.value)) best = s;
     }
     return best;
@@ -297,7 +299,7 @@
   }
 
   function addCurve(from) {
-    const sensor = live.sensors.find((s) => s.value != null);
+    const sensor = temps().find((s) => s.value != null);
     edit(() => {
       draft.curves.push(
         from
@@ -1067,7 +1069,7 @@
       // The group heading already says what kind of reading it is.
       setText(name, sensor.name.replace(/ temperature$/i, ""));
       name.title = sensor.name;
-      setText(value, reading(sensor.value));
+      setText(value, reading(sensor.value, sensor.kind));
       value.classList.toggle("none", sensor.value == null);
     }
     ui.noSensors.hidden = live.sensors.length > 0;
@@ -1118,7 +1120,7 @@
     sizeGraph();
     drawGraph();
 
-    const ids = [...live.sensors.map((s) => s.id), ...curve.sensors.filter((id) => !live.sensors.some((s) => s.id === id))];
+    const ids = [...temps().map((s) => s.id), ...curve.sensors.filter((id) => !temps().some((s) => s.id === id))];
     if (ui.choices.dataset.key !== ids.join("|")) {
       const focused = ui.choices.contains(document.activeElement) ? document.activeElement.value : null;
       ui.choices.dataset.key = ids.join("|");
@@ -1131,7 +1133,7 @@
       const sensor = live.sensors.find((s) => s.id === id);
       box.checked = curve.sensors.includes(id);
       setText(name, sensor ? sensor.name : id);
-      setText(value, sensor ? reading(sensor.value) : "not available");
+      setText(value, sensor ? reading(sensor.value, sensor.kind) : "not available");
       value.classList.toggle("none", !sensor || sensor.value == null);
     });
     ui.noChoices.hidden = ids.length > 0;

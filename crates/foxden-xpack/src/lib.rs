@@ -35,6 +35,7 @@ pub const NOT_OWNED: &[(u16, u16, &str)] = &[
     (0x0B05, 0x1ADE, "no lighting driver"),
     (0x0DB0, 0xB130, "no lighting driver"),
     (0x1B1C, 0x0C04, "no lighting driver"),
+    (0x2516, 0x017B, "no lighting driver"),
     (0x0C70, 0xF011, "no lighting driver"),
     (0x0C70, 0xF00D, "no lighting driver"),
     (0x0C70, 0xF00A, "no lighting driver"),

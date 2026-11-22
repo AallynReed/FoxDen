@@ -1,6 +1,6 @@
 //! Turns one USB fan controller or AIO into FoxDen fans and temperature sensors.
 
-use foxden_fan::{Fan, FanBackend, Sensor};
+use foxden_fan::{Fan, FanBackend, Kind, Sensor};
 use foxden_hid::port::{Device, Hold};
 use foxden_hid::registry::Info;
 use std::sync::{Arc, Mutex};
@@ -52,6 +52,9 @@ pub trait FanHub: Send {
     fn temperature(&mut self, _sensor: usize) -> Option<f32> {
         None
     }
+    fn sensor_kind(&self, _sensor: usize) -> Kind {
+        Kind::Temperature
+    }
 }
 
 type Shared = Arc<Mutex<Box<dyn FanHub>>>;
@@ -101,6 +104,7 @@ impl FanBackend for HubBackend {
                     index: i,
                     id: format!("{base}:t{i}"),
                     name: format!("{} {n}", hub.name()),
+                    kind: hub.sensor_kind(i),
                 }) as Box<dyn Sensor>
             })
             .collect()
@@ -169,6 +173,7 @@ struct HubSensor {
     index: usize,
     id: String,
     name: String,
+    kind: Kind,
 }
 
 impl Sensor for HubSensor {
@@ -182,6 +187,9 @@ impl Sensor for HubSensor {
         let mut hub = self.hub.lock().ok()?;
         let _hold = hold(&self.device);
         hub.temperature(self.index)
+    }
+    fn kind(&self) -> Kind {
+        self.kind
     }
 }
 

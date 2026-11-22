@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use foxden_core::{Backend, Color, Device, DeviceKind};
-use wmi::{Variant, WMIConnection};
+use std::collections::HashMap;
 
-const COMMAND_INFO: u32 = 131080;
+use foxden_core::{Backend, Color, Device, DeviceKind};
+use wmi::{IWbemClassWrapper, Variant, WMIConnection};
+
+pub(crate) const COMMAND_INFO: u32 = 131080;
 const COMMAND_LIGHTING: u32 = 131081;
 const TYPE_SUPPORTED: u32 = 1;
 const TYPE_GET_COLORS: u32 = 2;
@@ -17,7 +19,7 @@ const SIGN: [u8; 4] = [83, 69, 67, 85];
 const COLORS_OFFSET: usize = 25;
 
 /// hpqBIntM.hpqBIOSInt128; tests swap in a logger.
-trait Bios: Send {
+pub(crate) trait Bios: Send {
     fn execute(
         &self,
         command: u32,
@@ -25,20 +27,27 @@ trait Bios: Send {
         input: &[u8],
         output: bool,
     ) -> Result<Vec<u8>, String>;
+
+    /// Like `execute` with output, but only when the BIOS reports success.
+    fn query(&self, _command: u32, _kind: u32, _input: &[u8]) -> Result<Vec<u8>, String> {
+        Err("not supported".into())
+    }
+
+    /// The baseboard product name.
+    fn board(&self) -> Option<String> {
+        None
+    }
 }
 
-struct Wmi;
+pub(crate) struct Wmi;
 
-impl Bios for Wmi {
+fn e(e: wmi::WMIError) -> String {
+    e.to_string()
+}
+
+impl Wmi {
     /// A fresh connection per call; WMI connections are tied to a thread.
-    fn execute(
-        &self,
-        command: u32,
-        kind: u32,
-        input: &[u8],
-        output: bool,
-    ) -> Result<Vec<u8>, String> {
-        let e = |e: wmi::WMIError| e.to_string();
+    fn call(command: u32, kind: u32, input: &[u8]) -> Result<Option<IWbemClassWrapper>, String> {
         let con = WMIConnection::with_namespace_path("ROOT\\WMI").map_err(e)?;
         let params = con
             .get_object("hpqBIntM")
@@ -69,17 +78,50 @@ impl Bios for Wmi {
         let out = con
             .exec_method(path, "hpqBIOSInt128", Some(&params))
             .map_err(e)?;
-        if !output {
-            return Ok(Vec::new());
-        }
         let Some(Variant::Object(data)) = out
             .map(|o| o.get_property("OutData"))
             .transpose()
             .map_err(e)?
         else {
-            return Err("no OutData".into());
+            return Ok(None);
         };
+        Ok(Some(data))
+    }
+}
+
+impl Bios for Wmi {
+    fn execute(
+        &self,
+        command: u32,
+        kind: u32,
+        input: &[u8],
+        output: bool,
+    ) -> Result<Vec<u8>, String> {
+        let data = Wmi::call(command, kind, input)?;
+        if !output {
+            return Ok(Vec::new());
+        }
+        let data = data.ok_or("no OutData")?;
         data.get_property("Data").map_err(e)?.try_into().map_err(e)
+    }
+
+    fn query(&self, command: u32, kind: u32, input: &[u8]) -> Result<Vec<u8>, String> {
+        let data = Wmi::call(command, kind, input)?.ok_or("no OutData")?;
+        match data.get_property("rwReturnCode").map_err(e)? {
+            Variant::UI4(0) | Variant::I4(0) => {}
+            code => return Err(format!("BIOS returned {code:?}")),
+        }
+        data.get_property("Data").map_err(e)?.try_into().map_err(e)
+    }
+
+    fn board(&self) -> Option<String> {
+        let con = WMIConnection::new().ok()?;
+        let rows: Vec<HashMap<String, Variant>> =
+            con.raw_query("SELECT Product FROM Win32_BaseBoard").ok()?;
+        match rows.first()?.get("Product")? {
+            Variant::String(name) => Some(name.trim().to_string()),
+            _ => None,
+        }
     }
 }
 

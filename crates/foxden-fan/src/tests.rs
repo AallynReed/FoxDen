@@ -206,6 +206,29 @@ fn losing_one_sensor_of_several_is_failsafe() {
 }
 
 #[test]
+fn a_power_reading_never_drives_a_curve() {
+    let (mut controller, _) = bench(1, 1, simple(0.0, 1000.0));
+    let watts = |value| SensorStatus {
+        id: "s0".into(),
+        name: "s0".into(),
+        value: Some(value),
+        kind: Kind::Power,
+    };
+    let status = controller.apply(1.0, vec![watts(40.0)]);
+    assert!(status.fans[0].failsafe);
+    assert!(close(duty(&status, 0), 1.0));
+    let temp = SensorStatus {
+        kind: Kind::Temperature,
+        ..watts(40.0)
+    };
+    assert!(!controller.apply(1.0, vec![temp]).fans[0].failsafe);
+    let json = serde_json::to_string(&watts(186.0)).unwrap();
+    assert!(json.contains("\"kind\":\"power\""));
+    let old: SensorStatus = serde_json::from_str(r#"{"id":"a","name":"a","value":1.0}"#).unwrap();
+    assert_eq!(old.kind, Kind::Temperature);
+}
+
+#[test]
 fn readings_can_come_from_a_probe_read_elsewhere() {
     let (mut controller, shared) = bench(1, 1, simple(0.0, 1000.0));
     let mut probe = controller.take_probe();

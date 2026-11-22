@@ -148,6 +148,7 @@ fn report() -> Report {
         id: id.into(),
         name: name.into(),
         value,
+        ..SensorStatus::default()
     };
     let fan1 = FanStatus {
         id: "sim:fan1".into(),
@@ -258,7 +259,7 @@ fn state_is_built_from_status_and_config() {
     assert_eq!(json["service"], "running");
     assert_eq!(
         json["sensors"][1],
-        json!({"id": "sim:gone", "name": "Gone", "value": null})
+        json!({"id": "sim:gone", "name": "Gone", "value": null, "kind": "temperature"})
     );
     assert_eq!(
         json["fans"][0],

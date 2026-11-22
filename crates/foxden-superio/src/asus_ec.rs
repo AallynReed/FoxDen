@@ -24,6 +24,7 @@ enum Family {
     Amd600,
     Amd800,
     Intel100,
+    Intel200,
     Intel300,
     Intel370,
     Intel400,
@@ -59,21 +60,27 @@ use Input::*;
 /// Where an input lives on a family: register, and whether it is a two-byte fan speed.
 fn place(family: Family, input: Input) -> Option<u16> {
     let old_amd = matches!(family, Amd400 | Amd500);
-    let classic = old_amd || matches!(family, Intel100 | Intel300 | Intel370 | Intel400 | Intel600);
+    let new_amd = matches!(family, Amd600 | Amd800);
+    let classic = old_amd
+        || matches!(
+            family,
+            Intel100 | Intel200 | Intel300 | Intel370 | Intel400 | Intel600
+        );
     Some(match input {
         Chipset if classic => 0x3A,
-        Cpu if old_amd => 0x3B,
-        Board if old_amd => 0x3C,
+        Cpu if old_amd || family == Intel200 => 0x3B,
+        Board if old_amd || family == Intel200 => 0x3C,
         TSensor if classic => 0x3D,
         Vrm if classic => 0x3E,
-        Cpu if family == Amd800 => 0x30,
-        CpuPackage if family == Amd800 => 0x31,
-        Board if family == Amd800 => 0x32,
-        Vrm if matches!(family, Amd800 | Intel700 | Intel800) => 0x33,
+        Cpu if new_amd => 0x30,
+        CpuPackage if new_amd => 0x31,
+        Board if new_amd => 0x32,
+        Vrm if new_amd || matches!(family, Intel700 | Intel800) => 0x33,
         Dimm if family == Amd800 => 0x55,
         VrmSoc if family == Amd800 => 0x418,
-        TSensor if family == Amd800 => 0x36,
+        TSensor if new_amd => 0x36,
         TSensorAlt if family == Amd800 => 0x35,
+        TSensorAlt if family == Amd600 => 0x37,
         TSensor if family == Intel700 => 0x109,
         TSensor2 if family == Intel700 => 0x105,
         TSensor if family == Intel800 => 0x10C,
@@ -82,7 +89,7 @@ fn place(family: Family, input: Input) -> Option<u16> {
         WaterIn => 0x100,
         WaterOut => 0x101,
         WaterBlockIn if family == Intel600 => 0x102,
-        CpuOptFan if matches!(family, Amd400 | Intel370) => 0xBC,
+        CpuOptFan if matches!(family, Amd400 | Intel200 | Intel370) => 0xBC,
         CpuOptFan => 0xB0,
         VrmFan if old_amd => 0xB2,
         ChipsetFan if family == Amd500 => 0xB4,
@@ -139,6 +146,11 @@ fn board(model: &str) -> Option<(Family, &'static [Input])> {
         "ROG_STRIX_X870_F_GAMING_WIFI" => (Amd800, &[Cpu, CpuPackage, Board, Vrm, TSensor]),
         "ROG_STRIX_X870_I_GAMING_WIFI" => (Amd800, &[Cpu, CpuPackage, Board, Vrm]),
         "PRIME_X470_PRO" => (Amd400, &[Chipset, Cpu, Board, Vrm, CpuOptFan]),
+        "ROG_STRIX_X470_F_GAMING" => (Amd400, &[Chipset, Cpu, Board, TSensor, CpuOptFan]),
+        "ROG_CROSSHAIR_VI_HERO_WIFI_AC" => {
+            (Amd400, &[Chipset, Cpu, Board, TSensor, Vrm, CpuOptFan])
+        }
+        "ROG_CROSSHAIR_VII_HERO_WIFI" => (Amd400, &[Chipset, Cpu, Board, Vrm, CpuOptFan]),
         "PRIME_X570_PRO" => (Amd500, &[Chipset, Cpu, Board, Vrm, TSensor, ChipsetFan]),
         "PROART_X570_CREATOR_WIFI" => (Amd500, &[Chipset, Cpu, Board, Vrm, TSensor, CpuOptFan]),
         "PRO_WS_X570_ACE" => (Amd500, &[Chipset, Cpu, Board, Vrm, ChipsetFan]),
@@ -146,6 +158,7 @@ fn board(model: &str) -> Option<(Family, &'static [Input])> {
         | "ROG_CROSSHAIR_VIII_HERO_WIFI"
         | "ROG_CROSSHAIR_VIII_FORMULA" => (Amd500, c8),
         "ROG_CROSSHAIR_VIII_DARK_HERO" => (Amd500, &c8[..8]),
+        "ROG_CROSSHAIR_VIII_EXTREME" => (Amd500, &[WaterOut]),
         "ROG_CROSSHAIR_VIII_IMPACT" | "ROG_STRIX_X570_E_GAMING" => {
             (Amd500, &[Chipset, Cpu, Board, TSensor, Vrm, ChipsetFan])
         }
@@ -159,6 +172,8 @@ fn board(model: &str) -> Option<(Family, &'static [Input])> {
         | "ROG_CROSSHAIR_X670E_GENE"
         | "ROG_STRIX_X670E_E_GAMING_WIFI"
         | "ROG_STRIX_X670E_F_GAMING_WIFI" => (Amd600, water),
+        "ROG_STRIX_B650E_I_GAMING_WIFI" => (Amd600, &[Cpu, Board, Vrm, TSensorAlt]),
+        "PRIME_Z270_A" => (Intel200, &[Chipset, Cpu, Board, TSensor, CpuOptFan]),
         "ROG_STRIX_Z370_G_GAMING" => (Intel370, &[Chipset, TSensor, CpuOptFan, PumpFan]),
         "ROG_STRIX_Z390_E_GAMING" | "ROG_STRIX_Z390_F_GAMING" => (Intel300, z390),
         "ROG_STRIX_Z390_I_GAMING" => (Intel300, &z390[..3]),
@@ -170,9 +185,10 @@ fn board(model: &str) -> Option<(Family, &'static [Input])> {
         ),
         "Z170_A" => (Intel100, &[TSensor, Chipset, PumpFan]),
         "Z170_PRO_GAMING" => (Intel100, &[Chipset, Vrm, TSensor]),
-        "ROG_STRIX_Z690_A_GAMING_WIFI_D4" | "ROG_STRIX_Z690_G_GAMING_WIFI" | "PRIME_Z690_A" => {
-            (Intel600, tsensor_vrm)
-        }
+        "ROG_STRIX_Z690_A_GAMING_WIFI_D4"
+        | "ROG_STRIX_Z690_E_GAMING_WIFI"
+        | "ROG_STRIX_Z690_G_GAMING_WIFI"
+        | "PRIME_Z690_A" => (Intel600, tsensor_vrm),
         "ROG_MAXIMUS_Z690_HERO" => (Intel600, &[TSensor, WaterIn, WaterOut]),
         "ROG_MAXIMUS_Z690_FORMULA" => (Intel600, &[TSensor, Vrm, WaterIn, WaterOut, WaterBlockIn]),
         "ROG_MAXIMUS_Z690_EXTREME_GLACIAL" => (Intel600, &[Vrm, WaterIn, WaterOut, WaterBlockIn]),
@@ -528,5 +544,62 @@ mod tests {
         assert_eq!(log[..7], first);
         assert!(log.contains(&"pio_outb 62 01".to_string()));
         assert!(ec.set_control(0, Some(1)).is_err());
+    }
+
+    fn regs_of(model: &str) -> Vec<u16> {
+        let (family, inputs) = board(model).unwrap();
+        let ec = Ec::new(Box::new(Bus::default()), family, inputs);
+        ec.temps.iter().chain(&ec.fans).map(|s| s.reg).collect()
+    }
+
+    #[test]
+    fn added_boards_resolve_their_registers() {
+        let cases: [(&str, &str, &[u16]); 8] = [
+            (
+                "ROG STRIX Z690-E GAMING WIFI",
+                "ROG_STRIX_Z690_E_GAMING_WIFI",
+                &[0x3D, 0x3E],
+            ),
+            (
+                "PRIME Z270-A",
+                "PRIME_Z270_A",
+                &[0x3A, 0x3B, 0x3C, 0x3D, 0xBC],
+            ),
+            (
+                "ROG STRIX B650E-I GAMING WIFI",
+                "ROG_STRIX_B650E_I_GAMING_WIFI",
+                &[0x30, 0x32, 0x33, 0x37],
+            ),
+            (
+                "ROG STRIX X470-F GAMING",
+                "ROG_STRIX_X470_F_GAMING",
+                &[0x3A, 0x3B, 0x3C, 0x3D, 0xBC],
+            ),
+            (
+                "ROG CROSSHAIR VI HERO (WI-FI AC)",
+                "ROG_CROSSHAIR_VI_HERO_WIFI_AC",
+                &[0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0xBC],
+            ),
+            (
+                "ROG CROSSHAIR VII HERO (WI-FI)",
+                "ROG_CROSSHAIR_VII_HERO_WIFI",
+                &[0x3A, 0x3B, 0x3C, 0x3E, 0xBC],
+            ),
+            (
+                "ROG CROSSHAIR VIII EXTREME",
+                "ROG_CROSSHAIR_VIII_EXTREME",
+                &[0x101],
+            ),
+            (
+                "ROG STRIX B850-E GAMING WIFI",
+                "ROG_STRIX_B850_E_GAMING_WIFI",
+                &[0x31, 0x33, 0x35],
+            ),
+        ];
+        for (dmi, model, want) in cases {
+            assert_eq!(crate::boards::model(dmi), Some(model));
+            assert_eq!(regs_of(model), want, "{model}");
+        }
+        assert_eq!(regs_of("ROG_CROSSHAIR_X670E_HERO"), [0x100, 0x101, 0xB0]);
     }
 }

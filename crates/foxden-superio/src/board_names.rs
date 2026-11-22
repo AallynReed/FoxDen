@@ -7352,7 +7352,7 @@ pub(crate) static RULES: [Rule; 291] = [
 ];
 
 /// Baseboard product names, matched ignoring case; `true` matches the start only.
-pub(crate) static PRODUCTS: [(&str, &str, bool); 346] = [
+pub(crate) static PRODUCTS: [(&str, &str, bool); 353] = [
     (
         "TUF GAMING B850-BTF WIFI W",
         "TUF_GAMING_B850_BTF_WIFI_W",
@@ -7402,6 +7402,33 @@ pub(crate) static PRODUCTS: [(&str, &str, bool); 346] = [
     ("P55 Deluxe", "P55_Deluxe", false),
     ("Crosshair III Formula", "CROSSHAIR_III_FORMULA", false),
     ("ROG CROSSHAIR VIII HERO", "ROG_CROSSHAIR_VIII_HERO", false),
+    (
+        "ROG CROSSHAIR VIII EXTREME",
+        "ROG_CROSSHAIR_VIII_EXTREME",
+        false,
+    ),
+    (
+        "ROG CROSSHAIR VI HERO (WI-FI AC)",
+        "ROG_CROSSHAIR_VI_HERO_WIFI_AC",
+        false,
+    ),
+    (
+        "ROG CROSSHAIR VII HERO (WI-FI)",
+        "ROG_CROSSHAIR_VII_HERO_WIFI",
+        false,
+    ),
+    ("ROG STRIX X470-F GAMING", "ROG_STRIX_X470_F_GAMING", false),
+    (
+        "ROG STRIX B650E-I GAMING WIFI",
+        "ROG_STRIX_B650E_I_GAMING_WIFI",
+        false,
+    ),
+    (
+        "ROG STRIX Z690-E GAMING WIFI",
+        "ROG_STRIX_Z690_E_GAMING_WIFI",
+        false,
+    ),
+    ("PRIME Z270-A", "PRIME_Z270_A", false),
     (
         "ROG CROSSHAIR VIII HERO (WI-FI)",
         "ROG_CROSSHAIR_VIII_HERO_WIFI",

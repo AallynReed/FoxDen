@@ -12,16 +12,29 @@ use serde::{Deserialize, Serialize};
 
 /// Degrees Celsius a working sensor can report. Anything else counts as unreadable.
 const PLAUSIBLE: RangeInclusive<f32> = -20.0..=150.0;
+const PLAUSIBLE_WATTS: RangeInclusive<f32> = 0.0..=5000.0;
 /// Refused writes in a row before a fan is handed back to the firmware.
 const WRITE_TRIES: u32 = 3;
 /// Seconds a fan handed back that way is left alone before the next try.
 const RETRY_AFTER: f32 = 30.0;
 
-/// A temperature source, in degrees Celsius.
+/// What a sensor measures. Only temperatures can drive a curve.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    #[default]
+    Temperature,
+    Power,
+}
+
+/// A temperature source in degrees Celsius, or a power reading in watts.
 pub trait Sensor: Send {
     fn id(&self) -> &str;
     fn name(&self) -> &str;
     fn read(&mut self) -> Option<f32>;
+    fn kind(&self) -> Kind {
+        Kind::Temperature
+    }
 }
 
 /// One controllable fan header or pump.
@@ -174,6 +187,8 @@ pub struct SensorStatus {
     pub id: String,
     pub name: String,
     pub value: Option<f32>,
+    #[serde(default)]
+    pub kind: Kind,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -272,10 +287,18 @@ impl Probe {
         }
         self.sensors
             .iter_mut()
-            .map(|sensor| SensorStatus {
-                id: sensor.id().to_string(),
-                name: sensor.name().to_string(),
-                value: sensor.read().filter(|value| PLAUSIBLE.contains(value)),
+            .map(|sensor| {
+                let kind = sensor.kind();
+                let range = match kind {
+                    Kind::Temperature => &PLAUSIBLE,
+                    Kind::Power => &PLAUSIBLE_WATTS,
+                };
+                SensorStatus {
+                    id: sensor.id().to_string(),
+                    name: sensor.name().to_string(),
+                    value: sensor.read().filter(|value| range.contains(value)),
+                    kind,
+                }
             })
             .collect()
     }
@@ -358,7 +381,12 @@ impl Controller {
     /// last call.
     pub fn apply(&mut self, dt: f32, sensors: Vec<SensorStatus>) -> Status {
         let dt = seconds(dt);
-        let reading = |id: &String| sensors.iter().find(|sensor| &sensor.id == id)?.value;
+        let reading = |id: &String| {
+            sensors
+                .iter()
+                .find(|sensor| &sensor.id == id && sensor.kind == Kind::Temperature)?
+                .value
+        };
 
         // Per curve: the duty it asks for, or None when one of its sensors gives no reading.
         let mut wanted = Vec::with_capacity(self.config.curves.len());

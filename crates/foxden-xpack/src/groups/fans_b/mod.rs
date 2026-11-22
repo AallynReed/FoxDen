@@ -4,6 +4,7 @@
 
 mod bragi;
 mod bragi_models;
+mod cm_psu;
 mod commander_duo;
 mod commander_pro;
 mod coolit;
@@ -51,6 +52,11 @@ pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
             .iter()
             .map(|&(pid, name, _)| (platinum::VID, pid, name)),
     );
+    v.extend(
+        cm_psu::IDS
+            .iter()
+            .map(|&(pid, name)| (cm_psu::VID, pid, name)),
+    );
     v
 }
 
@@ -76,6 +82,8 @@ fn family(info: &Info) -> Option<(Make, String)> {
         Some((coolit::hub, coolit::key(info)))
     } else if platinum::wants(info) {
         Some((platinum::hub, platinum::key(info)))
+    } else if cm_psu::wants(info) {
+        Some((cm_psu::hub, cm_psu::key(info)))
     } else {
         None
     }

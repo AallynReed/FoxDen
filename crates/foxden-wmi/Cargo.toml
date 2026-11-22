@@ -6,4 +6,5 @@ license.workspace = true
 
 [dependencies]
 foxden-core.workspace = true
+foxden-fan = { path = "../foxden-fan" }
 wmi = { version = "0.18", default-features = false }
