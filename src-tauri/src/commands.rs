@@ -171,6 +171,7 @@ pub fn set_settings(
     };
     let old = lock(&shared).config.settings.clone();
     crate::report::set_enabled(settings.send_reports);
+    crate::i18n::set_choice(&settings.language);
     if settings.autostart != old.autostart {
         autostart::set(settings.autostart)?;
     }

@@ -108,6 +108,12 @@ pub struct Snapshot {
     detected: Vec<Detected>,
 }
 
+impl Snapshot {
+    pub fn language(&self) -> String {
+        self.settings.language.clone()
+    }
+}
+
 /// A choice of backend groups to reconnect.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Kinds {
@@ -552,7 +558,7 @@ fn close_conflicts(app: &AppHandle, settings: &Settings) {
             .notification()
             .builder()
             .title("FoxDen")
-            .body(&report.text)
+            .body(crate::i18n::tr(&app, &report.text))
             .show();
     }
 }
@@ -984,6 +990,7 @@ mod tests {
                 "fans_module",
                 "fps",
                 "keep_running",
+                "language",
                 "led_strips",
                 "lighting_module",
                 "native_drivers",

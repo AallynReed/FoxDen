@@ -79,6 +79,8 @@ pub fn spawn(app: AppHandle, shared: Shared) {
                 let warn = lock(&shared).config.settings.battery_alerts;
                 for (title, body) in alerts(&mut steps, &known) {
                     if warn {
+                        let (title, body) =
+                            (crate::i18n::tr(&app, &title), crate::i18n::tr(&app, &body));
                         let _ = app.notification().builder().title(title).body(body).show();
                     }
                 }

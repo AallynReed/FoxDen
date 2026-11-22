@@ -427,18 +427,21 @@ input.switch::after {
   background: var(--panel);
 }
 
+/* Long translated names wrap to a second row instead of being cut. */
 .tabs {
   display: flex;
   flex: none;
-  height: 44px;
+  flex-wrap: wrap;
+  min-height: 44px;
   border-bottom: 1px solid var(--line);
 }
 
 .tabs button {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
-  height: 100%;
-  padding: 0 4px;
+  min-height: 44px;
+  padding: 0 8px;
+  white-space: nowrap;
   border: 0;
   border-right: 1px solid var(--line);
   background: none;

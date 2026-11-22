@@ -92,11 +92,15 @@ OpenRGB can optionally drive anything else through its server.
 - Sound profiles for channels and the microphone, shared with a short code
 - A processed virtual microphone through VB-Audio's VB-CABLE, installed by you
 - Headset settings for SteelSeries Arctis Nova headsets (sidetone, mic volume, limiter, auto-off)
+  and Corsair wireless headsets (sidetone, mic level, noise cancelling)
 - LED strips and network lights
 - Lighting, Fans and Batteries modules you can switch off
 - Closes conflicting software such as SignalRGB, G HUB and iCUE, unless you keep it running
 - Send device info for anything without lighting control yet, and anonymous feedback with a
   picture or video, both from inside the app
+- In 16 languages, following the Windows display language: English, Portuguese (Portugal), Spanish,
+  German, French, Russian, Simplified and Traditional Chinese, Polish, Turkish, Japanese, Korean,
+  Italian, Ukrainian, Dutch and Czech
 - Starts with Windows and updates itself
 
 ## Lightweight

@@ -787,11 +787,7 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         .iter()
         .any(|(_, device)| drives(found, PORTED, device))
     {
-        return (
-            Route::Native,
-            State::Active,
-            String::new(),
-        );
+        return (Route::Native, State::Active, String::new());
     }
     if live
         .driven

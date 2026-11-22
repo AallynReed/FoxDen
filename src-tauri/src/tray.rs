@@ -9,8 +9,8 @@ use crate::state::{self, Shared, Snapshot, lock};
 const ID: &str = "main";
 const PROFILE: &str = "profile:";
 
-/// What the menu depends on: paused, profile names, active profile.
-type Shown = (bool, Vec<String>, Option<String>);
+/// What the menu depends on: paused, profile names, active profile, language.
+type Shown = (bool, Vec<String>, Option<String>, String);
 
 static SHOWN: Mutex<Option<Shown>> = Mutex::new(None);
 
@@ -19,11 +19,13 @@ fn shown(snapshot: &Snapshot) -> Shown {
         snapshot.paused,
         snapshot.profiles.clone(),
         snapshot.active_profile.clone(),
+        snapshot.language(),
     )
 }
 
-fn menu(app: &AppHandle, (paused, profiles, active): &Shown) -> tauri::Result<Menu<Wry>> {
-    let mut list = SubmenuBuilder::new(app, "Profiles").enabled(!profiles.is_empty());
+fn menu(app: &AppHandle, (paused, profiles, active, _): &Shown) -> tauri::Result<Menu<Wry>> {
+    let t = |s: &str| crate::i18n::tr(app, s);
+    let mut list = SubmenuBuilder::new(app, t("Profiles")).enabled(!profiles.is_empty());
     for name in profiles {
         let item = CheckMenuItemBuilder::with_id(format!("{PROFILE}{name}"), name)
             .checked(active.as_ref() == Some(name))
@@ -31,13 +33,13 @@ fn menu(app: &AppHandle, (paused, profiles, active): &Shown) -> tauri::Result<Me
         list = list.item(&item);
     }
     MenuBuilder::new(app)
-        .text("show", "Show")
-        .text("pause", if *paused { "Resume" } else { "Pause" })
+        .text("show", t("Show"))
+        .text("pause", t(if *paused { "Resume" } else { "Pause" }))
         .item(&list.build()?)
         .separator()
-        .text("discord", "Join the Discord")
+        .text("discord", t("Join the Discord"))
         .separator()
-        .text("quit", "Quit")
+        .text("quit", t("Quit"))
         .build()
 }
 

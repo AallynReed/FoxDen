@@ -141,7 +141,8 @@ function difference(a, b) {
 function renderHistory() {
   const show = (id, verb, change) => {
     $(id).setAttribute("aria-disabled", !change);
-    $(id).title = change ? verb + " " + change.label + " change" : "Nothing to " + verb.toLowerCase();
+    const none = verb === "Undo" ? "Nothing to undo" : "Nothing to redo";
+    $(id).title = change ? (verb === "Undo" ? "Undo " + change.label + " change" : "Redo " + change.label + " change") : none;
   };
   show("undo", "Undo", hist.at > 0 && hist.steps[hist.at]);
   show("redo", "Redo", hist.steps[hist.at + 1]);

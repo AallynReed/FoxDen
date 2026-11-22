@@ -33,6 +33,8 @@ pub struct Settings {
     pub auto_detect: bool,
     /// Download and install new releases from GitHub.
     pub auto_update: bool,
+    /// UI language: "auto" follows Windows.
+    pub language: String,
     pub lighting_module: bool,
     pub fans_module: bool,
     /// Close other lighting and fan software that holds the same devices.
@@ -64,6 +66,7 @@ impl Default for Settings {
             autostart: true,
             auto_detect: true,
             auto_update: true,
+            language: "auto".into(),
             lighting_module: true,
             fans_module: true,
             close_conflicts: true,

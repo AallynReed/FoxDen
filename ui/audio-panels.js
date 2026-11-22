@@ -191,7 +191,7 @@
         for (const d of list) {
           const key = "d" + d.id;
           const make = el("button", { type: "button", className: "aud-make aud-icon-btn", title: "Make default" }, icon("", STAR));
-          make.setAttribute("aria-label", "Make " + d.name + " the default " + (d.capture ? "recording" : "playback") + " device");
+          make.setAttribute("aria-label", d.capture ? "Make " + d.name + " the default recording device" : "Make " + d.name + " the default playback device");
           make.hidden = d.default || !!d.note;
           make.onclick = () => call("make_default_device", { id: d.id });
           st.rows.set(key, row(key, d.name, (v) => call("set_device_volume", { id: d.id, volume: v, muted: null }), (m) => call("set_device_volume", { id: d.id, volume: null, muted: m }), make, d.capture));

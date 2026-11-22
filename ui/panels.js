@@ -1041,7 +1041,7 @@ function renderLayers(snap) {
     const name = info ? info.label : words(layer.effect.kind);
     const eye = el("button", { type: "button", className: "eye", id: "layer-eye-" + i }, eyeIcon(layer.enabled));
     eye.setAttribute("aria-pressed", String(layer.enabled));
-    eye.setAttribute("aria-label", (layer.enabled ? "Hide " : "Show ") + name);
+    eye.setAttribute("aria-label", layer.enabled ? "Hide " + name : "Show " + name);
     eye.onclick = () => queueLayers((layers) => (layers[i].enabled = !layers[i].enabled));
     const pick = el("button", { type: "button", className: "layer-name", id: "layer-" + i },
       el("span", { className: "name", textContent: name }),
@@ -2084,7 +2084,20 @@ function wireStrips() {
   };
 }
 
+// The language list, in each language's own name; Automatic is the only entry shown translated.
+function fillLanguages() {
+  const i18n = window.__foxI18n;
+  const select = $("set-language");
+  if (!i18n || select.options.length) return;
+  const auto = el("option", { value: "auto", textContent: i18n.t("Automatic") });
+  select.append(auto, ...Object.entries(i18n.languages).map(([code, name]) => el("option", { value: code, textContent: name })));
+  select.addEventListener("change", () => i18n.set(select.value));
+}
+
 function renderSettings(snap) {
+  fillLanguages();
+  const i18n = window.__foxI18n;
+  if (i18n && snap.settings.language && snap.settings.language !== i18n.choice) i18n.set(snap.settings.language);
   for (const input of document.querySelectorAll("[data-setting]")) put(input, snap.settings[input.dataset.setting]);
   $("set-battery-alerts").disabled = !snap.settings.battery_tray;
   $("openrgb-server").hidden = !snap.settings.openrgb_enabled;

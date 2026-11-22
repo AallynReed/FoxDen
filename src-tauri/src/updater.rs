@@ -97,10 +97,13 @@ async fn wait_and_install(app: &AppHandle, info: &Info) {
                 let _ = app
                     .notification()
                     .builder()
-                    .title("FoxDen update")
-                    .body(format!(
-                        "Version {} could not be installed. Try again from Settings.",
-                        info.version
+                    .title(crate::i18n::tr(app, "FoxDen update"))
+                    .body(crate::i18n::tr(
+                        app,
+                        &format!(
+                            "Version {} could not be installed. Try again from Settings.",
+                            info.version
+                        ),
                     ))
                     .show();
             }
@@ -133,8 +136,8 @@ fn announce(app: &AppHandle, info: &Info) {
     let _ = app
         .notification()
         .builder()
-        .title("FoxDen update")
-        .body(toast_text(&info.version, info.auto))
+        .title(crate::i18n::tr(app, "FoxDen update"))
+        .body(crate::i18n::tr(app, &toast_text(&info.version, info.auto)))
         .show();
 }
 

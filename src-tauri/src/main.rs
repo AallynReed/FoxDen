@@ -10,6 +10,7 @@ mod detect;
 mod device_info;
 mod fans;
 mod headset;
+mod i18n;
 mod key_maps;
 mod keys;
 mod links;
@@ -112,6 +113,7 @@ fn main() {
                 )
             };
             report::set_enabled(settings.send_reports);
+            i18n::set_choice(&settings.language);
             report::send_last_crash();
             log::info(
                 "app",

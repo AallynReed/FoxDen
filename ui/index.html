@@ -14,12 +14,12 @@
     <h1 class="sr-only">FoxDen</h1>
     <aside class="side" aria-label="Controls">
       <div class="tabs" role="tablist" aria-label="Sections">
-        <button type="button" role="tab" id="tab-effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
-        <button type="button" role="tab" id="tab-devices" aria-controls="panel-devices" aria-selected="false" tabindex="-1">Devices</button>
-        <button type="button" role="tab" id="tab-fans" aria-controls="panel-fans" aria-selected="false" tabindex="-1">Fans</button>
-        <button type="button" role="tab" id="tab-audio" aria-controls="panel-audio" aria-selected="false" tabindex="-1">Audio</button>
-        <button type="button" role="tab" id="tab-profiles" aria-controls="panel-profiles" aria-selected="false" tabindex="-1">Profiles</button>
-        <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
+        <button type="button" role="tab" id="tab-effects" title="Effects" aria-controls="panel-effects" aria-selected="true">Effects</button>
+        <button type="button" role="tab" id="tab-devices" title="Devices" aria-controls="panel-devices" aria-selected="false" tabindex="-1">Devices</button>
+        <button type="button" role="tab" id="tab-fans" title="Fans" aria-controls="panel-fans" aria-selected="false" tabindex="-1">Fans</button>
+        <button type="button" role="tab" id="tab-audio" title="Audio" aria-controls="panel-audio" aria-selected="false" tabindex="-1">Audio</button>
+        <button type="button" role="tab" id="tab-profiles" title="Profiles" aria-controls="panel-profiles" aria-selected="false" tabindex="-1">Profiles</button>
+        <button type="button" role="tab" id="tab-settings" title="Settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
       </div>
       <p class="hint" id="tab-about"></p>
 
@@ -250,6 +250,15 @@
             </div>
             <p class="problem" id="set-port-problem" hidden></p>
           </div>
+        </section>
+
+        <section class="box">
+          <h2>Language</h2>
+          <div class="field">
+            <label for="set-language">Language</label>
+            <select id="set-language" data-setting="language" translate="no"></select>
+          </div>
+          <p class="hint">Automatic follows the Windows display language.</p>
         </section>
 
         <section class="box">
@@ -546,6 +555,7 @@
       </div>
     </dialog>
 
+    <script src="i18n.js"></script>
     <script src="frame.js"></script>
     <script src="mock.js"></script>
     <script src="fans-mock.js"></script>
