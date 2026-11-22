@@ -213,6 +213,9 @@ const PLAIN_WORDS: &[&str] = &[
 const LOGITECH_GAMING: &[&str] = &["gaming", "pro", "lightspeed", "powerplay", "litra", "astro"];
 
 /// A lit brand's device no driver knows, whose name says it is plain office gear.
+/// Well-known gear from lighting brands that has no lighting at all.
+const UNLIT_MODELS: &[&str] = &["solocast", "procast", "seraph"];
+
 fn unlit_usb(vendor: u16, brand: &str, label: &str) -> bool {
     let name = label.to_lowercase();
     let words: Vec<&str> = name
@@ -222,6 +225,9 @@ fn unlit_usb(vendor: u16, brand: &str, label: &str) -> bool {
     // nothing to judge by, so it keeps its chance
     if words.is_empty() || name == "device" {
         return false;
+    }
+    if words.iter().any(|w| UNLIT_MODELS.contains(w)) {
+        return true;
     }
     let brand = brand.to_lowercase();
     if words
@@ -816,9 +822,9 @@ fn status(found: &Found, live: &Live) -> (Route, State, String) {
         return (Route::None, State::Unsupported, note.into());
     }
     let note = if found.bus == Bus::Gpu {
-        "FoxDen has no driver for this card yet."
+        "FoxDen does not control lighting on this card. Many cards have none."
     } else {
-        "FoxDen has no driver for it yet."
+        "FoxDen does not control lighting on it. If it has lighting, send its device info."
     };
     (Route::None, State::Unsupported, note.into())
 }
@@ -1360,7 +1366,10 @@ mod tests {
             (list[0].route, list[0].state),
             (Route::None, State::Unsupported)
         );
-        assert_eq!(list[0].note, "FoxDen has no driver for it yet.");
+        assert_eq!(
+            list[0].note,
+            "FoxDen does not control lighting on it. If it has lighting, send its device info."
+        );
     }
 
     fn part(id: &str, kind: &'static str, bus: Bus, brand: Option<&'static str>) -> Found {
@@ -1416,7 +1425,7 @@ mod tests {
         }
         assert_eq!(
             line("gpu:1002:7550").note,
-            "FoxDen has no driver for this card yet."
+            "FoxDen does not control lighting on this card. Many cards have none."
         );
 
         // the bridge's server is listed only once it is switched on
@@ -1563,7 +1572,7 @@ mod tests {
         let list = line(&on, vec![("hid", &card)]);
         assert_eq!((list[0].0, list[0].1), (Route::Native, State::Active));
         assert_eq!((list[1].0, list[1].1), (Route::None, State::Unsupported));
-        assert!(list[1].2.contains("no driver"), "{}", list[1].2);
+        assert!(list[1].2.contains("does not control lighting"), "{}", list[1].2);
         let list = line(&on, Vec::new());
         assert_eq!((list[0].0, list[0].1), (Route::Native, State::Available));
         let off = settings(false, false);

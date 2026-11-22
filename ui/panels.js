@@ -3,7 +3,7 @@ const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
 const ROUTES = { native: ["Native driver", "set-native"], openrgb: ["OpenRGB", "set-openrgb"] };
-const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "Not supported yet"], battery: ["on", "Battery and settings"] };
+const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "No lighting control"], battery: ["on", "Battery and settings"] };
 const PRESETS = [
   ["Red", "#FF0000"],
   ["Orange", "#FF6A00"],
