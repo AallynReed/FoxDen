@@ -4,7 +4,10 @@ use foxden_core::{Backend, Color};
 use foxden_smbus::i2c::SharedBus;
 
 use super::cards::{PALIT_V1, PALIT_V2};
-use super::common::{Card, Driver, Gpu, Io, detect_each, device_id, row};
+use super::common::{Card, Driver, Gpu, Io, detect_each, device_id, info, row};
+use foxden_smbus::i2c::BusInfo;
+
+const PALIT_VEN: u16 = 0x1569;
 
 const V1_RED: u8 = 0x03;
 
@@ -22,7 +25,39 @@ pub fn detect_v1(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
 }
 
 pub fn detect_v2(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
-    detect_each(bus, PALIT_V2, probe_v2)
+    let found = detect_each(bus, PALIT_V2, probe_v2);
+    if !found.is_empty() {
+        return found;
+    }
+    unlisted(&info(bus), PALIT_V2)
+        .and_then(|card| probe_v2(bus, card))
+        .into_iter()
+        .collect()
+}
+
+pub fn unlisted_known(ids: [u16; 4]) -> bool {
+    let [ven, dev, subven, subdev] = ids;
+    let i = BusInfo {
+        pci_vendor: ven,
+        pci_device: dev,
+        pci_subsystem_vendor: subven,
+        pci_subsystem_device: subdev,
+        ..Default::default()
+    };
+    unlisted(&i, PALIT_V2).is_some()
+}
+
+/// A Palit card whose subsystem id is not in the table: the first row for its GPU, probed the same way.
+fn unlisted<'a>(i: &BusInfo, cards: &'a [Card]) -> Option<&'a Card> {
+    if i.pci_subsystem_vendor != PALIT_VEN {
+        return None;
+    }
+    let listed = cards.iter().any(|c| {
+        (c.dev, c.subven, c.subdev) == (i.pci_device, i.pci_subsystem_vendor, i.pci_subsystem_device)
+    });
+    (!listed)
+        .then(|| cards.iter().find(|c| c.ven == i.pci_vendor && c.dev == i.pci_device))
+        .flatten()
 }
 
 fn probe_v1(bus: &SharedBus, card: &Card) -> Option<Box<dyn Backend>> {
@@ -107,6 +142,14 @@ mod tests {
     const GTX1080: [u16; 4] = [0x10DE, 0x1B80, 0x10DE, 0x1B80];
     const GAINWARD_1080: [u16; 4] = [0x10DE, 0x1B80, 0x10B0, 0x1B80];
     const RTX3080_PALIT: [u16; 4] = [0x10DE, 0x2206, 0x1569, 0x2206];
+
+    #[test]
+    fn unlisted_palit_cards_use_their_gpu_row() {
+        assert!(unlisted_known([0x10DE, 0x2782, 0x1569, 0x1234]));
+        assert!(!unlisted_known([0x10DE, 0x2782, 0x1569, 0xF296]));
+        assert!(!unlisted_known([0x10DE, 0x2782, 0x10DE, 0x1234]));
+        assert!(!unlisted_known([0x10DE, 0x9999, 0x1569, 0x1234]));
+    }
 
     fn palit_string(f: Fake) -> Fake {
         b"PALIT"

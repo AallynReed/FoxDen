@@ -38,6 +38,7 @@ pub fn known(ids: [u16; 4]) -> bool {
         .iter()
         .flat_map(|t| t.iter())
         .any(|c| [c.ven, c.dev, c.subven, c.subdev] == ids)
+        || palit::unlisted_known(ids)
 }
 
 pub fn all() -> Vec<Detect> {

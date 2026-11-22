@@ -162,10 +162,16 @@ pub async fn device_info(id: String, name: String) -> Result<String, String> {
 
 /// Motherboards, memory and cards: what the SMBus answers, read by the service.
 async fn board_info(id: String, name: String) -> Result<String, String> {
-    let smbus = tauri::async_runtime::spawn_blocking(|| {
-        foxden_client::Client::new(foxden_client::PIPE, std::time::Duration::from_secs(30))
-            .smbus_report()
-            .unwrap_or_else(|e| vec![format!("service: {e}")])
+    let gpu = id.starts_with("gpu:");
+    let smbus = tauri::async_runtime::spawn_blocking(move || {
+        let mut lines =
+            foxden_client::Client::new(foxden_client::PIPE, std::time::Duration::from_secs(30))
+                .smbus_report()
+                .unwrap_or_else(|e| vec![format!("service: {e}")]);
+        if gpu {
+            lines.extend(foxden_gpu::report());
+        }
+        lines
     })
     .await
     .map_err(|e| e.to_string())?;
