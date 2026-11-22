@@ -1727,3 +1727,14 @@ body.wide #panel-settings > .span {
   padding-left: 16px;
   color: var(--muted);
 }
+
+.send-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.send-info svg {
+  width: 14px;
+  height: 14px;
+}

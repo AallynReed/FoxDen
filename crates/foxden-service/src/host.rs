@@ -186,6 +186,8 @@ enum Request {
     },
     /// Closes software from the service's own list; the request only narrows it.
     CloseConflicts(Scope),
+    /// What each SMBus answers, for a device report. Reads only.
+    SmbusReport,
     /// Installs, removes or renames VB-CABLE for the virtual microphone.
     VirtualMic {
         action: String,
@@ -387,6 +389,10 @@ impl Host {
                     Some(backend) => backend.push(&device, &colors),
                     None => Err(format!("unknown device {device}")),
                 })
+            }
+            Ok(Request::SmbusReport) => {
+                let _lights = locked(&self.lights);
+                json!({"ok": true, "lines": foxden_smbus::report()})
             }
             Ok(Request::CloseConflicts(scope)) => {
                 let out = (self.closer)(scope);

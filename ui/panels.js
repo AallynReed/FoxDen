@@ -979,6 +979,19 @@ function whenWords(layer) {
   return layer.when === "front" ? names + " in front" : "while " + names + " is open";
 }
 
+function sendIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  shape.setAttribute("d", "M8 11V2M4.5 5.5L8 2l3.5 3.5M2 10v4h12v-4");
+  shape.setAttribute("fill", "none");
+  shape.setAttribute("stroke", "currentColor");
+  shape.setAttribute("stroke-width", "1.5");
+  svg.append(shape);
+  return svg;
+}
+
 function eyeIcon(open) {
   const path = open
     ? "M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5zm7 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
@@ -1430,8 +1443,8 @@ function detectedRow(item) {
     go.onclick = () => showSetting(route[1]);
     row.append(go);
   }
-  if (item.bus === "usb" && item.state !== "active") {
-    const info = el("button", { type: "button", textContent: "Send device info" });
+  {
+    const info = el("button", { type: "button", className: "send-info" }, sendIcon(), "Send device info");
     info.onclick = () => showInfo(item);
     row.append(info);
   }

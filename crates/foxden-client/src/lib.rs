@@ -93,6 +93,7 @@ enum Request<'a> {
     VirtualMic {
         action: &'a str,
     },
+    SmbusReport,
 }
 
 /// One device's colours in a `set_hub_lights` batch, as `rrggbb` hex.
@@ -231,6 +232,15 @@ impl Client {
     }
 
     /// Has the installed service install, remove or rename VB-CABLE; says what it did.
+    /// What each SMBus answers, read by the service.
+    pub fn smbus_report(&self) -> Result<Vec<String>, String> {
+        #[derive(Deserialize)]
+        struct Lines {
+            lines: Vec<String>,
+        }
+        Ok(self.ask::<Lines>(&Request::SmbusReport)?.lines)
+    }
+
     pub fn virtual_mic(&self, action: &str) -> Result<String, String> {
         #[derive(Deserialize)]
         struct Done {

@@ -24,11 +24,23 @@ pub struct Bus {
 impl Bus {
     /// The first SMBus found. Fails without PawnIO, without administrator rights or without a known controller.
     pub fn open() -> Result<Bus, String> {
-        Self::open_all()?.into_iter().next().ok_or_else(|| "no SMBus here".into())
+        Self::open_all()?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "no SMBus here".into())
     }
 
     /// Every SMBus this PC has: Intel, both AMD ports, and the Nuvoton SuperIO one.
     pub fn open_all() -> Result<Vec<Bus>, String> {
+        let (buses, why) = Self::open_each();
+        if buses.is_empty() {
+            return Err(format!("no SMBus here ({})", why.join("; ")));
+        }
+        Ok(buses)
+    }
+
+    /// The buses that opened, and why each of the others did not.
+    pub fn open_each() -> (Vec<Bus>, Vec<String>) {
         let mut buses = Vec::new();
         let mut why = Vec::new();
         let mut add = |name: &str, code: &[u8], port: Option<u64>| match Module::open(code) {
@@ -47,10 +59,7 @@ impl Bus {
         add("AMD SMBus port 0", SMBUS_PIIX4, Some(0));
         add("AMD SMBus port 1", SMBUS_PIIX4, Some(1));
         add("Nuvoton SMBus", SMBUS_NCT6793, None);
-        if buses.is_empty() {
-            return Err(format!("no SMBus here ({})", why.join("; ")));
-        }
-        Ok(buses)
+        (buses, why)
     }
 
     fn new(module: Module, name: &str, port: Option<u64>) -> Bus {
@@ -95,14 +104,12 @@ impl Bus {
             data.chunks_exact(8)
                 .map(|b| u64::from_le_bytes(b.try_into().unwrap())),
         );
-        let out = self
-            .lock
-            .run(|| {
-                if let Some(p) = self.port {
-                    self.module.execute("ioctl_piix4_port_sel", &[p], 1)?;
-                }
-                self.module.execute("ioctl_smbus_xfer", &input, 5)
-            })?;
+        let out = self.lock.run(|| {
+            if let Some(p) = self.port {
+                self.module.execute("ioctl_piix4_port_sel", &[p], 1)?;
+            }
+            self.module.execute("ioctl_smbus_xfer", &input, 5)
+        })?;
         for (i, value) in out.iter().enumerate().take(5) {
             data[i * 8..i * 8 + 8].copy_from_slice(&value.to_le_bytes());
         }

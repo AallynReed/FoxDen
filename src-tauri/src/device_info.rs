@@ -130,7 +130,9 @@ fn probe(vendor: u16, product: u16, collections: &[foxden_hid::Collection]) -> V
 
 #[tauri::command]
 pub async fn device_info(id: String, name: String) -> Result<String, String> {
-    let (vendor, product) = ids(&id).ok_or("Only USB devices can be reported.")?;
+    let Some((vendor, product)) = ids(&id) else {
+        return board_info(id, name).await;
+    };
     let collections =
         tauri::async_runtime::spawn_blocking(move || foxden_hid::describe(vendor, product))
             .await
@@ -155,6 +157,26 @@ pub async fn device_info(id: String, name: String) -> Result<String, String> {
             report["hidpp"] = hidpp.into();
         }
     }
+    serde_json::to_string_pretty(&report).map_err(|e| e.to_string())
+}
+
+/// Motherboards, memory and cards: what the SMBus answers, read by the service.
+async fn board_info(id: String, name: String) -> Result<String, String> {
+    let smbus = tauri::async_runtime::spawn_blocking(|| {
+        foxden_client::Client::new(foxden_client::PIPE, std::time::Duration::from_secs(30))
+            .smbus_report()
+            .unwrap_or_else(|e| vec![format!("service: {e}")])
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let report = json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "kind": "device-info",
+        "os": "windows",
+        "device": id,
+        "product": name,
+        "smbus": smbus,
+    });
     serde_json::to_string_pretty(&report).map_err(|e| e.to_string())
 }
 
