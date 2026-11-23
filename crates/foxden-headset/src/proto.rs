@@ -28,6 +28,7 @@ pub enum Family {
     Poly,
     /// HyperX headsets, HP or Kingston ids.
     HyperX,
+    TurtleBeach,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +116,7 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
         crate::jabra::VID => crate::jabra::model(pid),
         crate::poly::VID => crate::poly::model(pid),
         0x03F0 | 0x0951 => crate::hyperx::model(vid, pid),
+        crate::turtlebeach::VID => crate::turtlebeach::model(pid),
         _ => None,
     }
 }
@@ -135,6 +137,14 @@ pub enum Control {
     BusyLight,
     MicNoiseFilter,
     MicMute,
+    AncLevel,
+    NoiseGate,
+    NoiseGateLevel,
+    AiNoiseReduction,
+    Superhuman,
+    SuperhumanMode,
+    SuperhumanLevel,
+    WakeOnMotion,
 }
 
 impl Control {
@@ -153,6 +163,14 @@ impl Control {
             Control::BusyLight => "busy_light",
             Control::MicNoiseFilter => "mic_noise_filter",
             Control::MicMute => "mic_mute",
+            Control::AncLevel => "anc_level",
+            Control::NoiseGate => "noise_gate",
+            Control::NoiseGateLevel => "noise_gate_level",
+            Control::AiNoiseReduction => "ai_noise_reduction",
+            Control::Superhuman => "superhuman",
+            Control::SuperhumanMode => "superhuman_mode",
+            Control::SuperhumanLevel => "superhuman_level",
+            Control::WakeOnMotion => "wake_on_motion",
         }
     }
 }
@@ -232,6 +250,7 @@ impl Model {
             crate::jabra::VID => "Jabra",
             crate::poly::VID => "Poly",
             0x03F0 | 0x0951 => "HyperX",
+            crate::turtlebeach::VID => "Turtle Beach",
             _ => "SteelSeries",
         }
     }
@@ -338,16 +357,20 @@ impl Model {
             | Family::Nova3
             | Family::NovaElite => out = arctis::controls(self),
             Family::HyperX => out = crate::hyperx::controls(self),
+            Family::TurtleBeach => return crate::turtlebeach::controls(self),
         }
         out
     }
 
     pub fn has_eq(&self) -> bool {
-        matches!(self.family, Family::NovaPro | Family::Arctis7Plus)
+        matches!(self.family, Family::NovaPro | Family::Arctis7Plus) || crate::turtlebeach::has_eq(self)
     }
 
     /// The frames that set `c` to `v`, without the save. `Err` for a control this model lacks or a value out of range.
     pub fn set(&self, c: Control, v: i32) -> Result<Vec<Vec<u8>>, String> {
+        if self.family == Family::TurtleBeach {
+            return crate::turtlebeach::set(self, c, v);
+        }
         let shape = self
             .controls()
             .into_iter()
@@ -393,6 +416,9 @@ impl Model {
 
     /// Custom EQ, in half-dB steps per band: selects the custom slot, then sends the gains.
     pub fn eq(&self, bands: &[i32]) -> Result<Vec<Vec<u8>>, String> {
+        if self.family == Family::TurtleBeach {
+            return crate::turtlebeach::eq(self, bands);
+        }
         if !self.has_eq() {
             return Err(format!("{} has no custom EQ here", self.name));
         }
@@ -417,7 +443,8 @@ impl Model {
             | Family::Epos
             | Family::Jabra
             | Family::Poly
-            | Family::HyperX => Save::None,
+            | Family::HyperX
+            | Family::TurtleBeach => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
             Family::Arctis1
@@ -532,7 +559,8 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
         | Family::Epos
         | Family::Jabra
         | Family::Poly
-        | Family::HyperX => None,
+        | Family::HyperX
+        | Family::TurtleBeach => None,
         Family::Arctis1
         | Family::Arctis7
         | Family::Arctis7Plus
