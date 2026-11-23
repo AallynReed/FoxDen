@@ -18,6 +18,9 @@ const ON_BOARD_LED_0: u8 = 13;
 const PID_COMMON: u16 = 0x0076;
 /// LEDs given to each addressable header; the sync frame holds 40 per JRAINBOW.
 const HEADER_LEDS: usize = 40;
+/// Longest strip per header in per-header mode.
+const JRAINBOW1_MAX: usize = 200;
+const HEADER_MAX: usize = 240;
 const SYNC_JRAINBOW: u8 = 40;
 const SYNC_CORSAIR: u8 = 120;
 
@@ -352,15 +355,15 @@ impl Config185 {
     fn sized(&self, id: &str) -> Vec<(u8, usize)> {
         let mut out = self.leds();
         for (i, (zone, n)) in out.iter_mut().enumerate() {
-            let name = match *zone {
-                J_RAINBOW_1 => "JRAINBOW 1",
-                J_RAINBOW_2 => "JRAINBOW 2",
-                J_RAINBOW_3 => "JRAINBOW 3",
-                J_CORSAIR => "JCORSAIR",
+            let (name, max) = match *zone {
+                J_RAINBOW_1 => ("JRAINBOW 1", JRAINBOW1_MAX),
+                J_RAINBOW_2 => ("JRAINBOW 2", HEADER_MAX),
+                J_RAINBOW_3 => ("JRAINBOW 3", HEADER_MAX),
+                J_CORSAIR => ("JCORSAIR", HEADER_MAX),
                 _ => continue,
             };
             if self.mode == Direct::PerLed {
-                *n = crate::lengths::length(id, i, name, *n, 0, HEADER_LEDS);
+                *n = crate::lengths::length(id, i, name, *n, 0, max);
             }
         }
         out
@@ -389,7 +392,7 @@ impl Config185 {
         };
         let r1 = len(J_RAINBOW_1, at(41));
         let r2 = len(J_RAINBOW_2, at(52));
-        let r3 = len(J_RAINBOW_3, at(63));
+        let r3 = len(J_RAINBOW_3, at(63)).max(len(J_CORSAIR, 0));
         !(r1 > SYNC_JRAINBOW || r2 > SYNC_JRAINBOW || r3 > SYNC_CORSAIR)
     }
 
@@ -416,13 +419,13 @@ impl Config185 {
                 let c = colors.get(base + i).copied().unwrap_or(Color::BLACK);
                 let (packet, start, max) = match zone {
                     J_RAINBOW_1 if sync => (&mut main, r1_sync, SYNC_JRAINBOW as usize),
-                    J_RAINBOW_1 => (&mut r1, 0, 200),
+                    J_RAINBOW_1 => (&mut r1, 0, JRAINBOW1_MAX),
                     J_RAINBOW_2 if sync => (&mut main, r2_sync, SYNC_JRAINBOW as usize),
-                    J_RAINBOW_2 => (&mut r2, 0, 240),
+                    J_RAINBOW_2 => (&mut r2, 0, HEADER_MAX),
                     J_RAINBOW_3 | J_CORSAIR if sync => {
                         (&mut main, cors_sync, SYNC_CORSAIR as usize)
                     }
-                    J_RAINBOW_3 | J_CORSAIR => (&mut cors, 0, 240),
+                    J_RAINBOW_3 | J_CORSAIR => (&mut cors, 0, HEADER_MAX),
                     ON_BOARD_LED_0 => (&mut main, 0, self.onboard),
                     J_RGB_1 => (&mut main, jrgb, 1),
                     J_RGB_2 => (&mut main, jrgb + 1, 1),
@@ -2123,6 +2126,62 @@ mod tests {
         assert_eq!(feature(&ops[2])[5..8], [6, 0, 1]);
         let zoned = config_185(0x7B93).unwrap();
         assert_eq!(zoned.sized("hid:msi-185-test"), zoned.leds());
+    }
+
+    fn long_header(id: &str, zone: usize, set: usize) -> (Vec<(u8, usize)>, bool, Vec<Op>) {
+        let config = config_185(0x7C90).unwrap();
+        crate::lengths::set_one(id, zone, set);
+        let leds = config.sized(id);
+        let sync = config.sync(&leds, &defaults_185());
+        let n: usize = leds.iter().map(|z| z.1).sum();
+        let colors: Vec<Color> = (0..n).map(|i| Color(i as u8, 0, 1)).collect();
+        let ops = config.per_led_frames(&leds, sync, &colors);
+        (leds, sync, ops)
+    }
+
+    #[test]
+    fn jrainbow1_past_40_uses_per_header_mode() {
+        for (set, n) in [(41, 41), (200, 200), (300, 200)] {
+            let id = format!("hid:msi-185-r1-{set}");
+            let (leds, sync, ops) = long_header(&id, 1, set);
+            assert_eq!(leds[1], (J_RAINBOW_1, n));
+            assert!(!sync);
+            let p = enable_185(sync, true, true, true);
+            assert_eq!((p[31], p[41], p[82]), (0x25, 200, 0xB1));
+            assert_eq!(ops.len(), 7);
+            let r1 = feature(&ops[0]);
+            assert_eq!(r1[..5], [0x53, 0x25, 0x04, 0x00, 0x00]);
+            assert_eq!(r1[5..8], [1, 0, 1]);
+            assert_eq!(r1[5 + (n - 1) * 3..5 + n * 3], [n as u8, 0, 1]);
+            assert!(r1[5 + n * 3..].iter().all(|&b| b == 0));
+            assert_eq!(feature(&ops[2])[5..8], [(n + 1) as u8, 0, 1]);
+        }
+    }
+
+    #[test]
+    fn jcorsair_past_120_leaves_sync() {
+        let (leds, sync, ops) = long_header("hid:msi-185-cors-200", 3, 200);
+        assert_eq!(leds[3], (J_CORSAIR, 200));
+        assert!(!sync);
+        let cors = feature(&ops[4]);
+        assert_eq!(cors[..5], [0x53, 0x25, 0x05, 0x00, 0x00]);
+        assert_eq!(cors[5..8], [81, 0, 1]);
+        assert_eq!(cors[5 + 199 * 3..5 + 200 * 3], [24, 0, 1]);
+        assert!(cors[5 + 200 * 3..].iter().all(|&b| b == 0));
+        let (leds, _, _) = long_header("hid:msi-185-cors-999", 3, 999);
+        assert_eq!(leds[3], (J_CORSAIR, 240));
+    }
+
+    #[test]
+    fn headers_at_40_are_unchanged() {
+        let config = config_185(0x7C90).unwrap();
+        let leds = config.sized("hid:msi-185-default");
+        assert_eq!(leds, config.leds());
+        let mut s = defaults_185().to_vec();
+        s[52] = 40;
+        assert!(config.sync(&leds, &s));
+        crate::lengths::set_one("hid:msi-185-at-40", 1, 40);
+        assert_eq!(config.sized("hid:msi-185-at-40"), config.leds());
     }
 
     // Update() in non-sync mode: JRAINBOW1, JRAINBOW2, JCORSAIR packets with 13 ms gaps, then the main packet.
