@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
 
+use serde::{Deserialize, Serialize};
 use tiny_skia::{
     Color, FillRule, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform,
 };
@@ -20,6 +21,31 @@ pub struct Dev {
     pub leds: Vec<[f32; 2]>,
     pub enabled: bool,
     pub brightness: f32,
+}
+
+/// View options, kept per user in a file of their own.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewOpts {
+    pub snap: bool,
+    pub grid: f32,
+    pub labels: bool,
+    pub shapes: bool,
+    pub keys: bool,
+    pub zoom: f32,
+}
+
+impl Default for ViewOpts {
+    fn default() -> Self {
+        ViewOpts {
+            snap: false,
+            grid: 0.05,
+            labels: true,
+            shapes: true,
+            keys: true,
+            zoom: 1.0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -53,6 +79,9 @@ pub struct Canvas {
     pub selected: Option<String>,
     pub hover: Option<String>,
     pub light: bool,
+    pub view: ViewOpts,
+    /// 0 for the default pointer, 1 over a device, 2 over the resize handle.
+    pub cursor: i32,
     drag: Option<Drag>,
     w: f32,
     h: f32,
@@ -250,7 +279,7 @@ impl Canvas {
         self.devices.iter().find(|d| d.id == id)
     }
 
-    fn rect_of(&self, d: &Dev) -> [f32; 4] {
+    pub fn rect_of(&self, d: &Dev) -> [f32; 4] {
         match &self.drag {
             Some(drag) if drag.id == d.id => drag.rect,
             _ => d.rect,
@@ -305,8 +334,11 @@ impl Canvas {
         }
     }
 
-    pub fn moved(&mut self, px: f32, py: f32, pressed: bool) -> bool {
+    pub fn moved(&mut self, px: f32, py: f32, pressed: bool, alt: bool) -> bool {
         let (cw, ch) = (self.w - PAD * 2.0, self.h - PAD * 2.0);
+        let grid = self.view.grid.max(0.001);
+        let snap = self.view.snap && !alt;
+        let fit = |v: f32| if snap { (v / grid).round() * grid } else { v };
         match self.drag.as_mut() {
             Some(drag) if pressed && !drag.done => {
                 if !drag.moved && (px - drag.from.0).hypot(py - drag.from.1) < 3.0 {
@@ -316,24 +348,74 @@ impl Canvas {
                 let dy = (py - drag.from.1) / ch;
                 let [x, y, w, h] = drag.origin;
                 drag.rect = match drag.mode {
-                    Mode::Move => [clamp(x + dx, 0.0, 1.0 - w), clamp(y + dy, 0.0, 1.0 - h), w, h],
+                    Mode::Move => [
+                        clamp(fit(x + dx), 0.0, 1.0 - w),
+                        clamp(fit(y + dy), 0.0, 1.0 - h),
+                        w,
+                        h,
+                    ],
                     Mode::Resize => [
                         x,
                         y,
-                        clamp(w + dx, MIN_SIZE, 1.0 - x),
-                        clamp(h + dy, MIN_SIZE, 1.0 - y),
+                        clamp(fit(x + w + dx) - x, MIN_SIZE, 1.0 - x),
+                        clamp(fit(y + h + dy) - y, MIN_SIZE, 1.0 - y),
                     ],
                 };
                 drag.moved = true;
                 true
             }
             _ => {
-                let hover = self.hit(px, py).map(|(id, _)| id);
+                let hit = self.hit(px, py);
+                self.cursor = match hit {
+                    None => 0,
+                    Some((_, Mode::Move)) => 1,
+                    Some((_, Mode::Resize)) => 2,
+                };
+                let hover = hit.map(|(id, _)| id);
                 let changed = hover != self.hover;
                 self.hover = hover;
                 changed
             }
         }
+    }
+
+    pub fn leave(&mut self) -> bool {
+        self.cursor = 0;
+        self.hover.take().is_some()
+    }
+
+    /// Selects the next device in the list, or the previous one with -1.
+    pub fn select_next(&mut self, by: i32) -> Option<String> {
+        let n = self.devices.len() as i32;
+        if n == 0 {
+            return None;
+        }
+        let at = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.devices.iter().position(|d| &d.id == id));
+        let i = match at {
+            None if by > 0 => 0,
+            None => n - 1,
+            Some(i) => (i as i32 + by).rem_euclid(n),
+        };
+        let d = &self.devices[i as usize];
+        self.selected = Some(d.id.clone());
+        Some(d.name.clone())
+    }
+
+    /// The selected device's name and place, as the tool bar shows it.
+    pub fn readout(&self) -> String {
+        let Some(d) = self.selected.as_deref().and_then(|id| self.find(id)) else {
+            return String::new();
+        };
+        let r = self.rect_of(d);
+        let parts: Vec<String> = "XYWH"
+            .chars()
+            .zip(r)
+            .map(|(c, v)| format!("{c} {:.1}", v * 100.0))
+            .collect();
+        format!("{}  {}", d.name, parts.join("  "))
     }
 
     /// The rect to save once a drag ends, if the device moved.
@@ -396,12 +478,28 @@ impl Canvas {
             mask: None,
         };
         p.stroke_rect(ink.line, PAD - 0.5, PAD - 0.5, w - PAD * 2.0 + 1.0, h - PAD * 2.0 + 1.0);
+        if self.view.snap {
+            let (cw, ch) = (w - PAD * 2.0, h - PAD * 2.0);
+            let grid = self.view.grid.max(0.001);
+            let mut pb = PathBuilder::new();
+            let mut i = 1;
+            while i as f32 * grid < 0.9999 {
+                let x = (PAD + i as f32 * grid * cw).round() - 0.5;
+                let y = (PAD + i as f32 * grid * ch).round() - 0.5;
+                pb.move_to(x, PAD);
+                pb.line_to(x, PAD + ch);
+                pb.move_to(PAD, y);
+                pb.line_to(PAD + cw, y);
+                i += 1;
+            }
+            p.stroke(ink.line, 1.0, pb);
+        }
         let mut labels = Vec::new();
         for d in self.stack() {
             let [x, y, dw, dh] = self.to_px(self.rect_of(d));
             let selected = Some(&d.id) == self.selected.as_ref();
             let hovered = Some(&d.id) == self.hover.as_ref();
-            let shape = shape_of(d, dw, dh);
+            let shape = if self.view.shapes { shape_of(d, dw, dh) } else { "plate" };
             let edge = if selected {
                 ink.accent
             } else if hovered {
@@ -426,7 +524,7 @@ impl Canvas {
             labels.push(Label {
                 x,
                 y: y - 20.0,
-                width: dw.max(if selected || hovered { 240.0 } else { 0.0 }),
+                width: dw,
                 text: if d.enabled {
                     d.name.clone()
                 } else {
