@@ -1,0 +1,607 @@
+import { Theme, I18n, Cut } from "widgets.slint";
+
+export struct AudOpt {
+    value: string,
+    text: string,
+    off: bool,
+}
+
+export component Small inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+    vertical-alignment: center;
+}
+
+export component Num inherits Text {
+    color: Theme.text;
+    font-family: Theme.mono;
+    font-size: 12px;
+    horizontal-alignment: right;
+    vertical-alignment: center;
+}
+
+export component AudBtn inherits Rectangle {
+    in property <string> text;
+    in property <string> label: text;
+    in property <bool> pressed;
+    in property <bool> outline;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <bool> toggle;
+    in property <bool> expander;
+    in property <bool> mark;
+    in property <color> under: Theme.panel;
+    in property <length> h: 28px;
+    in property <length> pad: 10px;
+    callback clicked;
+    private property <bool> filled: (pressed && !mark) || primary;
+    height: h;
+    min-width: t.preferred-width + 2 * pad + (mark ? 12px : 0);
+    horizontal-stretch: 0;
+    background: filled ? (ta.has-hover && enabled ? Theme.accent.brighter(10%) : Theme.accent) : ta.pressed ? Theme.line : ta.has-hover && enabled ? Theme.hover : Theme.raised;
+    border-width: filled ? 0 : 1px;
+    border-color: fs.has-focus || outline || (pressed && mark) ? Theme.accent : Theme.stroke;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-checkable: toggle;
+    accessible-checked: toggle && pressed;
+    accessible-expandable: expander;
+    accessible-expanded: expander && pressed;
+    accessible-action-default => { if enabled { clicked(); } }
+    forward-focus: fs;
+    if mark && pressed: Rectangle {
+        x: root.pad;
+        y: (parent.height - 6px) / 2;
+        width: 6px;
+        height: 6px;
+        background: Theme.accent;
+    }
+    t := Text {
+        x: root.mark ? root.pad + 12px : root.pad;
+        width: parent.width - self.x - root.pad;
+        height: parent.height;
+        text: root.text;
+        font-size: 12px;
+        color: root.filled ? Theme.on-accent : root.outline ? Theme.accent : (root.pressed || ta.has-hover) && root.enabled ? Theme.text : root.mark ? Theme.muted : Theme.text;
+        horizontal-alignment: root.mark ? left : center;
+        vertical-alignment: center;
+    }
+    if filled && fs.has-focus: Rectangle {
+        x: 3px;
+        y: 3px;
+        width: parent.width - 6px;
+        height: parent.height - 6px;
+        border-width: 1px;
+        border-color: Theme.on-accent;
+    }
+    if pressed || primary: Cut { x: parent.width - self.size; under: root.under; }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { root.clicked(); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.clicked(); }
+    }
+}
+
+export component IconBtn inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <string> icon2;
+    in property <bool> enabled: true;
+    in property <bool> pressed;
+    in property <bool> toggle;
+    in property <bool> plain;
+    in property <length> size: 28px;
+    callback clicked;
+    width: size;
+    height: size;
+    background: ta.pressed ? Theme.line : ta.has-hover && enabled ? Theme.hover : plain ? transparent : Theme.raised;
+    border-width: 1px;
+    border-color: fs.has-focus ? Theme.accent : plain ? (ta.has-hover ? Theme.line : transparent) : Theme.stroke;
+    opacity: enabled ? 1 : 0.3;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-checkable: toggle;
+    accessible-checked: toggle && pressed;
+    accessible-action-default => { if enabled { clicked(); } }
+    forward-focus: fs;
+    for d in [icon, icon2]: Path {
+        x: (parent.width - 16px) / 2;
+        y: (parent.height - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: d;
+        stroke: root.plain && !ta.has-hover ? Theme.muted : Theme.text;
+        stroke-width: 1.5px;
+        visible: d != "";
+    }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { root.clicked(); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.clicked(); }
+    }
+}
+
+export component Check inherits Rectangle {
+    in property <string> text;
+    in property <string> label: text;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    in property <bool> small;
+    callback toggled(bool);
+    height: 24px;
+    min-width: t.preferred-width + 24px;
+    horizontal-stretch: 0;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { toggled(!checked); } }
+    forward-focus: fs;
+    Rectangle {
+        x: 0;
+        y: (parent.height - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        background: root.checked ? Theme.accent : Theme.field;
+        border-width: 1px;
+        border-color: fs.has-focus || root.checked ? Theme.accent : Theme.stroke;
+        if root.checked: Path {
+            width: 16px;
+            height: 16px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: "M3.5 8.5l3 3 6-7";
+            stroke: Theme.on-accent;
+            stroke-width: 1.8px;
+        }
+    }
+    t := Text {
+        x: 24px;
+        height: parent.height;
+        text: root.text;
+        color: Theme.text;
+        font-size: root.small ? 12px : 14px;
+        vertical-alignment: center;
+    }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == " " { root.toggled(!root.checked); return accept; }
+            reject
+        }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.toggled(!root.checked); }
+    }
+}
+
+export component ASlider inherits Rectangle {
+    in property <float> value;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> dim;
+    callback changed(float);
+    private property <float> dragged: value;
+    private property <float> shown: ta.pressed ? dragged : value;
+    private property <float> span: max(0.0001, maximum - minimum);
+    height: 24px;
+    min-width: 60px;
+    horizontal-stretch: 1;
+    opacity: enabled && !dim ? 1 : 0.5;
+    accessible-role: slider;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-value: round(shown / step) * step;
+    accessible-value-minimum: minimum;
+    accessible-value-maximum: maximum;
+    accessible-value-step: step;
+    accessible-action-increment => { nudge(1); }
+    accessible-action-decrement => { nudge(-1); }
+    forward-focus: fs;
+    function set-from(x: length) {
+        dragged = clamp(minimum + round((x - 4px) / (root.width - 8px) * span / step) * step, minimum, maximum);
+        changed(dragged);
+    }
+    function nudge(n: int) {
+        if enabled { changed(clamp(value + n * step, minimum, maximum)); }
+    }
+    Rectangle {
+        y: parent.height / 2 - 1px;
+        height: 2px;
+        background: Theme.stroke;
+    }
+    Rectangle {
+        x: (clamp(shown, minimum, maximum) - minimum) / span * (root.width - 8px);
+        y: 4px;
+        width: 8px;
+        height: 16px;
+        background: !root.enabled ? Theme.accent : ta.has-hover || ta.pressed || fs.has-focus ? Theme.accent : Theme.text;
+    }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == Key.LeftArrow || e.text == Key.DownArrow { nudge(-1); return accept; }
+            if e.text == Key.RightArrow || e.text == Key.UpArrow { nudge(1); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                fs.focus();
+                root.set-from(self.mouse-x);
+            }
+        }
+        moved => { if self.pressed { root.set-from(self.mouse-x); } }
+    }
+}
+
+export component VSlider inherits Rectangle {
+    in property <float> value;
+    in property <float> minimum: -12;
+    in property <float> maximum: 12;
+    in property <float> step: 0.5;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback changed(float);
+    private property <float> dragged: value;
+    private property <float> shown: ta.pressed ? dragged : value;
+    private property <float> span: max(0.0001, maximum - minimum);
+    width: 24px;
+    height: 120px;
+    opacity: enabled ? 1 : 0.4;
+    accessible-role: slider;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-value: round(shown / step) * step;
+    accessible-value-minimum: minimum;
+    accessible-value-maximum: maximum;
+    accessible-value-step: step;
+    accessible-action-increment => { nudge(1); }
+    accessible-action-decrement => { nudge(-1); }
+    forward-focus: fs;
+    function set-from(y: length) {
+        dragged = clamp(maximum - round((y - 4px) / (root.height - 8px) * span / step) * step, minimum, maximum);
+        changed(dragged);
+    }
+    function nudge(n: int) {
+        if enabled { changed(clamp(value + n * step, minimum, maximum)); }
+    }
+    Rectangle {
+        x: parent.width / 2 - 1px;
+        width: 2px;
+        background: Theme.stroke;
+    }
+    Rectangle {
+        x: 4px;
+        y: (maximum - clamp(shown, minimum, maximum)) / span * (root.height - 8px);
+        width: 16px;
+        height: 8px;
+        background: ta.has-hover || ta.pressed || fs.has-focus ? Theme.accent : Theme.text;
+    }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == Key.DownArrow || e.text == Key.LeftArrow { nudge(-1); return accept; }
+            if e.text == Key.UpArrow || e.text == Key.RightArrow { nudge(1); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                fs.focus();
+                root.set-from(self.mouse-y);
+            }
+        }
+        moved => { if self.pressed { root.set-from(self.mouse-y); } }
+    }
+}
+
+export component Meter inherits Rectangle {
+    in property <float> level;
+    height: 6px;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: Theme.field;
+    accessible-role: none;
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        height: parent.height - 2px;
+        width: (parent.width - 2px) * clamp(root.level, 0, 1);
+        background: Theme.accent;
+    }
+}
+
+export component GrBar inherits Rectangle {
+    in property <float> level;
+    in property <bool> up;
+    height: 6px;
+    min-width: 60px;
+    max-width: 140px;
+    horizontal-stretch: 1;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: Theme.bg;
+    Rectangle {
+        width: (parent.width - 2px) * clamp(root.level, 0, 1);
+        x: root.up ? 1px : parent.width - 1px - self.width;
+        y: 1px;
+        height: parent.height - 2px;
+        background: root.up ? Theme.text : Theme.accent;
+    }
+}
+
+export component Tag inherits Rectangle {
+    in property <string> text;
+    in property <int> tone;
+    in property <bool> cut;
+    in property <color> under: Theme.field;
+    height: 16px;
+    width: t.preferred-width + 10px;
+    border-width: 1px;
+    border-color: tone == 1 ? Theme.accent : tone == 2 ? Theme.danger : Theme.stroke;
+    t := Text {
+        x: 5px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        color: root.tone == 1 ? Theme.accent : root.tone == 2 ? Theme.danger : Theme.muted;
+        vertical-alignment: center;
+    }
+    if cut: Cut { x: parent.width - self.size; size: 5px; under: root.under; }
+}
+
+export component Mark inherits Rectangle {
+    in property <string> kind;
+    width: 8px;
+    height: 8px;
+    if root.kind == "on": Rectangle { background: Theme.accent; }
+    if root.kind == "warn": Path {
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M4 0L8 8L0 8Z";
+        fill: Theme.danger;
+        stroke-width: 0;
+    }
+    if root.kind == "none": Rectangle { y: 3px; height: 2px; background: Theme.text; }
+    if root.kind == "": Rectangle { border-width: 2px; border-color: Theme.text; }
+}
+
+export component Expander inherits Rectangle {
+    in property <string> title;
+    in property <string> count;
+    in property <bool> open;
+    callback toggled;
+    height: 34px;
+    background: ta.has-hover ? Theme.hover : Theme.raised;
+    accessible-role: button;
+    accessible-label: title;
+    accessible-expandable: true;
+    accessible-expanded: open;
+    accessible-action-default => { toggled(); }
+    forward-focus: fs;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        Text { text: root.open ? "−" : "+"; font-family: Theme.mono; color: Theme.text; vertical-alignment: center; }
+        Text { text: root.title; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+        if root.count != "": VerticalLayout {
+            alignment: center;
+            Tag { text: root.count; under: Theme.raised; }
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    if fs.has-focus: Rectangle { border-width: 1px; border-color: Theme.accent; }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { root.toggled(); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.toggled(); }
+    }
+}
+
+export component AField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> value;
+    in property <string> placeholder;
+    in property <string> label: placeholder;
+    in property <bool> mono;
+    in property <bool> enabled: true;
+    callback accepted(string);
+    height: 28px;
+    min-width: 48px;
+    horizontal-stretch: 1;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.stroke;
+    opacity: enabled ? 1 : 0.45;
+    forward-focus: input;
+    init => { if value != "" { text = value; } }
+    changed value => { if !input.has-focus { text = value; } }
+    input := TextInput {
+        x: 6px;
+        width: parent.width - 12px;
+        height: parent.height;
+        color: Theme.text;
+        font-size: 12px;
+        font-family: root.mono ? Theme.mono : "";
+        vertical-alignment: center;
+        single-line: true;
+        enabled: root.enabled;
+        accessible-label: root.label;
+        accepted => { root.accepted(self.text); }
+        changed has-focus => { if !self.has-focus && root.mono { root.accepted(self.text); } }
+    }
+    if input.text == "": Text {
+        x: 6px;
+        height: parent.height;
+        text: root.placeholder;
+        font-size: 12px;
+        color: Theme.muted;
+        vertical-alignment: center;
+    }
+}
+
+export component Choice inherits VerticalLayout {
+    in property <[AudOpt]> options;
+    in property <int> index;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> dashed;
+    in property <length> h: 28px;
+    callback picked(string);
+    property <bool> open;
+    min-width: 60px;
+    horizontal-stretch: 1;
+    accessible-role: combobox;
+    accessible-label: label;
+    accessible-value: options[index].text;
+    accessible-enabled: enabled;
+    accessible-expandable: true;
+    accessible-expanded: open;
+    accessible-action-expand => { if enabled { open = !open; } }
+    forward-focus: fs;
+    function step(n: int) {
+        if index + n >= 0 && index + n < options.length && !options[index + n].off { picked(options[index + n].value); }
+    }
+    Rectangle {
+        height: root.h;
+        background: ta.has-hover && root.enabled ? Theme.hover : Theme.raised;
+        border-width: 1px;
+        border-color: fs.has-focus || root.open ? Theme.accent : root.dashed ? Theme.line : Theme.stroke;
+        opacity: root.enabled ? 1 : 0.5;
+        Text {
+            x: 8px;
+            width: parent.width - 28px;
+            height: parent.height;
+            text: root.options[root.index].text;
+            color: root.dashed && !ta.has-hover && !fs.has-focus ? Theme.muted : Theme.text;
+            font-size: 12px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Path {
+            x: parent.width - 20px;
+            y: (parent.height - 8px) / 2;
+            width: 10px;
+            height: 8px;
+            viewbox-width: 10;
+            viewbox-height: 8;
+            commands: root.open ? "M 1 6 L 5 2 L 9 6" : "M 1 2 L 5 6 L 9 2";
+            stroke: Theme.muted;
+            stroke-width: 1.5px;
+        }
+        fs := FocusScope {
+            enabled: root.enabled;
+            key-pressed(e) => {
+                if e.text == Key.DownArrow && !root.dashed { root.step(1); return accept; }
+                if e.text == Key.UpArrow && !root.dashed { root.step(-1); return accept; }
+                if e.text == " " || e.text == Key.Return { root.open = !root.open; return accept; }
+                if e.text == Key.Escape && root.open { root.open = false; return accept; }
+                reject
+            }
+        }
+        ta := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => { fs.focus(); root.open = !root.open; }
+        }
+    }
+    if root.open: Rectangle {
+        background: Theme.raised;
+        border-width: 1px;
+        border-color: Theme.stroke;
+        VerticalLayout {
+            padding: 1px;
+            for option[i] in root.options: Rectangle {
+                height: 26px;
+                background: item.has-hover && !option.off ? Theme.hover : transparent;
+                accessible-role: list-item;
+                accessible-label: option.text;
+                accessible-enabled: !option.off;
+                accessible-item-selectable: !option.off;
+                accessible-item-selected: i == root.index;
+                accessible-action-default => { if !option.off { root.open = false; root.picked(option.value); } }
+                Rectangle {
+                    x: 0;
+                    width: 3px;
+                    background: i == root.index ? Theme.accent : transparent;
+                }
+                Text {
+                    x: 9px;
+                    width: parent.width - 12px;
+                    height: parent.height;
+                    text: option.text;
+                    font-size: 12px;
+                    color: option.off ? Theme.muted.with-alpha(0.5) : i == root.index ? Theme.text : Theme.muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                item := TouchArea {
+                    enabled: !option.off;
+                    mouse-cursor: pointer;
+                    clicked => { root.open = false; root.picked(option.value); }
+                }
+            }
+        }
+    }
+}
+
+export component Problem inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 6px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: text;
+    VerticalLayout {
+        padding-top: 4px;
+        alignment: start;
+        Path {
+            width: 8px;
+            height: 8px;
+            viewbox-width: 8;
+            viewbox-height: 8;
+            commands: "M4 0L8 8L0 8Z";
+            fill: Theme.danger;
+            stroke-width: 0;
+        }
+    }
+    Text { text: root.text; color: Theme.danger; font-size: 12px; wrap: word-wrap; horizontal-stretch: 1; }
+}
+
