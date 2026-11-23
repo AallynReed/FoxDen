@@ -64,6 +64,17 @@ function setText(node, text) {
   if (node.textContent !== text) node.textContent = text;
 }
 
+function svg(tag, attrs, ...children) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const name in attrs) node.setAttribute(name, attrs[name]);
+  node.append(...children);
+  return node;
+}
+
+const icon = (d, cls) => svg("svg", { viewBox: "0 0 16 16", width: 16, height: 16, "aria-hidden": "true", class: cls ? "aud-icon " + cls : "aud-icon" }, svg("path", { d }));
+
+const errText = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
+
 // A state is shown as a shape with its name beside it.
 function setState(node, mark, text) {
   if (node.dataset.state === mark + text) return;
@@ -1201,35 +1212,17 @@ function whenWords(layer) {
 }
 
 function sendIcon() {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("aria-hidden", "true");
-  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  shape.setAttribute("d", "M8 11V2M4.5 5.5L8 2l3.5 3.5M2 10v4h12v-4");
-  shape.setAttribute("fill", "none");
-  shape.setAttribute("stroke", "currentColor");
-  shape.setAttribute("stroke-width", "1.5");
-  svg.append(shape);
-  return svg;
+  const d = "M8 11V2M4.5 5.5L8 2l3.5 3.5M2 10v4h12v-4";
+  return svg("svg", { viewBox: "0 0 16 16", "aria-hidden": "true" }, svg("path", { d, fill: "none", stroke: "currentColor", "stroke-width": "1.5" }));
 }
 
 function eyeIcon(open) {
   const path = open
     ? "M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5zm7 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
     : "M2 2l12 12M6.5 3.2A7 7 0 0 1 8 3c4.5 0 7 5 7 5a12 12 0 0 1-2 2.6M10 12.6A7 7 0 0 1 8 13c-4.5 0-7-5-7-5a12 12 0 0 1 2.4-3";
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("aria-hidden", "true");
-  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  shape.setAttribute("d", path);
-  shape.setAttribute("fill", open ? "currentColor" : "none");
-  shape.setAttribute("fill-rule", "evenodd");
-  if (!open) {
-    shape.setAttribute("stroke", "currentColor");
-    shape.setAttribute("stroke-width", "1.5");
-  }
-  svg.append(shape);
-  return svg;
+  const attrs = { d: path, fill: open ? "currentColor" : "none", "fill-rule": "evenodd" };
+  if (!open) Object.assign(attrs, { stroke: "currentColor", "stroke-width": "1.5" });
+  return svg("svg", { viewBox: "0 0 16 16", "aria-hidden": "true" }, svg("path", attrs));
 }
 
 // Moves layer `from` to `to` (array indices, 0 at the bottom) and keeps it selected.

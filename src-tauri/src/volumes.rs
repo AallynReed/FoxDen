@@ -13,6 +13,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::mixer::Mixer;
+use crate::state::lock;
 
 type Job = Box<dyn FnOnce(&mut Volumes) + Send>;
 
@@ -51,7 +52,7 @@ fn worker() -> Result<Sender<Job>, String> {
             });
         Mutex::new(tx)
     });
-    Ok(tx.lock().unwrap_or_else(|e| e.into_inner()).clone())
+    Ok(lock(tx).clone())
 }
 
 fn run<T: Send + 'static>(

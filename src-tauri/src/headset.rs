@@ -121,18 +121,12 @@ fn save_later(f: Found) {
         return;
     }
     let stamp = Instant::now();
-    PENDING
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    lock(&PENDING)
         .get_or_insert_with(HashMap::new)
         .insert(f.key.clone(), stamp);
     thread::spawn(move || {
         thread::sleep(SETTLE);
-        let last = PENDING
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .and_then(|p| p.get(&f.key).copied());
+        let last = lock(&PENDING).as_ref().and_then(|p| p.get(&f.key).copied());
         if last != Some(stamp) {
             return;
         }
@@ -281,7 +275,7 @@ pub fn spawn_dial(app: AppHandle) {
                 .find_map(|s| s.chatmix)
                 .map(|(game, chat)| Dial { game, chat });
             let changed = {
-                let mut last = DIAL.lock().unwrap_or_else(|e| e.into_inner());
+                let mut last = lock(&DIAL);
                 std::mem::replace(&mut *last, now) != now
             };
             if changed {
@@ -301,5 +295,5 @@ pub fn spawn_dial(app: AppHandle) {
 
 #[tauri::command]
 pub fn headset_dial() -> Option<Dial> {
-    *DIAL.lock().unwrap_or_else(|e| e.into_inner())
+    *lock(&DIAL)
 }

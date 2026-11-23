@@ -2,11 +2,13 @@
 
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde_json::{Value, json};
+
+use crate::state::lock;
 
 const URL: &str = "https://reports.foxhearth.com/v1/foxden";
 const MOST: usize = 20;
@@ -18,17 +20,13 @@ static HELD_OFF: AtomicBool = AtomicBool::new(false);
 static SENT: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static DEVICES: Mutex<Vec<Value>> = Mutex::new(Vec::new());
 
-fn guard<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 pub fn set_enabled(on: bool) {
     ON.store(on, Ordering::Relaxed);
 }
 
 /// Hardware ids such as `usb:046d:c355` and what drives them, sent with each report.
 pub fn set_devices(devices: impl Iterator<Item = (String, String)>) {
-    *guard(&DEVICES) = devices
+    *lock(&DEVICES) = devices
         .map(|(id, driver)| json!({ "id": id, "driver": driver }))
         .collect();
 }
@@ -45,7 +43,7 @@ fn send(kind: &str, source: &str, text: &str) {
     }
     let text = scrub(text);
     {
-        let mut sent = guard(&SENT);
+        let mut sent = lock(&SENT);
         let sent = sent.get_or_insert_with(HashSet::new);
         if sent.len() >= MOST || !sent.insert(format!("{kind}|{source}|{text}")) {
             return;
@@ -57,7 +55,7 @@ fn send(kind: &str, source: &str, text: &str) {
         "os": "windows",
         "source": source,
         "error": text,
-        "devices": guard(&DEVICES).clone(),
+        "devices": lock(&DEVICES).clone(),
     });
     tauri::async_runtime::spawn(async move {
         let Ok(client) = reqwest::Client::builder()
@@ -344,6 +342,6 @@ mod tests {
     fn nothing_is_sent_while_reports_are_off() {
         set_enabled(false);
         send("error", "test", "boom");
-        assert!(guard(&SENT).as_ref().is_none_or(|s| s.is_empty()));
+        assert!(lock(&SENT).as_ref().is_none_or(|s| s.is_empty()));
     }
 }

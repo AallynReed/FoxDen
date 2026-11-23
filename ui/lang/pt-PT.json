@@ -161,6 +161,7 @@
  "Bypass": "Ignorar",
  "COM3": "COM3",
  "CPU": "CPU",
+ "CPU (board)": "CPU (placa principal)",
  "CPU calibrated": "CPU calibrado",
  "CPU core": "Núcleo do CPU",
  "CPU cores": "Núcleos do CPU",

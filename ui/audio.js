@@ -40,30 +40,10 @@
   let watching = false;
   let shown = [0, 0, 0, 0, 0];
 
-  const message = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
   const pct = (v) => Math.round(v * 100);
   const visible = () => !root.hidden && !document.hidden;
   const lower = (s) => s.toLowerCase();
   const shortName = (exe) => exe.replace(/\.exe$/i, "");
-
-  function el(tag, props, ...children) {
-    const node = Object.assign(document.createElement(tag), props);
-    node.append(...children);
-    return node;
-  }
-
-  function svg(tag, attrs, ...children) {
-    const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
-    for (const name in attrs) node.setAttribute(name, attrs[name]);
-    node.append(...children);
-    return node;
-  }
-
-  const icon = (d) => svg("svg", { viewBox: "0 0 16 16", width: 16, height: 16, "aria-hidden": "true", class: "aud-icon" }, svg("path", { d }));
-
-  function setText(node, text) {
-    if (node.textContent !== text) node.textContent = text;
-  }
 
   function say(node, text) {
     node.hidden = !text;
@@ -320,7 +300,7 @@
     try {
       takePriority(await invoke("get_priority"));
     } catch (e) {
-      say(mx.problem, message(e));
+      say(mx.problem, errText(e));
     }
   }
 
@@ -332,7 +312,7 @@
       takePriority(await invoke("set_priority", { priority: cfg }));
       loadMixer(false);
     } catch (e) {
-      say(mx.problem, message(e));
+      say(mx.problem, errText(e));
     }
   }
 
@@ -559,7 +539,7 @@
         take(await invoke("virtual_mic_install"));
         vm.sheet.close();
       } catch (e) {
-        say(vm.progress, message(e));
+        say(vm.progress, errText(e));
       } finally {
         vm.install.disabled = false;
       }
@@ -576,7 +556,7 @@
         take(await invoke("virtual_mic_remove"));
         say(vm.outcome, "Removed. Restart Windows to finish.");
       } catch (e) {
-        say(vm.outcome, message(e));
+        say(vm.outcome, errText(e));
       } finally {
         vm.remove.disabled = false;
       }
@@ -886,7 +866,7 @@
       const code = await invoke("sound_code", { profile: shareable() });
       say(pf.note, await copyShare(code, pf.code));
     } catch (e) {
-      say(pf.note, message(e));
+      say(pf.note, errText(e));
     }
   }
 
@@ -903,7 +883,7 @@
       pf.current = profile.name;
       say(pf.note, "Added " + profile.name + " (" + (profile.kind === "mic" ? "mic" : "output") + ").");
     } catch (e) {
-      say(pf.note, message(e));
+      say(pf.note, errText(e));
     }
   }
 
@@ -1287,7 +1267,7 @@
       take(await invoke("mixer_set", { change }));
       say(mx.problem, problemText());
     } catch (e) {
-      say(mx.problem, message(e));
+      say(mx.problem, errText(e));
       loadMixer(false);
     }
   }
@@ -1318,7 +1298,7 @@
       take(await invoke("get_mixer", { rescan }));
       say(mx.problem, problemText());
     } catch (e) {
-      say(mx.problem, message(e));
+      say(mx.problem, errText(e));
     }
   }
 

@@ -176,8 +176,9 @@ pub struct AppState {
 
 pub type Shared = Arc<Mutex<AppState>>;
 
-pub fn lock(shared: &Shared) -> MutexGuard<'_, AppState> {
-    shared.lock().unwrap_or_else(|e| e.into_inner())
+/// Locks a mutex, recovering it if a panicking thread poisoned it.
+pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl AppState {
@@ -368,7 +369,7 @@ static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
 
 /// Writes what changed since the last snapshot to the log.
 fn note_changes(snapshot: &Snapshot) {
-    let mut guard = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = lock(&SEEN);
     let seen = guard.get_or_insert_with(Seen::default);
     let now: HashMap<String, String> = snapshot
         .devices
