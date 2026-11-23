@@ -139,6 +139,18 @@ fn copy_text(text: &str) -> bool {
     }
 }
 
+/// Follows a language change while the window is open.
+pub fn set_lang(app: &AppHandle, lang: &str) {
+    LOGS.with_borrow(|slot| {
+        let Some(o) = slot else { return };
+        let i18n = o.win.global::<I18n>();
+        if i18n.get_lang() != lang {
+            i18n.set_lang(lang.into());
+            render(app, o);
+        }
+    });
+}
+
 pub fn open(app: &AppHandle) {
     let shown_already = LOGS.with_borrow(|slot| {
         slot.as_ref().is_some_and(|o| {
