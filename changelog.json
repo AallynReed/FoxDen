@@ -1,5 +1,26 @@
 [
  {
+  "version": "0.19.0",
+  "date": "2026-11-23",
+  "added": [
+   "Fans go to full speed if the CPU or graphics card gets critically hot, whatever the fan curve says"
+  ],
+  "changed": [
+   "Uses less than half the CPU in the tray",
+   "Only the person at the PC, or an administrator, can change fans and lighting",
+   "A fan's maximum can't be set below 20%, and pumps never run below 50%",
+   "FoxDen installs into a folder named FoxDen that only administrators can change",
+   "Updates are checked more strictly before they install"
+  ],
+  "fixed": [
+   "A damaged or locked settings file no longer resets your settings or stops FoxDen from starting",
+   "A faulty device or network light can no longer freeze or crash FoxDen",
+   "A lighting driver that fails reconnects instead of leaving its devices frozen",
+   "The changelog after an update no longer comes back after changing device settings",
+   "Missing translations in the app"
+  ]
+ },
+ {
   "version": "0.18.2",
   "date": "2026-11-23",
   "added": [
