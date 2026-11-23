@@ -9,7 +9,7 @@ use foxden_fan::FanBackend;
 use foxden_hid::registry::Detector;
 use foxden_net::NetConfig;
 
-/// Every HID lighting detector this crate adds, for `foxden_hid::probe_with`.
+/// Every HID lighting detector this crate adds, for `foxden_hid::probe_picked`.
 pub fn detectors() -> Vec<&'static Detector> {
     groups::detectors()
 }
