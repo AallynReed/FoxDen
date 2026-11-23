@@ -569,7 +569,7 @@ fn close_conflicts(app: &AppHandle, settings: &Settings) {
             .notification()
             .builder()
             .title("FoxDen")
-            .body(crate::i18n::tr(&app, &report.text))
+            .body(crate::i18n::tr(app, &report.text))
             .show();
     }
 }

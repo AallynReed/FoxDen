@@ -375,8 +375,8 @@ fn take_vols(s: &mut St, mut view: Value) {
         let Some(rows) = view[list].as_array_mut() else { continue };
         for r in rows {
             let key = vol_key(prefix, r);
-            if s.held(&format!("v{key}")) || s.held(&format!("m{key}")) {
-                if let Some(old) = s.vols[list].as_array().and_then(|l| l.iter().find(|o| vol_key(prefix, o) == key)) {
+            if (s.held(&format!("v{key}")) || s.held(&format!("m{key}")))
+                && let Some(old) = s.vols[list].as_array().and_then(|l| l.iter().find(|o| vol_key(prefix, o) == key)) {
                     if s.held(&format!("v{key}")) {
                         r["volume"] = old["volume"].clone();
                     }
@@ -384,7 +384,6 @@ fn take_vols(s: &mut St, mut view: Value) {
                         r["muted"] = old["muted"].clone();
                     }
                 }
-            }
             let peak = s.peaks.get(&key).copied().unwrap_or(0.0);
             s.peaks.insert(key, f(&r["peak"]).max(peak * 0.7));
         }
@@ -539,11 +538,10 @@ fn start_timer(w: &AppWindow, app: &AppHandle) {
 
 fn stop_timer() {
     let _ = ST.try_with(|s| {
-        if let Ok(s) = s.try_borrow() {
-            if let Some(t) = &s.timer {
+        if let Ok(s) = s.try_borrow()
+            && let Some(t) = &s.timer {
                 t.stop();
             }
-        }
     });
 }
 
@@ -672,23 +670,21 @@ fn act(app: &AppHandle, what: &str, x: &str, y: &str) {
             let (i, to) = (x.parse::<i64>().unwrap_or(-1), y.parse::<i64>().unwrap_or(-1));
             let list = st(|s| prio_list(s));
             send_priority(app, |c| {
-                if let Some(l) = c[list].as_array_mut() {
-                    if i >= 0 && to >= 0 && (i as usize) < l.len() && (to as usize) < l.len() {
+                if let Some(l) = c[list].as_array_mut()
+                    && i >= 0 && to >= 0 && (i as usize) < l.len() && (to as usize) < l.len() {
                         let e = l.remove(i as usize);
                         l.insert(to as usize, e);
                     }
-                }
             });
         }
         "prio-remove" => {
             let i = x.parse::<usize>().unwrap_or(usize::MAX);
             let list = st(|s| prio_list(s));
             send_priority(app, |c| {
-                if let Some(l) = c[list].as_array_mut() {
-                    if i < l.len() {
+                if let Some(l) = c[list].as_array_mut()
+                    && i < l.len() {
                         l.remove(i);
                     }
-                }
             });
         }
         "sheet-cancel" => {

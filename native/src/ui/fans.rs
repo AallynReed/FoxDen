@@ -528,7 +528,7 @@ fn edit(st: &mut St, f: impl FnOnce(&mut St)) {
 }
 
 fn undo(st: &mut St) {
-    if st.pending != "" {
+    if !st.pending.is_empty() {
         return;
     }
     let Some(last) = st.past.pop() else {
@@ -542,7 +542,7 @@ fn undo(st: &mut St) {
 }
 
 fn revert(st: &mut St) {
-    if !st.edited() || st.pending != "" {
+    if !st.edited() || !st.pending.is_empty() {
         return;
     }
     st.past.push(tidy(&st.draft));
@@ -900,7 +900,7 @@ fn fault(st: &St) -> Option<(Option<usize>, String, String)> {
 }
 
 fn send(st: &mut St) {
-    if !st.edited() || st.pending != "" || !st.running() {
+    if !st.edited() || !st.pending.is_empty() || !st.running() {
         return;
     }
     // Nothing is sent while the draft has a fault this tab can see. The key or button leads to it instead.
@@ -982,14 +982,9 @@ fn plain(st: &St, text: &str) -> String {
             "{0}: the minimum must not be above the maximum, and both must be from 0 to 100%.",
             &[&st.fan_name(f)],
         ))
-    } else if let Some(f) = text
+    } else { text
         .strip_prefix("fan '")
-        .and_then(|m| m.rfind("' ramp must be ").map(|end| &m[..end]))
-    {
-        Some(tf(st, "{0}: the ramp must be at least 1% per second.", &[&st.fan_name(f)]))
-    } else {
-        None
-    };
+        .and_then(|m| m.rfind("' ramp must be ").map(|end| &m[..end])).map(|f| tf(st, "{0}: the ramp must be at least 1% per second.", &[&st.fan_name(f)])) };
     match said {
         Some(said) => tf(st, "Not applied. {0}", &[&said]),
         None => tf(st, "Not applied. {0}.", &[&sentence(text)]),
@@ -1341,7 +1336,7 @@ fn render(st: &mut St, w: &AppWindow) {
     g.set_detail(detail.into());
     g.set_show_start(has_state && !running);
     g.set_show_stop(has_state && state != "stopped");
-    g.set_busy(st.pending != "");
+    g.set_busy(!st.pending.is_empty());
     g.set_service_problem(st.told("service", "").into());
     g.set_show_notice(has_state && !(running && !st.live.fans.is_empty()));
     g.set_show_offline(has_state && !running && !edited);
@@ -1440,8 +1435,8 @@ fn render_sensors(st: &St, w: &AppWindow, inner: f32) {
         }
         if named {
             tiles.push(FanTile {
-                x: x.into(),
-                y: y.into(),
+                x,
+                y,
                 w: gw,
                 head: true,
                 name: tr(st, name).into(),

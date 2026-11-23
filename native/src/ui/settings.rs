@@ -684,7 +684,7 @@ fn net_field(app: &AppHandle, ci: i32, fi: i32, text: &str, commit: bool) {
         });
         return;
     }
-    with_win(|w| net_problems(w));
+    with_win(net_problems);
 }
 
 fn net_problems(w: &AppWindow) {
