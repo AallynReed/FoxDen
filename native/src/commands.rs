@@ -201,6 +201,7 @@ pub fn set_settings(
     let wanted = |s: &Settings| s.lighting_module || s.fans_module;
     let (machine, wanted) = (wanted(&settings) != wanted(&old), wanted(&settings));
     let conflicts = settings.close_conflicts && !old.close_conflicts;
+    let ai = (settings.ai_access != old.ai_access).then_some(settings.ai_access);
     let backup = update(&app, &shared, |s| {
         s.config.settings = settings;
         Ok(())
@@ -211,6 +212,9 @@ pub fn set_settings(
     }
     if machine {
         modules::apply(&app, wanted);
+    }
+    if let Some(on) = ai {
+        crate::mcp::set_enabled(&app, on);
     }
     if kinds.any() {
         queue(&jobs, Job::Reload(kinds))?;

@@ -80,6 +80,9 @@ export global SettingsPage {
     in property <bool> auto-update;
     in property <bool> close-conflicts;
     in property <bool> send-reports;
+    in property <bool> ai-access;
+    in property <string> ai-copied;
+    callback copy-ai-setup();
     callback set-flag(string, bool);
 
     in property <string> modules-outcome;
@@ -750,6 +753,18 @@ component ReportsBox inherits Section {
     }
 }
 
+component AiBox inherits Section {
+    title: I18n.t("AI assistants");
+    Switch { label: I18n.t("Let AI assistants control FoxDen"); on: SettingsPage.ai-access; toggled(v) => { SettingsPage.set-flag("ai_access", v); } }
+    Hint { text: I18n.t("Apps like Claude Desktop can change lighting, profiles and audio, and read sensors. Fan curves stay off limits."); }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button { text: I18n.t("Copy setup"); clicked => { SettingsPage.copy-ai-setup(); } }
+        if SettingsPage.ai-copied != "": Text { text: SettingsPage.ai-copied; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+    }
+}
+
 component BackendsBox inherits Section {
     title: I18n.t("Backends");
     VerticalLayout {
@@ -846,6 +861,11 @@ export component SettingsPanel inherits Scroll {
         HorizontalLayout {
             spacing: 16px;
             alignment: start;
+            AiBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
             BackendsBox { width: root.col-width; }
         }
     }
@@ -895,6 +915,7 @@ export component SettingsPanel inherits Scroll {
             spacing: 16px;
             alignment: start;
             BackendsBox { width: root.col-width; }
+            AiBox { width: root.col-width; }
         }
     }
     if root.cols == 3: VerticalLayout {
@@ -935,6 +956,7 @@ export component SettingsPanel inherits Scroll {
             spacing: 16px;
             alignment: start;
             BackendsBox { width: root.col-width; }
+            AiBox { width: root.col-width; }
         }
     }
 }

@@ -1,5 +1,5 @@
 ; Installer for the native FoxDen build. Same folder, uninstall entry and hooks as the earlier installer.
-; makensis /DVERSION=x.y.z /DAPP=<foxden-native.exe> /DSERVICE=<foxden-service.exe> /DOUT=<setup.exe> packaging\native.nsi
+; makensis /DVERSION=x.y.z /DAPP=<foxden-native.exe> /DSERVICE=<foxden-service.exe> /DMCP=<foxden-mcp.exe> /DOUT=<setup.exe> packaging\native.nsi
 
 Unicode true
 ManifestDPIAware true
@@ -106,6 +106,7 @@ Section "FoxDen" Main
   !insertmacro LOCK_INSTDIR
   File "/oname=foxden.exe" "${APP}"
   File "/oname=foxden-service.exe" "${SERVICE}"
+  File "/oname=foxden-mcp.exe" "${MCP}"
   File "/oname=PawnIO_setup.exe" "${PAWNIO}"
   File "/oname=LICENSE.txt" "..\LICENSE"
   File "/oname=NOTICE.txt" "..\NOTICE"
@@ -132,8 +133,10 @@ Section "Uninstall"
   SetShellVarContext all
   !insertmacro NSIS_HOOK_PREUNINSTALL
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM foxden.exe'
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM foxden-mcp.exe'
   Delete "$INSTDIR\foxden.exe"
   Delete "$INSTDIR\foxden-service.exe"
+  Delete "$INSTDIR\foxden-mcp.exe"
   Delete "$INSTDIR\PawnIO_setup.exe"
   Delete "$INSTDIR\LICENSE.txt"
   Delete "$INSTDIR\NOTICE.txt"

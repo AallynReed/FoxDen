@@ -1078,6 +1078,7 @@ mod tests {
         assert_eq!(
             keys(&json["settings"]),
             [
+                "ai_access",
                 "auto_detect",
                 "auto_update",
                 "autostart",

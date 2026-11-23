@@ -7,7 +7,9 @@ ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "native" / "ui"
 # Files whose short capitalised strings are labels shown in the UI: effects, settings, presets.
 LABELS = {"effect.rs", "post.rs", "proto.rs", "turtlebeach.rs", "profiles.rs", "presets.rs", "dsp.rs", "chain.rs", "razer.rs"}
-RUST = [ROOT / "native" / "src", *sorted((ROOT / "crates").glob("*/src"))]
+# Text for AI assistants, never shown in the window.
+NOT_UI = {ROOT / "crates" / "foxden-mcp" / "src", ROOT / "native" / "src" / "mcp.rs"}
+RUST = [ROOT / "native" / "src", *(d for d in sorted((ROOT / "crates").glob("*/src")) if d not in NOT_UI)]
 
 def wordy(s):
     s = s.strip()
@@ -112,7 +114,7 @@ def rust_strings():
     """Each string literal outside tests and comments, with its file."""
     for d in RUST:
         for f in sorted(d.rglob("*.rs")):
-            if f.name == "tests.rs" or "tests" in f.parts:
+            if f.name == "tests.rs" or "tests" in f.parts or f in NOT_UI:
                 continue
             text, i = strip_test_mods(f.read_text(encoding="utf-8")), 0
             while i < len(text):

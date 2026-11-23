@@ -593,6 +593,7 @@ pub fn event(w: &AppWindow, app: &AppHandle, view: &mut View, name: &str) {
                 load_mixer(app, false);
             }
         }
+        "mixer" if st(|s| s.mix.is_object()) => load_mixer(app, false),
         _ => {}
     }
 }

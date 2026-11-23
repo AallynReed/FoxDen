@@ -59,6 +59,8 @@ pub struct Settings {
     pub battery_tray: bool,
     /// A notification when a wireless device's battery runs low.
     pub battery_alerts: bool,
+    /// Lets AI assistants use FoxDen through foxden-mcp.exe.
+    pub ai_access: bool,
 }
 
 impl Default for Settings {
@@ -89,6 +91,7 @@ impl Default for Settings {
             send_reports: false,
             battery_tray: true,
             battery_alerts: true,
+            ai_access: false,
         }
     }
 }

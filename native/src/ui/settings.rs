@@ -370,6 +370,14 @@ fn value_text(v: &Value) -> String {
     }
 }
 
+/// The MCP client config that starts foxden-mcp.exe from beside this app.
+fn ai_setup() -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let command = exe.with_file_name("foxden-mcp.exe");
+    let config = json!({"mcpServers": {"foxden": {"command": command.to_string_lossy()}}});
+    serde_json::to_string_pretty(&config).map_err(|e| e.to_string())
+}
+
 pub fn bind(w: &AppWindow, app: &AppHandle) {
     local(|l| {
         l.net_key.clear();
@@ -397,6 +405,17 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
         } else {
             edit_settings(&a, |s| s[key.as_str()] = json!(on));
         }
+    });
+
+    let a = app.clone();
+    g.on_copy_ai_setup(move || match ai_setup().and_then(|text| super::clipboard::copy(&text)) {
+        Ok(()) => {
+            with_win(|w| w.global::<SettingsPage>().set_ai_copied(tr(&a, "Copied").into()));
+            slint::Timer::single_shot(Duration::from_secs(3), || {
+                with_win(|w| w.global::<SettingsPage>().set_ai_copied("".into()));
+            });
+        }
+        Err(e) => report(Err(e)),
     });
 
     let a = app.clone();
@@ -1366,6 +1385,7 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
     g.set_auto_update(flag("auto_update", false));
     g.set_close_conflicts(flag("close_conflicts", false));
     g.set_send_reports(flag("send_reports", false));
+    g.set_ai_access(flag("ai_access", false));
     g.set_version(s(&snap["version"]));
 
     let fps = settings["fps"].as_i64().unwrap_or(30);

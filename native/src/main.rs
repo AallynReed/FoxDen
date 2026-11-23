@@ -14,6 +14,7 @@ mod i18n;
 mod key_maps;
 mod keys;
 mod links;
+mod mcp;
 mod mixer;
 mod modules;
 mod priority;
@@ -142,6 +143,7 @@ fn main() {
     }
     app.manage(state::spawn_worker(app.clone(), shared.clone()));
     app.manage(mixer::Mixer::start(shared.clone()));
+    mcp::set_enabled(&app, settings.ai_access);
     headset::spawn_dial(app.clone());
     priority::spawn(app.clone());
     state::spawn_render(app.clone(), shared.clone());

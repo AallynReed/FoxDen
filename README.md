@@ -104,6 +104,13 @@ OpenRGB can optionally drive anything else through its server.
   Italian, Ukrainian, Dutch and Czech
 - Starts with Windows and updates itself
 
+## AI assistants
+
+Apps like Claude Desktop can change your lighting, profiles and audio mix, and read temperatures,
+fan speeds and batteries. It is off until you turn on "Let AI assistants control FoxDen" in
+Settings; "Copy setup" then copies the entry to paste into the app's MCP config. Fan curves stay
+off limits.
+
 ## Lightweight
 
 FoxDen is a native Windows app that lives in the tray, and it only does work when something

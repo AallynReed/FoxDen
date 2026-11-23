@@ -1,0 +1,18 @@
+[package]
+name = "foxden-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "foxden-mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+] }

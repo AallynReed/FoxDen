@@ -43,6 +43,8 @@
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM foxden-service.exe'
   ; An app still exiting after starting the update would make the running-app check fail.
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM foxden.exe'
+  ; An AI app keeps this running, which would lock the file.
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM foxden-mcp.exe'
   Sleep 1500
 !macroend
 

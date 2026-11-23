@@ -44,8 +44,8 @@ Updates run the installer with `/P /UPDATE`: it skips its pages and starts the a
 
 ```powershell
 Invoke-WebRequest https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe -OutFile packaging/PawnIO_setup.exe
-cargo build --release -p foxden-native -p foxden-service
-makensis /DVERSION=0.18.0 /DAPP=target\release\foxden-native.exe /DSERVICE=target\release\foxden-service.exe /DPAWNIO=packaging\PawnIO_setup.exe /DOUT=FoxDen-setup.exe packaging\native.nsi
+cargo build --release -p foxden-native -p foxden-service -p foxden-mcp
+makensis /DVERSION=0.18.0 /DAPP=target\release\foxden-native.exe /DSERVICE=target\release\foxden-service.exe /DMCP=target\release\foxden-mcp.exe /DPAWNIO=packaging\PawnIO_setup.exe /DOUT=FoxDen-setup.exe packaging\native.nsi
 ```
 
 ## Icons
