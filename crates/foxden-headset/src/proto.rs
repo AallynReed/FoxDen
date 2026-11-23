@@ -1,5 +1,5 @@
-//! Frames and replies of the SteelSeries Arctis Nova headsets, and the controls of Corsair Bragi
-//! headsets. Pure: no device access.
+//! Frames and replies of the SteelSeries Arctis Nova headsets, the controls of Corsair Bragi
+//! headsets, and the model table that leads to the other brands' modules. Pure: no device access.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,9 @@ pub enum Family {
     NovaPro,
     /// Corsair headsets: every setting is a Bragi property.
     Bragi,
+    AstroGen4,
+    AstroGen5,
+    Audeze,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +94,9 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
                 wireless: c.wireless || receiver.is_some(),
             })
         }
+        crate::astro::VID => crate::astro::model(vid, pid),
+        0x046D if pid == crate::astro::GEN5_PID => crate::astro::model(vid, pid),
+        crate::audeze::VID => crate::audeze::model(pid),
         _ => None,
     }
 }
@@ -107,6 +113,8 @@ pub enum Control {
     BtCall,
     EqPreset,
     Anc,
+    NoiseGate,
+    VoicePrompts,
 }
 
 impl Control {
@@ -121,6 +129,8 @@ impl Control {
             Control::BtCall => "bt_call",
             Control::EqPreset => "eq_preset",
             Control::Anc => "anc",
+            Control::NoiseGate => "noise_gate",
+            Control::VoicePrompts => "voice_prompts",
         }
     }
 }
@@ -193,6 +203,11 @@ pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
     pub fn brand(&self) -> &'static str {
+        match self.family {
+            Family::AstroGen4 | Family::AstroGen5 => return "ASTRO",
+            Family::Audeze => return "Audeze",
+            _ => {}
+        }
         if self.vid == 0x1B1C {
             "Corsair"
         } else {
@@ -213,6 +228,9 @@ impl Model {
     pub fn collection(&self) -> (i32, Option<(u16, u16)>) {
         match self.family {
             Family::NovaPro => (4, None),
+            Family::AstroGen4 => (6, Some((0xFF32, 0x0074))),
+            Family::AstroGen5 => (8, Some((0xFF32, 0x0074))),
+            Family::Audeze => crate::audeze::collection(self),
             _ => (3, Some((0xFFC0, 0x0001))),
         }
     }
@@ -269,6 +287,8 @@ impl Model {
                     out.push((Control::Anc, Shape::Switch));
                 }
             }
+            Family::AstroGen4 | Family::AstroGen5 => out = crate::astro::controls(self),
+            Family::Audeze => out = crate::audeze::controls(self),
             Family::NovaPro => out.extend([
                 (Control::Sidetone, levels()),
                 (
@@ -294,6 +314,12 @@ impl Model {
 
     /// The frames that set `c` to `v`, without the save. `Err` for a control this model lacks or a value out of range.
     pub fn set(&self, c: Control, v: i32) -> Result<Vec<Vec<u8>>, String> {
+        if matches!(
+            self.family,
+            Family::AstroGen4 | Family::AstroGen5 | Family::Audeze
+        ) {
+            return Err(format!("{} is set through its own driver", self.name));
+        }
         let shape = self
             .controls()
             .into_iter()
@@ -315,7 +341,9 @@ impl Model {
             (_, Control::BtPowerOn) => 0xB2,
             (_, Control::BtCall) => 0xB3,
             (_, Control::EqPreset) => 0x2E,
-            (_, Control::Anc) => return Err(format!("{} has no {} setting", self.name, c.id())),
+            (_, Control::Anc | Control::NoiseGate | Control::VoicePrompts) => {
+                return Err(format!("{} has no {} setting", self.name, c.id()));
+            }
         };
         let byte = match (self.family, c) {
             (Family::Nova5, Control::MicLed) => NOVA5_LED[v as usize],
@@ -341,7 +369,11 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5 | Family::Bragi => Save::None,
+            Family::Nova5
+            | Family::Bragi
+            | Family::AstroGen4
+            | Family::AstroGen5
+            | Family::Audeze => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
         }
@@ -438,7 +470,7 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
-        Family::Bragi => None,
+        Family::Bragi | Family::AstroGen4 | Family::AstroGen5 | Family::Audeze => None,
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;

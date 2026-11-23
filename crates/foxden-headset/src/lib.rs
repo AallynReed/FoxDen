@@ -1,6 +1,8 @@
-//! Settings of SteelSeries wireless headsets over their own HID protocol, and of Corsair headsets
-//! as Bragi properties.
+//! Settings of SteelSeries, ASTRO and Audeze wireless headsets over their own HID protocols, and
+//! of Corsair headsets as Bragi properties.
 
+pub mod astro;
+pub mod audeze;
 pub mod proto;
 
 use std::sync::Mutex;
@@ -70,8 +72,11 @@ pub struct Reading {
 }
 
 pub fn read(f: &Found) -> Option<Reading> {
-    if f.model.family == Family::Bragi {
-        return bragi::read(f, true);
+    match f.model.family {
+        Family::Bragi => return bragi::read(f, true),
+        Family::AstroGen4 | Family::AstroGen5 => return astro::read(f, true),
+        Family::Audeze => return audeze::read(f, true),
+        _ => {}
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -92,8 +97,11 @@ pub fn read(f: &Found) -> Option<Reading> {
 
 /// Just the status: battery, power and the ChatMix dial. Cheap enough to ask often.
 pub fn status(f: &Found) -> Option<Status> {
-    if f.model.family == Family::Bragi {
-        return bragi::read(f, false)?.status;
+    match f.model.family {
+        Family::Bragi => return bragi::read(f, false)?.status,
+        Family::AstroGen4 | Family::AstroGen5 => return astro::read(f, false)?.status,
+        Family::Audeze => return audeze::read(f, false)?.status,
+        _ => {}
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -118,8 +126,11 @@ fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {
 
 /// Sets one control. A settled save, if the model has one, is left to [`save`].
 pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
-    if f.model.family == Family::Bragi {
-        return bragi::set(f, c, v);
+    match f.model.family {
+        Family::Bragi => return bragi::set(f, c, v),
+        Family::AstroGen4 | Family::AstroGen5 => return astro::set(f, c, v),
+        Family::Audeze => return audeze::set(f, c, v),
+        _ => {}
     }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }

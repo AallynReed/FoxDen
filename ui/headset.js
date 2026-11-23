@@ -18,6 +18,8 @@
     bt_call: "Bluetooth call",
     anc: "Noise cancelling",
     eq_preset: "EQ preset",
+    noise_gate: "Noise gate",
+    voice_prompts: "Voice prompts",
   };
   const BANDS = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
   let views = [];

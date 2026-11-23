@@ -180,6 +180,7 @@ fn legacy(c: &Coll, name: &str) -> Option<Battery> {
         .into();
         return Some(b);
     };
+    let _turn = foxden_core::hid_turn::take();
     let status = first_byte(&ask(&dev, c.pid, STATUS, &[]));
     let docked = status.is_some_and(|s| s & 0x01 != 0);
     if let Some(s) = status {
@@ -250,6 +251,7 @@ fn poll_x(ctx: &mut Ctx) {
             continue;
         }
         let Some(dev) = Dev::open(&c) else { continue };
+        let _turn = foxden_core::hid_turn::take();
         dev.flush();
         if !dev.write(&x_request()) {
             continue;
