@@ -350,6 +350,12 @@ function drawLeds(ctx, shape, device, colors, x, y, w, h) {
   }
 }
 
+// The device runs one of its own effects, so FoxDen's colours do not reach it.
+function ownEffect(device) {
+  const s = device.hardware_setting;
+  return Boolean(device.enabled && s && device.hardware && device.hardware.modes.some((m) => m.id === s.mode));
+}
+
 function drawDevice(ctx, device) {
   const [x, y, w, h] = toPx(rectOf(device));
   const selected = device.id === preview.selected;
@@ -358,7 +364,8 @@ function drawDevice(ctx, device) {
   const shape = view.shapes ? shapeOf(device, w, h) : "plate";
   const edge = selected ? PAINT.accent : hovered ? PAINT.text : PAINT.stroke;
 
-  ctx.globalAlpha = device.enabled ? 1 : 0.35;
+  const own = ownEffect(device);
+  ctx.globalAlpha = device.enabled && !own ? 1 : 0.35;
   ctx.save();
   drawBody(ctx, shape, x + 0.5, y + 0.5, w - 1, h - 1, edge);
   if (shape === "mouse") ctx.clip();
@@ -370,7 +377,8 @@ function drawDevice(ctx, device) {
     ctx.strokeStyle = PAINT.accent;
     ctx.strokeRect(x - 2.5, y - 2.5, w + 5, h + 5);
   }
-  const label = device.name + (device.enabled ? "" : " (off)");
+  const t = (text) => (window.__foxI18n ? window.__foxI18n.t(text) : text);
+  const label = device.name + (device.enabled ? "" : " (off)") + (own ? " · " + t("Runs its own effect") : "");
   if (selected || hovered || (view.labels && labelWidth(ctx, label) <= w)) {
     ctx.fillStyle = selected || hovered ? PAINT.text : PAINT.muted;
     ctx.fillText(label, x, y - 5);

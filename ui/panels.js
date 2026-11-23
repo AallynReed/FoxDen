@@ -1,6 +1,8 @@
 const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", board: "Boards, memory and cards", net: "Network lights", audio: "Audio capture", screen: "Screen capture" };
 const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
+// Names of the effects devices run on their own, by mode id; others show the name the driver gives.
+const HARDWARE_MODES = { breathing: "Breathing", color_cycle: "Colour cycle", star: "Star", follow_board: "Follow motherboard", static: "Static" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
 const ROUTES = { native: ["Native driver", "set-native"], openrgb: ["OpenRGB", "set-openrgb"] };
 const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "No lighting control"], battery: ["on", "Battery and settings"] };
@@ -1504,6 +1506,70 @@ function wireLayers() {
   $("device-reset").onclick = () => call("set_override", { id: editDevice, effect: null });
 }
 
+// The values a hardware mode runs with when the setting leaves them out, as the app fills them in.
+function hardwareValues(mode, setting) {
+  const s = setting && setting.mode === mode.id ? setting : { mode: mode.id };
+  const fit = (range, v, d) => (range ? clamp(v ?? d(range), range[0], range[1]) : undefined);
+  const colors = Array.from({ length: mode.colors || 0 }, (_, i) => (s.colors && s.colors[i]) || [255, 255, 255]);
+  const directions = mode.directions || [];
+  return {
+    mode: mode.id,
+    speed: fit(mode.speed, s.speed, (r) => r[0] + Math.floor((r[1] - r[0]) / 2)),
+    brightness: fit(mode.brightness, s.brightness, (r) => r[1]),
+    colors,
+    direction: directions.includes(s.direction) ? s.direction : directions[0],
+    random: Boolean(mode.random && s.random),
+  };
+}
+
+// Speed, brightness, colours, direction and random for one hardware mode. `change` takes the new setting.
+function hardwareFields(mode, id, problem, change) {
+  let now = hardwareValues(mode, null);
+  const edit = (part) => {
+    now = { ...now, ...part };
+    change(now);
+  };
+  const fields = [];
+  const show = [];
+  const sub = (part) => id + "-" + part;
+  for (const [key, label] of [["speed", "Speed"], ["brightness", "Brightness"]]) {
+    const range = mode[key];
+    if (!range) continue;
+    const slider = el("input", { type: "range", min: range[0], max: range[1], step: 1, id: sub(key) });
+    const box = el("input", { type: "number", className: "exact" });
+    box.setAttribute("aria-label", label);
+    pair(slider, box, 1, (v) => edit({ [key]: v }), problem);
+    fields.push(el("div", { className: "field range" }, el("label", { htmlFor: slider.id, textContent: label }), slider, box));
+    show.push((v) => put(slider, v[key]));
+  }
+  for (let i = 0; i < (mode.colors || 0); i++) {
+    const label = mode.colors > 1 ? "Colour " + (i + 1) : "Colour";
+    const field = colourField({ label }, sub("colour-" + i), (rgb) => edit({ colors: now.colors.map((c, n) => (n === i ? rgb : c)) }));
+    const button = field.querySelector(".swatch");
+    fields.push(field);
+    show.push((v) => put(button, v.colors[i]));
+  }
+  if ((mode.directions || []).length) {
+    const pick = el("select", { id: sub("direction") }, ...mode.directions.map((d) => el("option", { value: d, textContent: words(d) })));
+    pick.oninput = () => edit({ direction: pick.value });
+    fields.push(el("div", { className: "field" }, el("label", { htmlFor: pick.id, textContent: "Direction" }), pick));
+    show.push((v) => put(pick, v.direction));
+  }
+  if (mode.random) {
+    const random = el("input", { type: "checkbox", className: "switch", id: sub("random") });
+    random.onchange = () => edit({ random: random.checked });
+    fields.push(el("div", { className: "field" }, el("label", { htmlFor: random.id, textContent: "Random colours" }), random));
+    show.push((v) => put(random, v.random));
+  }
+  const node = el("div", { className: "hw" }, ...fields);
+  node.hidden = !fields.length;
+  node.show = (setting) => {
+    now = hardwareValues(mode, setting);
+    show.forEach((f) => f(now));
+  };
+  return node;
+}
+
 // Only reset_layout knows the defaults, so reset everything and put the other devices back.
 function resetPosition(id) {
   const others = state.snap.devices.filter((d) => d.id !== id);
@@ -1583,6 +1649,33 @@ function deviceRow(device) {
     return label;
   });
   const counts = sizes.map((field) => field.querySelector("input"));
+  const modes = (device.hardware && device.hardware.modes) || [];
+  const lighting = el("select", { id: "device-lighting-" + rowCount }, el("option", { value: "", textContent: "FoxDen effects" }), ...modes.map((m) => el("option", { value: m.id, textContent: HARDWARE_MODES[m.id] || m.name })));
+  const own = el("div");
+  const sendHardware = throttled((setting) => call("set_hardware", { id: device.id, setting }));
+  // The app's echo of a choice made here is not taken as news for a moment.
+  const setHardware = (setting) => {
+    own.at = performance.now();
+    if (setting) own.last = setting;
+    sendHardware(setting);
+  };
+  // Rebuilt when another mode is picked; follows the app otherwise.
+  const showMode = (setting) => {
+    const mode = setting && modes.find((m) => m.id === setting.mode);
+    if (setting) own.last = setting;
+    if ((own.mode || null) !== (mode || null)) {
+      own.mode = mode;
+      own.replaceChildren(...(mode ? [hardwareFields(mode, lighting.id, problem, setHardware)] : []));
+    }
+    if (mode) own.firstChild.show(setting);
+  };
+  lighting.oninput = () => {
+    const mode = modes.find((m) => m.id === lighting.value);
+    // Another mode keeps the colours and speed picked so far.
+    const setting = mode ? hardwareValues(mode, { ...own.last, mode: mode.id }) : null;
+    showMode(setting);
+    setHardware(setting);
+  };
 
   name.onclick = () => selectDevice(preview.selected === device.id ? null : device.id);
   on.onchange = () => send({ enabled: on.checked });
@@ -1602,6 +1695,7 @@ function deviceRow(device) {
       level,
       el("span", { className: "percent" }, box, "%"),
     ),
+    ...(modes.length ? [el("div", { className: "field" }, el("label", { htmlFor: lighting.id, textContent: "Lighting" }), lighting), own] : []),
     el("p", { className: "meta", textContent: "Position and size, in % of the canvas" }),
     el("div", { className: "place" }, ...fields),
     ...(sizes.length ? [el("p", { className: "meta", textContent: "LEDs" }), el("div", { className: "place" }, ...sizes)] : []),
@@ -1609,7 +1703,7 @@ function deviceRow(device) {
     el("div", { className: "actions" }, reset),
   );
   const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, resizable, status, on), details);
-  row.parts = { name, status, resizable, on, level, meta, place, counts, details };
+  row.parts = { name, status, resizable, on, level, meta, place, counts, details, lighting, own, showMode };
   return row;
 }
 
@@ -1621,14 +1715,15 @@ function perFan(zone) {
 function renderDevices(snap) {
   const list = $("device-list");
   const zoneKey = (d) => (d.zones || []).map((z) => [z.key, z.min, z.max, perFan(z)].join(",")).join(";");
-  const key = snap.devices.map((d) => d.id + ":" + zoneKey(d)).join("|");
+  const modeKey = (d) => ((d.hardware && d.hardware.modes) || []).map((m) => m.id).join(",");
+  const key = snap.devices.map((d) => d.id + ":" + zoneKey(d) + ":" + modeKey(d)).join("|");
   if (list.dataset.key !== key) {
     list.dataset.key = key;
     list.replaceChildren(...snap.devices.map(deviceRow));
   }
   snap.devices.forEach((device, i) => {
     const row = list.children[i];
-    const { name, status, resizable, on, level, meta, place, counts, details } = row.parts;
+    const { name, status, resizable, on, level, meta, place, counts, details, lighting, own, showMode } = row.parts;
     const selected = device.id === preview.selected;
     const about = [BACKENDS[device.backend] || device.backend, KINDS[device.kind] || words(device.kind), plural(device.leds.length, "LED")];
     row.classList.toggle("selected", selected);
@@ -1641,6 +1736,11 @@ function renderDevices(snap) {
     setText(meta, about.join(" · "));
     put(on, device.enabled);
     put(level, device.brightness);
+    const setting = ownEffect({ ...device, enabled: true }) ? device.hardware_setting : null;
+    if (!(performance.now() - own.at < 400)) {
+      put(lighting, setting ? setting.mode : "");
+      showMode(setting);
+    }
     const rect = rectOf(device);
     place.forEach((input, n) => put(input, (rect[n] * 100).toFixed(1)));
     counts.forEach((input, n) => put(input, device.zones[n].leds / perFan(device.zones[n])));

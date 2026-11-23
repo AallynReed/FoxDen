@@ -86,7 +86,7 @@ pub fn custom_mode() -> [Report; 5] {
 /// The controller's own effects: mode byte, id, name, colours.
 const EFFECTS: [(u8, &str, &str, usize); 3] = [
     (BREATHING, "breathing", "Breathing", 1),
-    (COLOR_CYCLE, "color_cycle", "Color cycle", 0),
+    (COLOR_CYCLE, "color_cycle", "Colour cycle", 0),
     (STAR, "star", "Star", 2),
 ];
 

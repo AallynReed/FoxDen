@@ -42,7 +42,19 @@
     ring("hid:fan", "Case fan", [0.62, 0.62, 0.07, 0.12], 16),
     grid("hid:zones", "Laptop keyboard", "keyboard", "hid", [0.48, 0.4, 0.18, 0.1], 4, 1),
     grid("hid:hub", "Lian Li Uni Hub - SL", "other", "hid", [0.62, 0.84, 0.3, 0.06], 64, 2),
+    grid("hid:cm-rgb", "Cooler Master RGB", "strip", "hid", [0.7, 0.5, 0.2, 0.04], 4, 1),
   ];
+
+  // Effects a device runs on its own, as its driver lists them.
+  const own = {
+    "hid:cm-rgb": {
+      modes: [
+        { id: "breathing", name: "Breathing", speed: [0, 255], brightness: [0, 255], colors: 1, random: false },
+        { id: "color_cycle", name: "Colour cycle", speed: [0, 255], colors: 0, random: false },
+        { id: "star", name: "Star", speed: [0, 255], brightness: [0, 255], colors: 2, random: false },
+      ],
+    },
+  };
 
   const ORANGE = [255, 106, 0];
   const VIOLET = [150, 60, 255];
@@ -218,6 +230,7 @@
   const state = {
     // Per device: enabled, brightness and, once moved, rect.
     tweaks: {},
+    ownEffects: { "hid:cm-rgb": { mode: "breathing", speed: 60, brightness: 200, colors: [[255, 106, 0]], random: false } },
     effect: copy(catalog[1].default),
     layers: [layer(postCatalog[0].default, { scope: "keyboards" })],
     overrides: {},
@@ -641,7 +654,8 @@
     const on = { openrgb: openrgb(), hid: state.settings.native_drivers };
     return [...hardware, ...strips()]
       .filter((d) => on[d.backend] && (state.keyboard || d.id !== "hid:046d:c547"))
-      .map((d) => ({ ...sized(d), enabled: true, brightness: 1, ...state.tweaks[d.id] }));
+      .map((d) => ({ ...sized(d), enabled: true, brightness: 1, ...state.tweaks[d.id] }))
+      .map((d) => (own[d.id] ? { ...d, hardware: own[d.id], ...(state.ownEffects[d.id] ? { hardware_setting: state.ownEffects[d.id] } : {}) } : d));
   }
 
   function detected() {
@@ -751,6 +765,14 @@
       if (!devices().some((d) => d.id === id)) throw `unknown device ${id}`;
       if (rect.some((v) => !Number.isFinite(v)) || rect[2] <= 0 || rect[3] <= 0) throw "invalid device rectangle";
       state.tweaks[id] = { enabled, brightness: clamp(brightness, 0, 1), rect };
+    },
+    get_hardware({ id }) {
+      return [own[id] || null, state.ownEffects[id] || null];
+    },
+    set_hardware({ id, setting }) {
+      if (setting && !(own[id] && own[id].modes.some((m) => m.id === setting.mode))) throw `unknown hardware mode ${setting.mode}`;
+      if (setting) state.ownEffects[id] = setting;
+      else delete state.ownEffects[id];
     },
     reset_layout() {
       for (const tweak of Object.values(state.tweaks)) delete tweak.rect;
