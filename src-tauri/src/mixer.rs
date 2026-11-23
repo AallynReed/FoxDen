@@ -495,7 +495,7 @@ impl Vmic {
                 }
             }
         }
-        *lock(&view) = VmicView {
+        *lock(view) = VmicView {
             installed: status.driver,
             ours: status.ours,
             ready: status.ready(),
@@ -620,7 +620,7 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
             }
         }
     }
-    *lock(&parked) = out;
+    *lock(parked) = out;
 }
 
 fn sounding() -> Vec<(String, String)> {

@@ -52,7 +52,7 @@ fn worker() -> Result<Sender<Job>, String> {
             });
         Mutex::new(tx)
     });
-    Ok(lock(&tx).clone())
+    Ok(lock(tx).clone())
 }
 
 fn run<T: Send + 'static>(
