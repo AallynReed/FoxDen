@@ -2,6 +2,7 @@
 //! as Bragi properties.
 
 pub mod proto;
+mod razer;
 
 use std::sync::Mutex;
 use std::thread;
@@ -24,13 +25,14 @@ pub struct Found {
 pub fn find() -> Vec<Found> {
     let mut out: Vec<Found> = Vec::new();
     for c in enumerate() {
-        if c.out_len == 0 {
-            continue;
-        }
         let Some(model) = proto::any_model(c.vid, c.pid) else {
             continue;
         };
-        let fits = if model.family == Family::Bragi {
+        let fits = if model.family == Family::Razer {
+            razer::fits(&model, &c)
+        } else if c.out_len == 0 {
+            false
+        } else if model.family == Family::Bragi {
             Bragi::fits(&c)
         } else {
             match model.collection() {
@@ -73,6 +75,9 @@ pub fn read(f: &Found) -> Option<Reading> {
     if f.model.family == Family::Bragi {
         return bragi::read(f, true);
     }
+    if f.model.family == Family::Razer {
+        return razer::read(f, true);
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -94,6 +99,9 @@ pub fn read(f: &Found) -> Option<Reading> {
 pub fn status(f: &Found) -> Option<Status> {
     if f.model.family == Family::Bragi {
         return bragi::read(f, false)?.status;
+    }
+    if f.model.family == Family::Razer {
+        return razer::read(f, false)?.status;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -120,6 +128,9 @@ fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {
 pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
     if f.model.family == Family::Bragi {
         return bragi::set(f, c, v);
+    }
+    if f.model.family == Family::Razer {
+        return razer::set(f, c, v);
     }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }
