@@ -244,7 +244,7 @@ pub fn fill<T: Clone + PartialEq + 'static>(
 pub fn report(r: Result<(), String>) {
     if let Err(e) = r {
         crate::log::warn("ui", e.clone());
-        with_win(|w| w.global::<StagePage>().set_note(e.into()));
+        with_win(|w| stage::show_error(w, &e));
     }
 }
 

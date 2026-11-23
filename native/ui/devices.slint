@@ -1,97 +1,813 @@
-import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Scroll } from "widgets.slint";
+
+export struct DeviceRow {
+    id: string,
+    name: string,
+    status: string,
+    meta: string,
+    switch: string,
+    enabled: bool,
+    brightness: float,
+    selected: bool,
+}
+
+export struct ZoneRow {
+    key: string,
+    name: string,
+    leds: string,
+}
+
+export struct FoundRow {
+    id: string,
+    name: string,
+    mark: string,
+    state: string,
+    meta: string,
+    note: string,
+    setting: string,
+}
+
+export struct HsControl {
+    id: string,
+    label: string,
+    kind: string,
+    value: int,
+    set: bool,
+    min: int,
+    max: int,
+    options: [string],
+    values: [int],
+    index: int,
+    readout: string,
+    remembered: bool,
+}
+
+export struct HsCard {
+    key: string,
+    name: string,
+    mark: string,
+    state: string,
+    facts: string,
+    off: bool,
+    controls: [HsControl],
+    eq: bool,
+    bands: [int],
+    eq-min: int,
+    eq-max: int,
+    eq-note: string,
+}
 
 export global DevicesPage {
-    in property <[DeviceItem]> devices;
-    in property <[Line]> detected;
+    in property <[DeviceRow]> devices;
+    in property <[string]> place: ["", "", "", ""];
+    in property <[ZoneRow]> zones;
+    in property <string> problem;
+    in property <[FoundRow]> detected;
     in property <bool> auto-detect;
+    in property <bool> detecting;
+    in property <string> reading;
+    in property <[HsCard]> headsets;
+    in property <string> hs-status;
+    in-out property <bool> info-open;
+    in property <string> info-text;
+    in property <string> info-status;
+    in property <bool> info-sending;
+    callback opened();
     callback select-device(string);
     callback set-device-enabled(string, bool);
     callback set-device-brightness(string, float);
+    callback brightness-typed(string, string) -> bool;
+    callback place-typed(int, string) -> bool;
+    callback place-set(int, string);
+    callback zone-typed(string, string) -> bool;
+    callback zone-set(string, string);
+    callback clear-problem();
+    callback reset-position(string);
     callback detect-now();
     callback rescan();
     callback set-auto-detect(bool);
+    callback open-setting();
+    callback device-info(string, string);
+    callback info-send();
+    callback info-copied();
+    callback hs-set(string, string, int);
+    callback hs-band(string, int, int);
+    callback hs-eq(string);
+}
+
+export component Mark inherits Rectangle {
+    in property <string> kind;
+    in property <color> ink: Theme.muted;
+    width: 8px;
+    height: 8px;
+    if root.kind == "on": Rectangle { background: Theme.accent; }
+    if root.kind == "off": Rectangle { border-width: 2px; border-color: root.ink; }
+    if root.kind == "none": Rectangle { y: 3px; height: 2px; background: root.ink; }
+    if root.kind == "warn": Path {
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M 4 0 L 8 8 L 0 8 Z";
+        fill: Theme.danger;
+        stroke-width: 0;
+    }
+}
+
+export component Tag inherits HorizontalLayout {
+    in property <string> mark;
+    in property <string> text;
+    in property <color> ink: Theme.text;
+    spacing: 6px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: text;
+    Mark { y: (parent.height - 8px) / 2; kind: root.mark; ink: root.ink; }
+    Text { text: root.text; color: root.ink; font-size: 12px; vertical-alignment: center; }
+}
+
+export component Problem inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 6px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: text;
+    Mark { y: 4px; kind: "warn"; }
+    Text { text: root.text; color: Theme.danger; font-size: 12px; wrap: word-wrap; horizontal-stretch: 1; }
+}
+
+export component Small inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> mark;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <color> under: Theme.panel;
+    callback clicked;
+    height: 24px;
+    min-width: row.preferred-width + 16px;
+    background: primary ? (ta.has-hover ? Theme.accent.brighter(10%) : Theme.accent) : ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : Theme.raised;
+    border-width: primary ? 0 : 1px;
+    border-color: fs.has-focus ? Theme.accent : Theme.stroke;
+    opacity: enabled ? 1 : 0.5;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { clicked(); } }
+    forward-focus: fs;
+    row := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        alignment: center;
+        if root.mark != "": Mark { y: (parent.height - 8px) / 2; kind: root.mark; }
+        if root.icon != "": Path {
+            y: (parent.height - 14px) / 2;
+            width: 14px;
+            height: 14px;
+            viewbox-width: 16;
+            viewbox-height: 16;
+            commands: root.icon;
+            stroke: root.primary ? Theme.on-accent : Theme.text;
+            stroke-width: 1.5px;
+        }
+        Text {
+            text: root.text;
+            color: root.primary ? Theme.on-accent : Theme.text;
+            font-size: 12px;
+            font-weight: root.primary ? 600 : 400;
+            vertical-alignment: center;
+        }
+    }
+    if primary: Cut { x: parent.width - self.size; under: root.under; }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { root.clicked(); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { if root.enabled { fs.focus(); root.clicked(); } }
+    }
+}
+
+export component Check inherits Rectangle {
+    in property <bool> on;
+    in property <string> text;
+    callback toggled(bool);
+    min-width: row.preferred-width;
+    height: 24px;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: on;
+    accessible-label: text;
+    accessible-action-default => { toggled(!on); }
+    forward-focus: fs;
+    row := HorizontalLayout {
+      spacing: 8px;
+      Rectangle {
+        y: (parent.height - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        background: root.on ? Theme.accent : Theme.field;
+        border-width: 1px;
+        border-color: fs.has-focus || root.on ? Theme.accent : Theme.stroke;
+        if root.on: Rectangle { x: 3px; y: 3px; width: 10px; height: 10px; background: Theme.on-accent; }
+    }
+      Text { text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; }
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " { root.toggled(!root.on); return accept; }
+            reject
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.toggled(!root.on); }
+    }
+}
+
+// A number typed exactly; it follows `value` unless the user is typing or it is wrong.
+export component Exact inherits Rectangle {
+    in property <string> value;
+    in property <string> label;
+    callback edited(string) -> bool;
+    callback committed(string);
+    callback reverted();
+    property <bool> invalid;
+    preferred-width: 56px;
+    min-width: 40px;
+    height: 28px;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: invalid ? Theme.danger : input.has-focus ? Theme.accent : Theme.stroke;
+    forward-focus: input;
+    public function clear() {
+        invalid = false;
+        if !input.has-focus { input.text = value; }
+    }
+    changed value => {
+        if !input.has-focus && !invalid { input.text = value; }
+    }
+    input := TextInput {
+        x: 6px;
+        width: parent.width - 12px;
+        height: parent.height;
+        text: root.value;
+        color: Theme.text;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        single-line: true;
+        accessible-label: root.label;
+        edited => { root.invalid = !root.edited(self.text); }
+        accepted => { if !root.invalid { root.committed(self.text); } }
+        changed has-focus => {
+            if !self.has-focus && !root.invalid {
+                root.committed(self.text);
+                self.text = root.value;
+            }
+        }
+        key-pressed(e) => {
+            if e.text == Key.Escape && root.invalid {
+                root.invalid = false;
+                self.text = root.value;
+                root.reverted();
+                return accept;
+            }
+            reject
+        }
+    }
+}
+
+component VSlider inherits Rectangle {
+    in property <int> value;
+    in property <int> minimum;
+    in property <int> maximum;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback changed(int);
+    private property <float> span: max(1, maximum - minimum);
+    width: 20px;
+    height: 120px;
+    opacity: enabled ? 1 : 0.5;
+    accessible-role: slider;
+    accessible-label: label;
+    accessible-value: value;
+    accessible-value-minimum: minimum;
+    accessible-value-maximum: maximum;
+    accessible-value-step: 1;
+    accessible-action-increment => { nudge(1); }
+    accessible-action-decrement => { nudge(-1); }
+    forward-focus: fs;
+    function nudge(n: int) {
+        if enabled { changed(clamp(value + n, minimum, maximum)); }
+    }
+    function set-from(y: length) {
+        if enabled { changed(clamp(round(maximum - (y - 4px) / (root.height - 8px) * span), minimum, maximum)); }
+    }
+    Rectangle { x: parent.width / 2 - 1px; width: 2px; background: Theme.stroke; }
+    Rectangle {
+        x: 2px;
+        y: (maximum - value) / span * (root.height - 8px);
+        width: 16px;
+        height: 8px;
+        background: ta.has-hover || ta.pressed || fs.has-focus ? Theme.accent : Theme.text;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.DownArrow || e.text == Key.LeftArrow { nudge(-1); return accept; }
+            if e.text == Key.UpArrow || e.text == Key.RightArrow { nudge(1); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                fs.focus();
+                root.set-from(self.mouse-y);
+            }
+        }
+        moved => { if self.pressed { root.set-from(self.mouse-y); } }
+    }
+}
+
+component Seg inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 28px;
+    horizontal-stretch: 1;
+    min-width: 0;
+    background: on ? Theme.accent : ta.has-hover && enabled ? Theme.hover : Theme.raised;
+    border-width: 1px;
+    border-color: fs.has-focus ? Theme.text : on ? Theme.accent : Theme.stroke;
+    opacity: enabled ? 1 : 0.5;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-checkable: true;
+    accessible-checked: on;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { clicked(); } }
+    forward-focus: fs;
+    Text {
+        x: 4px;
+        width: parent.width - 8px;
+        height: parent.height;
+        text: root.text;
+        color: root.on ? Theme.on-accent : ta.has-hover && root.enabled ? Theme.text : Theme.muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    fs := FocusScope {
+        enabled: root.enabled;
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { root.clicked(); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { if root.enabled { fs.focus(); root.clicked(); } }
+    }
+}
+
+component Readout inherits HorizontalLayout {
+    in property <string> text;
+    in property <bool> remembered;
+    spacing: 6px;
+    alignment: end;
+    Text { text: root.text; color: Theme.text; vertical-alignment: center; }
+    if root.remembered: Rectangle {
+        y: (parent.height - 16px) / 2;
+        height: 16px;
+        width: badge.preferred-width + 8px;
+        border-width: 1px;
+        border-color: Theme.line;
+        accessible-role: AccessibleRole.text;
+        accessible-label: I18n.t("last set");
+        accessible-description: I18n.t("The headset does not report this. FoxDen shows what it last sent.");
+        badge := Text {
+            x: 4px;
+            text: I18n.t("last set");
+            color: Theme.muted;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component HsRow inherits Rectangle {
+    in property <string> key;
+    in property <HsControl> c;
+    in property <bool> off;
+    private property <int> shown: c.set ? c.value : c.min;
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+    send := Timer {
+        interval: 400ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            DevicesPage.hs-set(root.key, root.c.id, root.shown);
+        }
+    }
+    VerticalLayout {
+        padding-top: 6px;
+        padding-bottom: 7px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: root.c.label; color: Theme.muted; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+            Readout {
+                text: root.c.kind == "steps" ? (root.c.set || send.running ? root.shown + "/" + root.c.max : "—") : root.c.readout;
+                remembered: root.c.remembered;
+            }
+            if root.c.kind == "switch": Toggle {
+                y: (parent.height - 20px) / 2;
+                on: root.c.value == 1;
+                label: root.c.label;
+                toggled(v) => { if !root.off { DevicesPage.hs-set(root.key, root.c.id, v ? 1 : 0); } }
+            }
+            if root.c.kind == "select": Select {
+                min-width: 120px;
+                options: root.c.options;
+                index: root.c.index;
+                label: root.c.label;
+                selected(i) => {
+                    if !root.off && root.c.values[i] != -1000000 && (!root.c.set || root.c.values[i] != root.c.value) { DevicesPage.hs-set(root.key, root.c.id, root.c.values[i]); }
+                }
+            }
+        }
+        if root.c.kind == "steps": Slider {
+            label: root.c.label;
+            minimum: root.c.min;
+            maximum: root.c.max;
+            step: 1;
+            value: root.shown;
+            opacity: root.off ? 0.5 : 1;
+            changed(v) => {
+                if !root.off {
+                    root.shown = round(v);
+                    send.stop();
+                    send.start();
+                }
+            }
+        }
+        if root.c.kind == "seg": HorizontalLayout {
+            accessible-role: groupbox;
+            accessible-label: root.c.label;
+            for name[i] in root.c.options: Seg {
+                text: name;
+                on: root.c.set && root.c.values[i] == root.c.value;
+                enabled: !root.off;
+                clicked => { if !(root.c.set && root.c.values[i] == root.c.value) { DevicesPage.hs-set(root.key, root.c.id, root.c.values[i]); } }
+            }
+        }
+    }
+}
+
+component HsBox inherits VerticalLayout {
+    in property <HsCard> h;
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: root.h.name; color: Theme.text; font-weight: 600; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+        Tag { mark: root.h.mark; text: root.h.state; }
+    }
+    if root.h.facts != "": Text { text: root.h.facts; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+    VerticalLayout {
+        Rectangle { height: 1px; background: Theme.line; }
+        for c in root.h.controls: HsRow { key: root.h.key; c: c; off: root.h.off; }
+    }
+    if root.h.eq: VerticalLayout {
+        spacing: 8px;
+        HorizontalLayout {
+            padding-top: 6px;
+            spacing: 8px;
+            Text { text: I18n.t("Custom EQ, dB"); color: Theme.muted; horizontal-stretch: 1; vertical-alignment: center; }
+            Text { text: root.h.eq-note; color: Theme.text; vertical-alignment: center; }
+        }
+        HorizontalLayout {
+            spacing: 2px;
+            for b[i] in root.h.bands: VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Text {
+                    text: (b > 0 ? "+" : b < 0 ? "−" : "") + round(abs(b) * 5) / 10 + (mod(abs(b), 2) == 0 ? ".0" : "");
+                    color: Theme.text;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    VSlider {
+                        value: b;
+                        minimum: root.h.eq-min;
+                        maximum: root.h.eq-max;
+                        enabled: !root.h.off;
+                        label: ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"][i] + " Hz";
+                        changed(v) => { DevicesPage.hs-band(root.h.key, i, v); }
+                    }
+                }
+                Text {
+                    text: ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"][i];
+                    color: Theme.muted;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            Button {
+                primary: true;
+                text: I18n.t("Apply EQ");
+                enabled: !root.h.off;
+                clicked => { DevicesPage.hs-eq(root.h.key); }
+            }
+        }
+    }
+}
+
+component Device inherits Rectangle {
+    in property <DeviceRow> d;
+    border-width: 1px;
+    border-color: d.selected ? Theme.accent : Theme.line;
+    accessible-role: list-item;
+    accessible-label: d.name;
+    accessible-item-selectable: true;
+    accessible-item-selected: d.selected;
+    if root.d.selected: Rectangle { x: 0; width: 3px; background: Theme.accent; }
+    VerticalLayout {
+        padding: 1px;
+        padding-left: root.d.selected ? 3px : 1px;
+        HorizontalLayout {
+            min-height: 36px;
+            padding-right: 10px;
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                accessible-role: button;
+                accessible-label: root.d.name;
+                accessible-expandable: true;
+                accessible-expanded: root.d.selected;
+                accessible-action-default => { DevicesPage.select-device(root.d.id); }
+                forward-focus: name-keys;
+                VerticalLayout {
+                    padding-top: 7px;
+                    padding-bottom: 7px;
+                    padding-left: root.d.selected ? 10px : 12px;
+                    Text {
+                        text: root.d.name;
+                        color: root.d.enabled ? Theme.text : Theme.muted;
+                        font-weight: root.d.selected ? 600 : 400;
+                        wrap: word-wrap;
+                    }
+                }
+                if name-keys.has-focus: Rectangle { border-width: 2px; border-color: Theme.accent; }
+                name-keys := FocusScope {
+                    key-pressed(e) => {
+                        if e.text == " " || e.text == "\n" { DevicesPage.select-device(root.d.id); return accept; }
+                        reject
+                    }
+                }
+                name-area := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { name-keys.focus(); DevicesPage.select-device(root.d.id); }
+                }
+            }
+            Text { text: root.d.status; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+            Toggle {
+                y: (parent.height - 20px) / 2;
+                on: root.d.enabled;
+                label: root.d.switch;
+                toggled(v) => { DevicesPage.set-device-enabled(root.d.id, v); }
+            }
+        }
+        if root.d.selected: VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-bottom: 10px;
+            spacing: 8px;
+            Text { text: root.d.meta; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 4px;
+                Text { text: I18n.t("Brightness"); color: Theme.muted; vertical-alignment: center; }
+                Slider {
+                    y: (parent.height - 24px) / 2;
+                    horizontal-stretch: 1;
+                    label: I18n.t("Brightness");
+                    value: root.d.brightness;
+                    changed(v) => {
+                        level.clear();
+                        DevicesPage.clear-problem();
+                        DevicesPage.set-device-brightness(root.d.id, v);
+                    }
+                }
+                level := Exact {
+                    y: (parent.height - 28px) / 2;
+                    width: 56px;
+                    label: I18n.t("Brightness in per cent");
+                    value: round(root.d.brightness * 100);
+                    edited(t) => { DevicesPage.brightness-typed(root.d.id, t) }
+                    reverted => { DevicesPage.clear-problem(); }
+                }
+                Text { text: "%"; color: Theme.muted; vertical-alignment: center; }
+            }
+            Text { text: I18n.t("Position and size, in % of the canvas"); color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 8px;
+                for label[n] in ["X", "Y", "Width", "Height"]: VerticalLayout {
+                    spacing: 2px;
+                    horizontal-stretch: 1;
+                    Text { text: I18n.t(label); color: Theme.muted; font-size: 12px; }
+                    Exact {
+                        label: I18n.t(label);
+                        value: DevicesPage.place[n];
+                        edited(t) => { DevicesPage.place-typed(n, t) }
+                        committed(t) => { DevicesPage.place-set(n, t); }
+                        reverted => { DevicesPage.clear-problem(); }
+                    }
+                }
+            }
+            if DevicesPage.zones.length > 0: Text { text: I18n.t("LEDs"); color: Theme.muted; font-size: 12px; }
+            if DevicesPage.zones.length > 0: Rectangle {
+                height: ceil(DevicesPage.zones.length / 4) * 54px - 8px;
+                for z[i] in DevicesPage.zones: VerticalLayout {
+                    x: mod(i, 4) * (parent.width + 8px) / 4;
+                    y: floor(i / 4) * 54px;
+                    width: (parent.width + 8px) / 4 - 8px;
+                    height: 46px;
+                    spacing: 2px;
+                    Text { text: z.name; color: Theme.muted; font-size: 12px; overflow: elide; }
+                    Exact {
+                        label: z.name;
+                        value: z.leds;
+                        edited(t) => { DevicesPage.zone-typed(z.key, t) }
+                        committed(t) => { DevicesPage.zone-set(z.key, t); }
+                        reverted => { DevicesPage.clear-problem(); }
+                    }
+                }
+            }
+            if DevicesPage.problem != "": Problem { text: DevicesPage.problem; }
+            HorizontalLayout {
+                alignment: start;
+                Button { under: Theme.panel; text: I18n.t("Reset position"); clicked => { DevicesPage.reset-position(root.d.id); } }
+            }
+        }
+    }
+}
+
+component Found inherits VerticalLayout {
+    in property <FoundRow> f;
+    spacing: 4px;
+    padding-bottom: 8px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: root.f.name; color: Theme.text; font-weight: 600; wrap: word-wrap; horizontal-stretch: 1; }
+        Tag { mark: root.f.mark; text: root.f.state; }
+    }
+    Text { text: root.f.meta; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+    if root.f.note != "": Text { text: root.f.note; color: Theme.text; font-size: 12px; wrap: word-wrap; }
+    if root.f.setting != "": HorizontalLayout {
+        alignment: start;
+        Small { text: root.f.setting; clicked => { DevicesPage.open-setting(); } }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Small {
+            icon: "M8 11V2M4.5 5.5L8 2l3.5 3.5M2 10v4h12v-4";
+            text: DevicesPage.reading == root.f.id ? I18n.t("Reading device…") : I18n.t("Send device info");
+            enabled: DevicesPage.reading == "";
+            clicked => { DevicesPage.device-info(root.f.id, root.f.name); }
+        }
+    }
+    Rectangle { height: 1px; background: Theme.line; }
 }
 
 export component DevicesPanel inherits Scroll {
+    init => { DevicesPage.opened(); }
     content-height: devices-body.preferred-height;
     devices-body := VerticalLayout {
         padding: 16px;
         spacing: 8px;
         Heading { text: I18n.t("Devices"); }
+        for d in DevicesPage.devices: Device { d: d; }
         if DevicesPage.devices.length == 0: Hint { text: I18n.t("No devices found. Check the backends under Settings, then rescan."); }
-        for d in DevicesPage.devices: Rectangle {
-            height: d.selected ? 76px : 44px;
-            background: d.selected ? Theme.raised : row.has-hover ? Theme.hover : transparent;
-            border-width: 1px;
-            border-color: d.selected ? Theme.accent : Theme.line;
-            accessible-role: list-item;
-            accessible-label: d.name;
-            accessible-item-selectable: true;
-            accessible-item-selected: d.selected;
-            row := TouchArea {
-                clicked => { DevicesPage.select-device(d.id); }
-            }
-            Text {
-                x: 12px;
-                y: 4px;
-                width: parent.width - 72px;
-                text: d.name;
-                color: d.enabled ? Theme.text : Theme.muted;
-                overflow: elide;
-            }
-            Text {
-                x: 12px;
-                y: 22px;
-                text: d.backend;
-                color: Theme.muted;
-                font-size: 12px;
-            }
-            Toggle {
-                x: parent.width - 48px;
-                y: 12px;
-                on: d.enabled;
-                label: d.name;
-                toggled(v) => { DevicesPage.set-device-enabled(d.id, v); }
-            }
-            if d.selected: HorizontalLayout {
-                x: 12px;
-                y: 44px;
-                width: parent.width - 24px;
-                height: 24px;
-                spacing: 8px;
-                Text { text: I18n.t("Brightness"); color: Theme.muted; vertical-alignment: center; }
-                Slider {
-                    label: I18n.t("Brightness");
-                    value: d.brightness;
-                    changed(v) => { DevicesPage.set-device-brightness(d.id, v); }
-                }
-                Text {
-                    width: 40px;
-                    text: round(d.brightness * 100) + "%";
-                    color: Theme.text;
-                    font-family: Theme.mono;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
+        Hint { text: I18n.t("Select a device to set its brightness, position and size, or drag it on the canvas. Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead. [ and ] select the previous or next device."); }
+
+        if DevicesPage.headsets.length > 0: VerticalLayout {
+            spacing: 8px;
+            padding-top: 12px;
+            Heading { text: I18n.t("Headset"); }
+            if DevicesPage.hs-status != "": Hint { text: DevicesPage.hs-status; }
+            for h in DevicesPage.headsets: Rectangle {
+                background: Theme.panel;
+                border-width: 1px;
+                border-color: Theme.line;
+                accessible-role: list-item;
+                accessible-label: h.name;
+                VerticalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    HsBox { h: h; }
                 }
             }
         }
-        Hint { text: I18n.t("Select a device to set its brightness, or drag it on the canvas. Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead."); }
 
+        Rectangle { height: 4px; }
         Heading { text: I18n.t("Detected hardware"); }
         HorizontalLayout {
-            spacing: 8px;
-            Text { text: I18n.t("Automatic detection"); color: Theme.text; vertical-alignment: center; }
-            Toggle { on: DevicesPage.auto-detect; label: I18n.t("Automatic detection"); toggled(v) => { DevicesPage.set-auto-detect(v); } }
+            min-height: 32px;
+            spacing: 12px;
+            Text { text: I18n.t("Automatic detection"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+            Toggle {
+                y: (parent.height - 20px) / 2;
+                on: DevicesPage.auto-detect;
+                label: I18n.t("Automatic detection");
+                toggled(v) => { DevicesPage.set-auto-detect(v); }
+            }
         }
+        Hint { text: I18n.t("Notices devices being plugged in or removed."); }
         HorizontalLayout {
+            padding-top: 4px;
+            alignment: start;
+            Button {
+                text: DevicesPage.detecting ? I18n.t("Detecting") : I18n.t("Detect now");
+                enabled: !DevicesPage.detecting;
+                clicked => { DevicesPage.detect-now(); }
+            }
+        }
+        for f in DevicesPage.detected: Found { f: f; }
+        if DevicesPage.detected.length == 0: Hint { text: I18n.t("No lighting hardware detected yet."); }
+    }
+}
+
+export component InfoSheet inherits Rectangle {
+    out property <length> wanted: body.preferred-height;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.stroke;
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Device info");
+    forward-focus: copy-button;
+    body := VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        Heading { text: I18n.t("Device info"); }
+        Hint { text: I18n.t("This is everything that will be sent: the device's ids and how it describes itself, nothing about you or this PC. It helps add a driver for it."); }
+        Rectangle {
+            height: 12 * 18px + 18px;
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.stroke;
+            Scroll {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                content-height: info.preferred-height + 16px;
+                info := TextInput {
+                    x: 8px;
+                    y: 8px;
+                    width: parent.width - 20px;
+                    text: DevicesPage.info-text;
+                    read-only: true;
+                    single-line: false;
+                    wrap: word-wrap;
+                    color: Theme.text;
+                    font-family: Theme.mono;
+                    font-size: 13px;
+                    accessible-label: I18n.t("Device info");
+                }
+            }
+        }
+        if DevicesPage.info-status != "": Hint { text: DevicesPage.info-status; accessible-role: AccessibleRole.text; }
+        HorizontalLayout {
+            padding-top: 12px;
             spacing: 8px;
             alignment: start;
-            Button { text: I18n.t("Detect now"); clicked => { DevicesPage.detect-now(); } }
-        }
-        if DevicesPage.detected.length == 0: Hint { text: I18n.t("No lighting hardware detected yet."); }
-        for l in DevicesPage.detected: VerticalLayout {
-            Text { text: l.title; color: l.ok ? Theme.text : Theme.muted; overflow: elide; }
-            Hint { text: l.detail; }
+            Button {
+                primary: true;
+                text: I18n.t("Send");
+                enabled: !DevicesPage.info-sending;
+                clicked => { DevicesPage.info-send(); }
+            }
+            copy-button := Button {
+                text: I18n.t("Copy");
+                clicked => {
+                    info.select-all();
+                    info.copy();
+                    info.clear-selection();
+                    DevicesPage.info-copied();
+                }
+            }
+            Button { text: I18n.t("Close"); clicked => { DevicesPage.info-open = false; } }
         }
     }
 }

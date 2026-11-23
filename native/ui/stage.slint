@@ -1,4 +1,7 @@
-import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+import { Theme, I18n, Button, Slider, CanvasLabel } from "widgets.slint";
+import { DevicesPage, Mark, Tag, Small, Check, Exact, Problem, InfoSheet } from "devices.slint";
+import { EffectsPage } from "effects.slint";
+import { SettingsPage } from "settings.slint";
 
 export global StagePage {
     in property <float> brightness: 1;
@@ -6,104 +9,361 @@ export global StagePage {
     in property <image> canvas;
     in property <[CanvasLabel]> labels;
     in property <string> status;
-    in property <string> note;
+    in-out property <string> note;
+    in-out property <string> error;
+    in property <string> problem;
+    in property <string> state-mark;
+    in property <string> count;
+    in property <string> profile;
+    in property <string> fps;
+    in property <string> backend-problem;
+    in property <string> update-label;
+    in property <bool> snap;
+    in property <int> grid;
+    in property <bool> show-labels: true;
+    in property <bool> shapes: true;
+    in property <string> readout;
+    in property <int> cursor;
     callback set-brightness(float);
+    callback brightness-typed(string) -> bool;
+    callback clear-problem();
     callback toggle-pause();
     callback reset-layout();
     callback canvas-down(length, length);
     callback canvas-move(length, length, bool);
+    callback canvas-drag(length, length, bool);
+    callback canvas-leave();
     callback canvas-up();
     callback canvas-key(string, bool, bool) -> bool;
+    callback set-snap(bool);
+    callback set-grid(int);
+    callback set-labels(bool);
+    callback set-shapes(bool);
+    callback show-backends();
 }
 
-export component Stage inherits VerticalLayout {
+component Bar inherits Rectangle {
+    in property <bool> top-line;
+    background: Theme.panel;
+    Rectangle { y: root.top-line ? 0 : parent.height - 1px; height: 1px; background: Theme.line; }
+}
+
+component Sep inherits Rectangle {
+    width: 1px;
+    background: Theme.line;
+}
+
+export component Stage inherits Rectangle {
     out property <length> canvas-width: stage-canvas.width;
     out property <length> canvas-height: stage-canvas.height;
-    HorizontalLayout {
-        height: 48px;
-        padding-left: 16px;
-        padding-right: 16px;
-        spacing: 8px;
-        alignment: end;
-        Text { text: I18n.t("Brightness"); color: Theme.text; vertical-alignment: center; }
-        Slider {
-            y: 12px;
-            width: 160px;
-            label: I18n.t("Brightness");
-            value: StagePage.brightness;
-            changed(v) => { StagePage.set-brightness(v); }
-        }
-        Text {
-            width: 40px;
-            text: round(StagePage.brightness * 100) + "%";
-            color: Theme.text;
-            font-family: Theme.mono;
-            horizontal-alignment: right;
-            vertical-alignment: center;
-        }
-        Button {
-            y: 8px;
-            under: Theme.bg;
-            text: StagePage.paused ? I18n.t("Resume") : I18n.t("Pause");
-            clicked => { StagePage.toggle-pause(); }
-        }
-        Button {
-            y: 8px;
-            under: Theme.bg;
-            text: I18n.t("Reset layout");
-            clicked => { StagePage.reset-layout(); }
+    property <bool> grid-open;
+    property <bool> alt;
+    property <string> note-now: StagePage.note;
+    changed note-now => {
+        note-timer.stop();
+        if note-now != "" { note-timer.start(); }
+    }
+    note-timer := Timer {
+        interval: 8s;
+        running: false;
+        triggered => {
+            self.running = false;
+            StagePage.note = "";
         }
     }
-    Rectangle { height: 1px; background: Theme.line; }
-    stage-canvas := Rectangle {
-        accessible-role: groupbox;
-        accessible-label: I18n.t("Device layout");
-        accessible-description: I18n.t("Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead.");
-        forward-focus: keys;
-        Image {
+
+    VerticalLayout {
+        Bar {
+            height: 44px;
+            accessible-role: groupbox;
+            accessible-label: I18n.t("Output");
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 8px;
+                Button {
+                    y: 6px;
+                    under: Theme.panel;
+                    text: I18n.t("Undo");
+                    enabled: EffectsPage.can-undo;
+                    clicked => { EffectsPage.undo(); }
+                }
+                Button {
+                    y: 6px;
+                    under: Theme.panel;
+                    text: I18n.t("Redo");
+                    enabled: EffectsPage.can-redo;
+                    clicked => { EffectsPage.redo(); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Text { text: I18n.t("Brightness"); color: Theme.text; vertical-alignment: center; }
+                Slider {
+                    y: 10px;
+                    width: 120px;
+                    label: I18n.t("Brightness");
+                    value: StagePage.brightness;
+                    changed(v) => {
+                        level.clear();
+                        StagePage.clear-problem();
+                        StagePage.set-brightness(v);
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    level := Exact {
+                        y: 8px;
+                        width: 56px;
+                        label: I18n.t("Brightness in per cent");
+                        value: round(StagePage.brightness * 100);
+                        edited(t) => { StagePage.brightness-typed(t) }
+                        reverted => { StagePage.clear-problem(); }
+                    }
+                    Text { text: "%"; color: Theme.muted; vertical-alignment: center; }
+                }
+                Button {
+                    y: 6px;
+                    min-width: 72px;
+                    under: Theme.panel;
+                    text: StagePage.paused ? I18n.t("Resume") : I18n.t("Pause");
+                    clicked => { StagePage.toggle-pause(); }
+                }
+            }
+        }
+        Bar {
+            height: 36px;
+            accessible-role: groupbox;
+            accessible-label: I18n.t("Canvas");
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 12px;
+                Check {
+                    y: 6px;
+                    text: I18n.t("Snap to grid");
+                    on: StagePage.snap;
+                    accessible-description: I18n.t("Hold Alt while dragging to ignore the grid");
+                    toggled(v) => { StagePage.set-snap(v); }
+                }
+                grid-pick := Small {
+                    y: 6px;
+                    min-width: 64px;
+                    text: ["2.5%", "5%", "10%"][StagePage.grid] + "  ▾";
+                    accessible-role: combobox;
+                    accessible-label: I18n.t("Grid size");
+                    accessible-value: ["2.5%", "5%", "10%"][StagePage.grid];
+                    accessible-expandable: true;
+                    accessible-expanded: root.grid-open;
+                    clicked => { root.grid-open = !root.grid-open; }
+                }
+                Check { y: 6px; text: I18n.t("Labels"); on: StagePage.show-labels; toggled(v) => { StagePage.set-labels(v); } }
+                Check { y: 6px; text: I18n.t("Shapes"); on: StagePage.shapes; toggled(v) => { StagePage.set-shapes(v); } }
+                Text {
+                    horizontal-stretch: 1;
+                    min-width: 0;
+                    text: StagePage.readout;
+                    color: Theme.muted;
+                    font-family: Theme.mono;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Small { y: 6px; text: I18n.t("Reset layout"); clicked => { StagePage.reset-layout(); } }
+            }
+        }
+        if StagePage.error != "": Rectangle {
+            background: Theme.light ? #fdf3f4 : #33211f;
+            accessible-role: AccessibleRole.text;
+            accessible-label: StagePage.error;
+            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.light ? #c98a8d : #8a4a42; }
+            HorizontalLayout {
+                padding-top: 4px;
+                padding-bottom: 5px;
+                padding-left: 16px;
+                padding-right: 8px;
+                spacing: 8px;
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 6px;
+                    Mark { y: (parent.height - 8px) / 2; kind: "warn"; }
+                    Text { text: StagePage.error; color: Theme.danger; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                }
+                Small {
+                    y: (parent.height - 24px) / 2;
+                    under: Theme.light ? #fdf3f4 : #33211f;
+                    text: I18n.t("Dismiss");
+                    clicked => { StagePage.error = ""; }
+                }
+            }
+        }
+        stage-canvas := Rectangle {
+            vertical-stretch: 1;
+            accessible-role: groupbox;
+            accessible-label: I18n.t("Device layout");
+            accessible-description: I18n.t("Select a device to set its brightness, position and size, or drag it on the canvas. Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead. [ and ] select the previous or next device.");
+            forward-focus: keys;
+            Image {
+                width: parent.width;
+                height: parent.height;
+                source: StagePage.canvas;
+                image-fit: fill;
+            }
+            for l in StagePage.labels: Text {
+                x: l.x;
+                y: l.y;
+                width: l.strong ? max(l.width, 240px) : l.width;
+                text: l.text;
+                color: l.strong ? Theme.text : Theme.muted;
+                font-size: 12px;
+                overflow: elide;
+                visible: l.strong || (StagePage.show-labels && self.preferred-width <= l.width);
+            }
+            area := TouchArea {
+                mouse-cursor: StagePage.cursor == 2 ? MouseCursor.nwse-resize : StagePage.cursor == 1 ? MouseCursor.move : MouseCursor.default;
+                changed has-hover => { if !self.has-hover && !self.pressed { StagePage.canvas-leave(); } }
+                moved => { StagePage.canvas-drag(self.mouse-x, self.mouse-y, root.alt); }
+                pointer-event(e) => {
+                    root.alt = e.modifiers.alt;
+                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                        root.grid-open = false;
+                        keys.focus();
+                        StagePage.canvas-down(self.mouse-x, self.mouse-y);
+                    }
+                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                        StagePage.canvas-up();
+                    }
+                    if e.kind == PointerEventKind.move && !self.pressed {
+                        StagePage.canvas-move(self.mouse-x, self.mouse-y, false);
+                    }
+                }
+            }
+            keys := FocusScope {
+                key-pressed(e) => {
+                    if e.text == Key.Alt { root.alt = true; }
+                    if StagePage.canvas-key(e.text, e.modifiers.control, e.modifiers.shift) { return accept; }
+                    reject
+                }
+                key-released(e) => {
+                    if e.text == Key.Alt { root.alt = false; }
+                    reject
+                }
+            }
+        }
+        Bar {
+            height: 32px;
+            top-line: true;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 12px;
+                Tag { mark: StagePage.state-mark; text: StagePage.status; ink: Theme.muted; }
+                Sep { }
+                Text { text: StagePage.count; color: Theme.muted; font-size: 12px; font-family: Theme.mono; vertical-alignment: center; }
+                Sep { }
+                Text { text: StagePage.profile; color: Theme.muted; font-size: 12px; vertical-alignment: center; overflow: elide; min-width: 0; horizontal-stretch: 0.01; }
+                Sep { }
+                Text { text: StagePage.fps; color: Theme.muted; font-size: 12px; font-family: Theme.mono; vertical-alignment: center; }
+                if StagePage.backend-problem != "": Small {
+                    y: 4px;
+                    mark: "warn";
+                    text: StagePage.backend-problem;
+                    clicked => { StagePage.show-backends(); }
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    min-width: StagePage.note == "" ? 0 : 96px;
+                    text: StagePage.note;
+                    color: Theme.text;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
+                    accessible-label: StagePage.note;
+                }
+                if SettingsPage.update-available: Small {
+                    y: 4px;
+                    primary: true;
+                    text: StagePage.update-label;
+                    clicked => { SettingsPage.open-update(); }
+                }
+                Small { y: 4px; text: I18n.t("Feedback"); clicked => { SettingsPage.open-feedback(); } }
+            }
+        }
+    }
+
+    if StagePage.problem != "": Rectangle {
+        x: root.width - self.width - 12px;
+        y: 44px;
+        width: min(root.width - 24px, under.preferred-width + 18px);
+        height: under.preferred-height + 10px;
+        background: Theme.light ? #fdf3f4 : #33211f;
+        border-width: 1px;
+        border-color: Theme.light ? #c98a8d : #8a4a42;
+        under := Problem {
+            x: 8px;
+            y: 4px;
+            width: parent.width - 16px;
+            text: StagePage.problem;
+        }
+    }
+
+    if root.grid-open: Rectangle {
+        x: grid-pick.absolute-position.x - root.absolute-position.x;
+        y: 44px + 30px;
+        width: max(grid-pick.width, 80px);
+        height: 3 * 28px + 2px;
+        background: Theme.raised;
+        border-width: 1px;
+        border-color: Theme.stroke;
+        VerticalLayout {
+            padding: 1px;
+            for option[i] in ["2.5%", "5%", "10%"]: Rectangle {
+                height: 28px;
+                background: item.has-hover ? Theme.hover : transparent;
+                accessible-role: list-item;
+                accessible-label: option;
+                accessible-item-selectable: true;
+                accessible-item-selected: i == StagePage.grid;
+                Rectangle { x: 0; width: 3px; background: i == StagePage.grid ? Theme.accent : transparent; }
+                Text {
+                    x: 9px;
+                    height: parent.height;
+                    text: option;
+                    color: i == StagePage.grid ? Theme.text : Theme.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                item := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.grid-open = false;
+                        StagePage.set-grid(i);
+                    }
+                }
+            }
+        }
+    }
+
+    if DevicesPage.info-open: Rectangle {
+        x: -root.absolute-position.x;
+        y: -root.absolute-position.y;
+        width: root.absolute-position.x + root.width;
+        height: root.absolute-position.y + root.height;
+        background: #00000099;
+        TouchArea { }
+        FocusScope {
             width: parent.width;
             height: parent.height;
-            source: StagePage.canvas;
-            image-fit: fill;
-        }
-        for l in StagePage.labels: Text {
-            x: l.x;
-            y: l.y;
-            width: l.width;
-            text: l.text;
-            color: l.strong ? Theme.text : Theme.muted;
-            font-size: 12px;
-            overflow: elide;
-        }
-        area := TouchArea {
-            moved => { StagePage.canvas-move(self.mouse-x, self.mouse-y, true); }
-            pointer-event(e) => {
-                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
-                    keys.focus();
-                    StagePage.canvas-down(self.mouse-x, self.mouse-y);
-                }
-                if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
-                    StagePage.canvas-up();
-                }
-                if e.kind == PointerEventKind.move && !self.pressed {
-                    StagePage.canvas-move(self.mouse-x, self.mouse-y, self.pressed);
-                }
-            }
-        }
-        keys := FocusScope {
             key-pressed(e) => {
-                if StagePage.canvas-key(e.text, e.modifiers.control, e.modifiers.shift) { return accept; }
+                if e.text == Key.Escape { DevicesPage.info-open = false; return accept; }
                 reject
             }
+            sheet := InfoSheet {
+                width: min(560px, parent.width - 32px);
+                height: min(self.wanted, parent.height - 32px);
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
         }
-    }
-    Rectangle { height: 1px; background: Theme.line; }
-    HorizontalLayout {
-        height: 28px;
-        padding-left: 16px;
-        padding-right: 16px;
-        spacing: 16px;
-        Text { text: StagePage.status; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
-        Text { text: StagePage.note; color: Theme.muted; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+        init => { sheet.focus(); }
     }
 }
