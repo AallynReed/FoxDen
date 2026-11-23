@@ -71,17 +71,13 @@ pub fn combined() -> Vec<(u16, u16)> {
     v
 }
 
-/// Ids of the raw-USB and serial lighting devices `probe_other` opens.
+/// Ids of the raw-USB and serial lighting devices `probe_other_picked` opens.
 pub fn other_devices() -> Vec<(u16, u16, &'static str)> {
     groups::other_ids()
 }
 
-/// Raw-USB and serial lighting devices, which never show in the HID list.
-pub fn probe_other() -> Vec<Box<dyn Backend>> {
-    groups::probe_other(foxden_hid::Pick::All)
-}
-
-/// Like `probe_other`, opening only what `pick` wants.
+/// Raw-USB and serial lighting devices, which never show in the HID list, opening only what
+/// `pick` wants.
 pub fn probe_other_picked(pick: foxden_hid::Pick) -> Vec<Box<dyn Backend>> {
     groups::probe_other(pick)
 }
