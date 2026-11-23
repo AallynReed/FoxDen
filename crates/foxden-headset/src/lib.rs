@@ -9,6 +9,8 @@ mod poly;
 pub mod hyperx;
 pub mod proto;
 pub mod turtlebeach;
+mod jbl;
+mod sony;
 
 use std::sync::Mutex;
 use std::thread;
@@ -37,19 +39,17 @@ pub fn find() -> Vec<Found> {
         let Some(model) = proto::any_model(c.vid, c.pid) else {
             continue;
         };
-        let fits = if model.family == Family::Bragi {
-            Bragi::fits(&c)
-        } else if model.family == Family::Logitech {
-            logitech::fits(&c, &model)
-        } else if model.family == Family::HyperX {
-            hyperx::fits(&model, &c)
-        } else if model.family == Family::TurtleBeach {
-            turtlebeach::fits(&c)
-        } else {
-            match model.collection() {
+        let fits = match model.family {
+            Family::Bragi => Bragi::fits(&c),
+            Family::Logitech => logitech::fits(&c, &model),
+            Family::HyperX => hyperx::fits(&model, &c),
+            Family::TurtleBeach => turtlebeach::fits(&c),
+            Family::Inzone => sony::fits(&c),
+            Family::Jbl => jbl::fits(&c),
+            _ => match model.collection() {
                 (_, Some((page, usage))) => c.page == page && c.usage == usage,
                 (iface, None) => c.iface == iface,
-            }
+            },
         };
         let key = format!("{:04X}:{:04X}", c.vid, c.pid);
         if fits && !out.iter().any(|f| f.key == key) {
@@ -99,6 +99,11 @@ pub fn read(f: &Found) -> Option<Reading> {
     if f.model.family == Family::TurtleBeach {
         return turtlebeach::read(f);
     }
+    match f.model.family {
+        Family::Inzone => return sony::read(&f.model, &f.coll),
+        Family::Jbl => return jbl::read(&f.model, &f.coll),
+        _ => {}
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -133,6 +138,11 @@ pub fn status(f: &Found) -> Option<Status> {
     }
     if f.model.family == Family::TurtleBeach {
         return turtlebeach::status(f);
+    }
+    match f.model.family {
+        Family::Inzone => return sony::status(&f.coll),
+        Family::Jbl => return jbl::status(&f.model, &f.coll),
+        _ => {}
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -189,6 +199,11 @@ pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
     }
     if f.model.family == Family::TurtleBeach {
         return turtlebeach::send(f, f.model.set(c, v)?);
+    }
+    match f.model.family {
+        Family::Inzone => return sony::set(&f.model, &f.coll, c, v),
+        Family::Jbl => return jbl::set(&f.model, &f.coll, c, v),
+        _ => {}
     }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }

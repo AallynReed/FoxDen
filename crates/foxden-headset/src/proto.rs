@@ -29,6 +29,8 @@ pub enum Family {
     /// HyperX headsets, HP or Kingston ids.
     HyperX,
     TurtleBeach,
+    Inzone,
+    Jbl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +96,8 @@ pub fn model(pid: u16) -> Option<Model> {
 pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
     match vid {
         0x1038 => model(pid),
+        crate::sony::VID => crate::sony::model(pid),
+        crate::jbl::VID => crate::jbl::model(pid),
         0x1B1C => {
             let row = foxden_battery::corsair_catalog::corsair(pid)?;
             let receiver = foxden_battery::corsair_catalog::served(row);
@@ -145,6 +149,8 @@ pub enum Control {
     SuperhumanMode,
     SuperhumanLevel,
     WakeOnMotion,
+    AmbientLevel,
+    VoiceFocus,
 }
 
 impl Control {
@@ -171,6 +177,8 @@ impl Control {
             Control::SuperhumanMode => "superhuman_mode",
             Control::SuperhumanLevel => "superhuman_level",
             Control::WakeOnMotion => "wake_on_motion",
+            Control::AmbientLevel => "ambient_level",
+            Control::VoiceFocus => "voice_focus",
         }
     }
 }
@@ -251,6 +259,8 @@ impl Model {
             crate::poly::VID => "Poly",
             0x03F0 | 0x0951 => "HyperX",
             crate::turtlebeach::VID => "Turtle Beach",
+            crate::sony::VID => "Sony",
+            crate::jbl::VID => "JBL",
             _ => "SteelSeries",
         }
     }
@@ -358,6 +368,8 @@ impl Model {
             | Family::NovaElite => out = arctis::controls(self),
             Family::HyperX => out = crate::hyperx::controls(self),
             Family::TurtleBeach => return crate::turtlebeach::controls(self),
+            Family::Inzone => out = crate::sony::controls(self),
+            Family::Jbl => out = crate::jbl::controls(self),
         }
         out
     }
@@ -370,6 +382,12 @@ impl Model {
     pub fn set(&self, c: Control, v: i32) -> Result<Vec<Vec<u8>>, String> {
         if self.family == Family::TurtleBeach {
             return crate::turtlebeach::set(self, c, v);
+        }
+        if matches!(self.family, Family::Inzone | Family::Jbl) {
+            return Err(format!(
+                "{} takes settings through its own channel",
+                self.name
+            ));
         }
         let shape = self
             .controls()
@@ -444,7 +462,9 @@ impl Model {
             | Family::Jabra
             | Family::Poly
             | Family::HyperX
-            | Family::TurtleBeach => Save::None,
+            | Family::TurtleBeach
+            | Family::Inzone
+            | Family::Jbl => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
             Family::Arctis1
@@ -560,7 +580,9 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
         | Family::Jabra
         | Family::Poly
         | Family::HyperX
-        | Family::TurtleBeach => None,
+        | Family::TurtleBeach
+        | Family::Inzone
+        | Family::Jbl => None,
         Family::Arctis1
         | Family::Arctis7
         | Family::Arctis7Plus
@@ -681,6 +703,21 @@ mod tests {
         assert_eq!(a.save(Some(Control::AutoOff)), Save::None);
         assert!(nova7().set(Control::VoicePrompts, 1).is_err());
         assert!(any_model(0x03F0, 0x0AB5).is_none());
+    }
+
+    #[test]
+    fn sony_and_jbl_models() {
+        let h9 = any_model(0x054C, 0x0FA8).unwrap();
+        assert_eq!(
+            (h9.family, h9.brand(), h9.name),
+            (Family::Inzone, "Sony", "INZONE H9 II")
+        );
+        let q = any_model(0x0ECB, 0x2069).unwrap();
+        assert_eq!((q.family, q.brand()), (Family::Jbl, "JBL"));
+        assert!(h9.set(Control::Sidetone, 1).is_err() && q.set(Control::Sidetone, 1).is_err());
+        assert_eq!(h9.save(Some(Control::Sidetone)), Save::None);
+        assert!(!h9.has_eq() && q.chatmix_switch(true).is_none());
+        assert!(any_model(0x054C, 0x0E53).is_none());
     }
 
     #[test]
