@@ -24,6 +24,8 @@ pub struct Dev {
     pub leds: Vec<[f32; 2]>,
     pub enabled: bool,
     pub brightness: f32,
+    /// Runs one of its own effects, so FoxDen's colours do not reach it.
+    pub own: bool,
 }
 
 /// View options, kept per user in a file of their own.
@@ -83,6 +85,8 @@ pub struct Canvas {
     pub hover: Option<String>,
     pub light: bool,
     pub view: ViewOpts,
+    /// "Runs its own effect" in the UI's language.
+    pub own_text: String,
     /// 0 for the default pointer, 1 over a device, 2 over the resize handle.
     pub cursor: i32,
     drag: Option<Drag>,
@@ -500,7 +504,7 @@ impl Canvas {
                 return None;
             }
             rects.push(r);
-            (&d.id, &d.kind, d.enabled, d.grid, d.leds.len()).hash(&mut h);
+            (&d.id, &d.kind, d.enabled, d.own, d.grid, d.leds.len()).hash(&mut h);
             r.map(f32::to_bits).hash(&mut h);
         }
         Some(h.finish())
@@ -586,11 +590,12 @@ impl Canvas {
                     x,
                     y: y - 20.0,
                     width: dw,
-                    text: if d.enabled {
-                        d.name.clone()
-                    } else {
-                        format!("{} (off)", d.name)
-                    },
+                    text: format!(
+                        "{}{}{}",
+                        d.name,
+                        if d.enabled { "" } else { " (off)" },
+                        if d.own { format!(" · {}", self.own_text) } else { String::new() }
+                    ),
                     strong,
                 }
             })
@@ -640,7 +645,7 @@ impl Canvas {
             } else {
                 ink.stroke
             };
-            p.alpha = if d.enabled { 1.0 } else { 0.35 };
+            p.alpha = if d.enabled && !d.own { 1.0 } else { 0.35 };
             if pass != Pass::Leds {
                 let clip = draw_body(&mut p, &ink, shape, x + 0.5, y + 0.5, dw - 1.0, dh - 1.0, edge);
                 if let Some(path) = clip.and_then(|pb| pb.finish())
@@ -820,7 +825,7 @@ fn led_dots(
     let ch = h / rows.max(1) as f32;
     let at = |i: usize| (x + leds[i][0] * w, y + leds[i][1] * h);
     let n = leds.len();
-    let color = |i: usize| dot_color(ink, colors, i, d.enabled);
+    let color = |i: usize| dot_color(ink, colors, i, d.enabled && !d.own);
     let mut rect = |x: f32, y: f32, w: f32, h: f32, round: bool, rim: bool, color: [u8; 3]| {
         out.push(Dot { x, y, w, h, round, rim, color })
     };

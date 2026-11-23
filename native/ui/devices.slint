@@ -9,12 +9,21 @@ export struct DeviceRow {
     enabled: bool,
     brightness: float,
     selected: bool,
+    resizable: bool,
+}
+
+export struct HwRange {
+    on: bool,
+    min: int,
+    max: int,
+    value: int,
 }
 
 export struct ZoneRow {
     key: string,
     name: string,
     leds: string,
+    suffix: string,
 }
 
 export struct FoundRow {
@@ -93,6 +102,26 @@ export global DevicesPage {
     callback hs-set(string, string, int);
     callback hs-band(string, int, int);
     callback hs-eq(string);
+    in property <[string]> hw-modes;
+    in property <int> hw-index;
+    in property <HwRange> hw-speed;
+    in property <HwRange> hw-bright;
+    in property <[color]> hw-colors;
+    in property <[string]> hw-hexes;
+    in property <[string]> hw-color-labels;
+    in property <[string]> hw-dirs;
+    in property <int> hw-dir;
+    in property <bool> hw-random-on;
+    in property <bool> hw-random;
+    in property <bool> zones-tall;
+    callback hw-mode(int);
+    callback hw-range(int, int);
+    callback hw-range-typed(int, string) -> bool;
+    callback hw-color(int, color);
+    callback hw-direction(int);
+    callback hw-set-random(bool);
+    pure callback hex-valid(string) -> bool;
+    pure callback hex-color(string) -> color;
 }
 
 export component Mark inherits Rectangle {
@@ -532,6 +561,233 @@ component HsBox inherits VerticalLayout {
     }
 }
 
+component HwLine inherits HorizontalLayout {
+    in property <int> n;
+    in property <string> label;
+    in property <HwRange> r;
+    spacing: 4px;
+    Text { text: root.label; color: Theme.muted; vertical-alignment: center; }
+    Slider {
+        y: (parent.height - 24px) / 2;
+        horizontal-stretch: 1;
+        label: root.label;
+        minimum: root.r.min;
+        maximum: root.r.max;
+        step: 1;
+        value: root.r.value;
+        changed(v) => {
+            box.clear();
+            DevicesPage.clear-problem();
+            DevicesPage.hw-range(root.n, round(v));
+        }
+    }
+    box := Exact {
+        y: (parent.height - 28px) / 2;
+        width: 56px;
+        label: root.label;
+        value: root.r.value;
+        edited(t) => { DevicesPage.hw-range-typed(root.n, t) }
+        reverted => { DevicesPage.clear-problem(); }
+    }
+}
+
+component Tone inherits HorizontalLayout {
+    in property <string> label;
+    in property <float> value;
+    in property <float> maximum;
+    callback changed(float);
+    spacing: 4px;
+    Text { width: 76px; text: root.label; color: Theme.muted; vertical-alignment: center; }
+    Slider {
+        y: (parent.height - 24px) / 2;
+        horizontal-stretch: 1;
+        label: root.label;
+        maximum: root.maximum;
+        step: 1;
+        value: root.value;
+        changed(v) => { box.clear(); root.changed(round(v)); }
+    }
+    box := Exact {
+        y: (parent.height - 28px) / 2;
+        width: 56px;
+        label: root.label;
+        value: round(root.value);
+        edited(t) => {
+            if t.is-float() && t.to-float() >= 0 && t.to-float() <= root.maximum {
+                root.changed(round(t.to-float()));
+                return true;
+            }
+            false
+        }
+    }
+}
+
+component HwColour inherits VerticalLayout {
+    in property <int> n;
+    in property <string> label;
+    in property <color> c;
+    in property <string> hex;
+    property <bool> open;
+    property <float> h;
+    property <float> s;
+    property <float> v;
+    spacing: 8px;
+    function send() { DevicesPage.hw-color(root.n, hsv(root.h, root.s / 100, root.v / 100)); }
+    function take(col: color) {
+        root.h = col.to-hsv().hue;
+        root.s = col.to-hsv().saturation * 100;
+        root.v = col.to-hsv().value * 100;
+        DevicesPage.hw-color(root.n, col);
+    }
+    function toggle() {
+        if !root.open {
+            root.h = root.c.to-hsv().hue;
+            root.s = root.c.to-hsv().saturation * 100;
+            root.v = root.c.to-hsv().value * 100;
+        }
+        root.open = !root.open;
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Text { text: root.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        Rectangle {
+            height: 32px;
+            width: chip-row.preferred-width + 2px;
+            background: root.open || swatch.has-hover ? Theme.hover : Theme.raised;
+            border-width: 1px;
+            border-color: root.open || sf.has-focus ? Theme.accent : Theme.stroke;
+            accessible-role: button;
+            accessible-label: root.label + " " + root.hex;
+            accessible-expandable: true;
+            accessible-expanded: root.open;
+            accessible-action-default => { root.toggle(); }
+            forward-focus: sf;
+            chip-row := HorizontalLayout {
+                padding-left: 5px;
+                padding-right: 10px;
+                spacing: 8px;
+                Rectangle { y: 6px; width: 20px; height: 20px; background: root.c; border-width: 1px; border-color: Theme.stroke; }
+                Text { text: root.hex; color: Theme.text; font-family: Theme.mono; font-size: 13px; vertical-alignment: center; }
+            }
+            sf := FocusScope {
+                key-pressed(e) => {
+                    if e.text == " " || e.text == Key.Return { root.toggle(); return accept; }
+                    if e.text == Key.Escape && root.open { root.open = false; return accept; }
+                    reject
+                }
+            }
+            swatch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { sf.focus(); root.toggle(); }
+            }
+        }
+    }
+    if root.open: Rectangle {
+        border-width: 1px;
+        border-color: Theme.line;
+        accessible-role: groupbox;
+        accessible-label: root.label;
+        Rectangle { x: 0; width: 3px; background: Theme.accent; }
+        VerticalLayout {
+            padding: 10px;
+            padding-left: 13px;
+            spacing: 8px;
+            Tone { label: I18n.t("Hue"); maximum: 360; value: root.h; changed(x) => { root.h = x; root.send(); } }
+            Tone { label: I18n.t("Saturation"); maximum: 100; value: root.s; changed(x) => { root.s = x; root.send(); } }
+            Tone { label: I18n.t("Brightness"); maximum: 100; value: root.v; changed(x) => { root.v = x; root.send(); } }
+            HorizontalLayout {
+                spacing: 12px;
+                Text { text: I18n.t("Hex"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+                Exact {
+                    width: 88px;
+                    label: I18n.t("Hex");
+                    value: root.hex;
+                    edited(t) => {
+                        if DevicesPage.hex-valid(t) {
+                            root.take(DevicesPage.hex-color(t));
+                            return true;
+                        }
+                        false
+                    }
+                }
+            }
+            Text { text: I18n.t("Presets"); color: Theme.muted; font-size: 12px; }
+            HorizontalLayout {
+                spacing: 1px;
+                alignment: start;
+                for p in [
+                    { name: "Red", c: #FF0000, hex: "#FF0000" },
+                    { name: "Orange", c: #FF6A00, hex: "#FF6A00" },
+                    { name: "Yellow", c: #FFD000, hex: "#FFD000" },
+                    { name: "Green", c: #00C850, hex: "#00C850" },
+                    { name: "Cyan", c: #00C8FF, hex: "#00C8FF" },
+                    { name: "Blue", c: #0050FF, hex: "#0050FF" },
+                    { name: "Violet", c: #963CFF, hex: "#963CFF" },
+                    { name: "Pink", c: #FF3CA0, hex: "#FF3CA0" },
+                    { name: "White", c: #FFFFFF, hex: "#FFFFFF" },
+                    { name: "Black", c: #000000, hex: "#000000" },
+                ]: Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    border-width: p.hex == root.hex ? 2px : tile.has-hover || tf.has-focus ? 1px : 0;
+                    border-color: p.hex == root.hex ? Theme.text : tf.has-focus ? Theme.accent : Theme.stroke;
+                    accessible-role: radio-button;
+                    accessible-label: I18n.t(p.name);
+                    accessible-checkable: true;
+                    accessible-checked: p.hex == root.hex;
+                    accessible-action-default => { root.take(p.c); }
+                    Rectangle { x: 3px; y: 3px; width: 18px; height: 18px; background: p.c; border-width: 1px; border-color: Theme.stroke; }
+                    tf := FocusScope {
+                        key-pressed(e) => {
+                            if e.text == " " || e.text == Key.Return { root.take(p.c); return accept; }
+                            reject
+                        }
+                    }
+                    tile := TouchArea { mouse-cursor: pointer; clicked => { root.take(p.c); } }
+                }
+            }
+        }
+    }
+}
+
+component HwFields inherits HorizontalLayout {
+    spacing: 15px;
+    Rectangle { width: 1px; background: Theme.line; }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 8px;
+        if DevicesPage.hw-speed.on: HwLine { n: 0; label: I18n.t("Speed"); r: DevicesPage.hw-speed; }
+        if DevicesPage.hw-bright.on: HwLine { n: 1; label: I18n.t("Brightness"); r: DevicesPage.hw-bright; }
+        for c[i] in DevicesPage.hw-colors: HwColour {
+            n: i;
+            c: c;
+            label: DevicesPage.hw-color-labels[i];
+            hex: DevicesPage.hw-hexes[i];
+        }
+        if DevicesPage.hw-dirs.length > 0: HorizontalLayout {
+            spacing: 12px;
+            Text { text: I18n.t("Direction"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+            Select {
+                options: DevicesPage.hw-dirs;
+                index: DevicesPage.hw-dir;
+                label: I18n.t("Direction");
+                selected(i) => { DevicesPage.hw-direction(i); }
+            }
+        }
+        if DevicesPage.hw-random-on: HorizontalLayout {
+            min-height: 32px;
+            spacing: 12px;
+            Text { text: I18n.t("Random colours"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+            Toggle {
+                y: (parent.height - 20px) / 2;
+                on: DevicesPage.hw-random;
+                label: I18n.t("Random colours");
+                toggled(v) => { DevicesPage.hw-set-random(v); }
+            }
+        }
+    }
+}
+
 component Device inherits Rectangle {
     in property <DeviceRow> d;
     border-width: 1px;
@@ -579,6 +835,7 @@ component Device inherits Rectangle {
                     clicked => { name-keys.focus(); DevicesPage.select-device(root.d.id); }
                 }
             }
+            if root.d.resizable && !root.d.selected: Text { text: I18n.t("LED count adjustable"); color: Theme.muted; font-size: 12px; vertical-alignment: center; }
             Text { text: root.d.status; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
             Toggle {
                 y: (parent.height - 20px) / 2;
@@ -617,6 +874,17 @@ component Device inherits Rectangle {
                 }
                 Text { text: "%"; color: Theme.muted; vertical-alignment: center; }
             }
+            if DevicesPage.hw-modes.length > 0: HorizontalLayout {
+                spacing: 12px;
+                Text { text: I18n.t("Lighting"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+                Select {
+                    options: DevicesPage.hw-modes;
+                    index: DevicesPage.hw-index;
+                    label: I18n.t("Lighting");
+                    selected(i) => { DevicesPage.hw-mode(i); }
+                }
+            }
+            if DevicesPage.hw-index > 0 && (DevicesPage.hw-speed.on || DevicesPage.hw-bright.on || DevicesPage.hw-colors.length > 0 || DevicesPage.hw-dirs.length > 0 || DevicesPage.hw-random-on): HwFields { }
             Text { text: I18n.t("Position and size, in % of the canvas"); color: Theme.muted; font-size: 12px; wrap: word-wrap; }
             HorizontalLayout {
                 spacing: 8px;
@@ -635,12 +903,14 @@ component Device inherits Rectangle {
             }
             if DevicesPage.zones.length > 0: Text { text: I18n.t("LEDs"); color: Theme.muted; font-size: 12px; }
             if DevicesPage.zones.length > 0: Rectangle {
-                height: ceil(DevicesPage.zones.length / 4) * 54px - 8px;
+                property <length> pitch: DevicesPage.zones-tall ? 94px : 54px;
+                height: ceil(DevicesPage.zones.length / 4) * self.pitch - 8px;
                 for z[i] in DevicesPage.zones: VerticalLayout {
                     x: mod(i, 4) * (parent.width + 8px) / 4;
-                    y: floor(i / 4) * 54px;
+                    y: floor(i / 4) * parent.pitch;
                     width: (parent.width + 8px) / 4 - 8px;
-                    height: 46px;
+                    height: parent.pitch - 8px;
+                    alignment: start;
                     spacing: 2px;
                     Text { text: z.name; color: Theme.muted; font-size: 12px; overflow: elide; }
                     Exact {
@@ -650,6 +920,7 @@ component Device inherits Rectangle {
                         committed(t) => { DevicesPage.zone-set(z.key, t); }
                         reverted => { DevicesPage.clear-problem(); }
                     }
+                    if z.suffix != "": Text { text: z.suffix; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
                 }
             }
             if DevicesPage.problem != "": Problem { text: DevicesPage.problem; }
