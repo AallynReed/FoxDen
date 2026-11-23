@@ -7,7 +7,7 @@
 <!-- Project status -->
 [![GitHub Release](https://img.shields.io/github/v/release/AallynReed/FoxDen?style=for-the-badge&color=blue&cacheSeconds=21600)](https://github.com/AallynReed/FoxDen/releases/latest)
 ![GitHub Repo stars](https://img.shields.io/github/stars/AallynReed/FoxDen?style=for-the-badge&color=gold&cacheSeconds=21600)
-[![GitHub Downloads](https://img.shields.io/github/downloads/AallynReed/FoxDen/total?style=for-the-badge&cacheSeconds=21600)](https://github.com/AallynReed/FoxDen/releases)
+[![GitHub Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Faallynreed.github.io%2FFoxDen%2Fdownloads.json&style=for-the-badge&cacheSeconds=21600)](https://github.com/AallynReed/FoxDen/releases)
 ![GitHub last commit](https://img.shields.io/github/last-commit/AallynReed/FoxDen?style=for-the-badge&color=green&cacheSeconds=21600)
 ![GitHub issues](https://img.shields.io/github/issues/AallynReed/FoxDen?style=for-the-badge&cacheSeconds=21600)
 [![Build](https://img.shields.io/github/actions/workflow/status/AallynReed/FoxDen/release.yml?style=for-the-badge&label=build&cacheSeconds=21600)](https://github.com/AallynReed/FoxDen/actions)
