@@ -13,6 +13,8 @@ pub enum Family {
     NovaPro,
     /// Corsair headsets: every setting is a Bragi property.
     Bragi,
+    Inzone,
+    Jbl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,6 +76,8 @@ pub fn model(pid: u16) -> Option<Model> {
 pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
     match vid {
         0x1038 => model(pid),
+        crate::sony::VID => crate::sony::model(pid),
+        crate::jbl::VID => crate::jbl::model(pid),
         0x1B1C => {
             let row = foxden_battery::corsair_catalog::corsair(pid)?;
             let receiver = foxden_battery::corsair_catalog::served(row);
@@ -107,6 +111,9 @@ pub enum Control {
     BtCall,
     EqPreset,
     Anc,
+    AmbientLevel,
+    VoiceFocus,
+    VoicePrompts,
 }
 
 impl Control {
@@ -121,6 +128,9 @@ impl Control {
             Control::BtCall => "bt_call",
             Control::EqPreset => "eq_preset",
             Control::Anc => "anc",
+            Control::AmbientLevel => "ambient_level",
+            Control::VoiceFocus => "voice_focus",
+            Control::VoicePrompts => "voice_prompts",
         }
     }
 }
@@ -193,10 +203,11 @@ pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
     pub fn brand(&self) -> &'static str {
-        if self.vid == 0x1B1C {
-            "Corsair"
-        } else {
-            "SteelSeries"
+        match self.vid {
+            0x1B1C => "Corsair",
+            crate::sony::VID => "Sony",
+            crate::jbl::VID => "JBL",
+            _ => "SteelSeries",
         }
     }
 
@@ -284,6 +295,8 @@ impl Model {
                     },
                 ),
             ]),
+            Family::Inzone => out = crate::sony::controls(self),
+            Family::Jbl => out = crate::jbl::controls(self),
         }
         out
     }
@@ -294,6 +307,12 @@ impl Model {
 
     /// The frames that set `c` to `v`, without the save. `Err` for a control this model lacks or a value out of range.
     pub fn set(&self, c: Control, v: i32) -> Result<Vec<Vec<u8>>, String> {
+        if matches!(self.family, Family::Inzone | Family::Jbl) {
+            return Err(format!(
+                "{} takes settings through its own channel",
+                self.name
+            ));
+        }
         let shape = self
             .controls()
             .into_iter()
@@ -315,7 +334,10 @@ impl Model {
             (_, Control::BtPowerOn) => 0xB2,
             (_, Control::BtCall) => 0xB3,
             (_, Control::EqPreset) => 0x2E,
-            (_, Control::Anc) => return Err(format!("{} has no {} setting", self.name, c.id())),
+            (
+                _,
+                Control::Anc | Control::AmbientLevel | Control::VoiceFocus | Control::VoicePrompts,
+            ) => return Err(format!("{} has no {} setting", self.name, c.id())),
         };
         let byte = match (self.family, c) {
             (Family::Nova5, Control::MicLed) => NOVA5_LED[v as usize],
@@ -341,7 +363,7 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5 | Family::Bragi => Save::None,
+            Family::Nova5 | Family::Bragi | Family::Inzone | Family::Jbl => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
         }
@@ -438,7 +460,7 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
-        Family::Bragi => None,
+        Family::Bragi | Family::Inzone | Family::Jbl => None,
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;
@@ -536,6 +558,21 @@ mod tests {
         assert_eq!((receiver.name, receiver.wireless), ("HS80", true));
         assert!(any_model(0x1B1C, 0x1B2D).is_none());
         assert_eq!(any_model(0x1038, 0x22A1).unwrap().brand(), "SteelSeries");
+    }
+
+    #[test]
+    fn sony_and_jbl_models() {
+        let h9 = any_model(0x054C, 0x0FA8).unwrap();
+        assert_eq!(
+            (h9.family, h9.brand(), h9.name),
+            (Family::Inzone, "Sony", "INZONE H9 II")
+        );
+        let q = any_model(0x0ECB, 0x2069).unwrap();
+        assert_eq!((q.family, q.brand()), (Family::Jbl, "JBL"));
+        assert!(h9.set(Control::Sidetone, 1).is_err() && q.set(Control::Sidetone, 1).is_err());
+        assert_eq!(h9.save(Some(Control::Sidetone)), Save::None);
+        assert!(!h9.has_eq() && q.chatmix_switch(true).is_none());
+        assert!(any_model(0x054C, 0x0E53).is_none());
     }
 
     #[test]
