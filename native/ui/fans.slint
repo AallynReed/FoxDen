@@ -364,6 +364,7 @@ component Spark inherits Rectangle {
     in property <string> area;
     in property <color> ink;
     height: 32px;
+    background: Theme.panel;
     Path {
         width: parent.width;
         height: parent.height;
@@ -371,9 +372,7 @@ component Spark inherits Rectangle {
         viewbox-height: 32;
         fit: fill;
         commands: root.area != "" ? root.area : "M 0 0";
-        fill: root.ink.with-alpha(0.22);
-        stroke: transparent;
-        stroke-width: 1.5px;
+        fill: root.ink.mix(Theme.panel, 0.22);
         visible: root.area != "";
     }
     Path {
@@ -822,7 +821,7 @@ component Graph inherits Rectangle {
             height: root.h;
             fit: preserve;
             commands: FansPage.area-path;
-            fill: Theme.text.with-alpha(0.07);
+            fill: Theme.text.mix(Theme.panel, 0.07);
         }
         if FansPage.now-shown: Path {
             width: root.w;
