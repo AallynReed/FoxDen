@@ -2,7 +2,7 @@
 
 use super::util::{Every, hub_id, iface, latest, le16, open, scan, spun};
 use crate::fan::{Channel, FanHub, backend_on, percent};
-use crate::hid::{Driver, Io, Proto, drain, open_io, read_until};
+use crate::hid::{Driver, Io, Proto, drain, open_io, read_until, set_rows, span};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_fan::FanBackend;
 use foxden_hid::registry::{Detector, Info};
@@ -255,10 +255,11 @@ pub fn backends(api: &HidApi, seen: &mut Vec<String>) -> Vec<Box<dyn FanBackend>
 const Z3_LEDS: usize = 40;
 const PER_PACKET: usize = 20;
 
+/// The count byte is `colors.len()`, up to 40.
 pub fn z3_frame(colors: &[Color]) -> Vec<Vec<u8>> {
+    let colors = &colors[..colors.len().min(Z3_LEDS)];
     let mut out: Vec<Vec<u8>> = colors
         .chunks(PER_PACKET)
-        .take(2)
         .enumerate()
         .map(|(n, chunk)| {
             let mut p = vec![0x22, 0x10 | n as u8, 0x01, 0x00];
@@ -276,7 +277,7 @@ pub fn z3_frame(colors: &[Color]) -> Vec<Vec<u8>> {
         0x01,
         0x00,
         0x00,
-        Z3_LEDS as u8,
+        colors.len() as u8,
         0x00,
         0x00,
         0x80,
@@ -289,29 +290,34 @@ pub fn z3_frame(colors: &[Color]) -> Vec<Vec<u8>> {
     out
 }
 
-struct Z3Lights;
+struct Z3Lights(usize);
 
 impl Proto for Z3Lights {
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        z3_frame(colors).iter().try_for_each(|p| io.write(p, 64))
+        z3_frame(&span(colors, 0, self.0))
+            .iter()
+            .try_for_each(|p| io.write(p, 64))
     }
     fn stop(&mut self, io: &mut dyn Io) {
-        for p in z3_frame(&[Color(0, 0, 0); Z3_LEDS]) {
+        for p in z3_frame(&vec![Color(0, 0, 0); self.0]) {
             let _ = io.write(&p, 64);
         }
     }
 }
 
 fn open_z3(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    let dev = Device::grid(
-        &info.device_id("nzxt-kraken-z3"),
+    let id = info.device_id("nzxt-kraken-z3");
+    let n = foxden_hid::zone_length(&id, 0, "Accessory", Z3_LEDS, 0, Z3_LEDS);
+    let mut dev = Device::grid(
+        &id,
         d.name,
         DeviceKind::Strip,
         [0.05, 0.30, 0.60, 0.04],
-        Z3_LEDS as u32,
+        1,
         1,
     );
-    Ok(Driver::new(open_io(api, info)?, dev, "nzxt-kraken-z3", Z3Lights).boxed())
+    set_rows(&mut dev, &[n]);
+    Ok(Driver::new(open_io(api, info)?, dev, "nzxt-kraken-z3", Z3Lights(n)).boxed())
 }
 
 pub static DETECTORS: [Detector; 1] = [crate::hid::on_i("NZXT Kraken Z3", VID, 0x3008, 1, open_z3)];
@@ -332,6 +338,20 @@ mod tests {
         assert_eq!(&f[1][..7], &[0x22, 0x11, 1, 0, 2, 1, 3]);
         assert_eq!(f[0].len(), 64);
         assert_eq!(f[2][7], 40);
+    }
+
+    #[test]
+    fn z3_count_follows_the_length() {
+        let c: Vec<Color> = (0..25).map(|i| Color(i, 0, 0)).collect();
+        let f = z3_frame(&c);
+        assert_eq!(f.len(), 3);
+        assert_eq!(f[0].len(), 4 + 20 * 3);
+        assert_eq!(f[1][..7], [0x22, 0x11, 1, 0, 0, 20, 0]);
+        assert_eq!(f[1].len(), 4 + 5 * 3);
+        assert_eq!(f[2][7], 25);
+        let f = z3_frame(&c[..8]);
+        assert_eq!((f.len(), f[1][1], f[1][7]), (2, 0xA0, 8));
+        assert_eq!(z3_frame(&[Color(0, 0, 0); 50])[2][7], 40);
     }
 
     #[test]

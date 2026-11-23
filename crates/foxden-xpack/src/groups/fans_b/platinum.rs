@@ -63,6 +63,8 @@ const POLL_MS: u64 = 1000;
 const RESEND_MS: u64 = 3000;
 const BLOCK_LEDS: usize = 16;
 const FAN_LEDS: usize = 32;
+/// Three 60-byte colour packets hold 60 LEDs, the pump block's 16 first.
+const MAX_FAN_LEDS: usize = 60 - BLOCK_LEDS;
 
 #[rustfmt::skip]
 const CRC_TABLE: [u8; 256] = {
@@ -448,26 +450,25 @@ impl Proto for Lights {
         Some(5000)
     }
     fn stop(&mut self, io: &mut dyn Io) {
-        let _ = self.frame(io, &[Color(0, 0, 0); BLOCK_LEDS + FAN_LEDS]);
+        let _ = self.frame(io, &[Color(0, 0, 0); BLOCK_LEDS + MAX_FAN_LEDS]);
     }
+}
+
+fn layout(id: &str, name: &str, fans: usize) -> Device {
+    let mut dev = Device::grid(id, name, DeviceKind::Other, [0.34, 0.12, 0.24, 0.24], 5, 6);
+    dev.leds = BLOCK_CELLS
+        .iter()
+        .map(|&(x, y)| [(f32::from(x) + 0.5) / 5.0, (f32::from(y) + 0.5) / 6.0])
+        .chain((0..fans).map(|i| [(i as f32 + 0.5) / fans as f32, 5.5 / 6.0]))
+        .collect();
+    dev
 }
 
 fn open_lights(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     let io = open_io(api, info)?;
-    let mut dev = Device::grid(
-        &info.device_id("corsair-platinum-xpack"),
-        d.name,
-        DeviceKind::Other,
-        [0.34, 0.12, 0.24, 0.24],
-        5,
-        6,
-    );
-    dev.leds = BLOCK_CELLS
-        .iter()
-        .map(|&(x, y)| [(f32::from(x) + 0.5) / 5.0, (f32::from(y) + 0.5) / 6.0])
-        .chain((0..FAN_LEDS).map(|i| [(i as f32 + 0.5) / FAN_LEDS as f32, 5.5 / 6.0]))
-        .collect();
-    Ok(Driver::new(io, dev, "corsair platinum", Lights).boxed())
+    let id = info.device_id("corsair-platinum-xpack");
+    let fans = foxden_hid::zone_length(&id, 1, "Fans", FAN_LEDS, 0, MAX_FAN_LEDS);
+    Ok(Driver::new(io, layout(&id, d.name, fans), "corsair platinum", Lights).boxed())
 }
 
 pub static DETECTORS: [Detector; 4] = [
@@ -555,6 +556,28 @@ mod tests {
         assert_eq!(pump_mode(0.5), QUIET);
         assert_eq!(pump_mode(0.7), BALANCED);
         assert_eq!(pump_mode(1.0), EXTREME);
+    }
+
+    #[test]
+    fn fan_leds_follow_their_length() {
+        let mut n = 0u8;
+        let c: Vec<Color> = (0..BLOCK_LEDS as u8 + 10).map(|i| Color(i, 0, 0)).collect();
+        let p = color_packets(&c, || {
+            n += 8;
+            n
+        });
+        assert_eq!(p.len(), 2);
+        assert_eq!(&p[1][3..6], &[0, 0, 20]);
+        assert_eq!(&p[1][3 + 5 * 3..3 + 7 * 3], &[0, 0, 25, 0, 0, 0]);
+        let full = vec![Color(1, 2, 3); BLOCK_LEDS + MAX_FAN_LEDS];
+        let p = color_packets(&full, next_seq);
+        assert_eq!(p.len(), 3);
+        assert!(
+            p.iter()
+                .all(|p| p.len() == LEN && p[3..63] == [3, 2, 1].repeat(20))
+        );
+        assert_eq!(layout("x", "X", 10).leds.len(), BLOCK_LEDS + 10);
+        assert_eq!(layout("x", "X", FAN_LEDS).leds.len(), 48);
     }
 
     // One sequence for lights and fans; lighting setup rewrites command 3, so fans resend.

@@ -237,6 +237,41 @@ pub fn rgb(c: Color) -> [u8; 3] {
     [c.0, c.1, c.2]
 }
 
+/// One row per channel, LEDs spread along it; the grid is as wide as the longest channel.
+pub fn set_rows(dev: &mut Device, counts: &[usize]) {
+    let n = counts.len().max(1);
+    dev.leds = counts
+        .iter()
+        .enumerate()
+        .flat_map(|(r, &c)| {
+            (0..c).map(move |i| [(i as f32 + 0.5) / c as f32, (r as f32 + 0.5) / n as f32])
+        })
+        .collect();
+    dev.grid = [
+        counts.iter().copied().max().unwrap_or(1).max(1) as u32,
+        n as u32,
+    ];
+}
+
+/// `n` colours from `from`, black past the end.
+pub fn span(colors: &[Color], from: usize, n: usize) -> Vec<Color> {
+    (from..from + n)
+        .map(|i| colors.get(i).copied().unwrap_or(Color(0, 0, 0)))
+        .collect()
+}
+
+/// Consecutive slices of `colors`, one per count, padded with black.
+pub fn split(colors: &[Color], counts: &[usize]) -> Vec<Vec<Color>> {
+    let mut from = 0;
+    counts
+        .iter()
+        .map(|&n| {
+            from += n;
+            span(colors, from - n, n)
+        })
+        .collect()
+}
+
 /// A detector on any collection of the device.
 pub const fn any(name: &'static str, vid: u16, pid: u16, open: Open) -> Detector {
     Detector {

@@ -1,7 +1,7 @@
 //! LANQ PCDOCK monitor stand ARGB over USB serial.
 
 use super::link::open_serial;
-use crate::hid::{Driver, Io, Proto, rgb};
+use crate::hid::{Driver, Io, Proto, rgb, set_rows, split};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 
 const FAMILY: &str = "pcdock-stand";
@@ -15,7 +15,7 @@ const FRAME: u8 = 0x01;
 const RELEASE: u8 = 0x02;
 const HEADER_LEN: u16 = 20;
 const CHANNELS: usize = 2;
-/// The plugin leaves the strip length to the user; FoxDen drives each channel at its maximum.
+/// Each channel's maximum, and its default length.
 const CHANNEL_LEDS: usize = 240;
 
 /// Reflected CRC-32 (0xEDB88320, init and final xor 0xFFFFFFFF).
@@ -46,9 +46,9 @@ pub fn message(kind: u8, seq: u32, ch1: &[Color], ch2: &[Color]) -> Vec<u8> {
     m
 }
 
-#[derive(Default)]
 struct Stand {
     seq: u32,
+    counts: [usize; CHANNELS],
 }
 
 impl Stand {
@@ -57,39 +57,49 @@ impl Stand {
         self.seq = self.seq.wrapping_add(1);
         s
     }
+    fn colors(&mut self, colors: &[Color]) -> Vec<u8> {
+        let parts = split(colors, &self.counts);
+        let seq = self.next();
+        message(FRAME, seq, &parts[0], &parts[1])
+    }
 }
 
 impl Proto for Stand {
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        let (a, b) = colors.split_at(CHANNEL_LEDS.min(colors.len()));
-        let seq = self.next();
-        io.write(&message(FRAME, seq, a, b), 0)
+        let m = self.colors(colors);
+        io.write(&m, 0)
     }
     fn keepalive_ms(&self) -> Option<u64> {
         Some(1000)
     }
     fn stop(&mut self, io: &mut dyn Io) {
-        let _ = self.frame(io, &[Color(0, 0, 0); CHANNELS * CHANNEL_LEDS]);
+        let _ = self.frame(io, &[]);
         let seq = self.next();
         let _ = io.write(&message(RELEASE, seq, &[], &[]), 0);
     }
 }
 
-fn device(id: &str) -> Device {
-    Device::grid(
-        id,
-        NAME,
-        DeviceKind::Strip,
-        [0.06, 0.02, 0.88, 0.06],
-        CHANNEL_LEDS as u32,
-        CHANNELS as u32,
-    )
+fn counts(id: &str) -> [usize; CHANNELS] {
+    std::array::from_fn(|i| {
+        let name = format!("Channel {}", i + 1);
+        foxden_hid::zone_length(id, i, &name, CHANNEL_LEDS, 0, CHANNEL_LEDS)
+    })
+}
+
+fn device(id: &str, counts: &[usize]) -> Device {
+    let mut dev = Device::grid(id, NAME, DeviceKind::Strip, [0.06, 0.02, 0.88, 0.06], 1, 1);
+    set_rows(&mut dev, counts);
+    dev
 }
 
 pub fn probe() -> Vec<Box<dyn Backend>> {
     open_serial(FAMILY, VID, &[PID], BAUD)
         .into_iter()
-        .map(|p| Driver::new(Box::new(p.io), device(&p.id), FAMILY, Stand::default()).boxed())
+        .map(|p| {
+            let counts = counts(&p.id);
+            let stand = Stand { seq: 0, counts };
+            Driver::new(Box::new(p.io), device(&p.id, &counts), FAMILY, stand).boxed()
+        })
         .collect()
 }
 
@@ -119,6 +129,25 @@ mod tests {
         );
         assert_eq!(&m[20..29], &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
         assert_eq!(m[29..].to_vec(), crc32(&m[..29]).to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn frames_follow_the_channel_lengths() {
+        let mut s = Stand {
+            seq: 0,
+            counts: [3, 100],
+        };
+        let m = s.colors(&[Color(1, 2, 3); 103]);
+        assert_eq!(&m[12..18], &[0x35, 1, 3, 0, 100, 0]);
+        assert_eq!(m.len(), 20 + 103 * 3 + 4);
+        let d = device("x", &[3, 100]);
+        assert_eq!((d.leds.len(), d.grid), (103, [100, 2]));
+        let full = Stand {
+            seq: 0,
+            counts: [CHANNEL_LEDS; 2],
+        }
+        .colors(&[]);
+        assert_eq!(&full[12..18], &[0xA0, 0x05, 240, 0, 240, 0]);
     }
 
     #[test]
