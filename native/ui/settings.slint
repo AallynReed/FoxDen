@@ -1,11 +1,55 @@
-import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Scroll } from "widgets.slint";
+
+export struct StateRow {
+    name: string,
+    mark: string,
+    state: string,
+    problem: string,
+    exe: bool,
+    closes: bool,
+    kept: bool,
+}
+
+export struct NetField {
+    label: string,
+    kind: string,
+    text: string,
+    on: bool,
+    options: [string],
+    index: int,
+}
+
+export struct NetCard {
+    title: string,
+    pairable: bool,
+    paired: bool,
+    pair-label: string,
+    fields: [NetField],
+}
+
+export struct NetFound {
+    title: string,
+    ip: string,
+    action: string,
+    label: string,
+}
+
+export struct Strip {
+    title: string,
+    meta: string,
+    name: string,
+    port: string,
+    protocol: int,
+    baud: string,
+    leds: string,
+}
 
 export global SettingsPage {
     in property <[string]> languages;
     in property <int> language-index;
     in property <bool> close-to-tray;
     in property <bool> start-minimized;
-    in property <[Line]> backends;
+    in property <[StateRow]> backends;
     callback set-language(int);
     callback set-close-to-tray(bool);
     callback set-start-minimized(bool);
@@ -14,34 +58,918 @@ export global SettingsPage {
     callback open-update();
     callback open-feedback();
     callback open-logs();
+
+    in property <bool> lighting;
+    in property <bool> fans;
+    in property <bool> battery-tray;
+    in property <bool> battery-alerts;
+    in property <bool> native-drivers;
+    in property <bool> net-enabled;
+    in property <bool> net-discover;
+    in property <bool> server-enabled;
+    in property <bool> autostart;
+    in property <bool> auto-update;
+    in property <bool> close-conflicts;
+    in property <bool> send-reports;
+    callback set-flag(string, bool);
+
+    in property <string> modules-outcome;
+    in property <bool> modules-ok;
+
+    in property <bool> vmic-on;
+    in property <string> vmic-state;
+    in property <string> vmic-outcome;
+    in property <bool> vmic-ours;
+    in property <bool> vmic-busy;
+    in property <string> vmic-progress;
+    callback set-vmic(bool);
+    callback vmic-donate();
+    callback vmic-remove();
+    callback vmic-check();
+
+    in property <int> fps: 30;
+    in property <string> fps-text;
+    in property <string> fps-problem;
+    callback set-fps(int);
+    callback fps-typed(string);
+
+    in property <string> host;
+    in property <string> port;
+    in property <string> host-problem;
+    in property <string> port-problem;
+    callback server-edited(string, string);
+    callback server-commit(string, string);
+
+    in property <bool> net-searching;
+    in property <string> net-status;
+    in property <bool> net-pairing;
+    in property <[NetFound]> net-found;
+    in property <[string]> net-kinds;
+    in property <int> net-kind;
+    in property <[NetCard]> net-cards;
+    in property <[string]> net-problems;
+    callback net-search();
+    callback net-pick-kind(int);
+    callback net-add();
+    callback net-found-act(int);
+    callback net-edit(int, int, string);
+    callback net-commit(int, int, string);
+    callback net-check(int, int, bool);
+    callback net-choice(int, int, int);
+    callback net-remove(int);
+    callback net-pair(int);
+
+    in property <[Strip]> strips;
+    in property <[string]> strip-problems;
+    in property <[string]> protocols;
+    callback strip-add();
+    callback strip-edit(int, string, string);
+    callback strip-commit(int, string, string);
+    callback strip-protocol(int, int);
+    callback strip-remove(int);
+
+    in property <string> version;
+    in property <string> update-status;
+    in property <string> update-label;
+    callback check-update();
+
+    in property <[StateRow]> conflicts;
+    in property <bool> conflicts-empty;
+    in property <string> conflicts-last;
+    callback close-conflicts-now();
+    callback refresh-conflicts();
+    callback set-exe-closes(int, bool);
+
+    callback rescan();
+
+    in-out property <string> sheet;
+    callback close-sheet();
+    in property <string> update-title;
+    in property <string> update-notes;
+    in property <string> update-progress;
+    in property <bool> update-busy;
+    callback install-update();
+    callback later-update();
+
+    in-out property <int> feedback-type;
+    in-out property <string> feedback-message;
+    in-out property <string> feedback-contact;
+    in property <string> feedback-file;
+    in property <bool> feedback-has-file;
+    in property <string> feedback-file-problem;
+    in property <string> feedback-status;
+    in property <string> feedback-count;
+    in property <bool> feedback-can-send;
+    callback feedback-edited();
+    callback feedback-pick();
+    callback feedback-remove();
+    callback feedback-send();
 }
 
+component Problem inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 6px;
+    Path {
+        y: 4px;
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M 4 0 L 8 8 L 0 8 Z";
+        fill: Theme.danger;
+        stroke-width: 0;
+    }
+    Text {
+        text: root.text;
+        color: Theme.danger;
+        font-size: 12px;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+component Mark inherits Rectangle {
+    in property <string> kind;
+    width: 8px;
+    height: 8px;
+    if root.kind == "on" || root.kind == "off": Rectangle {
+        width: 8px;
+        height: 8px;
+        border-width: 2px;
+        border-color: root.kind == "on" ? Theme.accent : Theme.muted;
+        background: root.kind == "on" ? Theme.accent : transparent;
+    }
+    if root.kind == "none": Rectangle {
+        y: 3px;
+        width: 8px;
+        height: 2px;
+        background: Theme.muted;
+    }
+    if root.kind == "warn": Path {
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M 4 0 L 8 8 L 0 8 Z";
+        fill: Theme.danger;
+        stroke-width: 0;
+    }
+}
+
+export component StateText inherits HorizontalLayout {
+    in property <string> mark;
+    in property <string> text;
+    spacing: 6px;
+    alignment: end;
+    Mark { kind: root.mark; y: (parent.height - 8px) / 2; }
+    Text { text: root.text; color: root.mark == "warn" ? Theme.danger : Theme.text; font-size: 12px; vertical-alignment: center; }
+}
+
+component Section inherits Rectangle {
+    in property <string> title;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: title;
+    VerticalLayout {
+        alignment: start;
+        Rectangle {
+            height: 34px;
+            background: Theme.raised;
+            Heading { x: 12px; height: parent.height; text: root.title; vertical-alignment: center; }
+            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+        }
+        VerticalLayout {
+            alignment: start;
+            padding: 12px;
+            padding-top: 8px;
+            spacing: 8px;
+            @children
+        }
+    }
+}
+
+component Switch inherits HorizontalLayout {
+    in property <string> label;
+    in property <bool> on;
+    in property <bool> enabled: true;
+    in property <bool> sub;
+    callback toggled(bool);
+    min-height: 32px;
+    spacing: 12px;
+    opacity: enabled ? 1 : 0.5;
+    if root.sub: Rectangle { width: 1px; background: Theme.line; }
+    Text { text: root.label; color: Theme.text; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+    Toggle {
+        y: (parent.height - self.height) / 2;
+        on: root.on;
+        label: root.label;
+        toggled(v) => { if root.enabled { root.toggled(v); } }
+    }
+}
+
+component Check inherits Rectangle {
+    in property <string> label;
+    in property <bool> on;
+    callback toggled(bool);
+    min-height: 32px;
+    min-width: row.preferred-width;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: on;
+    accessible-label: label;
+    accessible-action-default => { toggled(!on); }
+    forward-focus: fs;
+    row := HorizontalLayout {
+        spacing: 8px;
+        Rectangle {
+            y: (parent.height - 16px) / 2;
+            width: 16px;
+            height: 16px;
+            background: root.on ? Theme.accent : Theme.field;
+            border-width: 1px;
+            border-color: fs.has-focus || root.on ? Theme.accent : Theme.stroke;
+            if root.on: Path {
+                width: 16px;
+                height: 16px;
+                viewbox-width: 16;
+                viewbox-height: 16;
+                commands: "M 4 8 L 7 11 L 12 5";
+                stroke: Theme.on-accent;
+                stroke-width: 2px;
+            }
+        }
+        Text { text: root.label; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " { root.toggled(!root.on); return accept; }
+            reject
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.toggled(!root.on); }
+    }
+}
+
+// Commits on Enter or when focus leaves, keeps an unusable value until put right, and Escape puts the last good one back.
+export component Entry inherits Rectangle {
+    in property <string> value;
+    in property <string> label;
+    in property <string> placeholder;
+    in property <bool> invalid;
+    in property <bool> mono;
+    callback edited(string);
+    callback commit(string);
+    height: 32px;
+    min-width: 56px;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: invalid ? Theme.danger : input.has-focus ? Theme.accent : Theme.stroke;
+    forward-focus: input;
+    changed value => { if !input.has-focus { input.text = value; } }
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.value;
+        color: Theme.text;
+        font-family: root.mono ? Theme.mono : "";
+        vertical-alignment: center;
+        single-line: true;
+        accessible-label: root.label;
+        edited => { root.edited(self.text); }
+        accepted => { root.commit(self.text); }
+        changed has-focus => {
+            if !self.has-focus { root.commit(self.text); }
+        }
+        key-pressed(e) => {
+            if e.text == Key.Escape && root.invalid {
+                self.text = root.value;
+                root.edited(root.value);
+                return accept;
+            }
+            reject
+        }
+    }
+    if input.text == "" && root.placeholder != "": Text {
+        x: 8px;
+        height: parent.height;
+        text: root.placeholder;
+        color: Theme.muted;
+        vertical-alignment: center;
+    }
+}
+
+component Labelled inherits VerticalLayout {
+    in property <string> label;
+    spacing: 2px;
+    Text { text: root.label; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+    @children
+}
+
+component Row inherits HorizontalLayout {
+    in property <string> label;
+    min-height: 32px;
+    spacing: 12px;
+    Text { text: root.label; color: Theme.text; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
+    @children
+}
+
+component Card inherits Rectangle {
+    border-width: 1px;
+    border-color: Theme.line;
+    VerticalLayout {
+        padding: 10px;
+        padding-top: 8px;
+        spacing: 8px;
+        @children
+    }
+}
+
+component Split inherits HorizontalLayout {
+    in property <string> name;
+    spacing: 8px;
+    Text { text: root.name; color: Theme.text; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+    @children
+}
+
+export component Seg inherits Rectangle {
+    in property <[string]> options;
+    in property <int> index;
+    in property <string> label;
+    callback picked(int);
+    height: 28px;
+    border-width: 1px;
+    border-color: Theme.stroke;
+    accessible-role: radio-group;
+    accessible-label: label;
+    forward-focus: fs;
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.RightArrow || e.text == Key.DownArrow { root.picked(root.index + 1 >= root.options.length ? 0 : root.index + 1); return accept; }
+            if e.text == Key.LeftArrow || e.text == Key.UpArrow { root.picked(root.index > 0 ? root.index - 1 : root.options.length - 1); return accept; }
+            reject
+        }
+        HorizontalLayout {
+            padding: 1px;
+            for o[i] in root.options: Rectangle {
+                min-width: t.preferred-width + 24px;
+                background: i == root.index ? Theme.accent : ta.has-hover ? Theme.hover : transparent;
+                border-width: fs.has-focus && i == root.index ? 1px : 0;
+                border-color: Theme.on-accent;
+                accessible-role: radio-button;
+                accessible-label: o;
+                accessible-checkable: true;
+                accessible-checked: i == root.index;
+                accessible-action-default => { root.picked(i); }
+                if i > 0: Rectangle { x: 0; width: 1px; background: Theme.line; }
+                t := Text {
+                    text: o;
+                    color: i == root.index ? Theme.on-accent : Theme.text;
+                    font-weight: i == root.index ? 600 : 400;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                if i == root.index: Cut { x: parent.width - self.size; under: Theme.panel; }
+                ta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { fs.focus(); root.picked(i); }
+                }
+            }
+        }
+    }
+}
+
+component ModulesBox inherits Section {
+    title: I18n.t("Modules");
+    Switch { label: I18n.t("Lighting"); on: SettingsPage.lighting; toggled(v) => { SettingsPage.set-flag("lighting_module", v); } }
+    Switch { label: I18n.t("Fans"); on: SettingsPage.fans; toggled(v) => { SettingsPage.set-flag("fans_module", v); } }
+    Switch { label: I18n.t("Batteries"); on: SettingsPage.battery-tray; toggled(v) => { SettingsPage.set-flag("battery_tray", v); } }
+    Switch {
+        label: I18n.t("Low battery notifications");
+        sub: true;
+        enabled: SettingsPage.battery-tray;
+        on: SettingsPage.battery-alerts;
+        toggled(v) => { SettingsPage.set-flag("battery_alerts", v); }
+    }
+    Hint { text: I18n.t("Batteries shows wireless devices' levels in the tray. Off, FoxDen stops checking them."); }
+    Hint { text: I18n.t("With Lighting and Fans both off, FoxDen removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time."); }
+    if SettingsPage.modules-outcome != "" && SettingsPage.modules-ok: Hint { text: SettingsPage.modules-outcome; }
+    if SettingsPage.modules-outcome != "" && !SettingsPage.modules-ok: Problem { text: SettingsPage.modules-outcome; }
+}
+
+component VmicBox inherits Section {
+    title: I18n.t("Virtual microphone");
+    Switch { label: I18n.t("Virtual microphone"); on: SettingsPage.vmic-on; toggled(v) => { SettingsPage.set-vmic(v); } }
+    Row {
+        label: "VB-CABLE";
+        Text { text: SettingsPage.vmic-state; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+    }
+    Hint { text: I18n.t("Virtual microphone uses VB-CABLE by VB-Audio, donationware installed unchanged."); }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button { text: I18n.t("Donate to VB-Audio"); clicked => { SettingsPage.vmic-donate(); } }
+        if SettingsPage.vmic-ours: Button {
+            text: I18n.t("Remove virtual microphone");
+            enabled: !SettingsPage.vmic-busy;
+            clicked => { SettingsPage.vmic-remove(); }
+        }
+    }
+    if SettingsPage.vmic-outcome != "": Hint { text: SettingsPage.vmic-outcome; }
+}
+
+component RenderingBox inherits Section {
+    title: I18n.t("Rendering");
+    HorizontalLayout {
+        spacing: 8px;
+        min-height: 32px;
+        Text { text: I18n.t("Frame rate (fps)"); color: Theme.text; vertical-alignment: center; }
+        Slider {
+            y: (parent.height - self.height) / 2;
+            horizontal-stretch: 1;
+            label: I18n.t("Frame rate (fps)");
+            value: SettingsPage.fps;
+            minimum: 10;
+            maximum: 60;
+            step: 1;
+            changed(v) => { SettingsPage.set-fps(round(v)); }
+        }
+        Entry {
+            width: 56px;
+            mono: true;
+            label: I18n.t("Frame rate");
+            value: SettingsPage.fps-text;
+            invalid: SettingsPage.fps-problem != "";
+            edited(t) => { SettingsPage.fps-typed(t); }
+        }
+    }
+    if SettingsPage.fps-problem != "": Problem { text: SettingsPage.fps-problem; }
+}
+
+component DevicesBox inherits Section {
+    title: I18n.t("Devices");
+    Switch { label: I18n.t("Native drivers"); on: SettingsPage.native-drivers; toggled(v) => { SettingsPage.set-flag("native_drivers", v); } }
+    Hint { text: I18n.t("FoxDen's own drivers. On by default."); }
+}
+
+component NetworkBox inherits Section {
+    title: I18n.t("Network lights");
+    Switch { label: I18n.t("Lights on this network"); on: SettingsPage.net-enabled; toggled(v) => { SettingsPage.set-flag("network_enabled", v); } }
+    Hint { text: I18n.t("Philips Hue, Wiz, Nanoleaf, LIFX, Govee, Yeelight, Kasa, Elgato, E1.31, DDP and Espurna lights, and DMX on a serial port. FoxDen only talks to addresses on your own network. Off by default."); }
+    if SettingsPage.net-enabled: VerticalLayout {
+        spacing: 8px;
+        Switch { label: I18n.t("Also drive LIFX, Govee, Yeelight, Wiz and Kasa lights it finds"); on: SettingsPage.net-discover; toggled(v) => { SettingsPage.set-flag("network.discover", v); } }
+        HorizontalLayout {
+            spacing: 8px;
+            Button { text: I18n.t("Search network"); enabled: !SettingsPage.net-searching; clicked => { SettingsPage.net-search(); } }
+            Text { text: SettingsPage.net-status; color: Theme.muted; font-size: 12px; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+        for f[i] in SettingsPage.net-found: Card {
+            Split {
+                name: f.title;
+                Text { text: f.ip; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+            }
+            if f.action == "added": Text { text: I18n.t("Added"); color: Theme.muted; font-size: 12px; }
+            if f.action != "added": HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: f.label;
+                    enabled: f.action == "add" || !SettingsPage.net-pairing;
+                    clicked => { SettingsPage.net-found-act(i); }
+                }
+            }
+        }
+        Text { text: I18n.t("Added lights"); color: Theme.muted; font-size: 12px; font-weight: 600; }
+        HorizontalLayout {
+            spacing: 8px;
+            Select {
+                horizontal-stretch: 1;
+                label: I18n.t("Kind of light");
+                options: SettingsPage.net-kinds;
+                index: SettingsPage.net-kind;
+                selected(i) => { SettingsPage.net-pick-kind(i); }
+            }
+            VerticalLayout {
+                alignment: start;
+                Button { text: I18n.t("Add"); clicked => { SettingsPage.net-add(); } }
+            }
+        }
+        for c[ci] in SettingsPage.net-cards: Card {
+            Split {
+                name: c.title;
+                if c.pairable: StateText { mark: c.paired ? "on" : "off"; text: c.paired ? I18n.t("Paired") : I18n.t("Not paired"); }
+            }
+            for f[fi] in c.fields: VerticalLayout {
+                if f.kind == "check": Check { label: f.label; on: f.on; toggled(v) => { SettingsPage.net-check(ci, fi, v); } }
+                if f.kind == "choice": Labelled {
+                    label: f.label;
+                    Select { label: f.label; options: f.options; index: f.index; selected(o) => { SettingsPage.net-choice(ci, fi, o); } }
+                }
+                if f.kind == "text": Labelled {
+                    label: f.label;
+                    Entry {
+                        label: f.label;
+                        value: f.text;
+                        edited(t) => { SettingsPage.net-edit(ci, fi, t); }
+                        commit(t) => { SettingsPage.net-commit(ci, fi, t); }
+                    }
+                }
+            }
+            if SettingsPage.net-problems[ci] != "": Problem { text: SettingsPage.net-problems[ci]; }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                if c.pairable: Button {
+                    text: c.pair-label;
+                    enabled: !SettingsPage.net-pairing;
+                    clicked => { SettingsPage.net-pair(ci); }
+                }
+                Button { text: I18n.t("Remove"); clicked => { SettingsPage.net-remove(ci); } }
+            }
+        }
+        if SettingsPage.net-cards.length == 0: Hint { text: I18n.t("None yet. Search the network, or pick a kind of light and add it by address."); }
+    }
+}
+
+component StripsBox inherits Section {
+    title: I18n.t("LED strips");
+    Hint { text: I18n.t("Strips on a microcontroller at a serial port: Adalight, TPM2 or Keyboard Visualizer. Keyboard Visualizer also takes udp:address, with the UDP port as the baud rate. Driven by the native drivers."); }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: I18n.t("Add strip"); clicked => { SettingsPage.strip-add(); } }
+    }
+    for s[i] in SettingsPage.strips: Card {
+        Split {
+            name: s.title;
+            Text { text: s.meta; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+        }
+        Labelled {
+            label: I18n.t("Name");
+            Entry { label: I18n.t("Name"); value: s.name; edited(t) => { SettingsPage.strip-edit(i, "name", t); } commit(t) => { SettingsPage.strip-commit(i, "name", t); } }
+        }
+        Labelled {
+            label: I18n.t("Port");
+            Entry { label: I18n.t("Port"); placeholder: "COM3"; value: s.port; edited(t) => { SettingsPage.strip-edit(i, "port", t); } commit(t) => { SettingsPage.strip-commit(i, "port", t); } }
+        }
+        Labelled {
+            label: I18n.t("Protocol");
+            Select { label: I18n.t("Protocol"); options: SettingsPage.protocols; index: s.protocol; selected(o) => { SettingsPage.strip-protocol(i, o); } }
+        }
+        Labelled {
+            label: I18n.t("Baud rate");
+            Entry { label: I18n.t("Baud rate"); value: s.baud; edited(t) => { SettingsPage.strip-edit(i, "baud", t); } commit(t) => { SettingsPage.strip-commit(i, "baud", t); } }
+        }
+        Labelled {
+            label: I18n.t("LEDs");
+            Entry { label: I18n.t("LEDs"); value: s.leds; edited(t) => { SettingsPage.strip-edit(i, "leds", t); } commit(t) => { SettingsPage.strip-commit(i, "leds", t); } }
+        }
+        if SettingsPage.strip-problems[i] != "": Problem { text: SettingsPage.strip-problems[i]; }
+        HorizontalLayout {
+            alignment: start;
+            Button { text: I18n.t("Remove"); clicked => { SettingsPage.strip-remove(i); } }
+        }
+    }
+    if SettingsPage.strips.length == 0: Hint { text: I18n.t("None yet."); }
+}
+
+component ServerBox inherits Section {
+    title: I18n.t("OpenRGB integration");
+    Switch { label: I18n.t("Use an OpenRGB server"); on: SettingsPage.server-enabled; toggled(v) => { SettingsPage.set-flag("openrgb_enabled", v); } }
+    Hint { text: I18n.t("Optional. Drives devices FoxDen has no driver for, through a running OpenRGB server."); }
+    if SettingsPage.server-enabled: VerticalLayout {
+        spacing: 8px;
+        Row {
+            label: I18n.t("Host");
+            Entry {
+                width: 168px;
+                label: I18n.t("Host");
+                value: SettingsPage.host;
+                invalid: SettingsPage.host-problem != "";
+                edited(t) => { SettingsPage.server-edited("host", t); }
+                commit(t) => { SettingsPage.server-commit("host", t); }
+            }
+        }
+        if SettingsPage.host-problem != "": Problem { text: SettingsPage.host-problem; }
+        Row {
+            label: I18n.t("Port");
+            Entry {
+                width: 168px;
+                label: I18n.t("Port");
+                value: SettingsPage.port;
+                invalid: SettingsPage.port-problem != "";
+                edited(t) => { SettingsPage.server-edited("port", t); }
+                commit(t) => { SettingsPage.server-commit("port", t); }
+            }
+        }
+        if SettingsPage.port-problem != "": Problem { text: SettingsPage.port-problem; }
+    }
+}
+
+component LanguageBox inherits Section {
+    title: I18n.t("Language");
+    Row {
+        label: I18n.t("Language");
+        Select { width: 180px; options: SettingsPage.languages; index: SettingsPage.language-index; label: I18n.t("Language"); selected(i) => { SettingsPage.set-language(i); } }
+    }
+    Hint { text: I18n.t("Automatic follows the Windows display language."); }
+}
+
+component WindowBox inherits Section {
+    title: I18n.t("Window");
+    Switch { label: I18n.t("Close to tray"); on: SettingsPage.close-to-tray; toggled(v) => { SettingsPage.set-close-to-tray(v); } }
+    Switch { label: I18n.t("Start minimised"); on: SettingsPage.start-minimized; toggled(v) => { SettingsPage.set-start-minimized(v); } }
+    Switch { label: I18n.t("Start with Windows"); on: SettingsPage.autostart; toggled(v) => { SettingsPage.set-flag("autostart", v); } }
+}
+
+component UpdatesBox inherits Section {
+    title: I18n.t("Updates");
+    Row {
+        label: I18n.t("Installed version");
+        Text { text: SettingsPage.version; color: Theme.text; font-family: Theme.mono; vertical-alignment: center; }
+    }
+    Switch { label: I18n.t("Install updates automatically"); on: SettingsPage.auto-update; toggled(v) => { SettingsPage.set-flag("auto_update", v); } }
+    HorizontalLayout {
+        spacing: 8px;
+        Button { text: I18n.t("Check for updates"); clicked => { SettingsPage.check-update(); } }
+        Text { text: SettingsPage.update-status; color: Theme.muted; font-size: 12px; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; accessible-role: AccessibleRole.text; }
+    }
+}
+
+component ConflictsBox inherits Section {
+    title: I18n.t("Conflicting software");
+    Switch { label: I18n.t("Close conflicting software"); on: SettingsPage.close-conflicts; toggled(v) => { SettingsPage.set-flag("close_conflicts", v); } }
+    Hint { text: I18n.t("Other lighting and fan apps hold the same devices. FoxDen closes them at start and whenever it looks for hardware."); }
+    VerticalLayout {
+        spacing: 4px;
+        for r[i] in SettingsPage.conflicts: HorizontalLayout {
+            spacing: 12px;
+            padding-left: r.exe ? 16px : 0;
+            min-height: r.exe ? 28px : 20px;
+            Text { text: r.name; color: r.exe ? Theme.muted : Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+            if !r.exe: StateText { mark: r.mark; text: r.state; }
+            if r.exe: Toggle {
+                y: (parent.height - self.height) / 2;
+                on: r.closes;
+                label: r.name;
+                opacity: r.kept ? 0.5 : 1;
+                toggled(v) => { if !r.kept { SettingsPage.set-exe-closes(i, v); } }
+            }
+        }
+    }
+    if SettingsPage.conflicts-empty: Hint { text: I18n.t("None found."); }
+    if SettingsPage.conflicts-last != "": Hint { text: SettingsPage.conflicts-last; }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button { text: I18n.t("Close now"); clicked => { SettingsPage.close-conflicts-now(); } }
+        Button { text: I18n.t("Refresh"); clicked => { SettingsPage.refresh-conflicts(); } }
+    }
+}
+
+component ReportsBox inherits Section {
+    title: I18n.t("Error reports");
+    Switch { label: I18n.t("Send anonymous error reports"); on: SettingsPage.send-reports; toggled(v) => { SettingsPage.set-flag("send_reports", v); } }
+    Hint { text: I18n.t("Sends the error, the FoxDen version and the hardware ids of your devices. Never names, serial numbers, paths or addresses."); }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: I18n.t("Open logs"); clicked => { SettingsPage.open-logs(); } }
+    }
+}
+
+component BackendsBox inherits Section {
+    title: I18n.t("Backends");
+    VerticalLayout {
+        spacing: 4px;
+        for b in SettingsPage.backends: VerticalLayout {
+            HorizontalLayout {
+                spacing: 12px;
+                min-height: 20px;
+                Text { text: b.name; color: Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                StateText { mark: b.mark; text: b.state; }
+            }
+            if b.problem != "": Text { text: b.problem; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
+        }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: I18n.t("Rescan devices"); clicked => { SettingsPage.rescan(); } }
+    }
+}
+
+// One column at the smallest window, two at the default size, never more than three, as the web's wide grid.
 export component SettingsPanel inherits Scroll {
-    content-height: settings-body.preferred-height;
-    settings-body := VerticalLayout {
+    private property <length> inner: self.width - 32px;
+    private property <int> cols: inner >= 1232px ? 3 : inner >= 816px ? 2 : 1;
+    private property <length> body;
+    content-height: body;
+    if root.cols == 1: GridLayout {
+        width: root.width;
+        padding: 16px;
+        spacing: 16px;
+        init => { root.body = self.preferred-height; }
+        changed preferred-height => { root.body = self.preferred-height; }
+        Row { ModulesBox { } }
+        Row { VmicBox { } }
+        Row { RenderingBox { } }
+        Row { DevicesBox { } }
+        Row { NetworkBox { } }
+        Row { StripsBox { } }
+        Row { ServerBox { } }
+        Row { LanguageBox { } }
+        Row { WindowBox { } }
+        Row { UpdatesBox { } }
+        Row { ConflictsBox { } }
+        Row { ReportsBox { } }
+        Row { BackendsBox { } }
+    }
+    if root.cols == 2: GridLayout {
+        width: root.width;
+        padding: 16px;
+        spacing: 16px;
+        init => { root.body = self.preferred-height; }
+        changed preferred-height => { root.body = self.preferred-height; }
+        Row { ModulesBox { } VmicBox { } }
+        Row { RenderingBox { } DevicesBox { } }
+        Row { NetworkBox { } StripsBox { } }
+        Row { ServerBox { } LanguageBox { } }
+        Row { WindowBox { } UpdatesBox { } }
+        Row { ConflictsBox { } ReportsBox { } }
+        Row { BackendsBox { } }
+    }
+    if root.cols == 3: GridLayout {
+        width: root.width;
+        padding: 16px;
+        spacing: 16px;
+        init => { root.body = self.preferred-height; }
+        changed preferred-height => { root.body = self.preferred-height; }
+        Row { ModulesBox { } VmicBox { } RenderingBox { } }
+        Row { DevicesBox { } NetworkBox { } StripsBox { } }
+        Row { ServerBox { } LanguageBox { } WindowBox { } }
+        Row { UpdatesBox { } ConflictsBox { } ReportsBox { } }
+        Row { BackendsBox { } }
+    }
+}
+
+component Sheet inherits Rectangle {
+    in property <string> title;
+    in property <length> wide: 440px;
+    callback close();
+    width: min(wide, root.parent-width - 32px);
+    in property <length> parent-width;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.stroke;
+    accessible-role: groupbox;
+    accessible-label: title;
+    VerticalLayout {
         padding: 16px;
         spacing: 8px;
-        Heading { text: I18n.t("Settings"); }
-        VerticalLayout {
-            spacing: 4px;
-            Text { text: I18n.t("Language"); color: Theme.muted; font-size: 12px; }
-            Select { options: SettingsPage.languages; index: SettingsPage.language-index; label: I18n.t("Language"); selected(i) => { SettingsPage.set-language(i); } }
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            Text { text: I18n.t("Close to tray"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
-            Toggle { on: SettingsPage.close-to-tray; label: I18n.t("Close to tray"); toggled(v) => { SettingsPage.set-close-to-tray(v); } }
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            Text { text: I18n.t("Start minimised"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
-            Toggle { on: SettingsPage.start-minimized; label: I18n.t("Start minimised"); toggled(v) => { SettingsPage.set-start-minimized(v); } }
-        }
-        Heading { text: I18n.t("Backends"); }
-        for l in SettingsPage.backends: HorizontalLayout {
-            spacing: 8px;
-            Text { text: l.title; color: Theme.text; horizontal-stretch: 1; }
-            Text { text: l.detail; color: l.ok ? Theme.text : Theme.danger; overflow: elide; }
+        if root.title != "": Heading { text: root.title; }
+        @children
+    }
+}
+
+export component SettingsSheets inherits Rectangle {
+    if SettingsPage.sheet != "": Rectangle {
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+        FocusScope {
+            key-pressed(e) => {
+                if e.text == Key.Escape { SettingsPage.close-sheet(); return accept; }
+                reject
+            }
+            if SettingsPage.sheet == "update": Sheet {
+                parent-width: root.width;
+                wide: 520px;
+                x: (root.width - self.width) / 2;
+                y: max(16px, (root.height - self.preferred-height) / 2);
+                title: SettingsPage.update-title;
+                Scroll {
+                    height: min(240px, notes.preferred-height);
+                    content-height: notes.preferred-height;
+                    notes := Text { width: parent.width - 8px; text: SettingsPage.update-notes; color: Theme.text; wrap: word-wrap; }
+                }
+                if SettingsPage.update-progress != "": Hint { text: SettingsPage.update-progress; accessible-role: AccessibleRole.text; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: I18n.t("Install now");
+                        primary: true;
+                        enabled: !SettingsPage.update-busy;
+                        init => { self.focus(); }
+                        clicked => { SettingsPage.install-update(); }
+                    }
+                    Button { text: I18n.t("Later"); clicked => { SettingsPage.later-update(); } }
+                }
+            }
+            if SettingsPage.sheet == "vmic": Sheet {
+                parent-width: root.width;
+                x: (root.width - self.width) / 2;
+                y: max(16px, (root.height - self.preferred-height) / 2);
+                title: I18n.t("Virtual microphone");
+                Hint { text: I18n.t("FoxDen plays your mic, with its volume, mute, EQ and gate, into VB-CABLE, a virtual audio cable by VB-Audio. Apps then pick FoxDen VB-Cable (Microphone) as their mic."); }
+                Hint { text: I18n.t("VB-CABLE is VB-Audio's donationware. Download it from their page and run its setup as administrator, then press Check again."); }
+                if SettingsPage.vmic-progress != "": Hint { text: SettingsPage.vmic-progress; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button {
+                        text: I18n.t("Check again");
+                        primary: true;
+                        enabled: !SettingsPage.vmic-busy;
+                        init => { self.focus(); }
+                        clicked => { SettingsPage.vmic-check(); }
+                    }
+                    Button { text: I18n.t("Get VB-CABLE"); clicked => { SettingsPage.vmic-donate(); } }
+                    Button { text: I18n.t("Cancel"); clicked => { SettingsPage.close-sheet(); } }
+                }
+            }
+            if SettingsPage.sheet == "feedback": Sheet {
+                parent-width: root.width;
+                x: (root.width - self.width) / 2;
+                y: max(16px, (root.height - self.preferred-height) / 2);
+                title: I18n.t("Feedback");
+                HorizontalLayout {
+                    alignment: start;
+                    Seg {
+                        label: I18n.t("Type");
+                        options: [I18n.t("Bug"), I18n.t("Idea"), I18n.t("Praise"), I18n.t("Other")];
+                        index: SettingsPage.feedback-type;
+                        picked(i) => { SettingsPage.feedback-type = i; }
+                    }
+                }
+                Text { text: I18n.t("Message"); color: Theme.muted; font-size: 12px; }
+                Rectangle {
+                    height: 140px;
+                    background: Theme.field;
+                    border-width: 1px;
+                    border-color: message.has-focus ? Theme.accent : Theme.stroke;
+                    Scroll {
+                        x: 8px;
+                        y: 6px;
+                        width: parent.width - 12px;
+                        height: parent.height - 12px;
+                        content-height: message.height;
+                        message := TextInput {
+                            width: parent.width - 8px;
+                            height: max(128px, self.preferred-height);
+                            text <=> SettingsPage.feedback-message;
+                            color: Theme.text;
+                            single-line: false;
+                            wrap: word-wrap;
+                            accessible-label: I18n.t("Message");
+                            init => { self.focus(); }
+                            edited => { SettingsPage.feedback-edited(); }
+                        }
+                    }
+                }
+                Text {
+                    text: SettingsPage.feedback-count;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                }
+                Text { text: I18n.t("Contact (optional, e.g. Discord name)"); color: Theme.muted; font-size: 12px; }
+                Rectangle {
+                    height: 32px;
+                    background: Theme.field;
+                    border-width: 1px;
+                    border-color: contact.has-focus ? Theme.accent : Theme.stroke;
+                    contact := TextInput {
+                        x: 8px;
+                        width: parent.width - 16px;
+                        height: parent.height;
+                        text <=> SettingsPage.feedback-contact;
+                        color: Theme.text;
+                        single-line: true;
+                        vertical-alignment: center;
+                        accessible-label: I18n.t("Contact (optional, e.g. Discord name)");
+                        edited => { SettingsPage.feedback-edited(); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Button { text: I18n.t("Attach image or video"); clicked => { SettingsPage.feedback-pick(); } }
+                    Text { text: SettingsPage.feedback-file; color: Theme.muted; font-size: 12px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                    if SettingsPage.feedback-has-file: Button { text: I18n.t("Remove"); clicked => { SettingsPage.feedback-remove(); } }
+                }
+                if SettingsPage.feedback-file-problem != "": Problem { text: SettingsPage.feedback-file-problem; }
+                Hint { text: I18n.t("Sent anonymously to the FoxDen developer with the app version. No account or personal data."); }
+                if SettingsPage.feedback-status != "": Hint { text: SettingsPage.feedback-status; accessible-role: AccessibleRole.text; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button { text: I18n.t("Send"); primary: true; enabled: SettingsPage.feedback-can-send; clicked => { SettingsPage.feedback-send(); } }
+                    Button { text: I18n.t("Close"); clicked => { SettingsPage.close-sheet(); } }
+                }
+            }
         }
     }
 }

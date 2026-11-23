@@ -54,15 +54,22 @@ fn menu(app: &AppHandle, (paused, profiles, active, _): &Shown) -> Menu {
 
 pub fn create(app: &AppHandle) {
     let first = shown(&lock(&app.state::<Shared>()).snapshot());
-    let mut builder = TrayIconBuilder::new()
-        .with_id("main")
-        .with_tooltip("FoxDen")
-        .with_menu(Box::new(menu(app, &first)))
-        .with_menu_on_left_click(false);
-    if let Ok(icon) = Icon::from_resource(1, None) {
-        builder = builder.with_icon(icon);
-    }
-    match builder.build() {
+    let builder = |guid: Option<u128>| {
+        let mut b = TrayIconBuilder::new()
+            .with_id("main")
+            .with_tooltip("FoxDen")
+            .with_menu(Box::new(menu(app, &first)))
+            .with_menu_on_left_click(false);
+        if let Ok(icon) = Icon::from_resource(1, None) {
+            b = b.with_icon(icon);
+        }
+        if let Some(g) = guid {
+            b = b.with_guid(g);
+        }
+        b.build()
+    };
+    forget_icon();
+    match builder(Some(guid())).or_else(|_| builder(None)) {
         Ok(tray) => TRAY.with_borrow_mut(|t| *t = Some(tray)),
         Err(e) => crate::log::warn("tray", e.to_string()),
     }
@@ -143,5 +150,52 @@ fn on_menu(app: &AppHandle, id: &str) {
     };
     if let Err(e) = result {
         crate::log::warn("tray", e.to_string());
+    }
+}
+
+/// A fixed identity for the main icon, so a balloon can be shown on it. Tied to the exe path like Windows ties it.
+fn guid() -> u128 {
+    let exe = std::env::current_exe().unwrap_or_default();
+    let mut h: u128 = 0x2f6b3c1d9a4e4f07b1c86d5e3a917c42;
+    for b in exe.to_string_lossy().to_lowercase().bytes() {
+        h = (h ^ b as u128).wrapping_mul(0x0000000001000000000000000000013b);
+    }
+    h
+}
+
+fn notify_data() -> windows_sys::Win32::UI::Shell::NOTIFYICONDATAW {
+    use windows_sys::Win32::UI::Shell::{NIF_GUID, NOTIFYICONDATAW};
+    let mut nid: NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+    nid.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
+    nid.uFlags = NIF_GUID;
+    nid.guidItem = windows_sys::core::GUID::from_u128(guid());
+    nid
+}
+
+/// Removes an icon a force-closed FoxDen left behind under the same identity.
+fn forget_icon() {
+    use windows_sys::Win32::UI::Shell::{NIM_DELETE, Shell_NotifyIconW};
+    unsafe { Shell_NotifyIconW(NIM_DELETE, &notify_data()) };
+}
+
+fn copy_wide(into: &mut [u16], text: &str) {
+    let n = into.len() - 1;
+    for (slot, c) in into.iter_mut().zip(text.encode_utf16().take(n).chain(std::iter::repeat(0))) {
+        *slot = c;
+    }
+}
+
+/// A Windows notification from the tray icon.
+pub fn notify(title: &str, body: &str) {
+    use windows_sys::Win32::UI::Shell::{
+        NIF_INFO, NIIF_INFO, NIIF_RESPECT_QUIET_TIME, NIM_MODIFY, Shell_NotifyIconW,
+    };
+    let mut nid = notify_data();
+    nid.uFlags |= NIF_INFO;
+    nid.dwInfoFlags = NIIF_INFO | NIIF_RESPECT_QUIET_TIME;
+    copy_wide(&mut nid.szInfoTitle, title);
+    copy_wide(&mut nid.szInfo, body);
+    if unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) } == 0 {
+        crate::log::info("notify", format!("{title}: {body}"));
     }
 }

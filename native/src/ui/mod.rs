@@ -6,6 +6,7 @@ mod devices;
 mod effects;
 mod effects_keys;
 mod fans;
+mod logs;
 mod profiles;
 mod settings;
 mod stage;

@@ -2131,6 +2131,7 @@ dependencies = [
  "foxden-vcable",
  "foxden-wmi",
  "foxden-xpack",
+ "minisign-verify",
  "reqwest",
  "rustls",
  "serde",
