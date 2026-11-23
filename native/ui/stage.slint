@@ -1,0 +1,109 @@
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+
+export global StagePage {
+    in property <float> brightness: 1;
+    in property <bool> paused;
+    in property <image> canvas;
+    in property <[CanvasLabel]> labels;
+    in property <string> status;
+    in property <string> note;
+    callback set-brightness(float);
+    callback toggle-pause();
+    callback reset-layout();
+    callback canvas-down(length, length);
+    callback canvas-move(length, length, bool);
+    callback canvas-up();
+    callback canvas-key(string, bool, bool) -> bool;
+}
+
+export component Stage inherits VerticalLayout {
+    out property <length> canvas-width: stage-canvas.width;
+    out property <length> canvas-height: stage-canvas.height;
+    HorizontalLayout {
+        height: 48px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 8px;
+        alignment: end;
+        Text { text: I18n.t("Brightness"); color: Theme.text; vertical-alignment: center; }
+        Slider {
+            y: 12px;
+            width: 160px;
+            label: I18n.t("Brightness");
+            value: StagePage.brightness;
+            changed(v) => { StagePage.set-brightness(v); }
+        }
+        Text {
+            width: 40px;
+            text: round(StagePage.brightness * 100) + "%";
+            color: Theme.text;
+            font-family: Theme.mono;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        Button {
+            y: 8px;
+            under: Theme.bg;
+            text: StagePage.paused ? I18n.t("Resume") : I18n.t("Pause");
+            clicked => { StagePage.toggle-pause(); }
+        }
+        Button {
+            y: 8px;
+            under: Theme.bg;
+            text: I18n.t("Reset layout");
+            clicked => { StagePage.reset-layout(); }
+        }
+    }
+    Rectangle { height: 1px; background: Theme.line; }
+    stage-canvas := Rectangle {
+        accessible-role: groupbox;
+        accessible-label: I18n.t("Device layout");
+        accessible-description: I18n.t("Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead.");
+        forward-focus: keys;
+        Image {
+            width: parent.width;
+            height: parent.height;
+            source: StagePage.canvas;
+            image-fit: fill;
+        }
+        for l in StagePage.labels: Text {
+            x: l.x;
+            y: l.y;
+            width: l.width;
+            text: l.text;
+            color: l.strong ? Theme.text : Theme.muted;
+            font-size: 12px;
+            overflow: elide;
+        }
+        area := TouchArea {
+            moved => { StagePage.canvas-move(self.mouse-x, self.mouse-y, true); }
+            pointer-event(e) => {
+                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                    keys.focus();
+                    StagePage.canvas-down(self.mouse-x, self.mouse-y);
+                }
+                if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                    StagePage.canvas-up();
+                }
+                if e.kind == PointerEventKind.move && !self.pressed {
+                    StagePage.canvas-move(self.mouse-x, self.mouse-y, self.pressed);
+                }
+            }
+        }
+        keys := FocusScope {
+            key-pressed(e) => {
+                if StagePage.canvas-key(e.text, e.modifiers.control, e.modifiers.shift) { return accept; }
+                reject
+            }
+        }
+    }
+    Rectangle { height: 1px; background: Theme.line; }
+    HorizontalLayout {
+        height: 28px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 16px;
+        Text { text: StagePage.status; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+        Text { text: StagePage.note; color: Theme.muted; font-size: 12px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+    }
+}

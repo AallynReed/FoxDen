@@ -1,0 +1,28 @@
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+
+export global ProfilesPage {
+    in property <[string]> profiles;
+    in property <string> active-profile;
+    callback load-profile(string);
+    callback save-profile(string);
+}
+
+export component ProfilesPanel inherits Scroll {
+    content-height: profiles-body.preferred-height;
+    profiles-body := VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        Heading { text: I18n.t("Profiles"); }
+        if ProfilesPage.profiles.length == 0: Hint { text: I18n.t("No profiles saved yet."); }
+        for name in ProfilesPage.profiles: Pick {
+            text: name;
+            selected: name == ProfilesPage.active-profile;
+            clicked => { ProfilesPage.load-profile(name); }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            name-field := Field { placeholder: I18n.t("Name"); accepted(s) => { ProfilesPage.save-profile(s); } }
+            Button { primary: true; text: I18n.t("Save"); clicked => { ProfilesPage.save-profile(name-field.text); } }
+        }
+    }
+}

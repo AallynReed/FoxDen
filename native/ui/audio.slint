@@ -1,0 +1,13 @@
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+
+export global AudioPage {
+    in property <bool> ready;
+}
+
+export component AudioPanel inherits VerticalLayout {
+    padding: 16px;
+    spacing: 8px;
+    alignment: start;
+    Heading { text: I18n.t("Audio"); }
+    Hint { text: "The mixer runs in this build; its controls are not drawn in the prototype yet."; }
+}

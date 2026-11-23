@@ -1,0 +1,120 @@
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+
+export global EffectsPage {
+    in property <[EffectItem]> effects;
+    in property <string> effect-kind;
+    in property <[Param]> params;
+    callback pick-effect(string);
+    callback set-param(string, float);
+    callback set-param-hex(string, string);
+    callback set-param-bool(string, bool);
+    callback set-param-choice(string, int);
+    callback reset-effect();
+    callback randomise-effect();
+}
+
+export component EffectsPanel inherits Scroll {
+    content-height: effects-body.preferred-height;
+    effects-body := VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        Heading { text: I18n.t("Background"); }
+        Rectangle {
+            height: 260px;
+            border-width: 1px;
+            border-color: Theme.line;
+            accessible-role: list;
+            accessible-label: I18n.t("Effects");
+            Scroll {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                content-height: picks.preferred-height;
+                picks := VerticalLayout {
+                    for e in EffectsPage.effects: Pick {
+                        text: I18n.t(e.label);
+                        selected: e.kind == EffectsPage.effect-kind;
+                        clicked => { EffectsPage.pick-effect(e.kind); }
+                    }
+                }
+            }
+        }
+        Heading { text: I18n.t("Parameters"); }
+        if EffectsPage.params.length == 0: Hint { text: I18n.t("This effect has no parameters."); }
+        for p in EffectsPage.params: HorizontalLayout {
+            spacing: 8px;
+            min-height: 32px;
+            Text {
+                width: 96px;
+                text: I18n.t(p.label);
+                color: Theme.muted;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if p.control == "range": HorizontalLayout {
+                spacing: 8px;
+                Slider {
+                    y: 4px;
+                    label: I18n.t(p.label);
+                    value: p.value;
+                    minimum: p.min;
+                    maximum: p.max;
+                    step: p.step;
+                    changed(v) => { EffectsPage.set-param(p.name, v); }
+                }
+                Text {
+                    width: 44px;
+                    text: round(p.value / p.step) * p.step;
+                    color: Theme.text;
+                    font-family: Theme.mono;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+            if p.control == "color": HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    background: p.color;
+                    border-width: 1px;
+                    border-color: Theme.stroke;
+                }
+                Field {
+                    width: 96px;
+                    text: p.hex;
+                    mono: true;
+                    placeholder: I18n.t(p.label);
+                    accepted(s) => { EffectsPage.set-param-hex(p.name, s); }
+                }
+            }
+            if p.control == "toggle": HorizontalLayout {
+                alignment: start;
+                Toggle {
+                    y: 6px;
+                    on: p.on;
+                    label: I18n.t(p.label);
+                    toggled(v) => { EffectsPage.set-param-bool(p.name, v); }
+                }
+            }
+            if p.control == "choice": Select {
+                options: p.options;
+                index: p.index;
+                label: I18n.t(p.label);
+                selected(i) => { EffectsPage.set-param-choice(p.name, i); }
+            }
+            if p.control == "other": Hint {
+                text: I18n.t("Edit this in the web interface.");
+                vertical-alignment: center;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Button { text: I18n.t("Reset to defaults"); clicked => { EffectsPage.reset-effect(); } }
+            Button { text: I18n.t("Randomise"); clicked => { EffectsPage.randomise-effect(); } }
+        }
+    }
+}

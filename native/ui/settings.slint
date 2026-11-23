@@ -1,0 +1,42 @@
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+
+export global SettingsPage {
+    in property <[string]> languages;
+    in property <int> language-index;
+    in property <bool> close-to-tray;
+    in property <bool> start-minimized;
+    in property <[Line]> backends;
+    callback set-language(int);
+    callback set-close-to-tray(bool);
+    callback set-start-minimized(bool);
+}
+
+export component SettingsPanel inherits Scroll {
+    content-height: settings-body.preferred-height;
+    settings-body := VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        Heading { text: I18n.t("Settings"); }
+        VerticalLayout {
+            spacing: 4px;
+            Text { text: I18n.t("Language"); color: Theme.muted; font-size: 12px; }
+            Select { options: SettingsPage.languages; index: SettingsPage.language-index; label: I18n.t("Language"); selected(i) => { SettingsPage.set-language(i); } }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: I18n.t("Close to tray"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+            Toggle { on: SettingsPage.close-to-tray; label: I18n.t("Close to tray"); toggled(v) => { SettingsPage.set-close-to-tray(v); } }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: I18n.t("Start minimised"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+            Toggle { on: SettingsPage.start-minimized; label: I18n.t("Start minimised"); toggled(v) => { SettingsPage.set-start-minimized(v); } }
+        }
+        Heading { text: I18n.t("Backends"); }
+        for l in SettingsPage.backends: HorizontalLayout {
+            spacing: 8px;
+            Text { text: l.title; color: Theme.text; horizontal-stretch: 1; }
+            Text { text: l.detail; color: l.ok ? Theme.text : Theme.danger; overflow: elide; }
+        }
+    }
+}

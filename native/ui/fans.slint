@@ -1,0 +1,21 @@
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+
+export global FansPage {
+    in property <[Line]> fans;
+    in property <string> fan-status;
+}
+
+export component FansPanel inherits Scroll {
+    content-height: fans-body.preferred-height;
+    fans-body := VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        Heading { text: I18n.t("Fans"); }
+        Hint { text: FansPage.fan-status; }
+        for l in FansPage.fans: HorizontalLayout {
+            spacing: 8px;
+            Text { text: l.title; color: Theme.text; overflow: elide; horizontal-stretch: 1; }
+            Text { text: l.detail; color: l.ok ? Theme.text : Theme.muted; font-family: Theme.mono; }
+        }
+    }
+}
