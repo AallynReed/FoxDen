@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use foxden_core::{Backend, Color, DeviceKind};
+use foxden_core::{Backend, Color, DeviceKind, Hardware, HardwareMode, HardwareSetting};
 use hidapi::{HidApi, HidDevice};
 
 use super::{Driver, Lights, det, device, exchange, line, report, write};
@@ -8,6 +8,7 @@ use crate::registry::{Detector, Info};
 
 const TIMEOUT: i32 = 250;
 const DIRECT: u8 = 0xFE;
+const PASSTHRU: u8 = 0xFF;
 /// The header size is not reported, up to 48; FoxDen starts at 48.
 const LEDS: usize = 48;
 const FW0012: &str = "A202104052336";
@@ -40,6 +41,64 @@ pub fn direct_mode(brightness: u8) -> [Report; 2] {
     let mut second = first;
     second[2..12].copy_from_slice(&[0x0B, 0x02, 0x01, DIRECT, 0x00, 0x10, brightness, 0, 0, 0]);
     [first, second]
+}
+
+/// Mode id, name, mode byte, colours.
+const EFFECTS: [(&str, &str, u8, usize); 7] = [
+    ("rainbow", "Rainbow", 0x01, 0),
+    ("reload", "Reload", 0x02, 1),
+    ("recoil", "Recoil", 0x03, 1),
+    ("breathing", "Breathing", 0x04, 1),
+    ("refill", "Refill", 0x05, 1),
+    ("demo", "Demo", 0x06, 0),
+    ("follow_board", "Follow motherboard", PASSTHRU, 0),
+];
+
+pub fn hardware() -> Hardware {
+    let modes = EFFECTS.map(|(id, name, mode, colors)| HardwareMode {
+        speed: (mode != PASSTHRU).then_some([0, 4]),
+        brightness: (mode != PASSTHRU).then_some([0, 0xFF]),
+        colors,
+        random: colors > 0,
+        ..HardwareMode::new(id, name)
+    });
+    Hardware {
+        modes: modes.to_vec(),
+    }
+}
+
+/// One of the controller's own effects, or pass-through, in place of direct mode.
+pub fn effect(s: &HardwareSetting) -> Result<[Report; 2], String> {
+    let (_, f) = hardware().fit(s)?;
+    let mode = EFFECTS
+        .iter()
+        .find(|e| e.0 == s.mode)
+        .ok_or("unknown mode")?
+        .2;
+    let pass = mode == PASSTHRU;
+    let first = report(&[
+        0x80,
+        0x01,
+        if pass { 0x02 } else { 0x01 },
+        0x00,
+        if pass { 0x00 } else { 0x02 },
+    ]);
+    let c = f.colors.first().copied().unwrap_or(Color::BLACK);
+    let mut second = first;
+    let palette = if f.random { 0x00 } else { 0x10 };
+    second[2..12].copy_from_slice(&[
+        0x0B,
+        0x02,
+        0x01,
+        mode,
+        f.speed,
+        palette,
+        f.brightness,
+        c.0,
+        c.1,
+        c.2,
+    ]);
+    Ok([first, second])
 }
 
 /// SetLedsDirect: RGB bytes from index 6 of the first packet, then from index 2.
@@ -88,6 +147,17 @@ impl Driver for SmallArgb {
         for r in direct(colors) {
             write(&self.hid, &r)?;
         }
+        Ok(())
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hardware())
+    }
+
+    fn set_hardware(&mut self, s: &HardwareSetting) -> Result<(), String> {
+        let [a, b] = effect(s)?;
+        write(&self.hid, &a)?;
+        exchange(&self.hid, &b, TIMEOUT)?;
         Ok(())
     }
 }
@@ -167,5 +237,42 @@ mod tests {
         assert!(p[2][24..].iter().all(|&b| b == 0));
         let one = direct(&[Color(1, 2, 3)]);
         assert_eq!(&one[0][..9], &[0x00, 0x80, 0x10, 0x02, 0xFF, 1, 1, 2, 3]);
+    }
+
+    #[test]
+    fn effect_bytes() {
+        let mut s = HardwareSetting::new("breathing");
+        s.speed = Some(4);
+        s.brightness = Some(0x80);
+        s.colors = vec![Color(1, 2, 3)];
+        let [a, b] = effect(&s).unwrap();
+        assert_eq!(&a[..7], &[0x00, 0x80, 0x01, 0x01, 0x00, 0x02, 0x00]);
+        assert_eq!(
+            &b[..13],
+            &[
+                0x00, 0x80, 0x0B, 0x02, 0x01, 0x04, 0x04, 0x10, 0x80, 1, 2, 3, 0
+            ]
+        );
+        s.random = true;
+        assert_eq!(effect(&s).unwrap()[1][7], 0x00);
+        let [_, r] = effect(&HardwareSetting::new("rainbow")).unwrap();
+        assert_eq!(
+            &r[2..12],
+            &[0x0B, 0x02, 0x01, 0x01, 0x02, 0x10, 0xFF, 0, 0, 0]
+        );
+        let [a, b] = effect(&HardwareSetting::new("follow_board")).unwrap();
+        assert_eq!(&a[..7], &[0x00, 0x80, 0x01, 0x02, 0x00, 0x00, 0x00]);
+        assert_eq!(
+            &b[..13],
+            &[
+                0x00, 0x80, 0x0B, 0x02, 0x01, 0xFF, 0x00, 0x10, 0x00, 0, 0, 0, 0
+            ]
+        );
+        let modes: Vec<(u8, usize)> = EFFECTS.iter().map(|e| (e.2, e.3)).collect();
+        assert_eq!(
+            modes,
+            [(1, 0), (2, 1), (3, 1), (4, 1), (5, 1), (6, 0), (0xFF, 0)]
+        );
+        assert!(effect(&HardwareSetting::new("direct")).is_err());
     }
 }
