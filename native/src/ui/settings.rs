@@ -7,8 +7,8 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use tauri::{AppHandle, Manager};
 
 use super::{
-    AppWindow, ChangeRow, NetCard, NetField, NetFound, SettingsPage, StagePage, StateRow, Strip, View, fill,
-    jobs, report, s, shared, tr, with_view, with_win,
+    AppWindow, ChangeRow, NetCard, NetField, NetFound, SettingsPage, StagePage, StateRow, Strip, View,
+    edit_settings, fill, jobs, report, s, shared, tr, with_view, with_win,
 };
 
 pub const LANGS: [(&str, &str); 16] = [
@@ -295,15 +295,6 @@ fn later<T: Send + 'static>(
 /// The settings as the backend holds them now, which a save changes at once.
 fn snap_settings(app: &AppHandle) -> Value {
     serde_json::to_value(&crate::state::lock(&shared(app)).config.settings).unwrap_or_default()
-}
-
-fn edit_settings(app: &AppHandle, change: impl FnOnce(&mut Value)) {
-    let mut settings = snap_settings(app);
-    change(&mut settings);
-    match serde_json::from_value(settings) {
-        Ok(settings) => report(crate::commands::set_settings(app.clone(), shared(app), jobs(app), settings)),
-        Err(e) => report(Err(e.to_string())),
-    }
 }
 
 fn entry<'a>(net: &'a mut Value, kind: &str, idx: usize) -> Option<&'a mut Value> {

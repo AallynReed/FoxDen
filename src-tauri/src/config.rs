@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use foxden_core::{Effect, HardwareSetting, Layer, Post};
 use foxden_fan::FanConfig;
@@ -9,7 +12,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FILE: &str = "config.json";
-const CORRUPT: &str = "config.corrupt.json";
+const KEEP_CORRUPT: usize = 3;
+
+/// Folders whose config could not be read this session, so saving there would lose it.
+static NO_SAVE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -169,7 +175,9 @@ pub struct Config {
     #[serde(deserialize_with = "lenient_map")]
     pub overrides: BTreeMap<String, Effect>,
     pub brightness: f32,
+    #[serde(deserialize_with = "healed")]
     pub settings: Settings,
+    #[serde(deserialize_with = "lenient_map")]
     pub devices: BTreeMap<String, DeviceConfig>,
     /// Devices running an effect of their own instead of FoxDen's.
     #[serde(
@@ -177,9 +185,12 @@ pub struct Config {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub hardware: BTreeMap<String, HardwareSetting>,
+    #[serde(deserialize_with = "lenient_map")]
     pub profiles: BTreeMap<String, Profile>,
+    #[serde(deserialize_with = "lenient")]
     pub active_profile: Option<String>,
     /// The user's fan config, kept while the Fans module is off.
+    #[serde(deserialize_with = "lenient")]
     pub fan_backup: Option<FanConfig>,
     /// Conflicting executables seen so far, so they can be kept running when they are not.
     #[serde(deserialize_with = "lenient_list")]
@@ -244,6 +255,74 @@ fn lenient_map<'de, D: Deserializer<'de>, T: DeserializeOwned>(
         .collect())
 }
 
+/// Keeps every part of the value that reads, down to single fields and list entries; the rest stays default.
+fn healed<'de, D: Deserializer<'de>, T: Serialize + DeserializeOwned + Default>(
+    d: D,
+) -> Result<T, D::Error> {
+    let input = serde_json::Value::deserialize(d)?;
+    let ok = |v: &serde_json::Value| serde_json::from_value::<T>(v.clone()).is_ok();
+    let mut root = serde_json::to_value(T::default()).unwrap_or_default();
+    heal(&mut root, "", input, &ok);
+    Ok(serde_json::from_value(root).unwrap_or_default())
+}
+
+fn heal(
+    root: &mut serde_json::Value,
+    at: &str,
+    input: serde_json::Value,
+    ok: &dyn Fn(&serde_json::Value) -> bool,
+) {
+    use serde_json::Value;
+    let Some(old) = root
+        .pointer_mut(at)
+        .map(|v| std::mem::replace(v, input.clone()))
+    else {
+        return;
+    };
+    if ok(root) {
+        return;
+    }
+    let restore = |root: &mut Value, v: Value| {
+        if let Some(slot) = root.pointer_mut(at) {
+            *slot = v;
+        }
+    };
+    match (old, input) {
+        (Value::Object(old), Value::Object(input)) => {
+            restore(root, Value::Object(old));
+            for (key, v) in input {
+                let child = format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+                if root.pointer(&child).is_some() {
+                    heal(root, &child, v, ok);
+                    continue;
+                }
+                if let Some(map) = root.pointer_mut(at).and_then(Value::as_object_mut) {
+                    map.insert(key.clone(), v);
+                }
+                if !ok(root)
+                    && let Some(map) = root.pointer_mut(at).and_then(Value::as_object_mut)
+                {
+                    map.remove(&key);
+                }
+            }
+        }
+        (Value::Array(_), Value::Array(items)) => {
+            restore(root, Value::Array(Vec::new()));
+            for item in items {
+                if let Some(list) = root.pointer_mut(at).and_then(Value::as_array_mut) {
+                    list.push(item);
+                }
+                if !ok(root)
+                    && let Some(list) = root.pointer_mut(at).and_then(Value::as_array_mut)
+                {
+                    list.pop();
+                }
+            }
+        }
+        (old, _) => restore(root, old),
+    }
+}
+
 /// The app's identifier. The uninstaller's "delete application data" box removes the folder of that name.
 const FOLDER: &str = "com.foxden.desktop";
 
@@ -294,12 +373,25 @@ pub fn webview_dir() -> PathBuf {
 }
 
 /// Never fails: a missing file gives the defaults, a corrupt one is renamed aside first.
+/// A file that exists but cannot be read gives the defaults and turns saving off for the session.
 pub fn load(dir: &Path) -> Config {
     let path = dir.join(FILE);
-    let Ok(bytes) = fs::read(&path) else {
-        return Config::default();
+    let bytes = match read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Config::default(),
+        Err(e) => {
+            crate::log::error(
+                "config",
+                format!("{FILE} could not be opened, settings will not be saved: {e}"),
+            );
+            no_save(dir);
+            return Config::default();
+        }
     };
     let read = serde_json::from_slice::<serde_json::Value>(&bytes).and_then(|mut value| {
+        if !value.is_object() {
+            return Err(serde::de::Error::custom("not a JSON object"));
+        }
         upgrade(&mut value);
         serde_json::from_value::<Config>(value)
     });
@@ -308,7 +400,7 @@ pub fn load(dir: &Path) -> Config {
             "config",
             format!("{FILE} could not be read and was set aside: {e}"),
         );
-        let _ = fs::rename(&path, dir.join(CORRUPT));
+        set_aside(dir, &path);
         Config::default()
     });
     config.settings.fps = config.settings.fps.clamp(10, 60);
@@ -316,27 +408,93 @@ pub fn load(dir: &Path) -> Config {
     config
 }
 
+/// Retries a file another program may hold for a moment.
+fn read(path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut tries = 0;
+    loop {
+        match fs::read(path) {
+            Err(e) if e.kind() != ErrorKind::NotFound && tries < 5 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            done => return done,
+        }
+    }
+}
+
+fn no_save(dir: &Path) {
+    NO_SAVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(dir.to_path_buf());
+}
+
+/// Renames a corrupt file to `config.corrupt-<unix>.json`, keeping the newest few.
+fn set_aside(dir: &Path, path: &Path) {
+    let mut old: Vec<(u64, PathBuf)> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let stamp = name
+                .strip_prefix("config.corrupt")?
+                .strip_suffix(".json")?
+                .trim_start_matches('-')
+                .parse()
+                .unwrap_or(0);
+            Some((stamp, entry.path()))
+        })
+        .collect();
+    old.sort();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let stamp = old.last().map_or(now, |(last, _)| now.max(last + 1));
+    let target = dir.join(format!("config.corrupt-{stamp}.json"));
+    if let Err(e) = fs::rename(path, &target) {
+        crate::log::error(
+            "config",
+            format!("{FILE} could not be set aside, settings will not be saved: {e}"),
+        );
+        no_save(dir);
+        return;
+    }
+    let extra = (old.len() + 1).saturating_sub(KEEP_CORRUPT);
+    for (_, path) in old.into_iter().take(extra) {
+        let _ = fs::remove_file(path);
+    }
+}
+
 /// Brings older settings forward. Key ripple used to be a base effect, and 0.6 had one post effect:
 /// both become layers. Layers missing newer fields get their kind's defaults.
 fn upgrade(config: &mut serde_json::Value) {
-    use serde_json::{Value, json};
+    use serde_json::{Map, Value, json};
     let layer = |mut effect: Value, opacity: Value, blend: Value| {
-        if effect["rainbow"] == true {
-            effect["colors"] = json!("rainbow");
+        if let Some(e) = effect.as_object_mut()
+            && e.get("rainbow") == Some(&Value::Bool(true))
+        {
+            e.insert("colors".into(), json!("rainbow"));
         }
         json!({"enabled": true, "opacity": opacity, "blend": blend, "scope": "all", "devices": [], "effect": effect})
     };
-    let bring = |holder: &mut Value| {
-        let e = holder["effect"].clone();
+    let bring = |holder: &mut Map<String, Value>| {
+        let e = holder.get("effect").cloned().unwrap_or_default();
         if e["kind"] == "key_ripple" {
             let ripple = json!({"kind": "press_ripple", "color": e["color"],
                 "speed": e["speed"], "width": e["width"], "fade": e["fade"]});
-            holder["effect"] = json!({"kind": "static", "color": e["background"]});
-            holder["layers"] = json!([layer(ripple, json!(1.0), json!("normal"))]);
+            holder.insert(
+                "effect".into(),
+                json!({"kind": "static", "color": e["background"]}),
+            );
+            holder.insert(
+                "layers".into(),
+                json!([layer(ripple, json!(1.0), json!("normal"))]),
+            );
         }
-        if let Some(post) = holder.as_object_mut().and_then(|h| h.remove("post"))
+        if let Some(post) = holder.remove("post")
             && post.get("kind").is_some_and(|k| k != "none")
-            && holder.get("layers").is_none()
+            && !holder.contains_key("layers")
         {
             let opacity = post.get("strength").cloned().unwrap_or(json!(1.0));
             let blend = match post.get("blend").and_then(Value::as_str) {
@@ -344,22 +502,23 @@ fn upgrade(config: &mut serde_json::Value) {
                 Some("tint") => "tint",
                 _ => "normal",
             };
-            holder["layers"] = json!([layer(post, opacity, json!(blend))]);
+            holder.insert("layers".into(), json!([layer(post, opacity, json!(blend))]));
         }
         if let Some(layers) = holder.get_mut("layers").and_then(Value::as_array_mut) {
-            for l in layers {
-                complete(&mut l["effect"]);
-            }
+            layers
+                .iter_mut()
+                .filter_map(|l| l.get_mut("effect"))
+                .for_each(complete);
         }
     };
-    if !config.is_object() {
+    let Some(config) = config.as_object_mut() else {
         return;
-    }
+    };
     bring(config);
-    if let Some(profiles) = config.get_mut("profiles").and_then(|p| p.as_object_mut()) {
+    if let Some(profiles) = config.get_mut("profiles").and_then(Value::as_object_mut) {
         profiles
             .values_mut()
-            .filter(|p| p.is_object())
+            .filter_map(Value::as_object_mut)
             .for_each(bring);
     }
 }
@@ -383,12 +542,24 @@ fn complete(effect: &mut serde_json::Value) {
     }
 }
 
-/// Writes a temporary file and renames it over the old one.
+/// Writes a temporary file, flushes it to disk and renames it over the old one.
 pub fn save(dir: &Path, config: &Config) -> Result<(), String> {
+    if NO_SAVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|d| d == dir)
+    {
+        return Ok(());
+    }
     let text = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
     let tmp = dir.join("config.json.tmp");
     fs::create_dir_all(dir)
-        .and_then(|_| fs::write(&tmp, text))
+        .and_then(|_| {
+            let mut file = fs::File::create(&tmp)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()
+        })
         .and_then(|_| fs::rename(&tmp, dir.join(FILE)))
         .map_err(|e| format!("{}: {e}", dir.display()))
 }
@@ -716,15 +887,103 @@ mod tests {
         assert!(bad.iter().all(|s| s.strip().is_none()));
     }
 
+    fn set_aside_files(dir: &Path) -> Vec<Vec<u8>> {
+        let mut names: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().into_string().unwrap())
+            .filter(|n| n.starts_with("config.corrupt-"))
+            .collect();
+        names.sort();
+        names
+            .iter()
+            .map(|n| fs::read(dir.join(n)).unwrap())
+            .collect()
+    }
+
     #[test]
     fn corrupt_file_is_moved_aside() {
         let dir = scratch("corrupt");
-        for bad in [&b"{ nope"[..], &[0xff, 0xfe, b'{', b'}']] {
+        let deep = "[".repeat(5000);
+        let bad: [&[u8]; 6] = [
+            b"{ nope",
+            &[0xff, 0xfe, b'{', b'}'],
+            b"",
+            br#"{"settings":{"fps":30"#,
+            deep.as_bytes(),
+            b"[1,2,3]",
+        ];
+        for (i, bad) in bad.iter().enumerate() {
             fs::write(dir.join(FILE), bad).unwrap();
             assert_eq!(load(&dir), Config::default());
             assert!(!dir.join(FILE).exists());
-            assert_eq!(fs::read(dir.join(CORRUPT)).unwrap(), bad);
+            let kept = set_aside_files(&dir);
+            assert_eq!(kept.len(), (i + 1).min(KEEP_CORRUPT));
+            assert_eq!(kept.last().unwrap(), bad);
         }
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn wrong_types_anywhere_never_panic() {
+        let dir = scratch("junk");
+        for text in [
+            r#"{"layers":[1,"x",null,{"effect":3},{"effect":{"kind":"press_ripple"}}],"profiles":{"a":1,"b":{"layers":[null,2]},"c":{"post":7},"d":{"effect":{"kind":"key_ripple"},"post":"x"},"e":{"effect":"key_ripple","layers":{"effect":1}}}}"#,
+            r#"{"effect":{"kind":"key_ripple","color":"red"},"post":{"kind":"press_ghost"},"layers":"no"}"#,
+            r#"{"settings":[],"devices":7,"profiles":[],"active_profile":4,"fan_backup":"x","hardware":1,"key_maps":{}}"#,
+            r#""text""#,
+            "null",
+            "12",
+        ] {
+            fs::write(dir.join(FILE), text).unwrap();
+            let config = load(&dir);
+            assert_eq!(config.settings, Settings::default(), "{text}");
+        }
+        fs::write(
+            dir.join(FILE),
+            r#"{"layers":[1,"x",null],"profiles":{"a":1,"b":{"brightness":0.5,"layers":[null]}}}"#,
+        )
+        .unwrap();
+        let config = load(&dir);
+        assert!(config.layers.is_empty());
+        assert_eq!(config.profiles.keys().collect::<Vec<_>>(), ["b"]);
+        assert_eq!(config.profiles["b"].brightness, 0.5);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn one_bad_setting_keeps_the_others() {
+        let dir = scratch("one-bad");
+        let text = r#"{"settings":{"fps":40,"language":"de","close_to_tray":"maybe","openrgb_port":99999,
+            "network":{"discover":true,"hue":[{"ip":5},{"ip":"10.0.0.9"}],"e131":"none"},
+            "led_strips":[{"port":"COM3"},{"baud":"fast"}],"zone_leds":{"a#1":12,"b#2":"x"}},
+            "devices":{"a":{"enabled":false},"b":{"enabled":"no"}},"active_profile":["p"],
+            "fan_backup":{"curves":"nope"},"brightness":0.5}"#;
+        fs::write(dir.join(FILE), text).unwrap();
+        let config = load(&dir);
+        let s = &config.settings;
+        assert_eq!((s.fps, s.language.as_str()), (40, "de"));
+        assert!(s.close_to_tray);
+        assert_eq!(s.openrgb_port, 6742);
+        assert!(s.network.discover);
+        assert_eq!(s.network.hue.len(), 1);
+        assert_eq!(s.network.hue[0].ip, "10.0.0.9");
+        assert_eq!(s.led_strips.len(), 1);
+        assert_eq!(s.zone_leds.len(), 1);
+        assert_eq!(config.devices.keys().collect::<Vec<_>>(), ["a"]);
+        assert_eq!((config.active_profile, config.brightness), (None, 0.5));
+        assert!(set_aside_files(&dir).is_empty());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_unreadable_file_is_kept_and_not_saved_over() {
+        let dir = scratch("unreadable");
+        fs::create_dir_all(dir.join(FILE)).unwrap();
+        assert_eq!(load(&dir), Config::default());
+        save(&dir, &Config::default()).unwrap();
+        assert!(dir.join(FILE).is_dir());
+        assert!(!dir.join("config.json.tmp").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -746,7 +1005,7 @@ mod tests {
         .unwrap();
         let read = load(&dir);
         assert_eq!((read.brightness, read.audio), (0.5, Default::default()));
-        assert!(!dir.join(CORRUPT).exists());
+        assert!(set_aside_files(&dir).is_empty());
         // Settings and channels saved before apps and the GG setting went away still load.
         fs::write(
             dir.join(FILE),
