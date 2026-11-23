@@ -13,6 +13,8 @@ pub enum Family {
     NovaPro,
     /// Corsair headsets: every setting is a Bragi property.
     Bragi,
+    /// Logitech headsets over HID++ 2.0.
+    Logitech,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +93,7 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
                 wireless: c.wireless || receiver.is_some(),
             })
         }
+        crate::logitech::VID => crate::logitech::model(pid),
         _ => None,
     }
 }
@@ -193,10 +196,10 @@ pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
     pub fn brand(&self) -> &'static str {
-        if self.vid == 0x1B1C {
-            "Corsair"
-        } else {
-            "SteelSeries"
+        match self.vid {
+            0x1B1C => "Corsair",
+            crate::logitech::VID => "Logitech",
+            _ => "SteelSeries",
         }
     }
 
@@ -269,6 +272,7 @@ impl Model {
                     out.push((Control::Anc, Shape::Switch));
                 }
             }
+            Family::Logitech => out.extend(crate::logitech::controls(self)),
             Family::NovaPro => out.extend([
                 (Control::Sidetone, levels()),
                 (
@@ -305,6 +309,7 @@ impl Model {
         }
         let byte = v as u8;
         let cmd = match (self.family, c) {
+            (Family::Logitech, _) => return Err("Logitech settings are sent over HID++".into()),
             (_, Control::Sidetone) => 0x39,
             (_, Control::MicVolume) => 0x37,
             (Family::Nova5, Control::VolumeLimiter) => 0x27,
@@ -341,7 +346,7 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5 | Family::Bragi => Save::None,
+            Family::Nova5 | Family::Bragi | Family::Logitech => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
         }
@@ -438,7 +443,7 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
-        Family::Bragi => None,
+        Family::Bragi | Family::Logitech => None,
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;
