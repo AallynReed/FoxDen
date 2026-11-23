@@ -29,6 +29,9 @@ pub enum Family {
     /// HyperX headsets, HP or Kingston ids.
     HyperX,
     TurtleBeach,
+    AstroGen4,
+    AstroGen5,
+    Audeze,
     Inzone,
     Jbl,
     /// Razer headsets; the framing depends on the model.
@@ -117,12 +120,15 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
                 wireless: c.wireless || receiver.is_some(),
             })
         }
+        0x046D if pid == crate::astro::GEN5_PID => crate::astro::model(vid, pid),
         crate::logitech::VID => crate::logitech::model(pid),
         crate::epos::VID => crate::epos::model(pid),
         crate::jabra::VID => crate::jabra::model(pid),
         crate::poly::VID => crate::poly::model(pid),
         0x03F0 | 0x0951 => crate::hyperx::model(vid, pid),
         crate::turtlebeach::VID => crate::turtlebeach::model(pid),
+        crate::astro::VID => crate::astro::model(vid, pid),
+        crate::audeze::VID => crate::audeze::model(pid),
         crate::razer::VID => crate::razer::model(pid),
         _ => None,
     }
@@ -254,6 +260,11 @@ pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
     pub fn brand(&self) -> &'static str {
+        match self.family {
+            Family::AstroGen4 | Family::AstroGen5 => return "ASTRO",
+            Family::Audeze => return "Audeze",
+            _ => {}
+        }
         match self.vid {
             0x1B1C => "Corsair",
             crate::logitech::VID => "Logitech",
@@ -285,6 +296,9 @@ impl Model {
     pub fn collection(&self) -> (i32, Option<(u16, u16)>) {
         match self.family {
             Family::NovaPro => (4, None),
+            Family::AstroGen4 => (6, Some((0xFF32, 0x0074))),
+            Family::AstroGen5 => (8, Some((0xFF32, 0x0074))),
+            Family::Audeze => crate::audeze::collection(self),
             f if arctis::has(f) => arctis::collection(self),
             Family::Epos => (3, Some((0xFFFF, 0x0001))),
             Family::Jabra => (3, Some((0xFF00, crate::jabra::usage(self.pid)))),
@@ -371,6 +385,8 @@ impl Model {
             | Family::Nova3
             | Family::NovaElite => out = arctis::controls(self),
             Family::HyperX => out = crate::hyperx::controls(self),
+            Family::AstroGen4 | Family::AstroGen5 => out = crate::astro::controls(self),
+            Family::Audeze => out = crate::audeze::controls(self),
             Family::TurtleBeach => return crate::turtlebeach::controls(self),
             Family::Inzone => out = crate::sony::controls(self),
             Family::Jbl => out = crate::jbl::controls(self),
@@ -380,7 +396,8 @@ impl Model {
     }
 
     pub fn has_eq(&self) -> bool {
-        matches!(self.family, Family::NovaPro | Family::Arctis7Plus) || crate::turtlebeach::has_eq(self)
+        matches!(self.family, Family::NovaPro | Family::Arctis7Plus)
+            || crate::turtlebeach::has_eq(self)
     }
 
     /// The frames that set `c` to `v`, without the save. `Err` for a control this model lacks or a value out of range.
@@ -388,7 +405,15 @@ impl Model {
         if self.family == Family::TurtleBeach {
             return crate::turtlebeach::set(self, c, v);
         }
-        if matches!(self.family, Family::Inzone | Family::Jbl | Family::Razer) {
+        if matches!(
+            self.family,
+            Family::Inzone
+                | Family::Jbl
+                | Family::Razer
+                | Family::AstroGen4
+                | Family::AstroGen5
+                | Family::Audeze
+        ) {
             return Err(format!(
                 "{} takes its settings through its own driver",
                 self.name
@@ -470,7 +495,10 @@ impl Model {
             | Family::TurtleBeach
             | Family::Inzone
             | Family::Jbl
-            | Family::Razer => Save::None,
+            | Family::Razer
+            | Family::AstroGen4
+            | Family::AstroGen5
+            | Family::Audeze => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
             Family::Arctis1
@@ -589,7 +617,10 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
         | Family::TurtleBeach
         | Family::Inzone
         | Family::Jbl
-        | Family::Razer => None,
+        | Family::Razer
+        | Family::AstroGen4
+        | Family::AstroGen5
+        | Family::Audeze => None,
         Family::Arctis1
         | Family::Arctis7
         | Family::Arctis7Plus

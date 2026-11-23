@@ -505,7 +505,9 @@ fn poll_link(
             Some(Ok(p)) if p.first().is_some_and(|&v| v >= 2) => {
                 let (name, kind) = link.name_and_kind(idx);
                 let reading = link.battery_20(idx, pid);
-                let ident = reading.as_ref().and_then(|_| remembered(pid, idx, link.identity(idx)));
+                let ident = reading
+                    .as_ref()
+                    .and_then(|_| remembered(pid, idx, link.identity(idx)));
                 (reading, name, kind, ident)
             }
             Some(Err(0x01)) => (link.battery_10(idx), None, Kind::Other, None),
@@ -740,7 +742,10 @@ mod tests {
     #[test]
     fn a_missed_identity_read_keeps_the_known_one() {
         let ident = ("unit".to_string(), "G515".to_string());
-        assert_eq!(remembered(0xFFF0, 1, Some(ident.clone())), Some(ident.clone()));
+        assert_eq!(
+            remembered(0xFFF0, 1, Some(ident.clone())),
+            Some(ident.clone())
+        );
         assert_eq!(remembered(0xFFF0, 1, None), Some(ident));
         assert_eq!(remembered(0xFFF0, 2, None), None);
     }

@@ -1,17 +1,19 @@
 //! Settings of SteelSeries wireless headsets over their own HID protocol, of Corsair headsets
 //! as Bragi properties, and of other brands' headsets through their own modules.
 
-mod logitech;
 mod arctis;
+pub mod astro;
+pub mod audeze;
 mod epos;
-mod jabra;
-mod poly;
 pub mod hyperx;
-pub mod proto;
-pub mod turtlebeach;
+mod jabra;
 mod jbl;
-mod sony;
+mod logitech;
+mod poly;
+pub mod proto;
 mod razer;
+mod sony;
+pub mod turtlebeach;
 
 use std::sync::Mutex;
 use std::thread;
@@ -41,6 +43,7 @@ pub fn find() -> Vec<Found> {
             Family::Razer => razer::fits(&model, &c),
             _ if c.out_len == 0 => false,
             Family::Bragi => Bragi::fits(&c),
+            Family::AstroGen4 => astro::gen4_fits(&c),
             Family::Logitech => logitech::fits(&c, &model),
             Family::HyperX => hyperx::fits(&model, &c),
             Family::TurtleBeach => turtlebeach::fits(&c),
@@ -107,6 +110,9 @@ pub fn read(f: &Found) -> Option<Reading> {
     if f.model.family == Family::Razer {
         return razer::read(f, true);
     }
+    if let Some(r) = own_read(f, true) {
+        return r;
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -122,6 +128,15 @@ pub fn read(f: &Found) -> Option<Reading> {
         }
     }
     Some(Reading { status, values })
+}
+
+/// Reads of the brands with their own module; `None` for the others.
+fn own_read(f: &Found, settings: bool) -> Option<Option<Reading>> {
+    match f.model.family {
+        Family::AstroGen4 | Family::AstroGen5 => Some(astro::read(f, settings)),
+        Family::Audeze => Some(audeze::read(f, settings)),
+        _ => None,
+    }
 }
 
 /// Just the status: battery, power and the ChatMix dial. Cheap enough to ask often.
@@ -149,6 +164,9 @@ pub fn status(f: &Found) -> Option<Status> {
     }
     if f.model.family == Family::Razer {
         return razer::read(f, false)?.status;
+    }
+    if let Some(r) = own_read(f, false) {
+        return r?.status;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -213,6 +231,11 @@ pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
     }
     if f.model.family == Family::Razer {
         return razer::set(f, c, v);
+    }
+    match f.model.family {
+        Family::AstroGen4 | Family::AstroGen5 => return astro::set(f, c, v),
+        Family::Audeze => return audeze::set(f, c, v),
+        _ => {}
     }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }

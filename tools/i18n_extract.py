@@ -116,6 +116,12 @@ for d in RUST:
             elif re.match(r"[A-Z]", s) and " " in s and plain and not re.search(r"::|\\|[a-z]+_[a-z]+\b|\$|%[0-9a-z]", s):
                 add(s, f.name)
 
+# Built at run time from ids or option tables the scan above can't see.
+RUNTIME = ["Left", "Right", "Custom {0}", "Preset {0}", "TalkThru", "Transparency", "Competition",
+           "Immersive", "Night", "Streaming", "Tournament", "Treble Boost"]
+for s in RUNTIME:
+    add(s, "runtime")
+
 out = UI / "lang" / "en.json"
 out.parent.mkdir(exist_ok=True)
 data = {k: k for k in sorted(found)}
