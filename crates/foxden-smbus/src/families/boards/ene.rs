@@ -184,24 +184,39 @@ fn rows(zones: &[usize], total: usize) -> Vec<usize> {
     rows
 }
 
-/// One row per zone, or one column per zone on memory, LEDs in hardware order.
+/// One row per multi-LED zone (a column on memory), single-LED zones sharing one row, LEDs in
+/// hardware order.
 fn layout(id: &str, name: &str, kind: DeviceKind, rect: [f32; 4], rows: &[usize]) -> Device {
+    let mut lines: Vec<usize> = Vec::new();
+    let mut singles: Option<usize> = None;
+    let mut at: Vec<(usize, usize)> = Vec::new();
+    for &len in rows {
+        let line = match (len, singles) {
+            (1, Some(line)) => line,
+            _ => {
+                lines.push(0);
+                if len == 1 {
+                    singles = Some(lines.len() - 1);
+                }
+                lines.len() - 1
+            }
+        };
+        at.extend((lines[line]..lines[line] + len).map(|i| (i, line)));
+        lines[line] += len;
+    }
     let memory = kind == DeviceKind::Memory;
-    let long = rows.iter().copied().max().unwrap_or(1) as u32;
-    let n = rows.len().max(1) as u32;
-    let (cols, lines) = if memory { (n, long) } else { (long, n) };
-    let mut device = Device::grid(id, name, kind, rect, cols, lines);
-    device.leds = rows
-        .iter()
-        .enumerate()
-        .flat_map(|(z, &len)| {
-            (0..len).map(move |i| {
-                let (c, r) = if memory { (z, i) } else { (i, z) };
-                [
-                    (c as f32 + 0.5) / cols as f32,
-                    (r as f32 + 0.5) / lines as f32,
-                ]
-            })
+    let long = lines.iter().copied().max().unwrap_or(1) as u32;
+    let n = lines.len().max(1) as u32;
+    let (cols, height) = if memory { (n, long) } else { (long, n) };
+    let mut device = Device::grid(id, name, kind, rect, cols, height);
+    device.leds = at
+        .into_iter()
+        .map(|(i, line)| {
+            let (c, r) = if memory { (line, i) } else { (i, line) };
+            [
+                (c as f32 + 0.5) / cols as f32,
+                (r as f32 + 0.5) / height as f32,
+            ]
         })
         .collect();
     device
@@ -644,9 +659,8 @@ mod tests {
     fn x370_pro_frame() {
         let (h, mut b) = x370_pro();
         let d = b.devices().remove(0);
-        assert_eq!(d.grid, [1, 5]);
-        assert_eq!(d.leds[0], [0.5, 0.1]);
-        assert_eq!(d.leds[4], [0.5, 0.9]);
+        let old = Device::grid(&d.id, &d.name, d.kind, d.rect, 5, 1);
+        assert_eq!((d.grid, &d.leds), (old.grid, &old.leds));
         let colors = ramp(5);
         b.push(&d.id, &colors).unwrap();
         assert_eq!(h.take(), frame(0x4E, 0x8000, &colors));
@@ -682,6 +696,18 @@ mod tests {
         let colors = ramp(8);
         b.push(&d.id, &colors).unwrap();
         assert_eq!(h.take(), frame(0x70, 0x8100, &colors));
+
+        let d = layout("x", "X", DeviceKind::Motherboard, [0.0; 4], &[1, 3, 1]);
+        assert_eq!(d.grid, [3, 2]);
+        let want = [
+            [0.5, 0.25],
+            [0.5, 0.75],
+            [1.5, 0.75],
+            [2.5, 0.75],
+            [1.5, 0.25],
+        ];
+        let want: Vec<[f32; 2]> = want.iter().map(|&[c, r]| [c / 3.0, r]).collect();
+        assert_eq!(d.leds, want);
 
         config[3] = 2;
         config[4] = 0;
