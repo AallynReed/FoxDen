@@ -3,7 +3,7 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareSetting};
 use hidapi::HidApi;
 
 use crate::port::{LIGHTS, Port};
@@ -163,6 +163,13 @@ pub(super) trait Protocol: Send {
     fn release_waits(&self) -> bool {
         false
     }
+    fn hardware(&self) -> Option<Hardware> {
+        None
+    }
+    /// What starts one of the device's own effects.
+    fn hardware_ops(&mut self, _: &HardwareSetting) -> Result<Vec<Op>, String> {
+        Err("no hardware effects".into())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -311,6 +318,28 @@ impl<P: Protocol> Backend for Hid<P> {
                 self.sent = None;
                 Err(e)
             }
+        }
+    }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        (device_id == self.device.id)
+            .then(|| self.proto.hardware())
+            .flatten()
+    }
+
+    /// The next push sets the device up again from scratch.
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        if device_id != self.device.id {
+            return Err(format!("unknown device {device_id}"));
+        }
+        self.sent = None;
+        match setting {
+            Some(s) => run(&self.hid, &self.proto.hardware_ops(s)?),
+            None => Ok(()),
         }
     }
 }
@@ -482,6 +511,46 @@ mod tests {
         drop(backend(port, lit(), Handback, "t"));
         assert_eq!(sent(&writes), [vec![1], vec![9]]);
         assert!(!dev.owed());
+    }
+
+    struct Effects;
+
+    impl Protocol for Effects {
+        fn setup(&mut self, _: &[Color]) -> Vec<Op> {
+            vec![Op::Write(vec![7])]
+        }
+        fn frame(&mut self, c: &[Color]) -> Vec<Op> {
+            vec![Op::Write(vec![c[0].0])]
+        }
+        fn hardware_ops(&mut self, s: &HardwareSetting) -> Result<Vec<Op>, String> {
+            Ok(vec![Op::Write(s.mode.bytes().collect())])
+        }
+    }
+
+    #[test]
+    fn leaving_a_hardware_mode_sets_the_device_up_again() {
+        use crate::port::tests::Fake;
+        use std::sync::{Arc, Mutex};
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let port = Port::alone(Box::new(Fake {
+            writes: writes.clone(),
+            device: Arc::default(),
+        }));
+        let lit = device("t".into(), "t", DeviceKind::Other, [1, 1], vec![[0.5, 0.5]]);
+        let mut b = backend(port, lit, Effects, "t");
+        b.push("t", &[Color(3, 0, 0)]).unwrap();
+        b.set_hardware("t", Some(&HardwareSetting::new("m")))
+            .unwrap();
+        b.set_hardware("t", None).unwrap();
+        b.push("t", &[Color(3, 0, 0)]).unwrap();
+        assert!(b.set_hardware("x", None).is_err());
+        let sent: Vec<Vec<u8>> = writes
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(b, _)| b.clone())
+            .collect();
+        assert_eq!(sent, [vec![7], vec![3], vec![b'm'], vec![7], vec![3]]);
     }
 
     #[test]

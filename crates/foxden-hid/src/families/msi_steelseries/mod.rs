@@ -17,7 +17,7 @@ mod ss_rival;
 mod ss_rival3;
 
 pub(crate) use common::Op;
-pub(crate) use msi_board::D99;
+pub(crate) use msi_board::{D99, hardware_185};
 
 pub fn detectors() -> Vec<&'static Detector> {
     [

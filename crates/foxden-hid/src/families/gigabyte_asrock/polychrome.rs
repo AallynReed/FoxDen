@@ -2,7 +2,7 @@
 
 use super::{Driver, Op, Plan, rows};
 use crate::registry::{Detector, Info};
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareMode, HardwareSetting};
 use hidapi::{HidApi, HidDevice};
 
 const VID: u16 = 0x26CE;
@@ -165,6 +165,50 @@ fn with_reads(packets: Vec<Vec<u8>>) -> Vec<Op> {
         .collect()
 }
 
+/// Mode id, name, mode byte, colours, speed.
+const EFFECTS: [(&str, &str, u8, usize, bool); 7] = [
+    ("static", "Static", 0x01, 1, false),
+    ("breathing", "Breathing", 0x02, 1, true),
+    ("flashing", "Flashing", 0x03, 1, true),
+    ("color_cycle", "Colour cycle", 0x04, 0, true),
+    ("random", "Random", 0x05, 0, true),
+    ("wave", "Wave", 0x07, 0, true),
+    ("rainbow", "Rainbow", 0x0E, 0, true),
+];
+
+pub fn hardware() -> Hardware {
+    let modes = EFFECTS.map(|(id, name, _, colors, speed)| HardwareMode {
+        speed: speed.then_some([0, 0xFF]),
+        colors,
+        ..HardwareMode::new(id, name)
+    });
+    Hardware {
+        modes: modes.to_vec(),
+    }
+}
+
+/// The zones' own colour order back, then every lit zone into the effect; the device counts speed down.
+pub fn effect(zones: &[Zone], s: &HardwareSetting) -> Result<Vec<Op>, String> {
+    let (_, f) = hardware().fit(s)?;
+    let &(_, _, byte, _, timed) = EFFECTS
+        .iter()
+        .find(|e| e.0 == s.mode)
+        .ok_or("unknown mode")?;
+    let speed = if timed { 0xFF - f.speed } else { 0 };
+    let c = f.colors.first().copied().unwrap_or(Color::BLACK);
+    let swap = zones
+        .iter()
+        .fold(0u8, |m, z| m | (u8::from(z.rgswap) << z.zone_type));
+    let mut packets = vec![write_header(RGSWAP_CFG, &[swap])];
+    packets.extend(
+        zones
+            .iter()
+            .filter(|z| z.leds > 0)
+            .map(|z| write_zone(z, byte, speed, c, false)),
+    );
+    Ok(with_reads(packets))
+}
+
 pub struct Board {
     zones: Vec<Zone>,
     resize: Option<[u8; 8]>,
@@ -191,6 +235,14 @@ impl Plan for Board {
 
     fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
         with_reads(write_all_zones(&self.zones, colors))
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hardware())
+    }
+
+    fn hardware_ops(&mut self, s: &HardwareSetting) -> Result<Vec<Op>, String> {
+        effect(&self.zones, s)
     }
 }
 
@@ -397,5 +449,72 @@ mod tests {
         let mut b = Board { zones: z, resize };
         let ops = b.first(&[Color::BLACK; 132]);
         assert_eq!(ops[0], Op::Write(write_header(LEDCOUNT_CFG, &table)));
+    }
+
+    #[test]
+    fn effect_restores_rgswap_then_sets_each_zone() {
+        let zones = vec![
+            zone(0, 1, 1, false),
+            zone(4, 1, 1, true),
+            zone(2, 0, 100, false),
+            zone(6, 1, 1, true),
+        ];
+        let mut b = Board {
+            zones,
+            resize: None,
+        };
+        let mut s = HardwareSetting::new("breathing");
+        s.speed = Some(0x20);
+        s.colors = vec![Color(0x11, 0x22, 0x33)];
+        let ops = b.hardware_ops(&s).unwrap();
+        assert_eq!(ops.len(), 8);
+        assert_eq!(ops[0], Op::Write(write_header(RGSWAP_CFG, &[0b0101_0000])));
+        assert_eq!(ops[1], Op::Read(64));
+        let mut z0 = vec![0u8; 65];
+        z0[1] = 0x10;
+        z0[4] = 0x02;
+        z0[5..10].copy_from_slice(&[0x22, 0x11, 0x33, 0xDF, 0xFF]);
+        assert_eq!(ops[2], Op::Write(z0));
+        let mut z4 = vec![0u8; 65];
+        z4[1] = 0x10;
+        z4[3] = 0x04;
+        z4[4] = 0x02;
+        z4[5..10].copy_from_slice(&[0x11, 0x22, 0x33, 0xDF, 0xFF]);
+        assert_eq!(ops[4], Op::Write(z4));
+        let Op::Write(z6) = &ops[6] else { panic!() };
+        assert_eq!(z6[3..5], [0x06, 0x02]);
+
+        let r = b.hardware_ops(&HardwareSetting::new("rainbow")).unwrap();
+        let Op::Write(p) = &r[2] else { panic!() };
+        assert_eq!(p[4..10], [0x0E, 0, 0, 0, 0x80, 0xFF]);
+        let mut st = HardwareSetting::new("static");
+        st.speed = Some(9);
+        let Op::Write(p) = &b.hardware_ops(&st).unwrap()[2] else {
+            panic!()
+        };
+        assert_eq!(p[4..10], [0x01, 0xFF, 0xFF, 0xFF, 0x00, 0xFF]);
+        let mut fast = HardwareSetting::new("wave");
+        fast.speed = Some(0xFF);
+        let Op::Write(p) = &b.hardware_ops(&fast).unwrap()[2] else {
+            panic!()
+        };
+        assert_eq!(p[4..10], [0x07, 0, 0, 0, 0x00, 0xFF]);
+        assert!(b.hardware_ops(&HardwareSetting::new("direct")).is_err());
+    }
+
+    #[test]
+    fn leaving_an_effect_selects_direct_again() {
+        let board = Board {
+            zones: vec![zone(0, 1, 1, false), zone(2, 2, 100, true)],
+            resize: Some([1, 0x1E, 2, 0, 0, 0, 0, 0]),
+        };
+        let mut s = Session::new(board, 3);
+        let colors = [Color(1, 2, 3), Color(4, 5, 6), Color(7, 8, 9)];
+        let first = s.step(&colors);
+        s.plan
+            .hardware_ops(&HardwareSetting::new("color_cycle"))
+            .unwrap();
+        s.reset();
+        assert_eq!(s.step(&colors), first);
     }
 }

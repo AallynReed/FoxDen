@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareMode, HardwareSetting};
 use hidapi::HidApi;
 
 use super::common::{Driver, FANS, Hid, Io, line, rows};
@@ -48,6 +48,61 @@ fn hub(id: String, name: &str, max: usize, counts: &[usize]) -> Device {
     d
 }
 
+const HUB_SPEEDS: [u8; 5] = [0x02, 0x01, 0x00, 0xFF, 0xFE];
+const HUB_BRIGHTNESS: [u8; 5] = [0x08, 0x03, 0x02, 0x01, 0x00];
+/// Mode id, name, mode byte, colours, speed, direction; the AL takes the first two.
+const HUB_EFFECTS: [(&str, &str, u8, usize, bool, bool); 4] = [
+    ("static", "Static", 0x01, 1, false, false),
+    ("breathing", "Breathing", 0x02, 1, true, false),
+    ("color_cycle", "Colour cycle", 0x04, 0, true, false),
+    ("rainbow", "Rainbow", 0x05, 0, true, true),
+];
+
+fn hub_hardware(al: bool) -> Hardware {
+    let n = if al { 2 } else { HUB_EFFECTS.len() };
+    let modes = HUB_EFFECTS[..n]
+        .iter()
+        .map(|&(id, name, _, colors, speed, turns)| HardwareMode {
+            speed: speed.then_some([0, 4]),
+            brightness: Some([0, 4]),
+            colors,
+            directions: if turns {
+                vec!["right".into(), "left".into()]
+            } else {
+                Vec::new()
+            },
+            ..HardwareMode::new(id, name)
+        })
+        .collect();
+    Hardware { modes }
+}
+
+/// The colour, its brightness scale, and the mode packet's effect, speed, direction and brightness bytes.
+fn hub_effect(al: bool, s: &HardwareSetting) -> Result<(Color, f32, [u8; 4]), String> {
+    let (_, f) = hub_hardware(al).fit(s)?;
+    let mode = HUB_EFFECTS
+        .iter()
+        .find(|e| e.0 == s.mode)
+        .ok_or("unknown mode")?
+        .2;
+    let c = f.colors.first().copied().unwrap_or(Color::BLACK);
+    let commit = [
+        mode,
+        HUB_SPEEDS[f.speed as usize],
+        f.direction as u8,
+        HUB_BRIGHTNESS[f.brightness as usize],
+    ];
+    Ok((c, f32::from(f.brightness) / 4.0, commit))
+}
+
+fn send_all(io: &mut dyn Io, packets: Vec<Vec<u8>>) -> Result<(), String> {
+    for p in packets {
+        io.write(&p)?;
+        io.sleep(5);
+    }
+    Ok(())
+}
+
 /// Uni Hub SL: four fans of 16 LEDs on each of four channels.
 pub const SL_FANS: usize = 4;
 pub const SL_FAN_LEDS: usize = 16;
@@ -85,6 +140,23 @@ pub fn sl_mode(ch: u8) -> Vec<u8> {
     buf(11, &[REPORT, 0x10 + ch, 0x01, 0x02, 0x00, 0x00])
 }
 
+/// The direct frame's packets, every LED at `c` and each channel's mode packet carrying `commit`.
+pub fn sl_effect(counts: &[usize], c: Color, commit: [u8; 4]) -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = counts
+        .iter()
+        .enumerate()
+        .map(|(ch, &n)| sl_activate(ch as u8, n.div_ceil(SL_FAN_LEDS) as u8))
+        .collect();
+    out.push(sl_merge());
+    for (ch, &n) in counts.iter().enumerate() {
+        out.push(sl_color(ch as u8, &vec![c; n]));
+        let mut mode = sl_mode(ch as u8);
+        mode[2..6].copy_from_slice(&commit);
+        out.push(mode);
+    }
+    out
+}
+
 struct UniHubSl {
     counts: Vec<usize>,
 }
@@ -107,6 +179,17 @@ impl Driver for UniHubSl {
             at += n;
         }
         Ok(())
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hub_hardware(false))
+    }
+
+    fn set_hardware(&mut self, io: &mut dyn Io, s: &HardwareSetting) -> Result<(), String> {
+        let (c, k, commit) = hub_effect(false, s)?;
+        let scale = |v: u8| (f32::from(v) * k) as u8;
+        let c = Color(scale(c.0), scale(c.1), scale(c.2));
+        send_all(io, sl_effect(&self.counts, c, commit))
     }
 }
 
@@ -173,6 +256,17 @@ pub fn al_channel(ch: u8, colors: &[Color], brightness: f32) -> Vec<Vec<u8>> {
     out
 }
 
+/// One channel's direct packets at `c` and `brightness`, both commits carrying `commit`.
+pub fn al_effect(ch: u8, n: usize, c: Color, brightness: f32, commit: [u8; 4]) -> Vec<Vec<u8>> {
+    let mut out = al_channel(ch, &vec![c; n], brightness);
+    for at in [2, 5] {
+        if let Some(p) = out.get_mut(at) {
+            p[2..6].copy_from_slice(&commit);
+        }
+    }
+    out
+}
+
 struct UniHubAl {
     counts: Vec<usize>,
 }
@@ -186,6 +280,18 @@ impl Driver for UniHubAl {
                 io.sleep(5);
             }
             at += n;
+        }
+        Ok(())
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hub_hardware(true))
+    }
+
+    fn set_hardware(&mut self, io: &mut dyn Io, s: &HardwareSetting) -> Result<(), String> {
+        let (c, k, commit) = hub_effect(true, s)?;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            send_all(io, al_effect(ch as u8, n, c, k, commit))?;
         }
         Ok(())
     }
@@ -305,6 +411,22 @@ pub fn v2_channel(ch: u8, colors: &[Color], brightness: f32, infinity: bool) -> 
     ]
 }
 
+/// One channel's direct packets at `c` and `brightness`, the commit carrying `commit`.
+pub fn v2_effect(
+    ch: u8,
+    n: usize,
+    c: Color,
+    brightness: f32,
+    infinity: bool,
+    commit: [u8; 4],
+) -> Vec<Vec<u8>> {
+    let mut out = v2_channel(ch, &vec![c; n], brightness, infinity);
+    if let Some(p) = out.last_mut() {
+        p[2..6].copy_from_slice(&commit);
+    }
+    out
+}
+
 struct UniHubV2 {
     infinity: bool,
     counts: Vec<usize>,
@@ -319,6 +441,18 @@ impl Driver for UniHubV2 {
                 io.sleep(5);
             }
             at += n;
+        }
+        Ok(())
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hub_hardware(false))
+    }
+
+    fn set_hardware(&mut self, io: &mut dyn Io, s: &HardwareSetting) -> Result<(), String> {
+        let (c, k, commit) = hub_effect(false, s)?;
+        for (ch, &n) in self.counts.iter().enumerate() {
+            send_all(io, v2_effect(ch as u8, n, c, k, self.infinity, commit))?;
         }
         Ok(())
     }
@@ -690,6 +824,103 @@ mod tests {
                 ],
                 64
             )
+        );
+    }
+
+    fn writes(ops: Vec<Op>) -> Vec<Vec<u8>> {
+        ops.into_iter()
+            .filter_map(|o| match o {
+                Op::Write(b) => Some(b),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn hub_effect_bytes() {
+        let mut s = HardwareSetting::new("breathing");
+        s.speed = Some(4);
+        s.brightness = Some(2);
+        s.colors = vec![C1];
+        assert_eq!(
+            hub_effect(false, &s).unwrap(),
+            (C1, 0.5, [0x02, 0xFE, 0x00, 0x02])
+        );
+        s.speed = Some(0);
+        s.brightness = Some(0);
+        assert_eq!(hub_effect(true, &s).unwrap().2, [0x02, 0x02, 0x00, 0x08]);
+        let mut r = HardwareSetting::new("rainbow");
+        r.direction = Some("left".into());
+        assert_eq!(
+            hub_effect(false, &r).unwrap(),
+            (Color::BLACK, 1.0, [0x05, 0x00, 0x01, 0x00])
+        );
+        assert!(hub_effect(true, &r).is_err());
+        let st = HardwareSetting::new("static");
+        assert_eq!(hub_effect(false, &st).unwrap().2, [0x01, 0x02, 0x00, 0x00]);
+        assert_eq!(
+            hub_effect(false, &HardwareSetting::new("color_cycle"))
+                .unwrap()
+                .2,
+            [0x04, 0x00, 0x00, 0x00]
+        );
+    }
+
+    #[test]
+    fn sl_effect_then_direct_again() {
+        let m = Mock::default();
+        let dev = rows("s".into(), "S", DeviceKind::Other, FANS, SL_LEDS, 4);
+        let sl = UniHubSl {
+            counts: vec![SL_LEDS, 16, 0, 0],
+        };
+        let mut b = Hid::new("t", Box::new(m.clone()), sl, dev);
+        let colors = vec![C1; 4 * SL_LEDS];
+        b.push("s", &colors).unwrap();
+        let direct = writes(m.take());
+        let mut s = HardwareSetting::new("static");
+        s.brightness = Some(2);
+        s.colors = vec![Color(0x40, 0x80, 0xFF)];
+        b.set_hardware("s", Some(&s)).unwrap();
+        let fx = writes(m.take());
+        assert_eq!(fx.len(), 4 + 1 + 8);
+        assert_eq!(fx[..5], direct[..5]);
+        assert_eq!(fx[1], pad(&[0xE0, 0x10, 0x32, 0x11], 11));
+        let mut col = pad(&[0xE0, 0x31], 194);
+        for i in 0..16 {
+            col[2 + i * 3..5 + i * 3].copy_from_slice(&[0x20, 0x7F, 0x40]);
+        }
+        assert_eq!(fx[7], col);
+        assert_eq!(fx[8], pad(&[0xE0, 0x11, 0x01, 0x02, 0x00, 0x02], 11));
+        assert_eq!(fx[12], pad(&[0xE0, 0x13, 0x01, 0x02, 0x00, 0x02], 11));
+        b.set_hardware("s", None).unwrap();
+        b.push("s", &colors).unwrap();
+        assert_eq!(writes(m.take()), direct);
+    }
+
+    #[test]
+    fn al_and_v2_effects() {
+        let commit = [0x02, 0x00, 0x00, 0x01];
+        let al = al_effect(1, 40, Color(200, 200, 200), 0.75, commit);
+        assert_eq!(al.len(), 6);
+        assert_eq!(
+            al[..2],
+            al_channel(1, &[Color(200, 200, 200); 40], 0.75)[..2]
+        );
+        assert_eq!(al[1][2..5], [114, 114, 114]);
+        assert_eq!(al[2], pad(&[0xE0, 0x12, 0x02, 0x00, 0x00, 0x01], 65));
+        assert_eq!(al[5], pad(&[0xE0, 0x13, 0x02, 0x00, 0x00, 0x01], 65));
+        assert!(al_effect(0, 0, C1, 1.0, commit).is_empty());
+
+        let v2 = v2_effect(2, 32, C1, 1.0, false, commit);
+        assert_eq!(v2[..2], v2_channel(2, &[C1; 32], 1.0, false)[..2]);
+        assert_eq!(v2[2], pad(&[0xE0, 0x12, 0x02, 0x00, 0x00, 0x01], 353));
+        let inf = v2_effect(3, 16, C1, 0.5, true, commit);
+        assert_eq!(inf[0], pad(&[0xE0, 0x10, 0x60, 0x02, 0x04], 65));
+        assert_eq!(inf[1][2..5], [0x08, 0x19, 0x11]);
+        assert_eq!(inf[2], pad(&[0xE0, 0x13, 0x02, 0x00, 0x00, 0x01], 65));
+        assert_eq!(
+            UniHubAl { counts: vec![] }.hardware().unwrap().modes.len(),
+            2
         );
     }
 }

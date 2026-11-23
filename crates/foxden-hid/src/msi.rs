@@ -1,7 +1,7 @@
 //! MSI Mystic Light, 185-byte generation, as used by the MS-7D99 boards.
 
 use crate::families::{D99, Op};
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareSetting};
 use hidapi::HidDevice;
 
 pub const VID: u16 = 0x1462;
@@ -92,6 +92,10 @@ pub struct Board {
     headers: D99,
     /// Last frame on the board, `None` until direct mode is on.
     sent: Option<Vec<Color>>,
+    /// The settings report as read at open.
+    settings: [u8; 185],
+    /// The last effect report, until a push takes direct mode back.
+    last_effect: Option<[u8; 185]>,
 }
 
 /// Length of settings report 0x52 on this generation; some platforms count one byte more.
@@ -110,10 +114,15 @@ impl Board {
         if !is_185(len) {
             return Err(format!("settings report is {len} bytes, expected 185"));
         }
+        let mut stored = [0u8; 185];
+        stored.copy_from_slice(&settings[..185]);
+        stored[184] = 0;
         Ok(Board {
             hid,
             headers: D99::open(ID),
             sent: None,
+            settings: stored,
+            last_effect: None,
         })
     }
 }
@@ -138,6 +147,7 @@ impl Backend for Board {
             self.hid
                 .send_feature_report(&self.headers.enable())
                 .map_err(|e| e.to_string())?;
+            self.last_effect = None;
         }
         match send(&self.hid, self.headers.frames(colors)) {
             Ok(()) => {
@@ -150,6 +160,50 @@ impl Backend for Board {
             }
         }
     }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        (device_id == ID).then(crate::families::hardware_185)
+    }
+
+    /// The state on the board, then the effect; the next push turns direct mode on again.
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        if device_id != ID {
+            return Err(format!("unknown device {device_id}"));
+        }
+        let ops = match setting {
+            Some(s) => {
+                let now = match self.last_effect {
+                    Some(last) => last,
+                    None if self.sent.is_some() => self.headers.enable(),
+                    None => self.settings,
+                };
+                let (ops, new) = effect_ops(&self.headers, now, &self.settings, s)?;
+                self.last_effect = Some(new);
+                ops
+            }
+            None => Vec::new(),
+        };
+        self.sent = None;
+        send(&self.hid, ops)
+    }
+}
+
+/// `now`, the state on the board, then the effect; also returns the effect report.
+fn effect_ops(
+    d99: &D99,
+    now: [u8; 185],
+    settings: &[u8; 185],
+    s: &HardwareSetting,
+) -> Result<(Vec<Op>, [u8; 185]), String> {
+    let new = d99.effect(settings, s)?;
+    Ok((
+        vec![Op::Feature(now.to_vec()), Op::Feature(new.to_vec())],
+        new,
+    ))
 }
 
 fn send(hid: &HidDevice, ops: Vec<Op>) -> Result<(), String> {
@@ -314,5 +368,30 @@ mod tests {
         assert!(ops.contains(&Op::Sleep(13)));
         crate::lengths::set_one("hid:msi-7d99-max", 2, 999);
         assert_eq!(headers(&D99::open("hid:msi-7d99-max")), [HEADER_LEDS, 240]);
+    }
+
+    #[test]
+    fn effect_on_the_7d99() {
+        let d99 = D99::open("hid:msi-7d99-effect");
+        let mut settings = enable_direct();
+        settings[184] = 0;
+        let mut s = HardwareSetting::new("lightning");
+        s.speed = Some(2);
+        s.brightness = Some(5);
+        s.colors = vec![Color(7, 8, 9)];
+        let (ops, new) = effect_ops(&d99, enable_direct(), &settings, &s).unwrap();
+        let sent = features(&ops);
+        assert_eq!(sent[0], &enable_direct()[..]);
+        let p = sent[1];
+        assert_eq!(p[1..11], [5, 7, 8, 9, 0x16, 7, 8, 9, 0x80, 0]);
+        assert_eq!(p[31..41], [5, 7, 8, 9, 0x16, 7, 8, 9, 0x80, 0]);
+        assert_eq!(p[42..52], [5, 7, 8, 9, 0x16, 7, 8, 9, 0x80, 0]);
+        assert_eq!(p[74..84], [5, 7, 8, 9, 0x16, 7, 8, 9, 0x8F, 0]);
+        assert_eq!(p[64..74], [5, 7, 8, 9, 0x16, 7, 8, 9, 0x80, 0]);
+        assert_eq!(p[134..144], settings[134..144]);
+        assert_eq!(p[184], 0);
+        assert_eq!(p, &new[..]);
+        let (again, _) = effect_ops(&d99, new, &settings, &s).unwrap();
+        assert_eq!(features(&again)[0], &new[..]);
     }
 }
