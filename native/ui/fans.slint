@@ -1,21 +1,1328 @@
-import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+import { Theme, I18n, Cut, Hint, Select, Scroll } from "widgets.slint";
 
-export global FansPage {
-    in property <[Line]> fans;
-    in property <string> fan-status;
+export struct FanTile {
+    x: length,
+    y: length,
+    w: length,
+    head: bool,
+    name: string,
+    value: string,
+    none: bool,
+    line: string,
+    area: string,
 }
 
-export component FansPanel inherits Scroll {
-    content-height: fans-body.preferred-height;
-    fans-body := VerticalLayout {
-        padding: 16px;
-        spacing: 8px;
-        Heading { text: I18n.t("Fans"); }
-        Hint { text: FansPage.fan-status; }
-        for l in FansPage.fans: HorizontalLayout {
+export struct FanCurveItem {
+    name: string,
+    tag: string,
+}
+
+export struct FanPoint {
+    x: length,
+    y: length,
+    temp: string,
+    duty: string,
+    label: string,
+    value: string,
+    temp-label: string,
+    duty-label: string,
+    remove-label: string,
+    percent: int,
+    on: bool,
+}
+
+export struct FanChoice {
+    id: string,
+    name: string,
+    value: string,
+    none: bool,
+    checked: bool,
+}
+
+export struct FanChoiceRow {
+    items: [FanChoice],
+    pad: int,
+}
+
+export struct FanCard {
+    id: string,
+    name: string,
+    tag: string,
+    spin: string,
+    spin-none: bool,
+    duty: string,
+    duty-none: bool,
+    fill: float,
+    pump: bool,
+    wrong: string,
+    warn: string,
+    said: string,
+    curve: int,
+    ruled: bool,
+    min: string,
+    max: string,
+    ramp: string,
+    line: string,
+    area: string,
+}
+
+export struct FanRow {
+    cards: [FanCard],
+    pad: int,
+}
+
+export global FansPage {
+    in property <string> service;
+    in property <string> word;
+    in property <string> version;
+    in property <string> detail;
+    in property <bool> show-start;
+    in property <bool> show-stop;
+    in property <bool> busy;
+    in property <string> service-problem;
+    in property <bool> show-notice;
+    in property <bool> show-offline;
+    in property <bool> open;
+    in property <bool> running;
+    in property <int> columns: 1;
+    in property <length> sensors-w;
+    in property <length> fans-w;
+    in property <length> curves-w;
+    in property <[FanTile]> tiles;
+    in property <length> tiles-height;
+    in property <[FanRow]> fan-rows;
+    in property <length> card-w;
+    in property <[string]> curve-options;
+    in property <[FanCurveItem]> curves;
+    in property <int> chosen;
+    in property <bool> asking;
+    in property <string> ask-text;
+    in property <bool> has-curve;
+    in property <bool> curve-wide;
+    in property <bool> editor-wide;
+    in property <length> shape-w;
+    in property <string> name;
+    in property <string> name-problem;
+    in property <[FanPoint]> points;
+    in property <bool> can-add-point;
+    in property <string> points-problem;
+    in property <length> graph-height: 240px;
+    in property <string> line-path;
+    in property <string> area-path;
+    in property <bool> now-shown;
+    in property <length> now-x;
+    in property <length> now-y;
+    in property <string> now-text;
+    in property <int> cursor;
+    in property <[FanChoiceRow]> choice-rows;
+    in property <length> choice-w;
+    in property <string> sensors-problem;
+    in property <string> hyst;
+    in property <string> hyst-problem;
+    in property <bool> show-bar;
+    in property <string> save-text;
+    in property <bool> dirty;
+    in property <bool> can-apply;
+    in property <bool> can-revert;
+    in property <bool> can-undo;
+    in property <string> focus-target;
+    in property <int> focus-serial;
+    callback resized(length);
+    callback service-action(string);
+    callback pick-curve(int);
+    callback add-curve();
+    callback copy-curve();
+    callback ask-delete();
+    callback confirm-delete();
+    callback cancel-delete();
+    callback commit(string, string);
+    callback typed(string, string);
+    callback typing(string, bool);
+    callback add-point();
+    callback remove-point(int);
+    callback point-key(int, string, bool) -> bool;
+    callback point-focus(int, bool);
+    callback graph-size(length);
+    callback graph-down(length, length);
+    callback graph-move(length, length);
+    callback graph-up();
+    callback graph-hover(length, length);
+    callback toggle-sensor(string);
+    callback card-curve(string, int);
+    callback apply();
+    callback revert();
+    callback undo();
+    callback save-key();
+    callback undo-key();
+}
+
+component Act inherits Rectangle {
+    in property <string> text;
+    in property <string> label: text;
+    in property <bool> primary;
+    in property <bool> small;
+    in property <bool> enabled: true;
+    in property <string> key;
+    in property <color> under: Theme.panel;
+    callback clicked;
+    property <int> serial: FansPage.focus-serial;
+    changed serial => { if root.key != "" && FansPage.focus-target == root.key { fs.focus(); } }
+    init => { if root.key != "" && FansPage.focus-target == root.key { fs.focus(); } }
+    height: small ? 24px : 32px;
+    min-width: t.preferred-width + (small ? 16px : 24px);
+    background: primary ? (ta.has-hover && enabled ? Theme.accent.brighter(10%) : Theme.accent) : enabled && ta.pressed ? Theme.line : enabled && ta.has-hover ? Theme.hover : Theme.raised;
+    border-width: primary ? 0 : 1px;
+    border-color: fs.has-focus ? Theme.accent : Theme.stroke;
+    opacity: enabled ? 1 : 0.5;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { clicked(); } }
+    forward-focus: fs;
+    t := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.primary ? Theme.on-accent : Theme.text;
+        font-size: root.small ? 12px : 14px;
+        font-weight: root.primary ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if primary: Cut { x: parent.width - self.size; under: root.under; }
+    if fs.has-focus && primary: Rectangle {
+        x: 2px;
+        y: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 4px;
+        border-width: 1px;
+        border-color: Theme.on-accent;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" {
+                if root.enabled { root.clicked(); }
+                return accept;
+            }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => {
+            fs.focus();
+            if root.enabled { root.clicked(); }
+        }
+    }
+}
+
+component Entry inherits Rectangle {
+    in property <string> value;
+    in property <string> key;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> invalid;
+    in property <bool> mono: true;
+    property <int> serial: FansPage.focus-serial;
+    function send() {
+        if input.text != root.value { FansPage.commit(root.key, input.text); }
+        input.text = root.value;
+    }
+    function take-focus() {
+        input.text = root.value;
+        input.focus();
+        input.select-all();
+    }
+    changed serial => { if FansPage.focus-target == root.key { take-focus(); } }
+    changed value => { if !input.has-focus { input.text = root.value; } }
+    init => {
+        input.text = root.value;
+        if FansPage.focus-target == root.key { take-focus(); }
+    }
+    height: 32px;
+    min-width: 48px;
+    background: enabled ? Theme.field : Theme.panel;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : invalid ? Theme.danger : Theme.stroke;
+    opacity: enabled ? 1 : 0.5;
+    forward-focus: input;
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        enabled: root.enabled;
+        color: Theme.text;
+        font-family: root.mono ? Theme.mono : "";
+        vertical-alignment: center;
+        single-line: true;
+        accessible-label: root.label;
+        edited => { FansPage.typed(root.key, self.text); }
+        accepted => { root.send(); }
+        changed has-focus => {
+            if !self.has-focus { root.send(); }
+            FansPage.typing(root.key, self.has-focus);
+        }
+    }
+}
+
+component Problem inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 6px;
+    accessible-role: AccessibleRole.text;
+    accessible-label: text;
+    Rectangle {
+        width: 8px;
+        VerticalLayout {
+            alignment: start;
+            padding-top: 4px;
+            Path {
+                width: 8px;
+                height: 8px;
+                viewbox-width: 8;
+                viewbox-height: 8;
+                commands: "M 4 0 L 8 8 L 0 8 Z";
+                fill: Theme.danger;
+            }
+        }
+    }
+    Text {
+        text: root.text;
+        color: Theme.danger;
+        font-size: 12px;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+    }
+}
+
+component Sub inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+component Label inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+}
+
+component Mark inherits Rectangle {
+    in property <string> state;
+    width: 8px;
+    height: 8px;
+    if root.state == "running": Rectangle { background: Theme.accent; }
+    if root.state == "stopped": Rectangle { border-width: 2px; border-color: Theme.text; }
+    if root.state == "error": Path {
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M 4 0 L 8 8 L 0 8 Z";
+        fill: Theme.danger;
+    }
+    if root.state != "running" && root.state != "stopped" && root.state != "error": Rectangle {
+        y: 3px;
+        height: 2px;
+        background: Theme.text;
+    }
+}
+
+component Frame inherits Rectangle {
+    in property <string> title;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: title;
+    VerticalLayout {
+        padding: 1px;
+        Rectangle {
+            height: 35px;
+            background: Theme.raised;
+            Text {
+                x: 12px;
+                height: 34px;
+                text: root.title;
+                color: Theme.text;
+                font-size: 14px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.line;
+            }
+        }
+        VerticalLayout {
+            padding: 12px;
+            padding-top: 12px;
             spacing: 8px;
-            Text { text: l.title; color: Theme.text; overflow: elide; horizontal-stretch: 1; }
-            Text { text: l.detail; color: l.ok ? Theme.text : Theme.muted; font-family: Theme.mono; }
+            @children
+        }
+    }
+}
+
+component Spark inherits Rectangle {
+    in property <string> line;
+    in property <string> area;
+    in property <color> ink;
+    height: 32px;
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 150;
+        viewbox-height: 32;
+        fit: fill;
+        commands: root.area != "" ? root.area : "M 0 0";
+        fill: root.ink.with-alpha(0.22);
+        stroke: transparent;
+        stroke-width: 1.5px;
+        visible: root.area != "";
+    }
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 150;
+        viewbox-height: 32;
+        fit: fill;
+        commands: root.line != "" ? root.line : "M 0 0";
+        stroke: root.ink;
+        stroke-width: 1.5px;
+        stroke-line-join: round;
+        visible: root.line != "";
+    }
+}
+
+component SensorsBox inherits Frame {
+    title: I18n.t("Sensors");
+    if FansPage.tiles.length == 0: Hint { text: I18n.t("The service reports no temperature sensors."); }
+    if FansPage.tiles.length > 0: Rectangle {
+        height: FansPage.tiles-height;
+        for t in FansPage.tiles: Rectangle {
+            x: t.x;
+            y: t.y;
+            width: t.w;
+            height: t.head ? 16px : 96px;
+            if t.head: Sub { text: t.name; vertical-alignment: center; }
+            if !t.head: Rectangle {
+                border-width: 1px;
+                border-color: Theme.line;
+                accessible-role: AccessibleRole.text;
+                accessible-label: t.name + " " + t.value;
+                Text {
+                    x: 8px;
+                    y: 6px;
+                    width: parent.width - 16px;
+                    height: 32px;
+                    text: t.name;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    overflow: elide;
+                    vertical-alignment: top;
+                }
+                Text {
+                    x: 8px;
+                    y: 40px;
+                    height: 20px;
+                    text: t.value;
+                    color: t.none ? Theme.muted : Theme.text;
+                    font-family: t.none ? "" : Theme.mono;
+                    font-size: t.none ? 12px : 16px;
+                    vertical-alignment: center;
+                }
+                Spark {
+                    x: 1px;
+                    y: parent.height - 33px;
+                    width: parent.width - 2px;
+                    line: t.line;
+                    area: t.area;
+                    ink: Theme.accent;
+                }
+                Cut { x: parent.width - self.size; under: Theme.panel; }
+            }
+        }
+    }
+}
+
+component KeySelect inherits Select {
+    in property <string> key;
+    property <int> serial: FansPage.focus-serial;
+    changed serial => { if FansPage.focus-target == root.key { root.focus(); } }
+}
+
+component Card inherits Rectangle {
+    in property <FanCard> c;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: c.name;
+    VerticalLayout {
+        padding: 12px;
+        padding-top: 10px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.c.name;
+                color: Theme.text;
+                font-weight: 600;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+            if root.c.tag != "": Label { text: root.c.tag; vertical-alignment: center; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.c.spin;
+                color: root.c.spin-none ? Theme.muted : Theme.text;
+                font-family: root.c.spin-none ? "" : Theme.mono;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Label { text: I18n.t("Duty"); vertical-alignment: center; }
+            Text {
+                text: root.c.duty;
+                color: root.c.duty-none ? Theme.muted : Theme.text;
+                font-family: root.c.duty-none ? "" : Theme.mono;
+                font-size: root.c.duty-none ? 12px : 14px;
+                vertical-alignment: center;
+            }
+        }
+        Spark {
+            line: root.c.line;
+            area: root.c.area;
+            ink: Theme.light ? #1f6fb2 : #5aa9e6;
+        }
+        Rectangle {
+            height: 4px;
+            background: Theme.stroke.mix(Theme.panel, 0.5);
+            Rectangle {
+                x: 0;
+                width: parent.width * clamp(root.c.fill, 0, 1);
+                background: Theme.text;
+            }
+        }
+        if root.c.wrong != "": Problem { text: root.c.wrong; }
+        VerticalLayout {
+            spacing: 4px;
+            Label { text: I18n.t("Curve"); }
+            KeySelect {
+                key: "curve:" + root.c.id;
+                options: FansPage.curve-options;
+                index: root.c.curve;
+                label: I18n.t("Curve");
+                selected(i) => { FansPage.card-curve(root.c.id, i); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Label { text: I18n.t("Minimum (%)"); overflow: elide; }
+                Entry {
+                    key: "min:" + root.c.id;
+                    value: root.c.min;
+                    label: I18n.t("Minimum (%)");
+                    enabled: root.c.ruled;
+                    invalid: root.c.warn != "";
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Label { text: I18n.t("Maximum (%)"); overflow: elide; }
+                Entry {
+                    key: "max:" + root.c.id;
+                    value: root.c.max;
+                    label: I18n.t("Maximum (%)");
+                    enabled: root.c.ruled;
+                    invalid: root.c.warn != "";
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Label { text: I18n.t("Ramp (%/s)"); overflow: elide; }
+                Entry {
+                    key: "ramp:" + root.c.id;
+                    value: root.c.ramp;
+                    label: I18n.t("Ramp, per cent per second");
+                    enabled: root.c.ruled;
+                }
+            }
+        }
+        if root.c.pump: Hint { text: I18n.t("A pump never runs below 70%, whatever its curve asks."); }
+        if root.c.warn != "": Problem { text: root.c.warn; }
+        if root.c.said != "": Problem { text: root.c.said; }
+    }
+}
+
+component FansBox inherits Frame {
+    title: I18n.t("Fans");
+    Hint { text: I18n.t("A fan follows one curve. Its duty stays between the minimum and the maximum and changes no faster than the ramp."); }
+    if FansPage.fan-rows.length == 0: Hint { text: I18n.t("No fans to control."); }
+    for row in FansPage.fan-rows: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        for c in row.cards: Card {
+            width: FansPage.card-w;
+            c: c;
+        }
+        for _ in row.pad: Rectangle { width: FansPage.card-w; }
+    }
+}
+
+component CurvePick inherits Rectangle {
+    in property <FanCurveItem> item;
+    in property <int> index;
+    in property <bool> selected;
+    property <int> serial: FansPage.focus-serial;
+    changed serial => { if FansPage.focus-target == "pick:" + root.index { fs.focus(); } }
+    height: 32px;
+    background: selected ? Theme.raised : ta.has-hover ? Theme.hover : transparent;
+    accessible-role: radio-button;
+    accessible-label: item.name;
+    accessible-description: item.tag;
+    accessible-checkable: true;
+    accessible-checked: selected;
+    accessible-action-default => { FansPage.pick-curve(index); }
+    forward-focus: fs;
+    Rectangle {
+        x: 0;
+        width: 3px;
+        background: root.selected ? Theme.accent : transparent;
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+        Text {
+            text: root.item.name;
+            color: root.selected ? Theme.text : Theme.muted;
+            font-weight: root.selected ? 600 : 400;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        if root.item.tag != "": Label { text: root.item.tag; vertical-alignment: center; }
+    }
+    if fs.has-focus: Rectangle {
+        border-width: 1px;
+        border-color: Theme.accent;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { FansPage.pick-curve(root.index); return accept; }
+            if e.text == Key.DownArrow && root.index < FansPage.curves.length - 1 {
+                FansPage.pick-curve(root.index + 1);
+                return accept;
+            }
+            if e.text == Key.UpArrow && root.index > 0 {
+                FansPage.pick-curve(root.index - 1);
+                return accept;
+            }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            fs.focus();
+            FansPage.pick-curve(root.index);
+        }
+    }
+}
+
+component PickColumn inherits VerticalLayout {
+    in property <length> most: 194px;
+    spacing: 8px;
+    alignment: start;
+    if FansPage.curves.length > 0: Rectangle {
+        height: clamp(FansPage.curves.length * 32px + 2px, 194px, root.most);
+        border-width: 1px;
+        border-color: Theme.line;
+        accessible-role: radio-group;
+        accessible-label: I18n.t("Curves");
+        Scroll {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: parent.height - 2px;
+            content-height: picks.preferred-height;
+            picks := VerticalLayout {
+                alignment: start;
+                for item[i] in FansPage.curves: CurvePick {
+                    item: item;
+                    index: i;
+                    selected: i == FansPage.chosen;
+                }
+            }
+        }
+    }
+    if FansPage.curves.length == 0: Hint { text: I18n.t("No curves yet. A curve sets a fan's duty from a temperature."); }
+    if !FansPage.asking: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Act { text: I18n.t("Add"); key: "add-curve"; clicked => { FansPage.add-curve(); } }
+        Act { text: I18n.t("Duplicate"); key: "copy-curve"; enabled: FansPage.has-curve; clicked => { FansPage.copy-curve(); } }
+        Act { text: I18n.t("Delete"); key: "delete-curve"; enabled: FansPage.has-curve; clicked => { FansPage.ask-delete(); } }
+    }
+    if FansPage.asking: Rectangle {
+        border-width: 1px;
+        border-color: Theme.stroke;
+        accessible-role: groupbox;
+        accessible-label: I18n.t("Confirm deleting the curve");
+        FocusScope {
+            focus-on-click: false;
+            focus-on-tab-navigation: false;
+            key-pressed(e) => {
+                if e.text == Key.Escape { FansPage.cancel-delete(); return accept; }
+                reject
+            }
+            VerticalLayout {
+                padding: 12px;
+                spacing: 4px;
+                Text {
+                    text: FansPage.ask-text;
+                    color: Theme.text;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    padding-top: 4px;
+                    Act { text: I18n.t("Delete curve"); key: "ask-yes"; clicked => { FansPage.confirm-delete(); } }
+                    Act { text: I18n.t("Cancel"); key: "ask-no"; clicked => { FansPage.cancel-delete(); } }
+                }
+            }
+        }
+    }
+}
+
+component Handle inherits Rectangle {
+    in property <FanPoint> p;
+    in property <int> index;
+    property <int> serial: FansPage.focus-serial;
+    changed serial => { if FansPage.focus-target == "handle:" + root.index { fs.focus(); } }
+    init => { if FansPage.focus-target == "handle:" + root.index { fs.focus(); } }
+    x: p.x - 12px;
+    y: p.y - 12px;
+    width: 24px;
+    height: 24px;
+    accessible-role: slider;
+    accessible-label: p.label;
+    accessible-value: p.value;
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-value-step: 1;
+    accessible-action-increment => { FansPage.point-key(root.index, Key.UpArrow, false); }
+    accessible-action-decrement => { FansPage.point-key(root.index, Key.DownArrow, false); }
+    forward-focus: fs;
+    if fs.has-focus: Rectangle {
+        x: 3px;
+        y: 3px;
+        width: 18px;
+        height: 18px;
+        border-width: 2px;
+        border-color: Theme.accent;
+    }
+    Rectangle {
+        x: 7px;
+        y: 7px;
+        width: 10px;
+        height: 10px;
+        border-width: 2px;
+        border-color: fs.has-focus ? Theme.accent : Theme.text;
+        background: fs.has-focus ? Theme.accent : root.p.on ? Theme.text : Theme.field;
+    }
+    fs := FocusScope {
+        focus-on-click: false;
+        key-pressed(e) => {
+            if FansPage.point-key(root.index, e.text, e.modifiers.shift) { return accept; }
+            reject
+        }
+        changed has-focus => { FansPage.point-focus(root.index, self.has-focus); }
+    }
+}
+
+component Graph inherits Rectangle {
+    property <length> w: self.width - 2px;
+    property <length> h: FansPage.graph-height;
+    property <length> x0: 38px;
+    property <length> x1: w - 14px;
+    property <length> y0: 12px;
+    property <length> y1: h - 24px;
+    height: h + 2px;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: Theme.field;
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Curve graph, duty against temperature. The table below lists the same points.");
+    changed w => { FansPage.graph-size(root.w); }
+    init => { FansPage.graph-size(root.w); }
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        width: root.w;
+        height: root.h;
+        clip: true;
+        for t in [20, 30, 40, 50, 60, 70, 80, 90, 100]: Rectangle {
+            x: round((root.x0 + (t - 20) / 80 * (root.x1 - root.x0)) / 1px) * 1px;
+            y: root.y0;
+            width: 1px;
+            height: root.y1 - root.y0;
+            background: Theme.line;
+            opacity: mod(t, 20) == 0 ? 1 : 0.45;
+        }
+        for t in [20, 40, 60, 80]: Text {
+            x: round((root.x0 + (t - 20) / 80 * (root.x1 - root.x0)) / 1px) * 1px - 20px;
+            y: root.h - 20px;
+            width: 40px;
+            height: 16px;
+            text: t;
+            color: Theme.muted;
+            font-family: Theme.mono;
+            font-size: 12px;
+            horizontal-alignment: center;
+        }
+        Text {
+            x: root.w - 2px - 80px;
+            y: root.h - 20px;
+            width: 80px;
+            height: 16px;
+            text: "100 °C";
+            color: Theme.muted;
+            font-family: Theme.mono;
+            font-size: 12px;
+            horizontal-alignment: right;
+        }
+        for d in [0, 25, 50, 75, 100]: Rectangle {
+            y: round((root.y1 - d / 100 * (root.y1 - root.y0)) / 1px) * 1px;
+            height: 1px;
+            Rectangle {
+                x: root.x0;
+                width: root.x1 - root.x0;
+                background: Theme.line;
+            }
+            Text {
+                x: 0;
+                y: -8px;
+                width: root.x0 - 6px;
+                height: 16px;
+                text: d == 100 ? "100%" : d;
+                color: Theme.muted;
+                font-family: Theme.mono;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+        }
+        if FansPage.area-path != "": Path {
+            width: root.w;
+            height: root.h;
+            fit: preserve;
+            commands: FansPage.area-path;
+            fill: Theme.text.with-alpha(0.07);
+        }
+        if FansPage.now-shown: Path {
+            width: root.w;
+            height: root.h;
+            fit: preserve;
+            commands: "M " + (FansPage.now-x / 1px) + " " + (root.y0 / 1px) + " L " + (FansPage.now-x / 1px) + " " + (root.y1 / 1px);
+            stroke: Theme.accent;
+            stroke-width: 1px;
+            stroke-dash-array: [3px, 3px];
+        }
+        if FansPage.line-path != "": Path {
+            width: root.w;
+            height: root.h;
+            fit: preserve;
+            commands: FansPage.line-path;
+            stroke: Theme.text;
+            stroke-width: 2px;
+            stroke-line-join: bevel;
+        }
+        if FansPage.now-shown: Path {
+            x: FansPage.now-x - 7px;
+            y: FansPage.now-y - 7px;
+            width: 14px;
+            height: 14px;
+            viewbox-width: 14;
+            viewbox-height: 14;
+            commands: "M 7 1 L 13 7 L 7 13 L 1 7 Z";
+            fill: Theme.field;
+            stroke: Theme.accent;
+            stroke-width: 2px;
+        }
+        for p[i] in FansPage.points: Handle {
+            p: p;
+            index: i;
+        }
+        ta := TouchArea {
+            mouse-cursor: FansPage.cursor == 1 ? (self.pressed ? grabbing : grab) : FansPage.cursor == 2 ? copy : default;
+            pointer-event(e) => {
+                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                    FansPage.graph-down(self.mouse-x, self.mouse-y);
+                }
+                if e.button == PointerEventButton.left && (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
+                    FansPage.graph-up();
+                }
+            }
+            moved => {
+                if self.pressed { FansPage.graph-move(self.mouse-x, self.mouse-y); }
+            }
+            changed mouse-x => { if !self.pressed { FansPage.graph-hover(self.mouse-x, self.mouse-y); } }
+            changed mouse-y => { if !self.pressed { FansPage.graph-hover(self.mouse-x, self.mouse-y); } }
+        }
+    }
+}
+
+component Shape inherits VerticalLayout {
+    spacing: 8px;
+    alignment: start;
+    VerticalLayout {
+        spacing: 8px;
+        Label { text: I18n.t("Name"); }
+        Entry {
+            key: "name";
+            value: FansPage.name;
+            label: I18n.t("Name");
+            mono: false;
+            invalid: FansPage.name-problem != "";
+        }
+    }
+    if FansPage.name-problem != "": Problem { text: FansPage.name-problem; }
+    Sub { text: I18n.t("Points"); }
+    Graph { }
+    Text {
+        text: FansPage.now-text;
+        color: Theme.text;
+        font-size: 12px;
+        wrap: word-wrap;
+    }
+    Hint { text: I18n.t("Drag a point to move it, or click the line to add one. With a point focused, the arrow keys move it and Delete removes it."); }
+    VerticalLayout {
+        spacing: 4px;
+        accessible-role: table;
+        accessible-label: I18n.t("Points");
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: start;
+            Rectangle { width: 20px; }
+            Label { width: 64px + 4px + 20px; text: I18n.t("Temperature"); }
+            Label { width: 64px + 4px + 20px; text: I18n.t("Duty"); }
+        }
+        for p[i] in FansPage.points: HorizontalLayout {
+            spacing: 12px;
+            alignment: start;
+            height: 32px;
+            Text {
+                width: 20px;
+                text: i + 1;
+                color: p.on ? Theme.accent : Theme.muted;
+                font-family: Theme.mono;
+                font-size: 12px;
+                font-weight: p.on ? 600 : 400;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Entry {
+                    width: 64px;
+                    key: "temp:" + i;
+                    value: p.temp;
+                    label: p.temp-label;
+                }
+                Label { width: 20px; text: "°C"; vertical-alignment: center; }
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Entry {
+                    width: 64px;
+                    key: "duty:" + i;
+                    value: p.duty;
+                    label: p.duty-label;
+                }
+                Label { width: 20px; text: "%"; vertical-alignment: center; }
+            }
+            VerticalLayout {
+                alignment: center;
+                Act {
+                    text: I18n.t("Remove");
+                    label: p.remove-label;
+                    small: true;
+                    key: "remove:" + i;
+                    enabled: FansPage.points.length > 1;
+                    clicked => { FansPage.remove-point(i); }
+                }
+            }
+        }
+    }
+    if FansPage.points-problem != "": Problem { text: FansPage.points-problem; }
+    HorizontalLayout {
+        alignment: start;
+        padding-top: 4px;
+        Act {
+            text: I18n.t("Add point");
+            key: "add-point";
+            enabled: FansPage.can-add-point;
+            clicked => { FansPage.add-point(); }
+        }
+    }
+}
+
+component Check inherits Rectangle {
+    in property <FanChoice> item;
+    in property <int> index;
+    property <int> serial: FansPage.focus-serial;
+    changed serial => { if FansPage.focus-target == "sensor:" + root.index { fs.focus(); } }
+    min-height: 32px;
+    background: ta.has-hover ? Theme.hover : transparent;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: item.checked;
+    accessible-label: item.name;
+    accessible-description: item.value;
+    accessible-action-default => { FansPage.toggle-sensor(item.id); }
+    forward-focus: fs;
+    HorizontalLayout {
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                background: root.item.checked ? Theme.accent : Theme.field;
+                border-width: 1px;
+                border-color: fs.has-focus || root.item.checked ? Theme.accent : Theme.stroke;
+                if root.item.checked: Path {
+                    x: 3px;
+                    y: 4px;
+                    width: 10px;
+                    height: 8px;
+                    viewbox-width: 10;
+                    viewbox-height: 8;
+                    commands: "M 1 4 L 4 7 L 9 1";
+                    stroke: Theme.on-accent;
+                    stroke-width: 2px;
+                }
+            }
+        }
+        Text {
+            text: root.item.name;
+            color: Theme.text;
+            wrap: word-wrap;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: root.item.value;
+            color: root.item.none ? Theme.muted : Theme.text;
+            font-family: root.item.none ? "" : Theme.mono;
+            vertical-alignment: center;
+        }
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " { FansPage.toggle-sensor(root.item.id); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            fs.focus();
+            FansPage.toggle-sensor(root.item.id);
+        }
+    }
+}
+
+component Inputs inherits VerticalLayout {
+    spacing: 8px;
+    alignment: start;
+    Sub { text: I18n.t("Sensors"); }
+    if FansPage.choice-rows.length == 0: Hint { text: I18n.t("The service reports no sensors to choose from."); }
+    if FansPage.choice-rows.length > 0: VerticalLayout {
+        accessible-role: groupbox;
+        accessible-label: I18n.t("Sensors");
+        for row[r] in FansPage.choice-rows: HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            for item[i] in row.items: Check {
+                width: FansPage.choice-w;
+                item: item;
+                index: r * (row.items.length + row.pad) + i;
+            }
+            for _ in row.pad: Rectangle { width: FansPage.choice-w; }
+        }
+    }
+    Hint { text: I18n.t("The hottest of the chosen sensors drives the curve. If one of them stops reading, the fans on this curve run at full speed."); }
+    if FansPage.sensors-problem != "": Problem { text: FansPage.sensors-problem; }
+    HorizontalLayout {
+        spacing: 12px;
+        Text {
+            text: I18n.t("Hysteresis (°C)");
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            wrap: word-wrap;
+        }
+        Entry {
+            width: 72px;
+            key: "hyst";
+            value: FansPage.hyst;
+            label: I18n.t("Hysteresis (°C)");
+            invalid: FansPage.hyst-problem != "";
+        }
+    }
+    Hint { text: I18n.t("How far the temperature must fall before the duty drops."); }
+    if FansPage.hyst-problem != "": Problem { text: FansPage.hyst-problem; }
+}
+
+component Editor inherits VerticalLayout {
+    if FansPage.editor-wide: HorizontalLayout {
+        spacing: 16px;
+        alignment: start;
+        Shape { width: FansPage.shape-w; }
+        Inputs { horizontal-stretch: 1; }
+    }
+    if !FansPage.editor-wide: VerticalLayout {
+        spacing: 16px;
+        Shape { }
+        Inputs { }
+    }
+}
+
+component CurvesBox inherits Frame {
+    title: I18n.t("Curves");
+    if FansPage.curve-wide: HorizontalLayout {
+        spacing: 16px;
+        PickColumn { width: 260px; most: 386px; }
+        if FansPage.has-curve: Editor { horizontal-stretch: 1; }
+        if !FansPage.has-curve: Rectangle { horizontal-stretch: 1; }
+    }
+    if !FansPage.curve-wide: VerticalLayout {
+        spacing: 16px;
+        PickColumn { }
+        if FansPage.has-curve: Editor { }
+    }
+}
+
+component Head inherits VerticalLayout {
+    spacing: 4px;
+    HorizontalLayout {
+        spacing: 12px;
+        alignment: start;
+        min-height: 24px;
+        HorizontalLayout {
+            spacing: 0;
+            accessible-role: AccessibleRole.text;
+            accessible-label: I18n.t("Fan service") + " " + FansPage.word + " " + FansPage.version;
+            Text {
+                text: I18n.t("Fan service");
+                color: Theme.muted;
+                vertical-alignment: center;
+            }
+            Rectangle { width: 12px; }
+            VerticalLayout {
+                alignment: center;
+                Mark { state: FansPage.service; }
+            }
+            Rectangle { width: 6px; }
+            Text {
+                text: FansPage.word;
+                color: Theme.text;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            if FansPage.version != "": Text {
+                text: "   " + FansPage.version;
+                color: Theme.muted;
+                font-family: Theme.mono;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+        if FansPage.show-start: Act {
+            text: I18n.t("Start for this session");
+            primary: true;
+            small: true;
+            key: "start";
+            enabled: !FansPage.busy;
+            clicked => { FansPage.service-action("start"); }
+        }
+        if FansPage.show-stop: Act {
+            text: I18n.t("Stop");
+            small: true;
+            key: "stop";
+            enabled: !FansPage.busy;
+            clicked => { FansPage.service-action("stop"); }
+        }
+    }
+    if FansPage.detail != "": Hint { text: FansPage.detail; }
+}
+
+component Notice inherits Rectangle {
+    border-width: 1px;
+    border-color: Theme.line;
+    Rectangle {
+        x: 0;
+        width: 3px;
+        background: Theme.stroke;
+    }
+    HorizontalLayout {
+        padding: 8px;
+        padding-left: 12px;
+        padding-right: 12px;
+        Text {
+            text: I18n.t("FoxDen cannot drive this PC's fan headers yet, because the hardware helper is not built.") + " " + I18n.t("Temperatures are real where the service can read them.");
+            color: Theme.text;
+            font-size: 12px;
+            wrap: word-wrap;
+        }
+    }
+}
+
+component Bar inherits Rectangle {
+    background: Theme.panel;
+    Rectangle {
+        y: 0;
+        height: 1px;
+        background: Theme.line;
+    }
+    HorizontalLayout {
+        padding: 8px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 16px;
+        HorizontalLayout {
+            spacing: 8px;
+            Act {
+                text: I18n.t("Apply");
+                primary: true;
+                key: "apply";
+                enabled: FansPage.can-apply;
+                clicked => { FansPage.apply(); }
+            }
+            Act {
+                text: I18n.t("Revert");
+                key: "revert";
+                enabled: FansPage.can-revert;
+                clicked => { FansPage.revert(); }
+            }
+            Act {
+                text: I18n.t("Undo edit");
+                key: "undo";
+                enabled: FansPage.can-undo;
+                clicked => { FansPage.undo(); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            horizontal-stretch: 1;
+            accessible-role: AccessibleRole.text;
+            accessible-label: FansPage.save-text;
+            if FansPage.dirty: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 6px;
+                    height: 6px;
+                    background: Theme.accent;
+                }
+            }
+            Text {
+                text: FansPage.save-text;
+                color: FansPage.dirty ? Theme.text : Theme.muted;
+                font-size: 12px;
+                font-weight: FansPage.dirty ? 600 : 400;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+        }
+    }
+}
+
+export component FansPanel inherits Rectangle {
+    changed width => { FansPage.resized(self.width); }
+    init => { FansPage.resized(self.width); }
+    keys := FocusScope {
+        focus-on-tab-navigation: false;
+        init => { self.focus(); }
+        capture-key-pressed(e) => {
+            if e.modifiers.control && !e.modifiers.alt {
+                if e.text == "s" || e.text == "S" {
+                    FansPage.save-key();
+                    return accept;
+                }
+                if (e.text == "z" || e.text == "Z") && !e.modifiers.shift {
+                    FansPage.undo-key();
+                    return accept;
+                }
+            }
+            reject
+        }
+        VerticalLayout {
+            Scroll {
+                vertical-stretch: 1;
+                content-height: body.preferred-height;
+                body := VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    alignment: start;
+                    Head { }
+                    if FansPage.service-problem != "": Problem { text: FansPage.service-problem; }
+                    if FansPage.show-notice: Notice { }
+                    if FansPage.show-offline: Hint { text: I18n.t("Start the service to see the sensors and fans and to edit curves."); }
+                    if FansPage.open && FansPage.columns == 1: VerticalLayout {
+                        spacing: 16px;
+                        padding-top: 8px;
+                        if FansPage.running: SensorsBox { }
+                        FansBox { }
+                        CurvesBox { }
+                    }
+                    if FansPage.open && FansPage.columns == 2: VerticalLayout {
+                        spacing: 16px;
+                        padding-top: 8px;
+                        if FansPage.running: SensorsBox { }
+                        HorizontalLayout {
+                            spacing: 16px;
+                            VerticalLayout {
+                                alignment: start;
+                                FansBox { width: FansPage.fans-w; }
+                            }
+                            VerticalLayout {
+                                alignment: start;
+                                CurvesBox { width: FansPage.curves-w; }
+                            }
+                        }
+                    }
+                    if FansPage.open && FansPage.columns == 3: VerticalLayout {
+                        spacing: 16px;
+                        padding-top: 8px;
+                        HorizontalLayout {
+                            spacing: 16px;
+                            alignment: start;
+                            if FansPage.running: VerticalLayout {
+                                alignment: start;
+                                SensorsBox { width: FansPage.sensors-w; }
+                            }
+                            VerticalLayout {
+                                alignment: start;
+                                FansBox { width: FansPage.fans-w; }
+                            }
+                        }
+                        CurvesBox { }
+                    }
+                }
+            }
+            if FansPage.show-bar: Bar { }
         }
     }
 }
