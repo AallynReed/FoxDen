@@ -1,5 +1,6 @@
 //! MSI Mystic Light, 185-byte generation, as used by the MS-7D99 boards.
 
+use crate::families::{D99, Op};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use hidapi::HidDevice;
 
@@ -9,9 +10,10 @@ pub const PID: u16 = 0x7D99;
 const ID: &str = "hid:msi-7d99";
 /// On-board LEDs, which come first in a direct frame.
 const ONBOARD_LEDS: usize = 6;
-/// LEDs per addressable header while all headers share one direct frame.
+/// LEDs per addressable header by default, while all headers share one direct frame.
 pub const HEADER_LEDS: usize = 40;
 /// On-board, JRGB1, then JRAINBOW1 and JRAINBOW2.
+#[cfg(test)]
 pub const LED_COUNT: usize = ONBOARD_LEDS + 1 + 2 * HEADER_LEDS;
 
 /// Settings report that hands every zone to per-LED control. Byte 184 is the save flag and stays 0.
@@ -49,6 +51,7 @@ pub fn enable_direct() -> [u8; 185] {
 }
 
 /// One frame for all zones: 240 RGB slots.
+#[cfg(test)]
 pub fn direct_frame(colors: &[Color]) -> [u8; 725] {
     let mut p = [0u8; 725];
     p[..5].copy_from_slice(&[0x53, 0x25, 0x06, 0x00, 0x00]);
@@ -59,26 +62,34 @@ pub fn direct_frame(colors: &[Color]) -> [u8; 725] {
     p
 }
 
-fn device() -> Device {
+/// `headers`: JRAINBOW1 and JRAINBOW2 lengths.
+fn device(headers: [usize; 2]) -> Device {
     let mut leds: Vec<[f32; 2]> = (0..ONBOARD_LEDS)
         .map(|i| [(i as f32 + 0.5) / ONBOARD_LEDS as f32, 0.1])
         .collect();
     leds.push([0.5, 0.3]);
-    for row in [0.6, 0.9] {
-        leds.extend((0..HEADER_LEDS).map(|i| [(i as f32 + 0.5) / HEADER_LEDS as f32, row]));
+    for (n, row) in headers.into_iter().zip([0.6, 0.9]) {
+        leds.extend((0..n).map(|i| [(i as f32 + 0.5) / n as f32, row]));
     }
+    let wide = headers[0].max(headers[1]).max(ONBOARD_LEDS);
     Device {
         id: ID.into(),
         name: "MSI B760M Gaming Plus WiFi".into(),
         kind: DeviceKind::Motherboard,
         rect: [0.06, 0.10, 0.52, 0.15],
-        grid: [HEADER_LEDS as u32, 4],
+        grid: [wide as u32, 4],
         leds,
     }
 }
 
+fn headers(d99: &D99) -> [usize; 2] {
+    let n = d99.counts();
+    [n[2], n[3]]
+}
+
 pub struct Board {
     hid: HidDevice,
+    headers: D99,
     /// Last frame on the board, `None` until direct mode is on.
     sent: Option<Vec<Color>>,
 }
@@ -99,7 +110,11 @@ impl Board {
         if !is_185(len) {
             return Err(format!("settings report is {len} bytes, expected 185"));
         }
-        Ok(Board { hid, sent: None })
+        Ok(Board {
+            hid,
+            headers: D99::open(ID),
+            sent: None,
+        })
     }
 }
 
@@ -109,7 +124,7 @@ impl Backend for Board {
     }
 
     fn devices(&self) -> Vec<Device> {
-        vec![device()]
+        vec![device(headers(&self.headers))]
     }
 
     fn push(&mut self, device_id: &str, colors: &[Color]) -> Result<(), String> {
@@ -121,10 +136,10 @@ impl Backend for Board {
         }
         if self.sent.is_none() {
             self.hid
-                .send_feature_report(&enable_direct())
+                .send_feature_report(&self.headers.enable())
                 .map_err(|e| e.to_string())?;
         }
-        match self.hid.send_feature_report(&direct_frame(colors)) {
+        match send(&self.hid, self.headers.frames(colors)) {
             Ok(()) => {
                 self.sent = Some(colors.to_vec());
                 Ok(())
@@ -135,6 +150,20 @@ impl Backend for Board {
             }
         }
     }
+}
+
+fn send(hid: &HidDevice, ops: Vec<Op>) -> Result<(), String> {
+    for op in ops {
+        match op {
+            Op::Feature(p) => hid.send_feature_report(&p).map_err(|e| e.to_string())?,
+            Op::Sleep(ms) => std::thread::sleep(std::time::Duration::from_millis(ms)),
+            Op::Write(p) => {
+                hid.write(&p).map_err(|e| e.to_string())?;
+            }
+            Op::Read(..) => {}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -230,8 +259,60 @@ mod tests {
 
     #[test]
     fn device_has_one_led_per_slot() {
-        let d = device();
+        let d = device([HEADER_LEDS; 2]);
         assert_eq!(d.leds.len(), LED_COUNT);
+        assert_eq!(d.grid, [40, 4]);
         assert!(d.leds.iter().flatten().all(|v| (0.0..=1.0).contains(v)));
+    }
+
+    fn features(ops: &[Op]) -> Vec<&[u8]> {
+        ops.iter()
+            .filter_map(|op| match op {
+                Op::Feature(p) => Some(&p[..]),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn default_headers_send_the_same_bytes() {
+        let d99 = D99::open("hid:msi-7d99-default");
+        assert_eq!(d99.counts(), [ONBOARD_LEDS, 1, HEADER_LEDS, HEADER_LEDS]);
+        assert_eq!(d99.enable(), enable_direct());
+        let colors: Vec<Color> = (0..LED_COUNT)
+            .map(|i| Color(i as u8 + 1, (3 * i) as u8, 255 - i as u8))
+            .collect();
+        let ops = d99.frames(&colors);
+        assert_eq!(features(&ops), [&direct_frame(&colors)[..]]);
+    }
+
+    #[test]
+    fn a_long_header_uses_the_per_header_mode() {
+        crate::lengths::set_one("hid:msi-7d99-long", 1, 100);
+        let d99 = D99::open("hid:msi-7d99-long");
+        assert_eq!(headers(&d99), [100, HEADER_LEDS]);
+        let d = device(headers(&d99));
+        assert_eq!((d.leds.len(), d.grid), (ONBOARD_LEDS + 1 + 140, [100, 4]));
+        let p = d99.enable();
+        assert_eq!(
+            (p[31], p[41], p[42], p[52], p[82]),
+            (0x25, 200, 0x25, 240, 0xB1)
+        );
+        let n = ONBOARD_LEDS + 1 + 140;
+        let colors: Vec<Color> = (0..n).map(|i| Color(i as u8, 0, 1)).collect();
+        let ops = d99.frames(&colors);
+        let sent = features(&ops);
+        assert_eq!(sent.len(), 3);
+        assert_eq!(sent[0][..5], [0x53, 0x25, 0x04, 0x00, 0x00]);
+        assert_eq!(sent[0][5..8], [7, 0, 1]);
+        assert_eq!(sent[0][5 + 99 * 3..5 + 100 * 3], [106, 0, 1]);
+        assert_eq!(sent[1][..5], [0x53, 0x25, 0x04, 0x01, 0x00]);
+        assert_eq!(sent[1][5..8], [107, 0, 1]);
+        assert_eq!(sent[2][..5], [0x53, 0x25, 0x06, 0x00, 0x00]);
+        assert_eq!(sent[2][5..8], [0, 0, 1]);
+        assert_eq!(sent[2][5 + 6 * 3..5 + 7 * 3], [6, 0, 1]);
+        assert!(ops.contains(&Op::Sleep(13)));
+        crate::lengths::set_one("hid:msi-7d99-max", 2, 999);
+        assert_eq!(headers(&D99::open("hid:msi-7d99-max")), [HEADER_LEDS, 240]);
     }
 }

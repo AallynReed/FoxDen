@@ -455,7 +455,7 @@ impl Host {
             .filter(|z| found.iter().any(|h| h.ids.contains(&z.device)))
             .map(|z| {
                 json!({"device": z.device, "index": z.index, "name": z.name,
-                    "leds": z.leds, "min": z.min, "max": z.max})
+                    "leds": z.leds, "min": z.min, "max": z.max, "step": z.step})
             })
             .collect();
         json!({"ok": true, "devices": devices, "zones": zones, "generation": generation})
@@ -1510,6 +1510,7 @@ pub(crate) mod tests {
             leds,
             min: 0,
             max: 34,
+            step: 1,
         }
     }
 
@@ -1557,7 +1558,7 @@ pub(crate) mod tests {
         assert_eq!(r["devices"].as_array().unwrap().len(), 2);
         assert_eq!(
             r["zones"],
-            json!([{"device": "hid:a", "index": 1, "name": "Fan 1", "leds": 12, "min": 0, "max": 34}])
+            json!([{"device": "hid:a", "index": 1, "name": "Fan 1", "leds": 12, "min": 0, "max": 34, "step": 1}])
         );
         // Only a change to the hubs' own zones opens them again.
         ask(json!({"hid:a#1": 12, "other#0": 9}));

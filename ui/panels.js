@@ -1557,12 +1557,16 @@ function deviceRow(device) {
   });
   const place = fields.map((field) => field.lastChild);
   const sizes = (device.zones || []).map((zone) => {
-    const input = el("input", { type: "number", className: "exact", min: zone.min, max: zone.max, step: 1 });
+    // A zone of whole fans is set in fans and saved in LEDs.
+    const per = perFan(zone);
+    const [min, max] = [Math.ceil(zone.min / per), Math.floor(zone.max / per)];
+    const input = el("input", { type: "number", className: "exact", min, max, step: 1 });
     const typed = () => {
       const n = input.value === "" ? NaN : Number(input.value);
-      const ok = Number.isInteger(n) && n >= zone.min && n <= zone.max;
-      flag(input, ok ? "" : `${zone.name} takes ${zone.min} to ${zone.max} LEDs.`);
-      return ok ? n : null;
+      const ok = Number.isInteger(n) && n >= min && n <= max;
+      const why = per > 1 ? `${zone.name} takes ${min} to ${max} fans.` : `${zone.name} takes ${min} to ${max} LEDs.`;
+      flag(input, ok ? "" : why);
+      return ok ? n * per : null;
     };
     input.oninput = typed;
     input.onchange = () => {
@@ -1573,10 +1577,12 @@ function deviceRow(device) {
       call("set_settings", { settings });
     };
     explain(input, problem);
-    revert(input, () => (input.value = zone.leds));
-    return el("label", { textContent: zone.name }, input);
+    revert(input, () => (input.value = zone.leds / per));
+    const label = el("label", { textContent: zone.name }, input);
+    if (per > 1) label.append(el("span", { textContent: `fans × ${per} LEDs per fan` }));
+    return label;
   });
-  const counts = sizes.map((field) => field.lastChild);
+  const counts = sizes.map((field) => field.querySelector("input"));
 
   name.onclick = () => selectDevice(preview.selected === device.id ? null : device.id);
   on.onchange = () => send({ enabled: on.checked });
@@ -1607,9 +1613,14 @@ function deviceRow(device) {
   return row;
 }
 
+// LEDs per fan of a zone set in whole fans, 1 for a free count.
+function perFan(zone) {
+  return Math.max(1, zone.step || 1);
+}
+
 function renderDevices(snap) {
   const list = $("device-list");
-  const zoneKey = (d) => (d.zones || []).map((z) => [z.key, z.min, z.max].join(",")).join(";");
+  const zoneKey = (d) => (d.zones || []).map((z) => [z.key, z.min, z.max, perFan(z)].join(",")).join(";");
   const key = snap.devices.map((d) => d.id + ":" + zoneKey(d)).join("|");
   if (list.dataset.key !== key) {
     list.dataset.key = key;
@@ -1632,7 +1643,7 @@ function renderDevices(snap) {
     put(level, device.brightness);
     const rect = rectOf(device);
     place.forEach((input, n) => put(input, (rect[n] * 100).toFixed(1)));
-    counts.forEach((input, n) => put(input, device.zones[n].leds));
+    counts.forEach((input, n) => put(input, device.zones[n].leds / perFan(device.zones[n])));
   });
   $("devices-empty").hidden = snap.devices.length > 0;
 

@@ -20,6 +20,8 @@ mod razer;
 mod small;
 mod streamdeck;
 
+pub(crate) use msi_steelseries::{D99, Op};
+
 /// Every detector of every ported family.
 pub fn detectors() -> Vec<&'static Detector> {
     [

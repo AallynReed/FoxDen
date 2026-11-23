@@ -481,6 +481,40 @@ impl Config185 {
     }
 }
 
+/// The MS-7D99 for msi.rs: on-board LEDs, JRGB1, then JRAINBOW1 and 2 at the user's lengths.
+pub(crate) struct D99 {
+    leds: Vec<(u8, usize)>,
+    sync: bool,
+}
+
+impl D99 {
+    fn config() -> &'static Config185 {
+        config_185(0x7D99).expect("7D99 row")
+    }
+
+    pub(crate) fn open(id: &str) -> Self {
+        let config = Self::config();
+        let mut leds = vec![(ON_BOARD_LED_0, config.onboard)];
+        leds.extend(config.sized(id));
+        // msi.rs always ran in sync mode; only the headers' lengths take it out
+        let sync = config.sync(&leds, &crate::msi::enable_direct());
+        D99 { leds, sync }
+    }
+
+    /// LEDs per zone, in colour order.
+    pub(crate) fn counts(&self) -> Vec<usize> {
+        self.leds.iter().map(|z| z.1).collect()
+    }
+
+    pub(crate) fn enable(&self) -> [u8; 185] {
+        Self::config().enable(self.sync)
+    }
+
+    pub(crate) fn frames(&self, colors: &[Color]) -> Vec<Op> {
+        Self::config().per_led_frames(&self.leds, self.sync, colors)
+    }
+}
+
 struct Gen185 {
     config: &'static Config185,
     leds: Vec<(u8, usize)>,

@@ -76,6 +76,7 @@ pub struct ZoneView {
     leds: usize,
     min: usize,
     max: usize,
+    step: usize,
 }
 
 impl From<foxden_hid::Zone> for ZoneView {
@@ -86,6 +87,7 @@ impl From<foxden_hid::Zone> for ZoneView {
             leds: z.leds,
             min: z.min,
             max: z.max,
+            step: z.step,
         }
     }
 }
@@ -1053,6 +1055,7 @@ mod tests {
             leds: 30,
             min: 0,
             max: 120,
+            step: 1,
         }]);
         let json = serde_json::to_value(state.snapshot()).unwrap();
         let gpu = json["devices"]
@@ -1063,7 +1066,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             gpu["zones"],
-            json!([{ "key": "virtual:gpu#1", "name": "Header 1", "leds": 30, "min": 0, "max": 120 }])
+            json!([{ "key": "virtual:gpu#1", "name": "Header 1", "leds": 30, "min": 0, "max": 120, "step": 1 }])
         );
         assert_eq!(gpu["backend"], "hid");
         assert_eq!(gpu["kind"], "gpu");

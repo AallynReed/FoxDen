@@ -585,7 +585,7 @@ fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
             let reply = match request["cmd"].as_str() {
                 Some("hub_lights") => json!({"ok": true, "devices": [], "generation": 7,
                     "zones": [{"device": "hid:hub", "index": 1, "name": "Fan 1",
-                    "leds": request["lengths"]["hid:hub#1"], "min": 0, "max": 34}]}),
+                    "leds": request["lengths"]["hid:hub#1"], "min": 0, "max": 34, "step": 16}]}),
                 Some("set_hub_lights") => {
                     json!({"ok": true, "failed": {"hid:gone": "unknown device"}})
                 }
@@ -598,7 +598,10 @@ fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
     let client = Client::new(&pipe, QUICK);
     let lengths = BTreeMap::from([("hid:hub#1".to_string(), 12)]);
     let hubs = client.hub_lights(&lengths).unwrap();
-    assert_eq!((hubs.zones[0].leds, hubs.generation), (12, 7));
+    assert_eq!(
+        (hubs.zones[0].leds, hubs.zones[0].step, hubs.generation),
+        (12, 16, 7)
+    );
     let frame = |device: &str| HubFrame {
         device: device.into(),
         colors: "ff0000".into(),

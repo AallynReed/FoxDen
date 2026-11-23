@@ -15,7 +15,10 @@ pub use families::{
 };
 use foxden_core::Backend;
 use hidapi::HidApi;
-pub use lengths::{Zone, key as length_key, length as zone_length, resizable, set_lengths};
+pub use lengths::{
+    Zone, key as length_key, length as zone_length, length_step as zone_length_step, resizable,
+    set_lengths,
+};
 
 fn supported(vid: u16, pid: u16) -> bool {
     (vid, pid) == (msi::VID, msi::PID) || (vid == hidpp::VID && hidpp::PIDS.contains(&pid))

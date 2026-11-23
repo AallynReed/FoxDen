@@ -86,6 +86,7 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
             leds: z.leds,
             min: z.min,
             max: z.max,
+            step: z.step.max(1),
         })
         .collect();
     Some(ServiceHubs {

@@ -41,6 +41,7 @@
     grid("hid:046d:c547", "Logitech G515 Lightspeed TKL", "keyboard", "hid", [0.06, 0.4, 0.4, 0.13], 17, 6),
     ring("hid:fan", "Case fan", [0.62, 0.62, 0.07, 0.12], 16),
     grid("hid:zones", "Laptop keyboard", "keyboard", "hid", [0.48, 0.4, 0.18, 0.1], 4, 1),
+    grid("hid:hub", "Lian Li Uni Hub - SL", "other", "hid", [0.62, 0.84, 0.3, 0.06], 64, 2),
   ];
 
   const ORANGE = [255, 106, 0];
@@ -606,7 +607,10 @@
   }
 
   // Addressable headers whose length the user sets, as Aura USB reports them.
-  const resizable = { "hid:board": [["Header 1", 24, 0, 120], ["Header 2", 60, 0, 120]] };
+  const resizable = {
+    "hid:board": [["Header 1", 24, 0, 120], ["Header 2", 60, 0, 120]],
+    "hid:hub": [["Channel 1", 64, 0, 64, 16], ["Channel 2", 32, 0, 64, 16]],
+  };
 
   function rows(d, counts) {
     const leds = counts.flatMap((n, r) => Array.from({ length: n }, (_, i) => [(i + 0.5) / n, (r + 0.5) / counts.length]));
@@ -614,9 +618,10 @@
   }
 
   function sized(d) {
-    const zones = (resizable[d.id] || []).map(([name, leds, min, max], i) => {
+    const zones = (resizable[d.id] || []).map(([name, leds, min, max, step = 1], i) => {
       const key = d.id + "#" + i;
-      return { key, name, leds: clamp(state.settings.zone_leds[key] ?? leds, min, max), min, max };
+      const n = Math.round(clamp(state.settings.zone_leds[key] ?? leds, min, max) / step) * step;
+      return { key, name, leds: n, min, max, step };
     });
     return zones.length ? { ...rows(d, zones.map((z) => z.leds)), zones } : { ...d, zones };
   }
