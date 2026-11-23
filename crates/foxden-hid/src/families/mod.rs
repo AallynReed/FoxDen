@@ -5,6 +5,7 @@ use crate::registry::{Detector, Matcher};
 use foxden_core::Backend;
 
 mod asus;
+mod common;
 mod coolermaster_corsair;
 mod generic;
 mod gigabyte_asrock;
