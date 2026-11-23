@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use serde_json::Value;
-use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer, Timer, TimerMode};
+use slint::{ComponentHandle, Image, Timer, TimerMode};
 use tauri::AppHandle;
 
 use super::devices::{self, send_device};
 use super::{
-    AppWindow, CanvasLabel, SettingsPage, StagePage, View, fill, refresh, report, shared, tr, with_view,
+    AppWindow, CanvasDot, CanvasLabel, SettingsPage, StagePage, View, fill, refresh, report, shared, tr, with_view,
     with_win,
 };
 use crate::canvas::ViewOpts;
@@ -119,7 +119,10 @@ fn percent(app: &AppHandle, what: &str, text: &str) -> Result<f32, String> {
 
 pub fn bind(w: &AppWindow, app: &AppHandle) {
     let g = w.global::<StagePage>();
-    with_view(|v| v.canvas.view = load_view());
+    with_view(|v| {
+        v.canvas.view = load_view();
+        v.canvas.invalidate();
+    });
     let a = app.clone();
     g.on_set_brightness(move |v| report(commands::set_brightness(a.clone(), shared(&a), v)));
     let a = app.clone();
@@ -430,14 +433,31 @@ pub fn redraw(w: &AppWindow, view: &mut View) {
         return;
     }
     let scale = w.window().scale_factor();
-    let Some((pm, labels)) = view.canvas.render(cw, ch, scale) else {
+    let Some(out) = view.canvas.render(cw, ch, scale) else {
         return;
     };
-    let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(pm.data(), pm.width(), pm.height());
-    g.set_canvas(Image::from_rgba8_premultiplied(buf));
+    if let Some(buf) = out.image {
+        g.set_canvas(Image::from_rgba8_premultiplied(buf));
+    }
+    fill(
+        g.get_dots(),
+        out.dots
+            .iter()
+            .map(|d| CanvasDot {
+                x: d.x,
+                y: d.y,
+                w: d.w,
+                h: d.h,
+                round: d.round,
+                rim: d.rim,
+                color: slint::Color::from_rgb_u8(d.color[0], d.color[1], d.color[2]),
+            })
+            .collect(),
+        |m| g.set_dots(m),
+    );
     fill(
         g.get_labels(),
-        labels
+        out.labels
             .into_iter()
             .map(|l| CanvasLabel {
                 x: l.x,

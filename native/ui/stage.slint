@@ -3,7 +3,18 @@ import { DevicesPage, Mark, Tag, Small, Check, Exact, Problem, InfoSheet } from 
 import { EffectsPage } from "effects.slint";
 import { SettingsPage } from "settings.slint";
 
+export struct CanvasDot {
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    round: bool,
+    rim: bool,
+    color: color,
+}
+
 export global StagePage {
+    in property <[CanvasDot]> dots;
     in property <float> brightness: 1;
     in property <bool> paused;
     in property <image> canvas;
@@ -211,6 +222,22 @@ export component Stage inherits Rectangle {
                 height: parent.height;
                 source: StagePage.canvas;
                 image-fit: fill;
+            }
+            for d in StagePage.dots: Rectangle {
+                x: d.x;
+                y: d.y;
+                width: d.w;
+                height: d.h;
+                background: d.color;
+                border-radius: d.round ? self.width / 2 : 0;
+                if d.rim: Rectangle {
+                    x: 1px;
+                    y: 1px;
+                    width: parent.width - 2px;
+                    height: parent.height - 2px;
+                    border-width: 1px;
+                    border-color: Theme.light ? #1b1b1f : #0f1011;
+                }
             }
             for l in StagePage.labels: Text {
                 x: l.x;

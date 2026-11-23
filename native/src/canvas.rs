@@ -4,8 +4,11 @@ use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
 
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
+
+use slint::{Rgba8Pixel, SharedPixelBuffer};
 use tiny_skia::{
-    Color, FillRule, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform,
+    Color, FillRule, Mask, Paint, PathBuilder, Pixmap, PixmapMut, Rect, Stroke, Transform,
 };
 
 const PAD: f32 = 20.0;
@@ -85,6 +88,25 @@ pub struct Canvas {
     drag: Option<Drag>,
     w: f32,
     h: f32,
+    cache: Cache,
+}
+
+/// The device bodies, drawn once per layout; each frame only adds the LEDs.
+#[derive(Default)]
+struct Cache {
+    key: u64,
+    base: Option<Pixmap>,
+    masks: HashMap<String, Mask>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Pass {
+    /// Bodies for the image mode, which adds LEDs each frame.
+    Base,
+    Leds,
+    All,
+    /// Bodies and selection, for the window to draw the LEDs over.
+    Bodies,
 }
 
 struct Ink {
@@ -128,7 +150,7 @@ impl Ink {
 }
 
 struct Painter<'a> {
-    pm: &'a mut Pixmap,
+    pm: PixmapMut<'a>,
     ts: Transform,
     alpha: f32,
     mask: Option<Mask>,
@@ -463,38 +485,149 @@ impl Canvas {
         Some((d.clone(), tidy(rect)))
     }
 
-    pub fn render(&mut self, w: f32, h: f32, scale: f32) -> Option<(Pixmap, Vec<Label>)> {
+    /// None when devices overlap, since then each one's LEDs must be drawn before the next body.
+    fn layout_key(&self, pw: u32, ph: u32, scale: f32) -> Option<u64> {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (pw, ph, scale.to_bits(), self.light).hash(&mut h);
+        (self.view.snap, self.view.grid.to_bits(), self.view.shapes).hash(&mut h);
+        (&self.selected, &self.hover).hash(&mut h);
+        let mut rects: Vec<[f32; 4]> = Vec::new();
+        for d in self.stack() {
+            let r = self.to_px(self.rect_of(d));
+            if rects.iter().any(|o| {
+                r[0] < o[0] + o[2] && o[0] < r[0] + r[2] && r[1] < o[1] + o[3] && o[1] < r[1] + r[3]
+            }) {
+                return None;
+            }
+            rects.push(r);
+            (&d.id, &d.kind, d.enabled, d.grid, d.leds.len()).hash(&mut h);
+            r.map(f32::to_bits).hash(&mut h);
+        }
+        Some(h.finish())
+    }
+
+    fn shape(&self, d: &Dev) -> &'static str {
+        let [_, _, dw, dh] = self.to_px(self.rect_of(d));
+        if self.view.shapes { shape_of(d, dw, dh) } else { "plate" }
+    }
+
+    /// Forgets the drawn image, for a new window that has none yet.
+    pub fn invalidate(&mut self) {
+        self.cache = Cache::default();
+    }
+
+    pub fn render(&mut self, w: f32, h: f32, scale: f32) -> Option<Out> {
         self.w = w;
         self.h = h;
         let pw = (w * scale).round() as u32;
         let ph = (h * scale).round() as u32;
-        let mut pm = Pixmap::new(pw, ph)?;
+        if pw == 0 || ph == 0 {
+            return None;
+        }
+        let rings = self.devices.iter().any(|d| self.shape(d) == "fan");
+        let mut image = None;
+        let mut dots = Vec::new();
+        match self.layout_key(pw, ph, scale) {
+            // Fan rings need arcs, so they keep the image mode.
+            Some(key) if !rings => {
+                if self.cache.key != key || self.cache.base.is_none() {
+                    let mut base = Pixmap::new(pw, ph)?;
+                    self.draw(base.as_mut(), scale, Pass::Bodies, &mut HashMap::new());
+                    let mut buf = SharedPixelBuffer::<Rgba8Pixel>::new(pw, ph);
+                    buf.make_mut_bytes().copy_from_slice(base.data());
+                    image = Some(buf);
+                    self.cache = Cache {
+                        key,
+                        base: Some(base),
+                        masks: HashMap::new(),
+                    };
+                }
+                let ink = Ink::new(self.light);
+                for d in self.stack() {
+                    let [x, y, dw, dh] = self.to_px(self.rect_of(d));
+                    led_dots(&mut dots, &ink, self.shape(d), d, self.colors.get(&d.id), x, y, dw, dh);
+                }
+            }
+            key => {
+                let mut buf = SharedPixelBuffer::<Rgba8Pixel>::new(pw, ph);
+                let mut masks = std::mem::take(&mut self.cache.masks);
+                match key.map(|k| k ^ 1) {
+                    Some(key) => {
+                        if self.cache.key != key || self.cache.base.is_none() {
+                            let mut base = Pixmap::new(pw, ph)?;
+                            masks.clear();
+                            self.draw(base.as_mut(), scale, Pass::Base, &mut masks);
+                            self.cache.key = key;
+                            self.cache.base = Some(base);
+                        }
+                        let base = self.cache.base.as_ref()?;
+                        buf.make_mut_bytes().copy_from_slice(base.data());
+                        let pm = PixmapMut::from_bytes(buf.make_mut_bytes(), pw, ph)?;
+                        self.draw(pm, scale, Pass::Leds, &mut masks);
+                        self.cache.masks = masks;
+                    }
+                    None => {
+                        self.cache = Cache::default();
+                        let pm = PixmapMut::from_bytes(buf.make_mut_bytes(), pw, ph)?;
+                        self.draw(pm, scale, Pass::All, &mut HashMap::new());
+                    }
+                }
+                image = Some(buf);
+            }
+        }
+        let labels = self
+            .stack()
+            .into_iter()
+            .map(|d| {
+                let [x, y, dw, _] = self.to_px(self.rect_of(d));
+                let strong =
+                    Some(&d.id) == self.selected.as_ref() || Some(&d.id) == self.hover.as_ref();
+                Label {
+                    x,
+                    y: y - 20.0,
+                    width: dw,
+                    text: if d.enabled {
+                        d.name.clone()
+                    } else {
+                        format!("{} (off)", d.name)
+                    },
+                    strong,
+                }
+            })
+            .collect();
+        Some(Out { image, dots, labels })
+    }
+
+    fn draw(&self, pm: PixmapMut, scale: f32, pass: Pass, masks: &mut HashMap<String, Mask>) {
+        let (w, h) = (self.w, self.h);
+        let (pw, ph) = (pm.width(), pm.height());
         let ink = Ink::new(self.light);
-        pm.fill(ink.bg);
         let mut p = Painter {
-            pm: &mut pm,
+            pm,
             ts: Transform::from_scale(scale, scale),
             alpha: 1.0,
             mask: None,
         };
-        p.stroke_rect(ink.line, PAD - 0.5, PAD - 0.5, w - PAD * 2.0 + 1.0, h - PAD * 2.0 + 1.0);
-        if self.view.snap {
-            let (cw, ch) = (w - PAD * 2.0, h - PAD * 2.0);
-            let grid = self.view.grid.max(0.001);
-            let mut pb = PathBuilder::new();
-            let mut i = 1;
-            while i as f32 * grid < 0.9999 {
-                let x = (PAD + i as f32 * grid * cw).round() - 0.5;
-                let y = (PAD + i as f32 * grid * ch).round() - 0.5;
-                pb.move_to(x, PAD);
-                pb.line_to(x, PAD + ch);
-                pb.move_to(PAD, y);
-                pb.line_to(PAD + cw, y);
-                i += 1;
+        if pass != Pass::Leds {
+            p.pm.fill(ink.bg);
+            p.stroke_rect(ink.line, PAD - 0.5, PAD - 0.5, w - PAD * 2.0 + 1.0, h - PAD * 2.0 + 1.0);
+            if self.view.snap {
+                let (cw, ch) = (w - PAD * 2.0, h - PAD * 2.0);
+                let grid = self.view.grid.max(0.001);
+                let mut pb = PathBuilder::new();
+                let mut i = 1;
+                while i as f32 * grid < 0.9999 {
+                    let x = (PAD + i as f32 * grid * cw).round() - 0.5;
+                    let y = (PAD + i as f32 * grid * ch).round() - 0.5;
+                    pb.move_to(x, PAD);
+                    pb.line_to(x, PAD + ch);
+                    pb.move_to(PAD, y);
+                    pb.line_to(PAD + cw, y);
+                    i += 1;
+                }
+                p.stroke(ink.line, 1.0, pb);
             }
-            p.stroke(ink.line, 1.0, pb);
         }
-        let mut labels = Vec::new();
         for d in self.stack() {
             let [x, y, dw, dh] = self.to_px(self.rect_of(d));
             let selected = Some(&d.id) == self.selected.as_ref();
@@ -508,32 +641,26 @@ impl Canvas {
                 ink.stroke
             };
             p.alpha = if d.enabled { 1.0 } else { 0.35 };
-            let clip = draw_body(&mut p, &ink, shape, x + 0.5, y + 0.5, dw - 1.0, dh - 1.0, edge);
-            if let Some(path) = clip.and_then(|pb| pb.finish()) {
-                let mut mask = Mask::new(pw, ph)?;
-                mask.fill_path(&path, FillRule::Winding, true, p.ts);
-                p.mask = Some(mask);
+            if pass != Pass::Leds {
+                let clip = draw_body(&mut p, &ink, shape, x + 0.5, y + 0.5, dw - 1.0, dh - 1.0, edge);
+                if let Some(path) = clip.and_then(|pb| pb.finish())
+                    && let Some(mut mask) = Mask::new(pw, ph)
+                {
+                    mask.fill_path(&path, FillRule::Winding, true, p.ts);
+                    masks.insert(d.id.clone(), mask);
+                }
             }
-            draw_leds(&mut p, &ink, shape, d, self.colors.get(&d.id), x, y, dw, dh);
-            p.mask = None;
+            if pass == Pass::Leds || pass == Pass::All {
+                p.mask = masks.get(&d.id).cloned();
+                draw_leds(&mut p, &ink, shape, d, self.colors.get(&d.id), x, y, dw, dh);
+                p.mask = None;
+            }
             p.alpha = 1.0;
-            if selected {
+            if selected && pass != Pass::Base {
                 p.stroke_rect(ink.accent, x - 2.5, y - 2.5, dw + 5.0, dh + 5.0);
                 p.fill_rect(ink.accent, x + dw - 4.0, y + dh - 4.0, 9.0, 9.0);
             }
-            labels.push(Label {
-                x,
-                y: y - 20.0,
-                width: dw,
-                text: if d.enabled {
-                    d.name.clone()
-                } else {
-                    format!("{} (off)", d.name)
-                },
-                strong: selected || hovered,
-            });
         }
-        Some((pm, labels))
     }
 }
 
@@ -643,6 +770,99 @@ fn led(ink: &Ink, colors: Option<&Vec<[u8; 3]>>, i: usize) -> Color {
     match colors.and_then(|c| c.get(i)) {
         Some(&[r, g, b]) if r as u32 + g as u32 + b as u32 > 24 => Color::from_rgba8(r, g, b, 255),
         _ => ink.unlit,
+    }
+}
+
+/// One LED drawn by the window over the cached device image, so a frame repaints only the LEDs.
+#[derive(Clone, Copy)]
+pub struct Dot {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub round: bool,
+    pub rim: bool,
+    pub color: [u8; 3],
+}
+
+pub struct Out {
+    /// A new canvas image, when it changed.
+    pub image: Option<SharedPixelBuffer<Rgba8Pixel>>,
+    pub dots: Vec<Dot>,
+    pub labels: Vec<Label>,
+}
+
+fn dot_color(ink: &Ink, colors: Option<&Vec<[u8; 3]>>, i: usize, enabled: bool) -> [u8; 3] {
+    let c = led(ink, colors, i);
+    let rgb = |c: Color| [c.red(), c.green(), c.blue()].map(|v| (v * 255.0).round() as u8);
+    let (c, under) = (rgb(c), rgb(ink.plate));
+    if enabled {
+        return c;
+    }
+    [0, 1, 2].map(|k| (c[k] as f32 * 0.35 + under[k] as f32 * 0.65).round() as u8)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn led_dots(
+    out: &mut Vec<Dot>,
+    ink: &Ink,
+    shape: &str,
+    d: &Dev,
+    colors: Option<&Vec<[u8; 3]>>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) {
+    let leds = &d.leds;
+    let [cols, rows] = d.grid;
+    let cw = w / cols.max(1) as f32;
+    let ch = h / rows.max(1) as f32;
+    let at = |i: usize| (x + leds[i][0] * w, y + leds[i][1] * h);
+    let n = leds.len();
+    let color = |i: usize| dot_color(ink, colors, i, d.enabled);
+    let mut rect = |x: f32, y: f32, w: f32, h: f32, round: bool, rim: bool, color: [u8; 3]| {
+        out.push(Dot { x, y, w, h, round, rim, color })
+    };
+    if shape == "memory" || (shape == "gpu" && rows == 1) {
+        let tall = h > w;
+        let nf = n as f32;
+        for i in 0..n {
+            let fi = i as f32;
+            if shape == "memory" && tall {
+                rect(x + w * 0.1, y + h * 0.04 + fi * h * 0.92 / nf, w * 0.45, h * 0.92 / nf + 0.5, false, false, color(i));
+            } else if shape == "memory" {
+                rect(x + w * 0.04 + fi * w * 0.92 / nf, y + h * 0.1, w * 0.92 / nf + 0.5, h * 0.45, false, false, color(i));
+            } else {
+                rect(x + w * 0.06 + fi * w * 0.9 / nf, y + h * 0.08, w * 0.9 / nf + 0.5, (h * 0.14).max(2.0), false, false, color(i));
+            }
+        }
+        return;
+    }
+    if matches!(shape, "mouse" | "strip" | "board") {
+        let r = if shape == "mouse" {
+            w.min(h) * 0.16
+        } else {
+            let cap = if shape == "board" { w.min(h) * 0.08 } else { f32::INFINITY };
+            (cw.min(ch).min(cap) * 0.36).max(1.0)
+        };
+        for i in 0..n {
+            let (lx, ly) = at(i);
+            rect(lx - r, ly - r, r * 2.0, r * 2.0, true, false, color(i));
+        }
+        return;
+    }
+    let gap = if shape == "keyboard" {
+        (cw.min(ch) * 0.12).max(1.0)
+    } else {
+        (cw.min(ch) * 0.12).min(1.5)
+    };
+    let lw = (cw - gap * 2.0).max(1.0);
+    let lh = (ch - gap * 2.0).max(1.0);
+    let rim = shape == "keyboard" && lw > 6.0;
+    for i in 0..n {
+        let (lx, ly) = at(i);
+        rect(lx - lw / 2.0, ly - lh / 2.0, lw, lh, false, rim, color(i));
     }
 }
 
