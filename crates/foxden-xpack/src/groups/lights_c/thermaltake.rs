@@ -1,7 +1,7 @@
 //! ThermalTake Argent peripherals, DPSG PSU, LEDBOX Pacific and Level 20 desk.
 
 use super::common::{open_with, positioned};
-use crate::hid::{Io, Proto, on_i};
+use crate::hid::{Io, Proto, on_i, set_rows, split};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_hid::registry::{Detector, Info};
 use hidapi::HidApi;
@@ -292,6 +292,8 @@ fn open_psu(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>,
 const LEDBOX_CHANNELS: usize = 5;
 const LEDBOX_LEDS: usize = 36;
 const LEDBOX_PER_PACKET: usize = 19;
+/// Two packets of 19 fill the 65-byte report.
+const LEDBOX_MAX: usize = 2 * LEDBOX_PER_PACKET;
 const LEDBOX_INIT: [[u8; 3]; 2] = [[0x00, 0xFE, 0x33], [0x00, 0xFE, 0x50]];
 
 /// Two packets per channel: `00 32 52 <ch+1> 18 03 <1|2> 00`, then 19 LEDs as GRB.
@@ -307,7 +309,7 @@ fn ledbox_packets(channel: u8, colors: &[Color]) -> [Vec<u8>; 2] {
     [part(0), part(1)]
 }
 
-struct Ledbox;
+struct Ledbox([usize; LEDBOX_CHANNELS]);
 
 impl Proto for Ledbox {
     fn start(&mut self, io: &mut dyn Io) -> Result<(), String> {
@@ -316,7 +318,7 @@ impl Proto for Ledbox {
         io.feature(&LEDBOX_INIT[1], LEN)
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for (ch, zone) in colors.chunks(LEDBOX_LEDS).enumerate() {
+        for (ch, zone) in split(colors, &self.0).iter().enumerate() {
             for p in ledbox_packets(ch as u8, zone) {
                 io.write(&p, LEN)?;
             }
@@ -326,15 +328,15 @@ impl Proto for Ledbox {
 }
 
 fn open_ledbox(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    let dev = Device::grid(
-        &info.device_id("thermaltake-ledbox"),
-        d.name,
-        DeviceKind::Strip,
-        super::common::rect(DeviceKind::Strip),
-        LEDBOX_LEDS as u32,
-        LEDBOX_CHANNELS as u32,
-    );
-    open_with(api, info, "thermaltake-ledbox", dev, Ledbox)
+    let id = info.device_id("thermaltake-ledbox");
+    let counts = std::array::from_fn(|i| {
+        let name = format!("Channel {}", i + 1);
+        foxden_hid::zone_length(&id, i, &name, LEDBOX_LEDS, 0, LEDBOX_MAX)
+    });
+    let rect = super::common::rect(DeviceKind::Strip);
+    let mut dev = Device::grid(&id, d.name, DeviceKind::Strip, rect, 1, 1);
+    set_rows(&mut dev, &counts);
+    open_with(api, info, "thermaltake-ledbox", dev, Ledbox(counts))
 }
 
 const DESK_LEN: usize = 839;
@@ -538,7 +540,7 @@ mod tests {
         assert_eq!(b.len(), 8 + 17 * 3);
         assert_eq!(b[8], 19);
         let mut io = Rec::default();
-        let mut pr = Ledbox;
+        let mut pr = Ledbox([LEDBOX_LEDS; LEDBOX_CHANNELS]);
         pr.start(&mut io).unwrap();
         assert_eq!(
             io.ops[0],
@@ -547,6 +549,32 @@ mod tests {
         assert_eq!(io.ops[1], Op::Read(65));
         pr.frame(&mut io, &vec![BLACK; 180]).unwrap();
         assert_eq!(io.ops.len(), 3 + 10);
+    }
+
+    #[test]
+    fn ledbox_channels_follow_their_lengths() {
+        let mut io = Rec::default();
+        let mut pr = Ledbox([LEDBOX_MAX, 0, 5, 36, 1]);
+        let c: Vec<Color> = (0..80).map(|i| Color(0, i, 0)).collect();
+        pr.frame(&mut io, &c).unwrap();
+        let w: Vec<Vec<u8>> = io
+            .ops
+            .iter()
+            .map(|o| match o {
+                Op::Write(p) => p.clone(),
+                _ => panic!(),
+            })
+            .collect();
+        assert_eq!(w.len(), 10);
+        assert_eq!(
+            w[0],
+            crate::hid::padded(&ledbox_packets(0, &c[..38])[0], LEN)
+        );
+        assert_eq!(w[1][8 + 18 * 3..], [37, 0, 0]);
+        assert!(w[2][8..].iter().all(|&b| b == 0));
+        assert_eq!(w[4][3..10], [3, 0x18, 0x03, 1, 0x00, 38, 0]);
+        assert_eq!(w[4][8 + 5 * 3..], [0; 65 - 8 - 15]);
+        assert_eq!(w[8][8], 79);
     }
 
     #[test]

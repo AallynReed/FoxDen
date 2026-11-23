@@ -1,7 +1,7 @@
 //! Aqua Computer lighting over raw USB.
 
 use super::link::open_bulk;
-use crate::hid::{Driver, Io, Proto};
+use crate::hid::{Driver, Io, Proto, set_rows, split};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 
 const FAMILY: &str = "aqua-computer";
@@ -23,25 +23,30 @@ pub const MODELS: &[Model] = &[
     Model {
         name: "Aqua Computer D5 Next",
         pid: 0xF00E,
-        channels: &[(0x00, 90), (0x06, 6)],
+        channels: &[(0x00, ARGB_LEDS), (0x06, 6)],
         packet_len: 364,
     },
     Model {
         name: "Aqua Computer Farbwerk 360",
         pid: 0xF010,
-        channels: &[(0, 90), (1, 90), (2, 90), (3, 90)],
+        channels: &[
+            (0, ARGB_LEDS),
+            (1, ARGB_LEDS),
+            (2, ARGB_LEDS),
+            (3, ARGB_LEDS),
+        ],
         packet_len: 365,
     },
     Model {
         name: "Aqua Computer Farbwerk Nano",
         pid: 0xF00F,
-        channels: &[(0, 90)],
+        channels: &[(0, ARGB_LEDS)],
         packet_len: 365,
     },
     Model {
         name: "Aqua Computer High Flow Next",
         pid: 0xF012,
-        channels: &[(0x00, 90), (0x06, 10)],
+        channels: &[(0x00, ARGB_LEDS), (0x06, 10)],
         packet_len: 364,
     },
 ];
@@ -65,19 +70,40 @@ pub fn channel_packet(channel: u8, colors: &[Color], len: usize) -> Vec<u8> {
     p
 }
 
-struct Aqua(&'static Model);
+/// ARGB channels default to 90 LEDs, all the 364/365-byte packet holds (last slot at 5+4*89).
+const ARGB_LEDS: usize = 90;
+
+/// Each channel's count: the ARGB ones as the user set them, the built-in ones fixed.
+pub fn counts(id: &str, m: &Model) -> Vec<usize> {
+    let mut argb = 0;
+    m.channels
+        .iter()
+        .enumerate()
+        .map(|(i, &(_, n))| {
+            if n != ARGB_LEDS {
+                return n;
+            }
+            argb += 1;
+            let name = format!("Channel {argb}");
+            foxden_hid::zone_length(id, i, &name, ARGB_LEDS, 0, ARGB_LEDS)
+        })
+        .collect()
+}
+
+struct Aqua(&'static Model, Vec<usize>);
 
 impl Aqua {
+    fn packets(&self, colors: &[Color]) -> Vec<Vec<u8>> {
+        split(colors, &self.1)
+            .iter()
+            .zip(self.0.channels)
+            .map(|(zone, &(ch, _))| channel_packet(ch, zone, self.0.packet_len))
+            .collect()
+    }
     fn send(&self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        let mut rest = colors;
-        for &(ch, n) in self.0.channels {
-            let (zone, tail) = rest.split_at(n.min(rest.len()));
-            io.write(
-                &channel_packet(ch, zone, self.0.packet_len),
-                self.0.packet_len,
-            )?;
+        for p in self.packets(colors) {
+            io.write(&p, self.0.packet_len)?;
             io.sleep(1);
-            rest = tail;
         }
         Ok(())
     }
@@ -93,8 +119,7 @@ impl Proto for Aqua {
     }
     // Shutdown sends the default shutdown colour, black
     fn stop(&mut self, io: &mut dyn Io) {
-        let n: usize = self.0.channels.iter().map(|c| c.1).sum();
-        let _ = self.send(io, &vec![Color(0, 0, 0); n]);
+        let _ = self.send(io, &[]);
     }
 }
 
@@ -105,17 +130,10 @@ pub fn device(id: &str, m: &Model) -> Device {
         m.name,
         DeviceKind::Strip,
         [0.06, 0.40, 0.60, 0.04 * rows as f32],
-        90,
-        rows as u32,
+        1,
+        1,
     );
-    dev.leds = m
-        .channels
-        .iter()
-        .enumerate()
-        .flat_map(|(r, &(_, n))| {
-            (0..n).map(move |i| [(i as f32 + 0.5) / n as f32, (r as f32 + 0.5) / rows as f32])
-        })
-        .collect();
+    set_rows(&mut dev, &counts(id, m));
     dev
 }
 
@@ -127,7 +145,9 @@ pub fn probe(want: impl Fn(u16) -> bool) -> Vec<Box<dyn Backend>> {
     let mut out = Vec::new();
     for m in MODELS.iter().filter(|m| want(m.pid)) {
         for f in open_bulk(FAMILY, VID, m.pid, ENDPOINT) {
-            out.push(Driver::new(Box::new(f.io), device(&f.id, m), FAMILY, Aqua(m)).boxed());
+            let dev = device(&f.id, m);
+            let aqua = Aqua(m, counts(&f.id, m));
+            out.push(Driver::new(Box::new(f.io), dev, FAMILY, aqua).boxed());
         }
     }
     out
@@ -156,6 +176,20 @@ mod tests {
         assert_eq!(p[2], 90);
         assert_eq!(p[5 + 4 * 89], 9);
         assert_eq!(channel_packet(0, &[Color(9, 9, 9); 90], 365).len(), 365);
+    }
+
+    #[test]
+    fn short_channels_send_their_count() {
+        let aqua = Aqua(&MODELS[0], vec![30, 6]);
+        let c: Vec<Color> = (0..36).map(|i| Color(i, 0, 0)).collect();
+        let p = aqua.packets(&c);
+        assert_eq!(p.len(), 2);
+        assert_eq!(&p[0][..3], &[0x0B, 0, 30]);
+        assert_eq!(p[0], channel_packet(0, &c[..30], 364));
+        assert_eq!(&p[1][..3], &[0x0B, 6, 6]);
+        assert_eq!(p[1], channel_packet(6, &c[30..], 364));
+        let full = Aqua(&MODELS[1], vec![ARGB_LEDS; 4]).packets(&[]);
+        assert!(full.iter().all(|p| p[2] == 90 && p.len() == 365));
     }
 
     #[test]

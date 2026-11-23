@@ -1,7 +1,7 @@
 //! Lian Li Galahad II Trinity and Galahad II LCD AIOs.
 
 use crate::fan::{Channel, FanHub, backend_on, percent};
-use crate::hid::{Driver, Io, Proto, drain, on_i, open_io};
+use crate::hid::{Driver, Io, Proto, drain, on_i, open_io, span};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_fan::FanBackend;
 use foxden_hid::port::Port;
@@ -111,13 +111,18 @@ pub fn parse_status(b: &[u8]) -> Option<Status> {
     })
 }
 
-struct LcdLights;
+/// The fan chain's LED count.
+struct LcdLights(usize);
 
 impl LcdLights {
-    fn send(io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        let (pump, fans) = colors.split_at(PUMP_LEDS.min(colors.len()));
-        for d in [pump_payload(pump), fan_payload(fans)] {
-            io.write(&large(PER_LED, &d, d.len() as u32, 0), LARGE_LEN)?;
+    fn packets(&self, colors: &[Color]) -> [Vec<u8>; 2] {
+        let pump = span(colors, 0, PUMP_LEDS);
+        let fans = span(colors, PUMP_LEDS, self.0);
+        [pump_payload(&pump), fan_payload(&fans)].map(|d| large(PER_LED, &d, d.len() as u32, 0))
+    }
+    fn send(&self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
+        for p in self.packets(colors) {
+            io.write(&p, LARGE_LEN)?;
         }
         Ok(())
     }
@@ -127,45 +132,47 @@ impl Proto for LcdLights {
     fn start(&mut self, io: &mut dyn Io) -> Result<(), String> {
         let black = Color(0, 0, 0);
         io.write(
-            &small(FAN_COLORS, &fan_static(black, FAN_LEDS as u8)),
+            &small(FAN_COLORS, &fan_static(black, self.0 as u8)),
             SMALL_LEN,
         )?;
         io.write(&small(PUMP_COLORS, &pump_static(0, black)), SMALL_LEN)
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        Self::send(io, colors)
+        self.send(io, colors)
     }
     fn keepalive_ms(&self) -> Option<u64> {
         Some(1000)
     }
     fn stop(&mut self, io: &mut dyn Io) {
-        let _ = Self::send(io, &[SHUTDOWN; PUMP_LEDS + FAN_LEDS]);
+        let _ = self.send(io, &vec![SHUTDOWN; PUMP_LEDS + self.0]);
     }
 }
 
-fn lcd_device(id: String, name: &str) -> Device {
+fn lcd_device(id: String, name: &str, fans: usize) -> Device {
     let mut d = Device::grid(
         &id,
         name,
         DeviceKind::Other,
         [0.06, 0.24, 0.52, 0.24],
-        FAN_LEDS as u32,
+        fans.max(PUMP_LEDS) as u32,
         2,
     );
     d.leds = (0..PUMP_LEDS)
         .map(|i| [(i as f32 + 0.5) / PUMP_LEDS as f32, 0.25])
-        .chain((0..FAN_LEDS).map(|i| [(i as f32 + 0.5) / FAN_LEDS as f32, 0.75]))
+        .chain((0..fans).map(|i| [(i as f32 + 0.5) / fans as f32, 0.75]))
         .collect();
     d
 }
 
 fn open_lcd(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
-    let dev = lcd_device(info.device_id(FAMILY), d.name);
+    let id = info.device_id(FAMILY);
+    let fans = foxden_hid::zone_length(&id, 1, "Fans", FAN_LEDS, 0, FAN_LEDS);
+    let dev = lcd_device(id, d.name, fans);
     Ok(Driver::new(
         open_io(api, info)?,
         dev,
         "lian li galahad ii lcd",
-        LcdLights,
+        LcdLights(fans),
     )
     .boxed())
 }
@@ -367,6 +374,23 @@ mod tests {
         assert_eq!(p.len(), 1024);
         assert_eq!(p[..11], [0x02, 0x14, 0, 0, 0, 61, 0x01, 0x02, 0x03, 0, 61]);
         assert_eq!(fan_payload(&[Color(1, 2, 3)]), [1, 1, 2, 3]);
+    }
+
+    #[test]
+    fn fan_chain_follows_its_length() {
+        let lights = LcdLights(20);
+        let c = vec![Color(1, 2, 3); PUMP_LEDS + 20];
+        let [_, fans] = lights.packets(&c);
+        assert_eq!(fans[..11], [0x02, 0x14, 0, 0, 0, 61, 0, 0, 0, 0, 61]);
+        assert_eq!(fans[11..15], [1, 1, 2, 3]);
+        assert!(fans[11 + 61..].iter().all(|&b| b == 0));
+        let wire = crate::hid::wire::Wire::default();
+        LcdLights(20).start(&mut wire.port()).unwrap();
+        assert_eq!(wire.take()[0][6 + 19], 20);
+        let full = LcdLights(FAN_LEDS).packets(&[]);
+        assert_eq!(full[1][5], 1 + 3 * 50);
+        let d = lcd_device("x".into(), "X", 20);
+        assert_eq!((d.leds.len(), d.grid), (PUMP_LEDS + 20, [20, 2]));
     }
 
     // fetchRPM.
