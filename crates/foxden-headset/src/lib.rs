@@ -2,6 +2,7 @@
 //! as Bragi properties, and of Logitech headsets over HID++.
 
 mod logitech;
+mod arctis;
 pub mod proto;
 
 use std::sync::Mutex;
