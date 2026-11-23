@@ -78,7 +78,7 @@ const AUTO_OFF: [(i32, &str); 5] = [
 const EQ_PRESETS: [(i32, &str); 4] = [
     (0, "Signature Sound"),
     (1, "Bass Boost"),
-    (2, "Bass & Treble Boost"),
+    (2, "Bass and Treble Boost"),
     (3, "Vocal Boost"),
 ];
 const HEARING_MODES: [(i32, &str); 3] = [(0, "Legacy"), (1, "Footsteps"), (2, "Gunshots")];
@@ -386,6 +386,12 @@ const GAP: Duration = Duration::from_millis(100);
 const WAIT: Duration = Duration::from_millis(1500);
 const POLL: Duration = Duration::from_millis(15);
 
+/// The shared turn is held per report, never across a wait.
+fn turn<T>(f: impl FnOnce() -> T) -> T {
+    let _turn = foxden_core::hid_turn::take();
+    f()
+}
+
 struct Link {
     dev: Dev,
     last: Vec<u8>,
@@ -403,7 +409,7 @@ impl Link {
 
     /// The next new report; the transmitter hands back its last one until it has another.
     fn next(&mut self) -> Option<Vec<u8>> {
-        let r = self.dev.get_input_report(IN_ID)?;
+        let r = turn(|| self.dev.get_input_report(IN_ID))?;
         if payload(&r).is_empty() || r == self.last {
             return None;
         }
@@ -421,7 +427,7 @@ impl Link {
 
     fn ask(&mut self, group: &str) -> Option<Vec<(u16, String)>> {
         self.drain();
-        if !self.dev.write(&read_frame(group)) {
+        if !turn(|| self.dev.write(&read_frame(group))) {
             return None;
         }
         let mut buf = Vec::new();
@@ -445,6 +451,7 @@ impl Link {
 /// The last status per receiver: the dial loop asks every quarter second, a read takes ~100 ms.
 static CACHE: Mutex<Vec<(String, Instant, Status)>> = Mutex::new(Vec::new());
 const FRESH: Duration = Duration::from_secs(10);
+const FRESH_OFF: Duration = Duration::from_secs(30);
 
 fn remember(key: &str, s: &Status) {
     let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -453,7 +460,6 @@ fn remember(key: &str, s: &Status) {
 }
 
 pub fn read(f: &Found) -> Option<Reading> {
-    let _turn = foxden_core::hid_turn::take();
     let mut l = Link::open(f)?;
     let Some(gsi) = l.ask("GSI") else {
         remember(&f.key, &Status::default());
@@ -477,11 +483,14 @@ pub fn read(f: &Found) -> Option<Reading> {
 pub fn status(f: &Found) -> Option<Status> {
     {
         let c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(e) = c.iter().find(|e| e.0 == f.key && e.1.elapsed() < FRESH) {
+        let fresh = |s: &Status| if s.connected { FRESH } else { FRESH_OFF };
+        if let Some(e) = c
+            .iter()
+            .find(|e| e.0 == f.key && e.1.elapsed() < fresh(&e.2))
+        {
             return Some(e.2.clone());
         }
     }
-    let _turn = foxden_core::hid_turn::take();
     let mut l = Link::open(f)?;
     let s = l.ask("GSI").map(|k| status_of(&k)).unwrap_or_default();
     remember(&f.key, &s);
@@ -493,10 +502,9 @@ pub fn send(f: &Found, frames: Vec<Vec<u8>>) -> Result<(), String> {
     if frames.iter().any(|fr| fr.len() > REPORT_LEN) {
         return Err("the setting does not fit in one report".into());
     }
-    let _turn = foxden_core::hid_turn::take();
     let dev = Dev::open(&f.coll).ok_or("the headset's transmitter could not be opened")?;
     for frame in &frames {
-        if !dev.write(frame) {
+        if !turn(|| dev.write(frame)) {
             return Err("the headset's transmitter did not take the setting".into());
         }
         sleep(GAP);
