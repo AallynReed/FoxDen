@@ -323,7 +323,11 @@ impl Backend for Both {
 /// ClearResponses: reads until nothing is waiting.
 pub fn flush(io: &mut dyn Io) -> Result<(), String> {
     let mut buf = [0u8; 65];
-    while io.read(&mut buf, 0)? > 0 {}
+    for _ in 0..64 {
+        if io.read(&mut buf, 0)? == 0 {
+            break;
+        }
+    }
     Ok(())
 }
 

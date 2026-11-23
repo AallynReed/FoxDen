@@ -284,7 +284,11 @@ impl Driver for Vulcan {
             self.led.write(&p)?;
         }
         let mut scratch = [0u8; 65];
-        while matches!(self.led.read(&mut scratch, 0), Ok(n) if n > 0) {}
+        for _ in 0..64 {
+            if !matches!(self.led.read(&mut scratch, 0), Ok(n) if n > 0) {
+                break;
+            }
+        }
         let _ = self.led.read(&mut scratch, 20);
         Ok(())
     }

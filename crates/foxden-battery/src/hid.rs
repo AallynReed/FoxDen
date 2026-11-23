@@ -172,11 +172,16 @@ impl Dev {
         v
     }
 
+    /// True when the call just made completed or is still in flight.
+    fn in_flight(started: bool) -> bool {
+        started || unsafe { GetLastError() } == ERROR_IO_PENDING
+    }
+
     /// Waits for an overlapped call; cancels it on timeout. Returns the transferred byte count.
-    fn finish(&self, ov: &mut OVERLAPPED, started: bool, timeout: Duration) -> Option<u32> {
+    fn finish(&self, ov: &mut OVERLAPPED, pending: bool, timeout: Duration) -> Option<u32> {
         let mut n = 0u32;
         unsafe {
-            if !started && GetLastError() != ERROR_IO_PENDING {
+            if !pending {
                 CloseHandle(ov.hEvent);
                 return None;
             }
@@ -217,7 +222,8 @@ impl Dev {
                 &mut ov,
             ) != 0
         };
-        self.finish(&mut ov, started, timeout).is_some()
+        let pending = Self::in_flight(started);
+        self.finish(&mut ov, pending, timeout).is_some()
     }
 
     /// One input report, or `None` on timeout or error.
@@ -236,7 +242,8 @@ impl Dev {
                 &mut ov,
             ) != 0
         };
-        let n = self.finish(&mut ov, started, timeout)? as usize;
+        let pending = Self::in_flight(started);
+        let n = self.finish(&mut ov, pending, timeout)? as usize;
         buf.truncate(n);
         if buf.first() == Some(&0) {
             buf.remove(0);
@@ -275,11 +282,12 @@ impl Dev {
                 &mut ov,
             ) != 0
         };
+        let pending = Self::in_flight(started);
         let sent = unsafe { HidD_SetOutputReport(self.h, buf.as_ptr() as _, buf.len() as u32) };
-        if !sent {
+        if !sent && pending {
             unsafe { CancelIoEx(self.h, &ov) };
         }
-        let n = self.finish(&mut ov, started, timeout)? as usize;
+        let n = self.finish(&mut ov, pending, timeout)? as usize;
         if !sent {
             return None;
         }

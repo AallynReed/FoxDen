@@ -101,7 +101,11 @@ fn report_72(colors: &[Color], reverse: bool) -> [u8; 168] {
 /// GetLayoutVersion: drain, write [0x01][0xB0], read the reply, version at byte 3 when byte 1 is 0x5A.
 fn layout_version(hid: &HidDevice) -> u8 {
     let mut reply = [0u8; 64];
-    while matches!(hid.read_timeout(&mut reply, 0), Ok(n) if n > 0) {}
+    for _ in 0..64 {
+        if !matches!(hid.read_timeout(&mut reply, 0), Ok(n) if n > 0) {
+            break;
+        }
+    }
     if hid.write(&version_request()).is_err() {
         return 0;
     }

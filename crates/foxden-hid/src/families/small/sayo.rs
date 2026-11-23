@@ -60,7 +60,11 @@ impl Proto for Sayo {
         // Direct goes out as static with speed 3 - 0
         io.write(&set_mode(0x00, 3, colors[0], false))?;
         let mut buf = [0u8; 64];
-        while io.read(&mut buf, 0)? > 0 {}
+        for _ in 0..64 {
+            if io.read(&mut buf, 0)? == 0 {
+                break;
+            }
+        }
         Ok(())
     }
 }

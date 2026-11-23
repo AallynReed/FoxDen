@@ -13,7 +13,8 @@ pub fn hub_id(info: &Info, family: &str) -> String {
 
 /// Every USB collection passing `want`, one per physical device not yet in `seen`; vendor pages win.
 pub fn scan(api: &HidApi, seen: &mut Vec<String>, want: impl Fn(&Info) -> bool) -> Vec<Info> {
-    let mut all: Vec<Info> = foxden_hid::device_list(api).iter()
+    let mut all: Vec<Info> = foxden_hid::device_list(api)
+        .iter()
         .map(Info::from_hidapi)
         .filter(|i| i.bus == Bus::Usb && want(i))
         .collect();
@@ -62,7 +63,10 @@ impl Every {
 /// The newest queued input report passing `want`, without waiting.
 pub fn latest(io: &mut dyn Io, len: usize, want: impl Fn(&[u8]) -> bool) -> Option<Vec<u8>> {
     let mut last = None;
-    while let Ok(r) = io.read(len, 0) {
+    for _ in 0..64 {
+        let Ok(r) = io.read(len, 0) else {
+            break;
+        };
         if r.is_empty() {
             break;
         }

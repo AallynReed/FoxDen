@@ -244,7 +244,8 @@ pub fn paired(short_hid: &dyn Hid) -> BTreeMap<u16, u8> {
             &short(RECEIVER, SET_REGISTER, 0x00, &[0x00, 0x01]),
         );
     }
-    let count = request(short_hid, &short(RECEIVER, GET_REGISTER, 0x02, &[])).0[5] as usize;
+    let count =
+        (request(short_hid, &short(RECEIVER, GET_REGISTER, 0x02, &[])).0[5] as usize).min(6);
     if count == 0
         || short_hid
             .write(&short(RECEIVER, SET_REGISTER, 0x02, &[0x02]))

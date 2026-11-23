@@ -33,14 +33,14 @@ const BUFFER_100NS: i64 = 200_000;
 const ACTIVATE_MS: u32 = 5_000;
 
 #[implement(IActivateAudioInterfaceCompletionHandler, IAgileObject)]
-struct Activated(HANDLE);
+struct Activated(Arc<Event>);
 
 impl IActivateAudioInterfaceCompletionHandler_Impl for Activated_Impl {
     fn ActivateCompleted(
         &self,
         _: Ref<IActivateAudioInterfaceAsyncOperation>,
     ) -> windows::core::Result<()> {
-        unsafe { SetEvent(self.0) }
+        unsafe { SetEvent(self.0.0) }
     }
 }
 
@@ -80,8 +80,9 @@ fn open(pid: u32) -> windows::core::Result<IAudioClient> {
             pBlobData: &mut params as *mut _ as *mut u8,
         };
     }
-    let done = Event::new()?;
-    let handler: IActivateAudioInterfaceCompletionHandler = Activated(done.0).into();
+    // The handler owns the event too, so a completion after the timeout signals a live handle.
+    let done = Arc::new(Event::new()?);
+    let handler: IActivateAudioInterfaceCompletionHandler = Activated(done.clone()).into();
     let op = unsafe {
         ActivateAudioInterfaceAsync(
             VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,

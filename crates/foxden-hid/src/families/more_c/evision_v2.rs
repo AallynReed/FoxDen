@@ -91,12 +91,13 @@ fn query(io: &mut dyn Io, cmd: u8, offset: u16, data: &[u8], size: u8) -> Result
     let req = request(cmd, offset, data, size);
     io.write(&req)?;
     let mut r = [0u8; 64];
-    let n = loop {
-        let n = io.read(&mut r, REPLY_MS)?;
+    let mut n = 0;
+    for _ in 0..16 {
+        n = io.read(&mut r, REPLY_MS)?;
         if n == 0 || r[0] == REPORT_ID {
-            break n;
+            break;
         }
-    };
+    }
     if n != r.len() || r[0] != REPORT_ID || r[1..4] != req[1..4] || r[5..7] != req[5..7] {
         return Err(format!("evision v2: bad reply to command {cmd:#04x}"));
     }

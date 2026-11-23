@@ -100,7 +100,7 @@ fn send(io: &mut dyn Io, traditional: bool, data: &[u8]) -> Result<(), String> {
 fn receive(io: &mut dyn Io, max: usize) -> (i32, Vec<u8>) {
     let mut got = Vec::new();
     let mut sum = 0u8;
-    loop {
+    for _ in 0..max / 7 + 2 {
         let mut buf = [0u8; 8];
         buf[0] = 1;
         if io.get_feature(&mut buf).is_err() {

@@ -30,9 +30,8 @@ fn check(result: i32, what: &str) -> Result<(), String> {
 
 /// Runs a call that hands back an object; only a success with an object counts.
 fn take(what: &str, call: impl FnOnce(*mut Obj) -> i32) -> Result<Obj, String> {
-    let mut out = std::mem::MaybeUninit::<Obj>::uninit();
-    check(call(out.as_mut_ptr()), what)?;
-    let obj = unsafe { out.assume_init() };
+    let mut obj: Obj = null_mut();
+    check(call(&mut obj), what)?;
     if obj.is_null() {
         return Err(format!("{what} gave nothing back"));
     }
@@ -43,6 +42,23 @@ unsafe fn release(obj: Obj) {
     if !obj.is_null() {
         let f: extern "system" fn(Obj) -> i32 = unsafe { method(obj, 1) };
         f(obj);
+    }
+}
+
+/// Releases its interface when dropped, unless handed on with `keep`.
+struct Held(Obj);
+
+impl Held {
+    fn keep(self) -> Obj {
+        let obj = self.0;
+        std::mem::forget(self);
+        obj
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        unsafe { release(self.0) };
     }
 }
 
@@ -98,49 +114,54 @@ impl Card {
             let system = take("ADLXInitialize", |o| init(VERSION, o))?;
 
             let get_gpus: GetObj = method(system, 1);
-            let gpus = take("GetGPUs", |o| get_gpus(system, o))?;
+            let gpus = Held(take("GetGPUs", |o| get_gpus(system, o))?);
             let get_tuning: GetObj = method(system, 8);
-            let tuning = take("GetGPUTuningServices", |o| get_tuning(system, o))?;
+            let tuning = Held(take("GetGPUTuningServices", |o| get_tuning(system, o))?);
+            let (gpus_obj, tuning_obj) = (gpus.0, tuning.0);
 
-            let size: ListSize = method(gpus, 3);
-            let at: ListAt = method(gpus, 11);
-            for i in 0..size(gpus) {
-                let Ok(gpu) = take("GPU", |o| at(gpus, i, o)) else {
+            let size: ListSize = method(gpus_obj, 3);
+            let at: ListAt = method(gpus_obj, 11);
+            for i in 0..size(gpus_obj) {
+                let Ok(gpu) = take("GPU", |o| at(gpus_obj, i, o)).map(Held) else {
                     continue;
                 };
-                let supported_fn: extern "system" fn(Obj, Obj, *mut u8) -> i32 = method(tuning, 10);
+                let supported_fn: extern "system" fn(Obj, Obj, *mut u8) -> i32 =
+                    method(tuning_obj, 10);
                 let mut supported = 0u8;
-                if supported_fn(tuning, gpu, &mut supported) != OK || supported == 0 {
-                    release(gpu);
+                if supported_fn(tuning_obj, gpu.0, &mut supported) != OK || supported == 0 {
                     continue;
                 }
-                let get_fan: extern "system" fn(Obj, Obj, *mut Obj) -> i32 = method(tuning, 16);
-                let iface = take("GetManualFanTuning", |o| get_fan(tuning, gpu, o))?;
-                let query: extern "system" fn(Obj, *const u16, *mut Obj) -> i32 = method(iface, 2);
+                let get_fan: extern "system" fn(Obj, Obj, *mut Obj) -> i32 = method(tuning_obj, 16);
+                let iface = Held(take("GetManualFanTuning", |o| {
+                    get_fan(tuning_obj, gpu.0, o)
+                })?);
+                let query: extern "system" fn(Obj, *const u16, *mut Obj) -> i32 =
+                    method(iface.0, 2);
                 let name = wide("IADLXManualFanTuning");
-                let fan = take("QueryInterface", |o| query(iface, name.as_ptr(), o));
-                release(iface);
-                let fan = fan?;
-                let ranges: extern "system" fn(Obj, *mut Range, *mut Range) -> i32 = method(fan, 3);
+                let fan = Held(take("QueryInterface", |o| {
+                    query(iface.0, name.as_ptr(), o)
+                })?);
+                drop(iface);
+                let ranges: extern "system" fn(Obj, *mut Range, *mut Range) -> i32 =
+                    method(fan.0, 3);
                 let (mut speed_range, mut temperature_range) = (Range::default(), Range::default());
                 check(
-                    ranges(fan, &mut speed_range, &mut temperature_range),
+                    ranges(fan.0, &mut speed_range, &mut temperature_range),
                     "GetFanTuningRanges",
                 )?;
-                let zero_supported: extern "system" fn(Obj, *mut u8) -> i32 = method(fan, 8);
+                let zero_supported: extern "system" fn(Obj, *mut u8) -> i32 = method(fan.0, 8);
                 let mut zero = 0u8;
-                let zero_rpm_supported = zero_supported(fan, &mut zero) == OK && zero != 0;
-                release(gpus);
+                let zero_rpm_supported = zero_supported(fan.0, &mut zero) == OK && zero != 0;
+                drop(gpus);
                 return Ok(Card {
-                    tuning,
-                    fan,
-                    gpu,
+                    tuning: tuning.keep(),
+                    fan: fan.keep(),
+                    gpu: gpu.keep(),
                     speed_range,
                     temperature_range,
                     zero_rpm_supported,
                 });
             }
-            release(gpus);
             Err("no AMD card with fan tuning".into())
         }
     }

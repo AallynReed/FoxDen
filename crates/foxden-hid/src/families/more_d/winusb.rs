@@ -289,6 +289,20 @@ impl WinUsb {
 
     /// Bulk or interrupt read on the IN endpoint; empty when nothing came within `timeout_ms`.
     pub fn read_pipe(&mut self, len: usize, timeout_ms: u32) -> Result<Vec<u8>, String> {
+        self.in_timeout(timeout_ms);
+        let mut buf = vec![0u8; len];
+        let got = Io::read(self, &mut buf, timeout_ms as i32);
+        self.in_timeout(TIMEOUT_MS);
+        match got {
+            Ok(n) => {
+                buf.truncate(n);
+                Ok(buf)
+            }
+            Err(_) => Ok(Vec::new()),
+        }
+    }
+
+    fn in_timeout(&mut self, ms: u32) {
         // SAFETY: the policy value outlives the call.
         unsafe {
             WinUsb_SetPipePolicy(
@@ -296,16 +310,8 @@ impl WinUsb {
                 self.in_ep,
                 PIPE_TRANSFER_TIMEOUT,
                 4,
-                (&raw const timeout_ms).cast(),
+                (&raw const ms).cast(),
             );
-        }
-        let mut buf = vec![0u8; len];
-        match Io::read(self, &mut buf, timeout_ms as i32) {
-            Ok(n) => {
-                buf.truncate(n);
-                Ok(buf)
-            }
-            Err(_) => Ok(Vec::new()),
         }
     }
 
@@ -370,13 +376,16 @@ impl WinUsb {
 
     /// A HID output report sent over the control pipe to `interface`, report id first.
     pub fn set_report(&mut self, interface: u8, report: &[u8]) -> Result<(), String> {
+        let Some(&id) = report.first() else {
+            return Err("empty report".into());
+        };
         let own = self.interface_number().unwrap_or(interface);
         let mut other = null_mut();
         let handle = if own == interface {
             self.usb
         } else {
             let index = interface
-                .checked_sub(own + 1)
+                .checked_sub(own.saturating_add(1))
                 .ok_or("interface not reachable")?;
             // SAFETY: `other` is freed below.
             if unsafe { WinUsb_GetAssociatedInterface(self.usb, index, &mut other) } == 0 {
@@ -384,7 +393,7 @@ impl WinUsb {
             }
             other
         };
-        let (kind, request, value, index) = set_report_setup(interface, report[0]);
+        let (kind, request, value, index) = set_report_setup(interface, id);
         let setup = WINUSB_SETUP_PACKET {
             RequestType: kind,
             Request: request,
@@ -508,7 +517,7 @@ impl Io for WinUsb {
         if ok == 0 {
             return Err("bulk read failed".into());
         }
-        Ok(done as usize)
+        Ok((done as usize).min(buf.len()))
     }
     fn control(&mut self, kind: u8, request: u8, value: u16, index: u16) -> Result<(), String> {
         let setup = WINUSB_SETUP_PACKET {

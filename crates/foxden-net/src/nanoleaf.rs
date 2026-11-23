@@ -94,12 +94,13 @@ pub fn open(cfg: &NanoleafPanel) -> Option<Light> {
     }
     let data = parse(&body);
     let model = text(&data["model"]);
-    let ids: Vec<u16> = data["panelLayout"]["layout"]["positionData"]
+    let mut ids: Vec<u16> = data["panelLayout"]["layout"]["positionData"]
         .as_array()?
         .iter()
         .filter_map(|p| p["panelId"].as_u64().map(|id| id as u16))
         .collect();
     let v = version(&model)?;
+    ids.truncate(if v == Version::V1 { 255 } else { 1000 });
     let (status, reply) = http(
         "PUT",
         &cfg.ip,

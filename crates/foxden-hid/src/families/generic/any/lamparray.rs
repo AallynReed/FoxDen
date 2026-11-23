@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use hidapi::HidApi;
@@ -22,6 +22,7 @@ pub const MATCHERS: [Matcher; 1] = [Matcher {
 const MAX_DESCRIPTOR: usize = 4096;
 const ATTRIBUTES_LEN: usize = 22;
 const LAMP_LEN: usize = 28;
+const MAX_LAMPS: u16 = 1024;
 const MULTI_COUNT: usize = 8;
 const MULTI_LEN: usize = 2 + MULTI_COUNT * 2 + MULTI_COUNT * 4;
 const UPDATE_COMPLETE: u8 = 1;
@@ -166,21 +167,23 @@ pub struct Found {
 pub fn discover(link: &mut impl Link) -> Option<Found> {
     let mut desc = vec![0u8; MAX_DESCRIPTOR];
     let size = link.descriptor(&mut desc).ok()?;
-    let ids = parse(&desc[..size]);
+    let ids = parse(&desc[..size.min(desc.len())]);
     if !ids.complete() {
         return None;
     }
     let mut buf = [0u8; ATTRIBUTES_LEN + 1];
     buf[0] = ids.attributes;
     let _ = link.get_feature(&mut buf);
-    let count = u16_at(&buf, 1);
+    let count = u16_at(&buf, 1).min(MAX_LAMPS);
     let kind = u32_at(&buf, 15);
     let _ = link.send_feature(&[ids.request, 0, 0]);
     let mut lamps = Vec::new();
     for _ in 0..count {
         let mut buf = [0u8; LAMP_LEN + 1];
         buf[0] = ids.response;
-        let _ = link.get_feature(&mut buf);
+        if link.get_feature(&mut buf).is_err() {
+            break;
+        }
         lamps.push(Lamp {
             id: u16_at(&buf, 1),
             x: u32_at(&buf, 3),
@@ -188,7 +191,7 @@ pub fn discover(link: &mut impl Link) -> Option<Found> {
             key: buf[28],
         });
     }
-    (count > 0).then_some(Found { ids, kind, lamps })
+    (!lamps.is_empty()).then_some(Found { ids, kind, lamps })
 }
 
 /// `SetLampArrayControlReport`.
@@ -223,14 +226,19 @@ pub fn frame(ids: &Ids, colors: &[Color]) -> Vec<Vec<u8>> {
 
 /// `SetupZones`: each lamp at its cell of a matrix built from the distinct X and Y positions.
 fn layout(lamps: &[Lamp]) -> (Vec<[f32; 2]>, [u32; 2]) {
-    let xs: BTreeSet<u32> = lamps.iter().map(|l| l.x).collect();
-    let ys: BTreeSet<u32> = lamps.iter().map(|l| l.y).collect();
+    let sorted = |f: fn(&Lamp) -> u32| {
+        let mut v: Vec<u32> = lamps.iter().map(f).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    let (xs, ys) = (sorted(|l| l.x), sorted(|l| l.y));
     let (w, h) = (xs.len().max(1), ys.len().max(1));
     let leds = lamps
         .iter()
         .map(|l| {
-            let col = xs.range(..l.x).count();
-            let row = ys.range(..l.y).count();
+            let col = xs.partition_point(|&x| x < l.x);
+            let row = ys.partition_point(|&y| y < l.y);
             [(col as f32 + 0.5) / w as f32, (row as f32 + 0.5) / h as f32]
         })
         .collect();
@@ -430,6 +438,21 @@ mod tests {
         assert_eq!(parse(&d).attributes, 0);
         assert_eq!(report_bytes(&[0x05, 0x59], 1, 0), 0x59);
         assert_eq!(report_bytes(&[0x05], 1, 0), 0);
+    }
+
+    #[test]
+    fn lamp_count_is_capped() {
+        let mut f = device(&[(0, 0), (1, 0), (2, 0)]);
+        f.features.insert(1, [attributes(u16::MAX, 1)].into());
+        assert_eq!(discover(&mut f).unwrap().lamps.len(), 3);
+        f.features
+            .insert(3, (0..2000).map(|i| lamp(i as u16, i, 0, 4)).collect());
+        f.features.insert(1, [attributes(u16::MAX, 1)].into());
+        let found = discover(&mut f).unwrap();
+        assert_eq!(found.lamps.len(), MAX_LAMPS as usize);
+        let (leds, grid) = layout(&found.lamps);
+        assert_eq!(grid, [MAX_LAMPS as u32, 1]);
+        assert_eq!(leds[1][0], 1.5 / MAX_LAMPS as f32);
     }
 
     // HIDLampArrayController constructor: attributes, request lamp 0, one response per lamp.

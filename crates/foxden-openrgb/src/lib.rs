@@ -21,6 +21,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(1);
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
 const WRITE_TIMEOUT: Duration = Duration::from_millis(500);
 const LIST_ATTEMPTS: usize = 5;
+const MAX_CONTROLLERS: u32 = 256;
+const MAX_LIST_BYTES: usize = 64 << 20;
 
 struct Slot {
     device: Device,
@@ -222,11 +224,16 @@ fn enumerate(stream: &mut TcpStream) -> Result<Vec<Controller>, String> {
             .map_err(err)?;
         let count = read_reply(stream, REQUEST_CONTROLLER_COUNT, &mut changed).map_err(err)?;
         let mut controllers = Vec::new();
-        for i in 0..first_u32(&count)? {
+        let mut total = 0usize;
+        for i in 0..first_u32(&count)?.min(MAX_CONTROLLERS) {
             stream
                 .write_all(&packet(i, REQUEST_CONTROLLER_DATA, &request))
                 .map_err(err)?;
             let blob = read_reply(stream, REQUEST_CONTROLLER_DATA, &mut changed).map_err(err)?;
+            total += blob.len();
+            if total > MAX_LIST_BYTES {
+                return Err("the device list is too large".into());
+            }
             let controller = parse_controller(&blob, version);
             controllers.push(controller.map_err(|e| format!("controller {i}: {e}"))?);
         }

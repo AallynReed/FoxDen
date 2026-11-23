@@ -131,7 +131,7 @@ impl<L: Link> Session<L> {
             if a.count == 0 {
                 return Err(format!("byte {off} refused"));
             }
-            done += a.count as usize;
+            done += (a.count as usize).min(rest.len().min(proto::CHUNK));
             self.link.pause(10);
         }
         Ok(())

@@ -148,13 +148,15 @@ pub fn dechunk(mut b: &[u8]) -> Option<Vec<u8>> {
         if size == 0 {
             return Some(out);
         }
-        if b.len() < size + 2 {
+        if b.len() < size.checked_add(2)? {
             return None;
         }
         out.extend_from_slice(&b[..size]);
         b = &b[size + 2..];
     }
 }
+
+const MAX_REPLY: usize = 1 << 20;
 
 pub fn http(
     ip: Ipv4Addr,
@@ -195,6 +197,9 @@ pub fn http(
                 buf.extend_from_slice(&chunk[..n]);
                 if let Some(r) = parse_response(&buf, false) {
                     return Ok(r);
+                }
+                if buf.len() > MAX_REPLY {
+                    return Err("reply too large".into());
                 }
             }
             Err(e) => {
@@ -497,6 +502,12 @@ pub fn mdns_browse(services: &[&str], until: Instant) -> Vec<Hit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dechunk_huge_size() {
+        assert_eq!(dechunk(b"ffffffffffffffff\r\nab\r\n0\r\n\r\n"), None);
+        assert_eq!(dechunk(b"2\r\nab\r\n0\r\n\r\n").unwrap(), b"ab");
+    }
 
     #[test]
     fn local_guard() {

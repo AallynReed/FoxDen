@@ -301,15 +301,16 @@ struct Rejoin {
 
 impl Rejoin {
     fn poll(&mut self, io: &mut dyn Io, back: fn(&[u8]) -> bool) -> Result<(), String> {
-        loop {
+        for _ in 0..64 {
             let r = io.read(65, 0)?;
             if r.is_empty() {
-                return Ok(());
+                break;
             }
             if back(&r) {
                 self.seen = Some(Instant::now());
             }
         }
+        Ok(())
     }
     fn due(&mut self, wait: Duration) -> bool {
         if self.seen.is_some_and(|t| t.elapsed() >= wait) {

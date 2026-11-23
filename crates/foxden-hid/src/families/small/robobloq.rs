@@ -41,7 +41,11 @@ impl Link {
         self.index = self.index.wrapping_add(1);
         if flush {
             let mut buf = [0u8; 64];
-            while io.read(&mut buf, 0)? > 0 {}
+            for _ in 0..64 {
+                if io.read(&mut buf, 0)? == 0 {
+                    break;
+                }
+            }
         }
         Ok(())
     }
@@ -72,11 +76,11 @@ impl Link {
         let expected = self.index;
         self.send(io, &[READ_DEVICE_INFO], false)?;
         for _ in 0..3 {
-            loop {
+            for _ in 0..16 {
                 io.sleep(10);
                 let mut buf = [0u8; 64];
-                let n = io.read(&mut buf, 1000)?;
-                if n > 0 && buf[3] == expected {
+                let n = io.read(&mut buf, 1000)?.min(buf.len());
+                if n > 3 && buf[3] == expected {
                     return Ok(Some(buf[..n].to_vec()));
                 }
                 if n == 0 {

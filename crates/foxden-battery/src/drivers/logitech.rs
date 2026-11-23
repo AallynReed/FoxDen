@@ -625,7 +625,10 @@ pub fn diagnose(pid: u16) -> Vec<String> {
                 }
                 if let Ok(p) = &name {
                     let len = (*p.get(1).unwrap_or(&0) as usize).min(p.len().saturating_sub(2));
-                    line += &format!(" \"{}\"", String::from_utf8_lossy(&p[2..2 + len]));
+                    line += &format!(
+                        " \"{}\"",
+                        String::from_utf8_lossy(p.get(2..2 + len).unwrap_or_default())
+                    );
                 }
                 line + &format!(" ({})", pairing.map_or_else(|e| e, |p| hex(&p)))
             }

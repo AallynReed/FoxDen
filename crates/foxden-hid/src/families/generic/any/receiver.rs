@@ -41,7 +41,7 @@ pub fn paired(link: &mut impl Link) -> BTreeMap<u16, u8> {
         read(link);
     }
     let _ = link.write(&short(GET_REGISTER, 0x02, [0; 3]));
-    let count = read(link)[5] as usize;
+    let count = (read(link)[5] as usize).min(6);
     if count > 0 {
         let _ = link.write(&short(SET_REGISTER, 0x02, [0x02, 0, 0]));
         for _ in 0..count + 1 {

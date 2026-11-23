@@ -157,7 +157,11 @@ fn sized(id: &str, targets: &mut [Target]) {
 }
 
 fn drain(hid: &HidDevice) -> Result<(), String> {
-    while !read(hid, 1)?.is_empty() {}
+    for _ in 0..64 {
+        if read(hid, 1)?.is_empty() {
+            break;
+        }
+    }
     Ok(())
 }
 

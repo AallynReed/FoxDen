@@ -59,7 +59,10 @@ impl Hub {
             return;
         }
         let mut got = false;
-        while let Ok(r) = self.io.read(REPORT_LEN, 0) {
+        for _ in 0..64 {
+            let Ok(r) = self.io.read(REPORT_LEN, 0) else {
+                break;
+            };
             if r.is_empty() {
                 break;
             }

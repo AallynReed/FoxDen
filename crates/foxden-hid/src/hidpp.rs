@@ -634,7 +634,11 @@ pub fn targets(pid: u16, product: &str, slots: Option<Vec<(u8, Paired)>>) -> Vec
     };
     let original = matches!(pid, G502_RECEIVER | G515_RECEIVER);
     // The original model on its receiver: the first device of its type that is no other known model.
-    let kind = if pid == G515_RECEIVER { PAIRED_KEYBOARD } else { PAIRED_MOUSE };
+    let kind = if pid == G515_RECEIVER {
+        PAIRED_KEYBOARD
+    } else {
+        PAIRED_MOUSE
+    };
     let theirs = |p: &Paired| p.kind == kind && !is_g915x(&p.name);
     match slots {
         _ if cable(pid) => vec![target(WIRED_INDEX, None, true)],
@@ -951,7 +955,11 @@ impl Backend for Lightspeed {
         }
         // drop queued replies so the receiver's input buffer never backs up
         let mut buf = [0u8; 64];
-        while matches!(self.hid.read_timeout(&mut buf, 0), Ok(n) if n > 0) {}
+        for _ in 0..64 {
+            if !matches!(self.hid.read_timeout(&mut buf, 0), Ok(n) if n > 0) {
+                break;
+            }
+        }
         // each report waits for its acknowledgement
         for report in &reports {
             let mut tries = 0;

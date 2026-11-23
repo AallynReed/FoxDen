@@ -51,7 +51,16 @@ fn read_until_closed(stream: &mut TcpStream, out: &mut Vec<u8>) {
             Ok(0) | Err(_) => break,
             Ok(n) => out.extend_from_slice(&buf[..n]),
         }
+        if out.len() > MAX_REPLY {
+            break;
+        }
     }
+}
+
+const MAX_REPLY: usize = 1 << 20;
+
+fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w == needle)
 }
 
 /// One plain HTTP/1.1 request to a light. No redirects, no name lookups.
@@ -91,8 +100,9 @@ pub fn request(method: &str, ip: &str, port: u16, path: &str, body: Option<&str>
 
 /// Status and body of a reply, plain or chunked.
 pub fn response(raw: &[u8]) -> Result<(u16, String), String> {
-    let text = String::from_utf8_lossy(raw);
-    let (head, body) = text.split_once("\r\n\r\n").ok_or("no reply")?;
+    let end = find(raw, b"\r\n\r\n").ok_or("no reply")?;
+    let head = String::from_utf8_lossy(&raw[..end]);
+    let body = &raw[end + 4..];
     let status = head
         .split_whitespace()
         .nth(1)
@@ -103,19 +113,21 @@ pub fn response(raw: &[u8]) -> Result<(u16, String), String> {
             && l.to_ascii_lowercase().contains("chunked")
     });
     if !chunked {
-        return Ok((status, body.to_string()));
+        return Ok((status, String::from_utf8_lossy(body).into_owned()));
     }
-    let mut out = String::new();
+    let mut out = Vec::new();
     let mut rest = body;
-    while let Some((size, after)) = rest.split_once("\r\n") {
-        let n = usize::from_str_radix(size.trim(), 16).unwrap_or(0);
-        if n == 0 || after.len() < n {
+    while let Some(eol) = find(rest, b"\r\n") {
+        let size = String::from_utf8_lossy(&rest[..eol]);
+        let n = usize::from_str_radix(size.split(';').next().unwrap_or("").trim(), 16).unwrap_or(0);
+        let after = &rest[eol + 2..];
+        let Some(chunk) = after.get(..n).filter(|_| n > 0) else {
             break;
-        }
-        out += &after[..n];
-        rest = after[n..].trim_start_matches("\r\n");
+        };
+        out.extend_from_slice(chunk);
+        rest = after[n..].strip_prefix(b"\r\n").unwrap_or(&after[n..]);
     }
-    Ok((status, out))
+    Ok((status, String::from_utf8_lossy(&out).into_owned()))
 }
 
 /// A socket for a broadcast or multicast search, bound to `port` (0 for any).
@@ -185,6 +197,17 @@ mod tests {
             (403, "abcde".into())
         );
         assert!(response(b"garbage").is_err());
+        assert_eq!(
+            response("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\né\r\n1\r\n!\r\n0\r\n\r\n".as_bytes()).unwrap(),
+            (200, "é!".into())
+        );
+        assert_eq!(
+            response(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\nab"
+            )
+            .unwrap(),
+            (200, "".into())
+        );
     }
 
     #[test]

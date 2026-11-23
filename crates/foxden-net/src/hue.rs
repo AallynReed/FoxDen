@@ -428,9 +428,14 @@ fn bridges(replies: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for s in replies {
         let field = |name: &str| {
-            let start = s.find(name)? + name.len() + 1;
-            let end = s[start..].find("\r\n").map_or(s.len(), |e| start + e);
-            Some(s[start..end].to_string())
+            let rest = s.get(s.find(name)? + name.len()..)?;
+            Some(
+                rest.split("\r\n")
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
+            )
         };
         let (Some(location), Some(server)) = (field("LOCATION:"), field("SERVER:")) else {
             continue;
@@ -640,6 +645,21 @@ mod tests {
         assert_eq!(
             SEARCH,
             "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 5\r\nST: ssdp:all\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn ssdp_odd_replies_do_not_panic() {
+        let replies = vec![
+            "SERVER:".into(),
+            "LOCATION:".into(),
+            "LOCATION:é\r\nSERVER:é IpBridge".into(),
+            "LOCATION:http://192.168.1.7/\r\nSERVER:IpBridge".into(),
+        ];
+        assert_eq!(bridges(&replies), vec!["192.168.1.7"]);
+        assert_eq!(
+            description_mac("<modelName>Philips hue bridge<serialNumber>"),
+            None
         );
     }
 }

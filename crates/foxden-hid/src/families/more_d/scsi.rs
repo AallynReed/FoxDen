@@ -110,7 +110,7 @@ impl Io for Scsi {
         let size = size_of::<Command>() as u32;
         let mut returned = 0;
         // SAFETY: `cmd` and `payload` outlive the synchronous call.
-        unsafe {
+        let ok = unsafe {
             DeviceIoControl(
                 self.0,
                 IOCTL_SCSI_PASS_THROUGH_DIRECT,
@@ -122,6 +122,9 @@ impl Io for Scsi {
                 null_mut(),
             )
         };
+        if ok == 0 {
+            return Err("SCSI pass-through failed".into());
+        }
         Ok(data.len())
     }
     fn read(&mut self, _buf: &mut [u8], _timeout_ms: i32) -> Result<usize, String> {

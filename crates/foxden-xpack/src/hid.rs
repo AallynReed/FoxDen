@@ -109,7 +109,11 @@ pub fn read_until(
 
 /// Drops every input report already waiting.
 pub fn drain(io: &mut dyn Io, len: usize) {
-    while matches!(io.read(len, 0), Ok(r) if !r.is_empty()) {}
+    for _ in 0..64 {
+        if !matches!(io.read(len, 0), Ok(r) if !r.is_empty()) {
+            break;
+        }
+    }
 }
 
 /// Opens a sibling collection of the same physical device, picked by interface or usage page.

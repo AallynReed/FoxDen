@@ -151,7 +151,9 @@ impl Port {
         let port = Port(h);
         let mut dcb: DCB = unsafe { std::mem::zeroed() };
         dcb.DCBlength = size_of::<DCB>() as u32;
-        unsafe { GetCommState(h, &mut dcb) };
+        if unsafe { GetCommState(h, &mut dcb) } == 0 {
+            return None;
+        }
         dcb.BaudRate = 9600;
         dcb.ByteSize = 8;
         dcb.Parity = NOPARITY;
@@ -204,7 +206,10 @@ impl Port {
             {
                 return None;
             }
-            buf.extend_from_slice(&chunk[..n as usize]);
+            buf.extend_from_slice(&chunk[..(n as usize).min(chunk.len())]);
+            if buf.len() > 4096 {
+                return None;
+            }
             if let Some(d) = find_reply(&buf, cmd) {
                 return Some(d.to_vec());
             }

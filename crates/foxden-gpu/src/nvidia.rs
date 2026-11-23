@@ -68,6 +68,13 @@ fn pci_ids(device_id: u32, sub_system_id: u32) -> [u16; 4] {
     ]
 }
 
+/// The bytes after an SMBus block's count byte, clipped to what arrived.
+fn block_payload(b: &[u8]) -> Vec<u8> {
+    let rest = b.get(1..).unwrap_or_default();
+    let len = b.first().map_or(0, |&n| (n as usize).min(rest.len()));
+    rest[..len].to_vec()
+}
+
 /// `write` picks NvAPI_I2CWriteEx over NvAPI_I2CReadEx.
 type Call = Box<dyn Fn(bool, &mut NvI2cInfoV3) -> i32 + Send>;
 
@@ -136,8 +143,7 @@ impl SmBus for Bus {
     fn read_block_data(&self, addr: u8, command: u8) -> Result<Vec<u8>> {
         let (mut b, size) = self.read(addr, Some(command), BLOCK_MAX + 1)?;
         b.truncate(size);
-        let len = b.first().map_or(0, |&n| (n as usize).min(b.len() - 1));
-        Ok(b[1..1 + len].to_vec())
+        Ok(block_payload(&b))
     }
     fn write_block_data(&self, addr: u8, command: u8, data: &[u8]) -> Result<()> {
         let data = &data[..data.len().min(BLOCK_MAX)];
@@ -262,6 +268,14 @@ pub fn buses() -> Vec<SharedBus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_payload_clips() {
+        assert!(block_payload(&[]).is_empty());
+        assert!(block_payload(&[5]).is_empty());
+        assert_eq!(block_payload(&[9, 1, 2]), vec![1, 2]);
+        assert_eq!(block_payload(&[1, 7, 8]), vec![7]);
+    }
 
     /// (write, version, ddc, address, register, register size, data, speed, speed khz, port, port set)
     type Seen = (

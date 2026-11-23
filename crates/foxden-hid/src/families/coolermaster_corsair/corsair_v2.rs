@@ -773,7 +773,11 @@ impl Drop for V2 {
 /// Drops input reports left over from other readers of this device, such as battery queries.
 fn drain(hid: &HidDevice) {
     let mut buf = [0u8; 1025];
-    while matches!(hid.read_timeout(&mut buf, 0), Ok(n) if n > 0) {}
+    for _ in 0..64 {
+        if !matches!(hid.read_timeout(&mut buf, 0), Ok(n) if n > 0) {
+            break;
+        }
+    }
 }
 
 fn get_address(hid: &HidDevice, cmd: u8, address: u8, pkt: usize) -> Result<u32, String> {

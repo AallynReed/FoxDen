@@ -141,7 +141,11 @@ impl Proto for LaptopKb {
 /// GetKeyboardLayout: drain reads, ask, and take byte 12 of the answer.
 fn keyboard_layout(io: &mut dyn Io) -> Result<u8, String> {
     let mut r = [0u8; LEN];
-    while io.read(&mut r, 10)? > 0 {}
+    for _ in 0..64 {
+        if io.read(&mut r, 10)? == 0 {
+            break;
+        }
+    }
     io.feature(&packet(&[ID, 0x05, 0x20, 0x31, 0x00, 0x10]))?;
     let mut r = [0u8; LEN];
     r[0] = ID;

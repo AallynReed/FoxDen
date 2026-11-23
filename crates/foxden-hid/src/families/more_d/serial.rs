@@ -55,7 +55,9 @@ impl Serial {
             let mut dcb: DCB = std::mem::zeroed();
             dcb.DCBlength = size_of::<DCB>() as u32;
             SetupComm(handle, 1, 128);
-            GetCommState(handle, &mut dcb);
+            if GetCommState(handle, &mut dcb) == 0 {
+                return Err("serial state unreadable".into());
+            }
             dcb.BaudRate = baud;
             dcb.Parity = NOPARITY;
             dcb.ByteSize = 8;
@@ -66,7 +68,9 @@ impl Serial {
             };
             // Clears CTS/DSR flow (bits 2-3), DTR control (4-5), XON/XOFF (8-9), RTS control (12-13) and abort on error (14).
             dcb._bitfield &= !(0b1100 | 0b11_0000 | 0b11_0000_0000 | 0b111 << 12);
-            SetCommState(handle, &dcb);
+            if SetCommState(handle, &dcb) == 0 {
+                return Err("serial settings rejected".into());
+            }
             let timeouts = COMMTIMEOUTS {
                 ReadIntervalTimeout: 50,
                 ReadTotalTimeoutMultiplier: 10,
@@ -74,7 +78,9 @@ impl Serial {
                 WriteTotalTimeoutMultiplier: 10,
                 WriteTotalTimeoutConstant: 50,
             };
-            SetCommTimeouts(handle, &timeouts);
+            if SetCommTimeouts(handle, &timeouts) == 0 {
+                return Err("serial timeouts rejected".into());
+            }
         }
         Ok(port)
     }
@@ -125,7 +131,7 @@ impl Io for Serial {
         if ok == 0 {
             return Err("serial read failed".into());
         }
-        Ok(done as usize)
+        Ok((done as usize).min(buf.len()))
     }
     fn flush(&mut self, rx: bool, tx: bool) {
         let mut flags = 0;
