@@ -1106,6 +1106,7 @@ mod tests {
             leds,
             min: 0,
             max: 120,
+            step: 1,
         };
         state.zones = group_zones(vec![zone(10), zone(20)]);
         let json = serde_json::to_value(state.snapshot()).unwrap();
@@ -1118,7 +1119,7 @@ mod tests {
         assert_eq!(gpu["backend"], "board");
         assert_eq!(
             gpu["zones"],
-            json!([{ "key": "virtual:gpu#0", "name": "Header 1", "leds": 20, "min": 0, "max": 120 }])
+            json!([{ "key": "virtual:gpu#0", "name": "Header 1", "leds": 20, "min": 0, "max": 120, "step": 1 }])
         );
     }
 
