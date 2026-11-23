@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareSetting};
 use hidapi::{HidApi, HidDevice};
 
 use crate::port::Port;
@@ -82,6 +82,13 @@ pub trait Driver: Send {
     /// An unchanged frame is sent again once this has passed.
     fn keepalive(&self) -> Option<Duration> {
         None
+    }
+    fn hardware(&self) -> Option<Hardware> {
+        None
+    }
+    /// Starts one of the device's own effects.
+    fn set_hardware(&mut self, _io: &mut dyn Io, _: &HardwareSetting) -> Result<(), String> {
+        Err("no hardware effects".into())
     }
 }
 
@@ -166,6 +173,30 @@ impl<D: Driver> Backend for Hid<D> {
             }
         }
     }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        (device_id == self.device.id)
+            .then(|| self.drv.hardware())
+            .flatten()
+    }
+
+    /// The next push starts the device afresh, without waiting out the frame interval.
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        if device_id != self.device.id {
+            return Err(format!("unknown device {device_id}"));
+        }
+        self.sent = None;
+        self.last = None;
+        self.started = false;
+        match setting {
+            Some(s) => self.drv.set_hardware(self.io.as_mut(), s),
+            None => Ok(()),
+        }
+    }
 }
 
 impl<D: Driver> Drop for Hid<D> {
@@ -182,7 +213,8 @@ pub fn open_sibling(
     info: &Info,
     pick: impl Fn(&Info) -> bool,
 ) -> Result<HidDevice, String> {
-    crate::device_list(api).iter()
+    crate::device_list(api)
+        .iter()
         .map(Info::from_hidapi)
         .filter(|s| s.vid == info.vid && s.pid == info.pid && s.serial == info.serial)
         .find(|s| pick(s))
@@ -192,7 +224,8 @@ pub fn open_sibling(
 
 /// Every collection of the same device that `pick` accepts.
 pub fn siblings(api: &HidApi, info: &Info, pick: impl Fn(&Info) -> bool) -> Vec<Info> {
-    crate::device_list(api).iter()
+    crate::device_list(api)
+        .iter()
         .map(Info::from_hidapi)
         .filter(|s| s.vid == info.vid && s.pid == info.pid && s.serial == info.serial)
         .filter(|s| pick(s))
@@ -387,6 +420,46 @@ mod tests {
                 Op::Write(vec![5]),
                 Op::Write(vec![6]),
                 Op::Feature(vec![2])
+            ]
+        );
+    }
+
+    struct Slow;
+
+    impl Driver for Slow {
+        fn start(&mut self, io: &mut dyn Io, _: &[Color]) -> Result<(), String> {
+            io.send_feature(&[1])
+        }
+        fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
+            io.write(&[colors[0].0])
+        }
+        fn min_interval(&self) -> Duration {
+            Duration::from_secs(60)
+        }
+        fn set_hardware(&mut self, io: &mut dyn Io, s: &HardwareSetting) -> Result<(), String> {
+            io.write(s.mode.as_bytes())
+        }
+    }
+
+    #[test]
+    fn leaving_a_hardware_mode_starts_again_at_once() {
+        let m = Mock::default();
+        let dev = line("x".into(), "X", DeviceKind::Other, MOUSE, 1);
+        let mut b = Hid::new("t", Box::new(m.clone()), Slow, dev);
+        b.push("x", &[Color(5, 0, 0)]).unwrap();
+        b.set_hardware("x", Some(&HardwareSetting::new("m")))
+            .unwrap();
+        b.set_hardware("x", None).unwrap();
+        b.push("x", &[Color(5, 0, 0)]).unwrap();
+        assert!(b.set_hardware("y", None).is_err());
+        assert_eq!(
+            m.take(),
+            vec![
+                Op::Feature(vec![1]),
+                Op::Write(vec![5]),
+                Op::Write(vec![b'm']),
+                Op::Feature(vec![1]),
+                Op::Write(vec![5]),
             ]
         );
     }
