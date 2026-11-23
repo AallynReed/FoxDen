@@ -146,7 +146,6 @@ pub fn poll_logitech_g435(ctx: &mut Ctx) {
         via: "2.4 GHz receiver".into(),
         kind: Kind::Headset,
         percent: mv.map(|mv| interpolate(mv as i32, CURVE)),
-        millivolts: mv.unwrap_or(0) as u32,
         connected: mv.is_some(),
         ..Battery::default()
     };

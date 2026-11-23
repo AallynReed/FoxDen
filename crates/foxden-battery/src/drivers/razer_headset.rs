@@ -387,7 +387,6 @@ fn poll_v2_pro_2020(ctx: &mut Ctx) {
                 s.percent,
                 s.charging,
             );
-            b.millivolts = s.millivolts;
             b.connected = s.millivolts != 0;
             add(ctx, PID, b);
             return;

@@ -88,11 +88,8 @@ pub fn poll_royal_kludge(ctx: &mut Ctx) {
                 ..Default::default()
             };
             match reply {
-                Reply::Level { percent, mv, usb } => {
+                Reply::Level { percent, usb, .. } => {
                     b.percent = Some(percent);
-                    if (3000..=4500).contains(&mv) {
-                        b.millivolts = mv;
-                    }
                     b.charging = usb || cable;
                 }
                 Reply::NoMouse => b.asleep = true,

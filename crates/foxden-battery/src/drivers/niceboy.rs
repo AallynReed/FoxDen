@@ -61,8 +61,7 @@ pub fn poll_niceboy(ctx: &mut Ctx) {
         if raw == 0 && !charging {
             b.asleep = true;
         } else {
-            b.millivolts = millivolts(raw);
-            b.percent = Some(percent(b.millivolts));
+            b.percent = Some(percent(millivolts(raw)));
             b.charging = charging;
         }
         ctx.add(b, VID, MW400);
