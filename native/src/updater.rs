@@ -13,6 +13,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::state::{Shared, lock};
 
 const ENDPOINT: &str = "https://github.com/AallynReed/FoxDen/releases/latest/download/latest.json";
+const CHANGELOG: &str = "https://github.com/AallynReed/FoxDen/releases/latest/download/changelog.json";
 const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2OUExOEQ0OTdDRTBEMDEKUldRQkRjNlgxQmlhdHNRcDlJR2xIcVh4R1dobE1tU0JCMW0yall4U3BoRVdJcW9jTXh1WmVldVQK";
 const TARGETS: [&str; 2] = ["windows-x86_64-nsis", "windows-x86_64"];
 const FIRST: Duration = Duration::from_secs(5);
@@ -26,6 +27,8 @@ pub struct Info {
     pub notes: String,
     /// Installs by itself unless the user says Later.
     pub auto: bool,
+    /// Changelog entries from the one after this version up to the new one.
+    pub changes: Vec<Value>,
 }
 
 #[derive(Clone, Serialize)]
@@ -102,7 +105,9 @@ fn fake(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio_sleep(Duration::from_secs(3)).await;
+        let from = std::env::var("FOXDEN_FAKE_FROM").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").into());
         let info = Info {
+            changes: crate::changelog::between(&crate::changelog::built_in(), &from, &version),
             version,
             notes: "A test release. Nothing will be installed.".into(),
             auto: false,
@@ -129,7 +134,7 @@ fn numbers(version: &str) -> (Vec<u64>, bool) {
 }
 
 /// Whether `remote` is a newer release than `current`; a pre-release ranks below its release.
-fn newer(remote: &str, current: &str) -> bool {
+pub fn newer(remote: &str, current: &str) -> bool {
     let (r, r_pre) = numbers(remote);
     let (c, c_pre) = numbers(current);
     let len = r.len().max(c.len()).max(3);
@@ -180,7 +185,9 @@ async fn check(app: &AppHandle, shared: &Shared) -> Result<Option<Info>, String>
     if !newer(&release.version, env!("CARGO_PKG_VERSION")) {
         return Ok(None);
     }
+    let changes = crate::changelog::between(&changelog().await, env!("CARGO_PKG_VERSION"), &release.version);
     let info = Info {
+        changes,
         version: release.version.clone(),
         notes: json["notes"].as_str().unwrap_or_default().to_string(),
         auto: {
@@ -195,6 +202,21 @@ async fn check(app: &AppHandle, shared: &Shared) -> Result<Option<Info>, String>
         let _ = app.emit("update", &info);
     }
     Ok(Some(info))
+}
+
+/// The newest release's changelog, or the one built in when it cannot be fetched.
+async fn changelog() -> Value {
+    let fetched = async {
+        let reply = client(Duration::from_secs(30)).ok()?.get(CHANGELOG).send().await.ok()?;
+        if !reply.status().is_success() {
+            return None;
+        }
+        reply.json::<Value>().await.ok().filter(Value::is_array)
+    };
+    match fetched.await {
+        Some(v) => v,
+        None => crate::changelog::built_in(),
+    }
 }
 
 fn text64(b64: &str) -> Result<String, String> {

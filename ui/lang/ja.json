@@ -1414,5 +1414,10 @@
  "· idle": "· アイドル",
  "· {0} own": "· {0} 独自",
  "Remind me later": "後で通知",
- "Don't remind me": "今後通知しない"
+ "Don't remind me": "今後通知しない",
+ "Changelog": "変更履歴",
+ "Device support": "対応デバイス",
+ "Changes": "変更点",
+ "Fixes": "修正",
+ "Removed": "削除"
 }

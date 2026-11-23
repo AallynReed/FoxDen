@@ -48,6 +48,7 @@ mod state;
 #[path = "../../src-tauri/src/volumes.rs"]
 mod volumes;
 mod canvas;
+mod changelog;
 mod log;
 mod tray;
 mod ui;

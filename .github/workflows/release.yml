@@ -32,6 +32,10 @@ jobs:
             echo "::error::$GITHUB_REF_NAME does not match version $app"
             exit 1
           fi
+          if ! jq -e --arg v "$tag" 'any(.[]; .version == $v)' changelog.json > /dev/null; then
+            echo "::error::changelog.json has no entry for $tag"
+            exit 1
+          fi
 
   build:
     needs: check
@@ -45,6 +49,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          path: repo
+          sparse-checkout: |
+            changelog.json
+            packaging/notes.jq
+          sparse-checkout-cone-mode: false
+
       - name: Download installer
         uses: actions/download-artifact@v8
         with:
@@ -66,5 +80,7 @@ jobs:
             --arg url "https://github.com/$GH_REPO/releases/download/$GITHUB_REF_NAME/$file" \
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{version: $v, pub_date: $date, platforms: {"windows-x86_64": {signature: $sig, url: $url}}}' > latest.json
-          gh release create "$GITHUB_REF_NAME" "$file" "$file.sig" latest.json SHA256SUMS.txt \
-            --draft --verify-tag --generate-notes --title "FoxDen ${GITHUB_REF_NAME#v}"
+          cp repo/changelog.json changelog.json
+          jq -r --arg v "${GITHUB_REF_NAME#v}" -f repo/packaging/notes.jq changelog.json > notes.md
+          gh release create "$GITHUB_REF_NAME" "$file" "$file.sig" latest.json SHA256SUMS.txt changelog.json \
+            --draft --verify-tag --notes-file notes.md --title "FoxDen ${GITHUB_REF_NAME#v}"

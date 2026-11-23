@@ -317,6 +317,7 @@ export component Stage inherits Rectangle {
                     text: StagePage.update-label;
                     clicked => { SettingsPage.open-update(); }
                 }
+                Small { y: 4px; text: I18n.t("Changelog"); clicked => { SettingsPage.open-changelog(); } }
                 Small { y: 4px; text: I18n.t("Feedback"); clicked => { SettingsPage.open-feedback(); } }
             }
         }

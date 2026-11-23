@@ -1414,5 +1414,10 @@
  "· idle": "· boşta",
  "· {0} own": "· {0} kendine özgü",
  "Remind me later": "Daha sonra hatırlat",
- "Don't remind me": "Bir daha hatırlatma"
+ "Don't remind me": "Bir daha hatırlatma",
+ "Changelog": "Değişiklik günlüğü",
+ "Device support": "Cihaz desteği",
+ "Changes": "Değişiklikler",
+ "Fixes": "Düzeltmeler",
+ "Removed": "Kaldırıldı"
 }

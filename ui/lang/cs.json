@@ -1414,5 +1414,10 @@
  "· idle": "· nečinné",
  "· {0} own": "· vlastní: {0}",
  "Remind me later": "Připomenout později",
- "Don't remind me": "Nepřipomínat"
+ "Don't remind me": "Nepřipomínat",
+ "Changelog": "Seznam změn",
+ "Device support": "Podpora zařízení",
+ "Changes": "Změny",
+ "Fixes": "Opravy",
+ "Removed": "Odstraněno"
 }

@@ -1414,5 +1414,10 @@
  "· idle": "· 대기",
  "· {0} own": "· 자체 {0}",
  "Remind me later": "나중에 알림",
- "Don't remind me": "다시 알리지 않음"
+ "Don't remind me": "다시 알리지 않음",
+ "Changelog": "변경 내역",
+ "Device support": "장치 지원",
+ "Changes": "변경 사항",
+ "Fixes": "수정",
+ "Removed": "제거됨"
 }

@@ -1414,5 +1414,10 @@
  "· idle": "· 閒置",
  "· {0} own": "· {0} 自有",
  "Remind me later": "稍後提醒",
- "Don't remind me": "不再提醒"
+ "Don't remind me": "不再提醒",
+ "Changelog": "更新日誌",
+ "Device support": "裝置支援",
+ "Changes": "變更",
+ "Fixes": "修正",
+ "Removed": "已移除"
 }

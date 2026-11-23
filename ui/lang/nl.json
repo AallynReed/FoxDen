@@ -1414,5 +1414,10 @@
  "· idle": "· inactief",
  "· {0} own": "· {0} eigen",
  "Remind me later": "Later herinneren",
- "Don't remind me": "Niet meer herinneren"
+ "Don't remind me": "Niet meer herinneren",
+ "Changelog": "Wijzigingslogboek",
+ "Device support": "Apparaatondersteuning",
+ "Changes": "Wijzigingen",
+ "Fixes": "Oplossingen",
+ "Removed": "Verwijderd"
 }

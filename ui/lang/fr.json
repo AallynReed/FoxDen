@@ -1414,5 +1414,10 @@
  "· idle": "· inactif",
  "· {0} own": "· {0} dédiées",
  "Remind me later": "Me le rappeler plus tard",
- "Don't remind me": "Ne plus me le rappeler"
+ "Don't remind me": "Ne plus me le rappeler",
+ "Changelog": "Journal des modifications",
+ "Device support": "Prise en charge des appareils",
+ "Changes": "Modifications",
+ "Fixes": "Corrections",
+ "Removed": "Supprimé"
 }

@@ -1414,5 +1414,10 @@
  "· idle": "· idle",
  "· {0} own": "· {0} own",
  "Remind me later": "Remind me later",
- "Don't remind me": "Don't remind me"
+ "Don't remind me": "Don't remind me",
+ "Changelog": "Changelog",
+ "Device support": "Device support",
+ "Changes": "Changes",
+ "Fixes": "Fixes",
+ "Removed": "Removed"
 }

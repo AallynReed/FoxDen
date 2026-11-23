@@ -7,7 +7,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use tauri::{AppHandle, Manager};
 
 use super::{
-    AppWindow, NetCard, NetField, NetFound, SettingsPage, StagePage, StateRow, Strip, View, fill,
+    AppWindow, ChangeRow, NetCard, NetField, NetFound, SettingsPage, StagePage, StateRow, Strip, View, fill,
     jobs, report, s, shared, tr, with_view, with_win,
 };
 
@@ -1015,8 +1015,36 @@ pub fn prompt_update(app: &AppHandle) {
     });
 }
 
+/// Changelog entries as rows: a version line, then each section's heading and items.
+fn log_rows(app: &AppHandle, entries: &[Value]) -> Vec<ChangeRow> {
+    let row = |kind: &str, text: String| ChangeRow { kind: kind.into(), text: text.into() };
+    let mut rows = Vec::new();
+    for e in entries {
+        rows.push(row("version", format!("{}  ·  {}", s(&e["version"]), s(&e["date"]))));
+        for (key, label) in crate::changelog::SECTIONS {
+            let items = e[key].as_array().into_iter().flatten().filter_map(Value::as_str);
+            let mut items = items.peekable();
+            if items.peek().is_some() {
+                rows.push(row("heading", tr(app, label).to_uppercase()));
+                rows.extend(items.map(|i| row("item", i.to_string())));
+            }
+        }
+    }
+    rows
+}
+
 fn bind_updates(w: &AppWindow, app: &AppHandle) {
     let g = w.global::<SettingsPage>();
+    let a = app.clone();
+    g.on_open_changelog(move || {
+        let all = crate::changelog::built_in();
+        let rows = log_rows(&a, all.as_array().map_or(&[][..], Vec::as_slice));
+        with_win(|w| {
+            let g = w.global::<SettingsPage>();
+            g.set_changelog(slint::ModelRc::new(VecModel::from(rows)));
+            g.set_sheet("changelog".into());
+        });
+    });
     if let Some(info) = crate::updater::get_update() {
         show_update(app, &serde_json::to_value(info).unwrap_or_default(), false);
     }
@@ -1355,6 +1383,11 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
             g.set_update_title(tf(app, "FoxDen {0}", &[&version]).into());
             let notes = info["notes"].as_str().filter(|n| !n.is_empty()).unwrap_or("No release notes.");
             g.set_update_notes(tr(app, notes).into());
+            let mut log = log_rows(app, info["changes"].as_array().map_or(&[][..], Vec::as_slice));
+            if log.is_empty() {
+                log.push(ChangeRow { kind: "item".into(), text: tr(app, notes).into() });
+            }
+            fill(g.get_update_log(), log, |m| g.set_update_log(m));
         }
         g.set_update_progress(l.update_progress.as_str().into());
         g.set_update_busy(l.update_busy);

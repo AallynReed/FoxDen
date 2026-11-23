@@ -1,0 +1,373 @@
+[
+ {
+  "version": "0.18.1",
+  "date": "2026-11-23",
+  "changed": [
+   "Automatic updates are off by default for new installs",
+   "When an update is out, FoxDen asks as you open it: install now, remind me in an hour, or don't remind me for that version"
+  ],
+  "fixed": [
+   "The update window shows its notes and buttons again"
+  ],
+  "removed": [
+   "Update notifications"
+  ]
+ },
+ {
+  "version": "0.18.0",
+  "date": "2026-11-23",
+  "added": [
+   "FoxDen is now a native Windows app: it opens faster and uses less memory",
+   "Hardware effects: pick a device's built-in effect, or let FoxDen drive the LEDs",
+   "Choose per device whether FoxDen or the hardware runs the lighting",
+   "Per-LED control for ARGB headers and fan hubs, with settable strip lengths",
+   "Fan hubs count LEDs in whole fans",
+   "Battery effect that changes with a device's charge, and a Battery is low layer condition",
+   "Headset controls are dimmed and locked while the headset is off"
+  ],
+  "devices": [
+   "Hardware effects for MSI Mystic Light, ASRock Polychrome USB, Lian Li Uni Hubs, Thermaltake Riing, Cooler Master Small ARGB and RGB Fusion 2",
+   "Headset settings for older SteelSeries Arctis models, Arctis Nova 3P Wireless and Nova Elite",
+   "Headset settings for HyperX wireless headsets, Razer BlackShark, Sony INZONE, JBL Quantum, ASTRO A50 Gen 4 and 5, Audeze Maxwell, Turtle Beach Stealth Pro II and Atlas Air, EPOS H3PRO Hybrid, Jabra and Poly",
+   "Sidetone and auto-off for Logitech headsets",
+   "8BitDo controller settings and Ultimate 2 light rings",
+   "Longer strips on MSI 185-byte headers, up to 240 LEDs on 761-byte headers, and lighting on unlisted MSI boards",
+   "Settable lengths for MSI 7D99 headers and Corsair Commander Core XT external headers"
+  ],
+  "fixed": [
+   "Updating no longer fails when the old service will not close",
+   "The Logitech G915 X no longer clashes with a G515",
+   "ASUS ENE zones are laid out in rows that match the LED count",
+   "Fan graphs no longer flicker"
+  ]
+ },
+ {
+  "version": "0.17.0",
+  "date": "2026-11-22",
+  "added": [
+   "Temperature effect that follows a sensor through colour stages",
+   "Tabs are shown as icons",
+   "Device info for graphics cards includes their I2C buses"
+  ],
+  "devices": [
+   "Lighting for the Razer cooling pad, Razer Kraken V4 Pro, MSI lightbars and Logitech G915 X",
+   "Any Logitech HID++ device with a lighting feature lights up, not just a fixed list",
+   "Batteries for new Logitech headsets, Razer mice and dock, Kraken V4 Pro and more SteelSeries models",
+   "Arctis Nova Pro Wireless ChatMix dial",
+   "Fans and sensors for the IT8784 chip, more ASUS EC boards, Cooler Master XG power supplies and HP Omen fan speeds",
+   "Palit graphics cards with unlisted ids"
+  ],
+  "changed": [
+   "Wireless receivers are named after the device paired to them"
+  ],
+  "fixed": [
+   "RAM lighting changes at once instead of LED by LED",
+   "A Logitech battery no longer shows twice in the tray"
+  ],
+  "removed": [
+   "Update notifications"
+  ]
+ },
+ {
+  "version": "0.16.0",
+  "date": "2026-11-22",
+  "added": [
+   "FoxDen in 15 more languages, following the Windows display language"
+  ],
+  "changed": [
+   "Devices FoxDen drives itself are labelled FoxDen"
+  ]
+ },
+ {
+  "version": "0.15.4",
+  "date": "2026-11-22",
+  "changed": [
+   "Send device info shows that it is reading the device"
+  ],
+  "fixed": [
+   "Motherboards lit over SMBus show as driven in the device list"
+  ]
+ },
+ {
+  "version": "0.15.3",
+  "date": "2026-11-22",
+  "devices": [
+   "ASUS boards whose ENE chip version is not listed light up from the chip's own table"
+  ]
+ },
+ {
+  "version": "0.15.2",
+  "date": "2026-11-22",
+  "added": [
+   "Board device info includes the ENE chip version and setup"
+  ],
+  "fixed": [
+   "Lighting waits for the service's first scan instead of giving up after 5 seconds"
+  ]
+ },
+ {
+  "version": "0.15.1",
+  "date": "2026-11-22",
+  "added": [
+   "Send device info works for every device, with an SMBus readout for boards and memory"
+  ],
+  "changed": [
+   "Apps and Devices rows line up, with icon buttons for mute and default"
+  ]
+ },
+ {
+  "version": "0.15.0",
+  "date": "2026-11-22",
+  "devices": [
+   "Corsair headset controls, and proper names for every Corsair device"
+  ],
+  "changed": [
+   "FoxDen says when an update is available, installs after a manual check and reports a failed install"
+  ]
+ },
+ {
+  "version": "0.14.2",
+  "date": "2026-11-22",
+  "added": [
+   "History graphs for sensors and fan speeds"
+  ],
+  "devices": [
+   "AMD and Nuvoton SMBus controllers"
+  ],
+  "fixed": [
+   "A crash on some AMD graphics drivers"
+  ]
+ },
+ {
+  "version": "0.14.1",
+  "date": "2026-11-22",
+  "changed": [
+   "Logitech device reports include more of what the device answers"
+  ]
+ },
+ {
+  "version": "0.14.0",
+  "date": "2026-11-22",
+  "added": [
+   "Mic and output processing, chat mix sides, and per-app and per-device volumes",
+   "In-app feedback",
+   "A short description on each tab"
+  ],
+  "changed": [
+   "Wireless receivers without lighting are listed for their battery only",
+   "Supported headsets show their battery and settings instead of Unsupported",
+   "No lighting control replaces Not supported yet, and known gear without lights is skipped",
+   "The battery switches moved into Modules"
+  ],
+  "fixed": [
+   "Leftover tray icons are cleared"
+  ]
+ },
+ {
+  "version": "0.13.0",
+  "date": "2026-11-22",
+  "added": [
+   "Key colours layer for setting single keys"
+  ],
+  "changed": [
+   "Lower CPU use in the background"
+  ]
+ },
+ {
+  "version": "0.12.0",
+  "date": "2026-11-22",
+  "added": [
+   "Virtual microphone through VB-CABLE",
+   "Low battery alerts",
+   "A lighter window",
+   "Output priority, automatic channel presets and shareable sound profiles"
+  ],
+  "devices": [
+   "ASRock Radeon graphics card lighting"
+  ],
+  "changed": [
+   "Installing FoxDen removes the old FoxRGB install"
+  ],
+  "fixed": [
+   "Apps no longer get stuck on the wrong audio channel"
+  ]
+ },
+ {
+  "version": "0.11.0",
+  "date": "2026-11-21",
+  "added": [
+   "Audio tab with per-app channels",
+   "Headset controls, with the ChatMix dial followed live"
+  ],
+  "changed": [
+   "FoxRGB is now FoxDen; your settings carry over"
+  ]
+ },
+ {
+  "version": "0.10.1",
+  "date": "2026-11-20",
+  "devices": [
+   "Batteries for WAIZOWL mice, AK820 Max Plus and Razer Barracuda X 2.4"
+  ],
+  "fixed": [
+   "Battery tray icons stay where you put them, and charging shows sooner",
+   "No more background traffic to Microsoft from the window"
+  ]
+ },
+ {
+  "version": "0.10.0",
+  "date": "2026-11-20",
+  "added": [
+   "Battery levels in the tray",
+   "Conflicting apps you keep running are remembered"
+  ]
+ },
+ {
+  "version": "0.9.0",
+  "date": "2026-11-18",
+  "added": [
+   "Devices are drawn in their real shapes on the canvas"
+  ]
+ },
+ {
+  "version": "0.8.1",
+  "date": "2026-11-17",
+  "devices": [
+   "SONIX 0C45:8006 keyboards",
+   "More RAM brands"
+  ],
+  "changed": [
+   "Checks for updates every hour"
+  ],
+  "fixed": [
+   "Motherboards and RAM show as driven when FoxDen lights them"
+  ]
+ },
+ {
+  "version": "0.8.0",
+  "date": "2026-11-16",
+  "added": [
+   "Layers can show only while chosen apps run or are in front"
+  ]
+ },
+ {
+  "version": "0.7.0",
+  "date": "2026-11-16",
+  "added": [
+   "Layers with blend, opacity and scope",
+   "Per-device backgrounds",
+   "Post effects over the base effect, starting with key ghosting"
+  ]
+ },
+ {
+  "version": "0.6.1",
+  "date": "2026-11-16",
+  "changed": [
+   "Starts with Windows through a sign-in task, and the service runs at a higher priority"
+  ]
+ },
+ {
+  "version": "0.6.0",
+  "date": "2026-11-16",
+  "devices": [
+   "More Razer and Corsair peripherals, mice and headsets",
+   "Fans for nine more coolers and hubs, and Corsair iCUE LINK devices on their own channels",
+   "Corsair Commander DUO fans and lighting",
+   "Aqua Computer fans, pump and temperatures, including the D5 Next",
+   "Motherboard fans on Nuvoton, ITE, Fintek and Winbond chips",
+   "Corsair K60 PRO and K63 keyboards"
+  ],
+  "changed": [
+   "Board pumps never drop below a safe speed"
+  ]
+ },
+ {
+  "version": "0.5.2",
+  "date": "2026-11-16",
+  "added": [
+   "Conflicting apps can be kept running one by one"
+  ],
+  "changed": [
+   "Logitech devices are labelled by connection, preferring the cable"
+  ]
+ },
+ {
+  "version": "0.5.1",
+  "date": "2026-11-15",
+  "added": [
+   "Discord and support links"
+  ],
+  "changed": [
+   "Devices are listed faster"
+  ],
+  "fixed": [
+   "Memory found after start is picked up",
+   "The HyperX x Ducky One 2 Mini is shown as having no software lighting"
+  ]
+ },
+ {
+  "version": "0.5.0",
+  "date": "2026-11-15",
+  "added": [
+   "Network and DMX lights",
+   "LED strips panel, and LED counts for resizable zones"
+  ],
+  "devices": [
+   "Motherboard lighting for MSI, Gigabyte Super I/O and ASUS Aura",
+   "ASUS Aura USB, Aura Core and TUF laptops, HP Omen and Steam Machine lighting",
+   "HyperX, MSI, Alienware, EVision, QMK, Keychron and other keyboards",
+   "Dygma Raise and Thrustmaster Sol",
+   "Many more USB lighting devices",
+   "Combined fan and lighting hubs, including Lian Li Uni Hubs"
+  ],
+  "changed": [
+   "FoxDen closes before an update installs",
+   "Devices are found faster"
+  ]
+ },
+ {
+  "version": "0.4.0",
+  "date": "2026-11-15",
+  "added": [
+   "Installed version shown in Settings",
+   "Send device info for unsupported USB devices",
+   "A 0% graphics card fan point can stop the fans"
+  ],
+  "devices": [
+   "Logitech G512 and G810 family keyboards"
+  ]
+ },
+ {
+  "version": "0.3.0",
+  "date": "2026-11-15",
+  "added": [
+   "Key ripple effect",
+   "Modules to turn lighting or fans off",
+   "Closes other lighting and fan software that holds the same devices",
+   "Log window and optional anonymous error reports"
+  ],
+  "devices": [
+   "Razer, Logitech, MSI, SteelSeries, Cooler Master, Corsair, Gigabyte and ASRock devices",
+   "Logitech G515 and G502 on a cable",
+   "RAM, motherboard and graphics card lighting",
+   "Elgato Stream Deck"
+  ],
+  "changed": [
+   "Fans and Settings are laid out as panels"
+  ],
+  "removed": [
+   "Simulated devices and fans"
+  ]
+ },
+ {
+  "version": "0.2.0",
+  "date": "2026-11-15",
+  "added": [
+   "First release: lighting effects, a device canvas, profiles and fan curves",
+   "Motherboard and graphics card fan control, with CPU temperature",
+   "Corsair RAM lighting",
+   "Starts with Windows and updates itself",
+   "Zoom from 80% to 200%"
+  ]
+ }
+]

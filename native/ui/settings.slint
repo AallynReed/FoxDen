@@ -1,5 +1,10 @@
 import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Scroll } from "widgets.slint";
 
+export struct ChangeRow {
+    kind: string,
+    text: string,
+}
+
 export struct StateRow {
     name: string,
     mark: string,
@@ -57,6 +62,9 @@ export global SettingsPage {
     in property <string> update-version;
     callback open-update();
     callback open-feedback();
+    callback open-changelog();
+    in property <[ChangeRow]> update-log;
+    in property <[ChangeRow]> changelog;
     callback open-logs();
 
     in property <bool> lighting;
@@ -930,6 +938,23 @@ export component SettingsPanel inherits Scroll {
     }
 }
 
+component ChangeView inherits VerticalLayout {
+    in property <[ChangeRow]> rows;
+    for row in root.rows: VerticalLayout {
+        padding-top: row.kind == "version" ? 14px : row.kind == "heading" ? 6px : 2px;
+        padding-left: row.kind == "item" ? 10px : 0px;
+        Text {
+            text: row.kind == "item" ? "•  " + row.text : row.text;
+            color: row.kind == "heading" ? Theme.muted : Theme.text;
+            font-size: row.kind == "version" ? 15px : row.kind == "heading" ? 11px : 13px;
+            font-weight: row.kind == "item" ? 400 : 700;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+            accessible-label: self.text;
+        }
+    }
+}
+
 component Sheet inherits Rectangle {
     in property <string> title;
     in property <length> wide: 440px;
@@ -968,9 +993,9 @@ export component SettingsSheets inherits Rectangle {
                 y: max(16px, (root.height - self.preferred-height) / 2);
                 title: SettingsPage.update-title;
                 Scroll {
-                    height: min(240px, notes.preferred-height);
+                    height: min(360px, notes.preferred-height);
                     content-height: notes.preferred-height;
-                    notes := Text { width: parent.width - 8px; text: SettingsPage.update-notes; color: Theme.text; wrap: word-wrap; }
+                    notes := ChangeView { width: parent.width - 12px; rows: SettingsPage.update-log; }
                 }
                 if SettingsPage.update-progress != "": Hint { text: SettingsPage.update-progress; accessible-role: AccessibleRole.text; }
                 HorizontalLayout {
@@ -985,6 +1010,22 @@ export component SettingsSheets inherits Rectangle {
                     }
                     Button { text: I18n.t("Remind me later"); clicked => { SettingsPage.later-update(); } }
                     Button { text: I18n.t("Don't remind me"); clicked => { SettingsPage.ignore-update(); } }
+                }
+            }
+            if SettingsPage.sheet == "changelog": Sheet {
+                parent-width: root.width;
+                wide: 620px;
+                x: (root.width - self.width) / 2;
+                y: max(16px, (root.height - self.preferred-height) / 2);
+                title: I18n.t("Changelog");
+                Scroll {
+                    height: min(root.height - 150px, log.preferred-height);
+                    content-height: log.preferred-height;
+                    log := ChangeView { width: parent.width - 12px; rows: SettingsPage.changelog; }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Button { text: I18n.t("Close"); init => { self.focus(); } clicked => { SettingsPage.close-sheet(); } }
                 }
             }
             if SettingsPage.sheet == "vmic": Sheet {
