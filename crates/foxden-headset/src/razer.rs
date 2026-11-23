@@ -257,7 +257,7 @@ pub fn fits(m: &Model, c: &Coll) -> bool {
             c.page == 0xFF14 && c.usage == 0x01 && c.out_len >= 64 && c.in_len >= 64
         }
         Some(Wire::V3Pro) => c.iface == 5 && c.out_len >= 64 && c.in_len >= 15,
-        Some(Wire::Pa) => c.page == 0xFF00 && c.out_len >= 64 && c.in_len >= 16,
+        Some(Wire::Pa) => c.iface == 3 && c.page == 0xFF00 && c.out_len >= 64 && c.in_len >= 16,
         Some(Wire::V3x) => c.iface == 0 && c.feat_len >= 64,
         None => false,
     }
@@ -415,12 +415,17 @@ pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
     let dev = Dev::open(&f.coll).ok_or("the headset's receiver could not be opened")?;
     let _turn = foxden_core::hid_turn::take();
     if w == Wire::Pa {
-        dev.write(&pa_remote(true));
-        sleep(Duration::from_millis(35));
-        let took = cmds.iter().all(|c| dev.write(&pa_frame(c.reg, &c.args)));
-        sleep(Duration::from_millis(35));
-        dev.write(&pa_remote(false));
-        return if took { Ok(()) } else { Err(refused()) };
+        for c in &cmds {
+            dev.write(&pa_remote(true));
+            sleep(Duration::from_millis(35));
+            let took = dev.write(&pa_frame(c.reg, &c.args));
+            sleep(Duration::from_millis(35));
+            dev.write(&pa_remote(false));
+            if !took {
+                return Err(refused());
+            }
+        }
+        return Ok(());
     }
     for c in &cmds {
         let (status, _) =
