@@ -275,7 +275,7 @@
       start_minimized: false,
       autostart: false,
       auto_detect: true,
-      auto_update: true,
+      auto_update: false,
       lighting_module: true,
       fans_module: true,
       close_conflicts: true,

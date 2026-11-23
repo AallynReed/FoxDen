@@ -65,7 +65,7 @@ impl Default for Settings {
             start_minimized: false,
             autostart: true,
             auto_detect: true,
-            auto_update: true,
+            auto_update: false,
             language: "auto".into(),
             lighting_module: true,
             fans_module: true,
