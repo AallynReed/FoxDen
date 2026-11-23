@@ -345,21 +345,99 @@ pub fn static_effect(led: u8, pid: u16, brightness: u8, c: Color) -> (Vec<u8>, u
     (p, zone0)
 }
 
+/// Mode id, name, effect byte, colours, speed, highest brightness.
+const EFFECTS: [(&str, &str, u8, usize, bool, u8); 7] = [
+    (STATIC, "Static", EFFECT_STATIC, 1, false, BRIGHTNESS_MAX),
+    ("breathing", "Breathing", 2, 1, true, 100),
+    ("flashing", "Flashing", 3, 1, true, BRIGHTNESS_MAX),
+    (
+        "double_flashing",
+        "Double flashing",
+        15,
+        1,
+        true,
+        BRIGHTNESS_MAX,
+    ),
+    ("color_cycle", "Colour cycle", 4, 0, true, BRIGHTNESS_MAX),
+    ("rainbow", "Rainbow", 6, 0, true, BRIGHTNESS_MAX),
+    ("random", "Random", 8, 0, false, BRIGHTNESS_MAX),
+];
+/// Speed steps; the device counts them down, 0 being the fastest.
+const SPEEDS: u8 = 9;
+
 pub fn hardware() -> Hardware {
-    let mode = HardwareMode {
-        brightness: Some([0, BRIGHTNESS_MAX]),
-        colors: 1,
-        ..HardwareMode::new(STATIC, "Static")
-    };
-    Hardware { modes: vec![mode] }
+    let modes = EFFECTS.map(|(id, name, _, colors, speed, top)| HardwareMode {
+        speed: speed.then_some([0, SPEEDS]),
+        brightness: Some([0, top]),
+        colors,
+        random: colors > 0 && speed,
+        ..HardwareMode::new(id, name)
+    });
+    Hardware {
+        modes: modes.to_vec(),
+    }
 }
 
-/// SetStripBuiltinEffectState(-1, true), SetLEDEffect(EFFECT_STATIC) on every zone, ApplyEffect.
-pub fn static_mode(pid: u16, zones: &[Zone], brightness: u8, c: Color) -> Vec<Op> {
+/// One zone's effect record with its timing; `speed` 0 is the slowest.
+pub fn effect(
+    led: u8,
+    pid: u16,
+    kind: u8,
+    speed: u8,
+    brightness: u8,
+    random: bool,
+    c: Color,
+) -> (Vec<u8>, u32) {
+    let c = if random { Color::BLACK } else { c };
+    let (mut p, zone0) = static_effect(led, pid, brightness, c);
+    let s = u16::from(SPEEDS - speed.min(SPEEDS));
+    p[11] = kind;
+    p[30] = if random { 7 } else { 0 };
+    let periods = match kind {
+        2 => {
+            let t = if s <= 6 {
+                400 + s * 100
+            } else {
+                1000 + (s - 6) * 200
+            };
+            [t, t, 200, 0]
+        }
+        3 => [100, 100, s * 200 + 700, 0],
+        15 => {
+            p[11] = 3;
+            p[31] = 1;
+            p[32] = 2;
+            [100, 100, s * 200 + 700, 0]
+        }
+        4 => {
+            p[30] = 7;
+            let t = s * 100 + 300 + if s > 8 { 1300 * (s - 8) } else { 0 };
+            [t, t - 200, 0, 0]
+        }
+        6 => {
+            p[30] = 7;
+            p[31] = 1;
+            [((s + 1) * (s + 1) + (s + 1) + 10) * 5 / 2, 0, 0, 0]
+        }
+        8 => {
+            p[30] = 1;
+            p[31] = 5;
+            [100, 0, 0, 0]
+        }
+        _ => [0; 4],
+    };
+    for (i, t) in periods.iter().enumerate() {
+        p[22 + 2 * i..24 + 2 * i].copy_from_slice(&t.to_le_bytes());
+    }
+    (p, zone0)
+}
+
+/// Built-in strip effects on, the same effect on every zone, then apply.
+pub fn effect_mode(pid: u16, zones: &[Zone], packet: impl Fn(u8) -> (Vec<u8>, u32)) -> Vec<Op> {
     let mut ops = vec![Op::Feature(cc(0x32, 0, 0)), Op::Sleep(50)];
     let mut mask = 0;
     for zone in zones.iter().filter(|z| pid == 0xA100 || z.idx < 11) {
-        let (p, bit) = static_effect(zone.idx, pid, brightness, c);
+        let (p, bit) = packet(zone.idx);
         mask |= bit;
         ops.push(Op::Feature(p));
     }
@@ -528,12 +606,15 @@ impl Plan for Board {
 
     fn hardware_ops(&mut self, s: &HardwareSetting) -> Result<Vec<Op>, String> {
         let (_, f) = hardware().fit(s)?;
-        Ok(static_mode(
-            self.pid,
-            &self.zones,
-            f.brightness,
-            f.colors[0],
-        ))
+        let kind = EFFECTS
+            .iter()
+            .find(|e| e.0 == s.mode)
+            .map_or(EFFECT_STATIC, |e| e.2);
+        let c = f.colors.first().copied().unwrap_or(Color::BLACK);
+        let pid = self.pid;
+        Ok(effect_mode(pid, &self.zones, |led| {
+            effect(led, pid, kind, f.speed, f.brightness, f.random, c)
+        }))
     }
 }
 
@@ -861,6 +942,100 @@ mod tests {
         assert!(s.plan.hardware_ops(&HardwareSetting::new("wave")).is_err());
         s.reset();
         // the header sizes were already set by the first claim
+        let mut want = first;
+        want.retain(|op| !matches!(op, Op::Feature(p) if p[1] == 0x34));
+        assert_eq!(s.step(&colors), want);
+    }
+
+    fn timing(p: &[u8]) -> ([u16; 4], [u8; 4]) {
+        let t = |i: usize| u16::from_le_bytes([p[22 + 2 * i], p[23 + 2 * i]]);
+        ([t(0), t(1), t(2), t(3)], [p[30], p[31], p[32], p[33]])
+    }
+
+    #[test]
+    fn effect_records() {
+        let c = Color(1, 2, 3);
+        let (p, bit) = effect(0, 0x8297, 2, 9, 100, false, c);
+        assert_eq!(bit, 1);
+        assert_eq!(
+            &p[..18],
+            &[0xCC, 0x20, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 100, 0, 3, 2, 1, 0]
+        );
+        assert_eq!(timing(&p), ([400, 400, 200, 0], [0, 0, 0, 0]));
+        assert_eq!(
+            timing(&effect(0, 0x8297, 2, 0, 100, false, c).0).0,
+            [1600, 1600, 200, 0]
+        );
+        let (p, _) = effect(0, 0x8297, 3, 4, 255, true, c);
+        assert_eq!(&p[11..18], &[3, 255, 0, 0, 0, 0, 0]);
+        assert_eq!(timing(&p), ([100, 100, 1700, 0], [7, 0, 0, 0]));
+        let (p, _) = effect(0, 0x8297, 15, 9, 255, false, c);
+        assert_eq!(p[11], 3);
+        assert_eq!(timing(&p), ([100, 100, 700, 0], [0, 1, 2, 0]));
+        assert_eq!(
+            timing(&effect(0, 0x8297, 4, 0, 255, false, c).0),
+            ([2500, 2300, 0, 0], [7, 0, 0, 0])
+        );
+        assert_eq!(
+            timing(&effect(0, 0x8297, 4, 9, 255, false, c).0).0,
+            [300, 100, 0, 0]
+        );
+        assert_eq!(
+            timing(&effect(0, 0x8297, 6, 9, 255, false, c).0),
+            ([30, 0, 0, 0], [7, 1, 0, 0])
+        );
+        assert_eq!(
+            timing(&effect(0, 0x8297, 6, 0, 255, false, c).0).0,
+            [300, 0, 0, 0]
+        );
+        assert_eq!(
+            timing(&effect(0, 0x8297, 8, 0, 255, false, c).0),
+            ([100, 0, 0, 0], [1, 5, 0, 0])
+        );
+        assert_eq!(
+            effect(0, 0x8297, 1, 4, 0x40, false, c),
+            static_effect(0, 0x8297, 0x40, c)
+        );
+    }
+
+    #[test]
+    fn breathing_mode_and_back_to_direct() {
+        let report = parse_report(&report_bytes(), None).unwrap();
+        let board = Board::new(0x8297, report);
+        let leds = board.led_count();
+        let mut s = Session::new(board, leds);
+        let colors = vec![Color(9, 8, 7); leds];
+        let first = s.step(&colors);
+        let mode = hardware().mode("breathing").cloned().unwrap();
+        assert_eq!(
+            (mode.speed, mode.brightness, mode.colors, mode.random),
+            (Some([0, 9]), Some([0, 100]), 1, true)
+        );
+        let mut setting = HardwareSetting::new("breathing");
+        setting.speed = Some(9);
+        setting.brightness = Some(255);
+        setting.colors = vec![Color(1, 2, 3)];
+        let ops = s.plan.hardware_ops(&setting).unwrap();
+        assert_eq!(ops.len(), 2 + 8 + 1);
+        assert_eq!(ops[0], Op::Feature(cc(0x32, 0, 0)));
+        let Op::Feature(p) = &ops[2] else { panic!() };
+        assert_eq!(
+            &p[..18],
+            &[
+                0xCC, 0x25, 0x20, 0, 0, 0, 0, 0, 0, 0, 0, 2, 100, 0, 3, 2, 1, 0
+            ]
+        );
+        assert_eq!(timing(p).0, [400, 400, 200, 0]);
+        assert_eq!(ops[10], Op::Feature(apply(0x60 | 0x1F | 0x80)));
+        let Op::Feature(r) = &s
+            .plan
+            .hardware_ops(&HardwareSetting::new("random"))
+            .unwrap()[2]
+        else {
+            panic!()
+        };
+        assert_eq!((r[11], r[12], timing(r).1), (8, 255, [1, 5, 0, 0]));
+        s.reset();
         let mut want = first;
         want.retain(|op| !matches!(op, Op::Feature(p) if p[1] == 0x34));
         assert_eq!(s.step(&colors), want);
