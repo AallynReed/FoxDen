@@ -1,0 +1,626 @@
+//! The device layout, drawn the way the web canvas draws it.
+
+use std::collections::HashMap;
+use std::f32::consts::{PI, TAU};
+
+use tiny_skia::{
+    Color, FillRule, Mask, Paint, PathBuilder, Pixmap, Rect, Stroke, Transform,
+};
+
+const PAD: f32 = 20.0;
+const MIN_SIZE: f32 = 0.02;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Dev {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub rect: [f32; 4],
+    pub grid: [u32; 2],
+    pub leds: Vec<[f32; 2]>,
+    pub enabled: bool,
+    pub brightness: f32,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Move,
+    Resize,
+}
+
+struct Drag {
+    id: String,
+    mode: Mode,
+    from: (f32, f32),
+    origin: [f32; 4],
+    rect: [f32; 4],
+    moved: bool,
+    done: bool,
+}
+
+pub struct Label {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub text: String,
+    pub strong: bool,
+}
+
+#[derive(Default)]
+pub struct Canvas {
+    pub devices: Vec<Dev>,
+    pub colors: HashMap<String, Vec<[u8; 3]>>,
+    pub selected: Option<String>,
+    pub hover: Option<String>,
+    pub light: bool,
+    drag: Option<Drag>,
+    w: f32,
+    h: f32,
+}
+
+struct Ink {
+    plate: Color,
+    line: Color,
+    stroke: Color,
+    text: Color,
+    accent: Color,
+    unlit: Color,
+    bg: Color,
+}
+
+fn hex(v: u32) -> Color {
+    Color::from_rgba8((v >> 16) as u8, (v >> 8) as u8, v as u8, 255)
+}
+
+impl Ink {
+    fn new(light: bool) -> Self {
+        if light {
+            Ink {
+                plate: hex(0x1b1b1f),
+                line: hex(0xd0d0d6),
+                stroke: hex(0x6e6f78),
+                text: hex(0x1b1b1f),
+                accent: hex(0xa84a00),
+                unlit: hex(0x303137),
+                bg: hex(0xe7e7ea),
+            }
+        } else {
+            Ink {
+                plate: hex(0x0f1011),
+                line: hex(0x36373c),
+                stroke: hex(0x84858e),
+                text: hex(0xe7e7ea),
+                accent: hex(0xe8822e),
+                unlit: hex(0x232428),
+                bg: hex(0x17181a),
+            }
+        }
+    }
+}
+
+struct Painter<'a> {
+    pm: &'a mut Pixmap,
+    ts: Transform,
+    alpha: f32,
+    mask: Option<Mask>,
+}
+
+impl Painter<'_> {
+    fn paint(&self, mut c: Color) -> Paint<'static> {
+        c.apply_opacity(self.alpha);
+        let mut p = Paint::default();
+        p.set_color(c);
+        p.anti_alias = true;
+        p
+    }
+
+    fn fill_rect(&mut self, c: Color, x: f32, y: f32, w: f32, h: f32) {
+        if let Some(r) = Rect::from_xywh(x, y, w.max(0.01), h.max(0.01)) {
+            let p = self.paint(c);
+            let path = PathBuilder::from_rect(r);
+            self.pm.fill_path(&path, &p, FillRule::Winding, self.ts, self.mask.as_ref());
+        }
+    }
+
+    fn fill(&mut self, c: Color, pb: PathBuilder) {
+        if let Some(path) = pb.finish() {
+            let p = self.paint(c);
+            self.pm.fill_path(&path, &p, FillRule::Winding, self.ts, self.mask.as_ref());
+        }
+    }
+
+    fn stroke(&mut self, c: Color, width: f32, pb: PathBuilder) {
+        if let Some(path) = pb.finish() {
+            let p = self.paint(c);
+            let s = Stroke {
+                width,
+                ..Stroke::default()
+            };
+            self.pm.stroke_path(&path, &p, &s, self.ts, self.mask.as_ref());
+        }
+    }
+
+    fn stroke_rect(&mut self, c: Color, x: f32, y: f32, w: f32, h: f32) {
+        self.stroke(c, 1.0, rect_path(x, y, w, h));
+    }
+}
+
+fn rect_path(x: f32, y: f32, w: f32, h: f32) -> PathBuilder {
+    let mut pb = PathBuilder::new();
+    pb.move_to(x, y);
+    pb.line_to(x + w, y);
+    pb.line_to(x + w, y + h);
+    pb.line_to(x, y + h);
+    pb.close();
+    pb
+}
+
+fn cut_path(x: f32, y: f32, w: f32, h: f32, cut: f32) -> PathBuilder {
+    let mut pb = PathBuilder::new();
+    pb.move_to(x, y);
+    pb.line_to(x + w - cut, y);
+    pb.line_to(x + w, y + cut);
+    pb.line_to(x + w, y + h);
+    pb.line_to(x, y + h);
+    pb.close();
+    pb
+}
+
+fn mouse_path(x: f32, y: f32, w: f32, h: f32) -> PathBuilder {
+    let mut pb = PathBuilder::new();
+    pb.move_to(x, y + h * 0.42);
+    pb.cubic_to(x, y + h * 0.08, x + w * 0.2, y, x + w / 2.0, y);
+    pb.cubic_to(x + w * 0.8, y, x + w, y + h * 0.08, x + w, y + h * 0.42);
+    pb.line_to(x + w * 0.96, y + h * 0.78);
+    pb.cubic_to(x + w * 0.92, y + h, x + w * 0.08, y + h, x + w * 0.04, y + h * 0.78);
+    pb.close();
+    pb
+}
+
+fn circle(cx: f32, cy: f32, r: f32) -> PathBuilder {
+    let mut pb = PathBuilder::new();
+    pb.push_circle(cx, cy, r.max(0.1));
+    pb
+}
+
+fn arc(cx: f32, cy: f32, r: f32, a0: f32, a1: f32) -> PathBuilder {
+    let steps = (((a1 - a0).abs() * r / 3.0).ceil() as usize).clamp(2, 64);
+    let mut pb = PathBuilder::new();
+    for i in 0..=steps {
+        let a = a0 + (a1 - a0) * i as f32 / steps as f32;
+        let (x, y) = (cx + a.cos() * r, cy + a.sin() * r);
+        if i == 0 {
+            pb.move_to(x, y);
+        } else {
+            pb.line_to(x, y);
+        }
+    }
+    pb
+}
+
+fn line(x1: f32, y1: f32, x2: f32, y2: f32) -> PathBuilder {
+    let mut pb = PathBuilder::new();
+    pb.move_to(x1, y1);
+    pb.line_to(x2, y2);
+    pb
+}
+
+fn is_ring(leds: &[[f32; 2]]) -> bool {
+    if leds.len() < 8 {
+        return false;
+    }
+    let n = leds.len() as f32;
+    let cx = leds.iter().map(|l| l[0]).sum::<f32>() / n;
+    let cy = leds.iter().map(|l| l[1]).sum::<f32>() / n;
+    let d: Vec<f32> = leds.iter().map(|l| (l[0] - cx).hypot(l[1] - cy)).collect();
+    let mean = d.iter().sum::<f32>() / n;
+    let spread = (d.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / n).sqrt();
+    mean > 0.2 && spread / mean < 0.15
+}
+
+fn shape_of(d: &Dev, w: f32, h: f32) -> &'static str {
+    if is_ring(&d.leds) {
+        return "fan";
+    }
+    let long = w.max(h) / w.min(h).max(1.0);
+    match d.kind.as_str() {
+        "keyboard" => "keyboard",
+        "mouse" => "mouse",
+        "memory" => "memory",
+        "gpu" if long > 16.0 => "strip",
+        "gpu" => "gpu",
+        "motherboard" if long > 3.0 => "strip",
+        "motherboard" => "board",
+        "strip" => "strip",
+        _ if long > 6.0 => "strip",
+        _ => "plate",
+    }
+}
+
+fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
+    v.max(lo).min(hi.max(lo))
+}
+
+fn tidy(r: [f32; 4]) -> [f32; 4] {
+    r.map(|v| (v * 1e4).round() / 1e4)
+}
+
+impl Canvas {
+    pub fn find(&self, id: &str) -> Option<&Dev> {
+        self.devices.iter().find(|d| d.id == id)
+    }
+
+    fn rect_of(&self, d: &Dev) -> [f32; 4] {
+        match &self.drag {
+            Some(drag) if drag.id == d.id => drag.rect,
+            _ => d.rect,
+        }
+    }
+
+    fn to_px(&self, [x, y, w, h]: [f32; 4]) -> [f32; 4] {
+        let cw = self.w - PAD * 2.0;
+        let ch = self.h - PAD * 2.0;
+        [
+            (PAD + x * cw).round(),
+            (PAD + y * ch).round(),
+            (w * cw).round().max(2.0),
+            (h * ch).round().max(2.0),
+        ]
+    }
+
+    fn stack(&self) -> Vec<&Dev> {
+        let mut v: Vec<&Dev> = self.devices.iter().collect();
+        v.sort_by_key(|d| Some(&d.id) == self.selected.as_ref());
+        v
+    }
+
+    fn hit(&self, px: f32, py: f32) -> Option<(String, Mode)> {
+        if let Some(sel) = self.selected.as_deref().and_then(|id| self.find(id)) {
+            let [x, y, w, h] = self.to_px(self.rect_of(sel));
+            if (px - x - w).abs() <= 8.0 && (py - y - h).abs() <= 8.0 {
+                return Some((sel.id.clone(), Mode::Resize));
+            }
+        }
+        self.stack().into_iter().rev().find_map(|d| {
+            let [x, y, w, h] = self.to_px(self.rect_of(d));
+            (px >= x - 3.0 && px <= x + w + 3.0 && py >= y - 3.0 && py <= y + h + 3.0)
+                .then(|| (d.id.clone(), Mode::Move))
+        })
+    }
+
+    pub fn down(&mut self, px: f32, py: f32) {
+        let hit = self.hit(px, py);
+        self.selected = hit.as_ref().map(|(id, _)| id.clone());
+        if let Some((id, mode)) = hit {
+            let rect = self.find(&id).map(|d| self.rect_of(d)).unwrap_or_default();
+            self.drag = Some(Drag {
+                id,
+                mode,
+                from: (px, py),
+                origin: rect,
+                rect,
+                moved: false,
+                done: false,
+            });
+        }
+    }
+
+    pub fn moved(&mut self, px: f32, py: f32, pressed: bool) -> bool {
+        let (cw, ch) = (self.w - PAD * 2.0, self.h - PAD * 2.0);
+        match self.drag.as_mut() {
+            Some(drag) if pressed && !drag.done => {
+                if !drag.moved && (px - drag.from.0).hypot(py - drag.from.1) < 3.0 {
+                    return false;
+                }
+                let dx = (px - drag.from.0) / cw;
+                let dy = (py - drag.from.1) / ch;
+                let [x, y, w, h] = drag.origin;
+                drag.rect = match drag.mode {
+                    Mode::Move => [clamp(x + dx, 0.0, 1.0 - w), clamp(y + dy, 0.0, 1.0 - h), w, h],
+                    Mode::Resize => [
+                        x,
+                        y,
+                        clamp(w + dx, MIN_SIZE, 1.0 - x),
+                        clamp(h + dy, MIN_SIZE, 1.0 - y),
+                    ],
+                };
+                drag.moved = true;
+                true
+            }
+            _ => {
+                let hover = self.hit(px, py).map(|(id, _)| id);
+                let changed = hover != self.hover;
+                self.hover = hover;
+                changed
+            }
+        }
+    }
+
+    /// The rect to save once a drag ends, if the device moved.
+    pub fn up(&mut self) -> Option<(Dev, [f32; 4])> {
+        let drag = self.drag.as_mut()?;
+        if !drag.moved || drag.done {
+            self.drag = None;
+            return None;
+        }
+        drag.done = true;
+        let rect = tidy(drag.rect);
+        let id = drag.id.clone();
+        self.find(&id).cloned().map(|d| (d, rect))
+    }
+
+    /// A finished drag gives way once the backend has the new rect.
+    pub fn settle(&mut self) {
+        if self.drag.as_ref().is_some_and(|d| d.done) {
+            self.drag = None;
+        }
+        if let Some(id) = &self.selected
+            && self.find(id).is_none()
+        {
+            self.selected = None;
+        }
+    }
+
+    pub fn key(&self, key: &str, ctrl: bool, shift: bool) -> Option<(Dev, [f32; 4])> {
+        let d = self.find(self.selected.as_deref()?)?;
+        let (dx, dy) = match key {
+            "\u{F702}" => (-1.0, 0.0),
+            "\u{F703}" => (1.0, 0.0),
+            "\u{F700}" => (0.0, -1.0),
+            "\u{F701}" => (0.0, 1.0),
+            _ => return None,
+        };
+        let step = if ctrl { 0.05 } else { 0.01 };
+        let (dx, dy) = (dx * step, dy * step);
+        let [x, y, w, h] = d.rect;
+        let rect = if shift {
+            [x, y, clamp(w + dx, MIN_SIZE, 1.0 - x), clamp(h + dy, MIN_SIZE, 1.0 - y)]
+        } else {
+            [clamp(x + dx, 0.0, 1.0 - w), clamp(y + dy, 0.0, 1.0 - h), w, h]
+        };
+        Some((d.clone(), tidy(rect)))
+    }
+
+    pub fn render(&mut self, w: f32, h: f32, scale: f32) -> Option<(Pixmap, Vec<Label>)> {
+        self.w = w;
+        self.h = h;
+        let pw = (w * scale).round() as u32;
+        let ph = (h * scale).round() as u32;
+        let mut pm = Pixmap::new(pw, ph)?;
+        let ink = Ink::new(self.light);
+        pm.fill(ink.bg);
+        let mut p = Painter {
+            pm: &mut pm,
+            ts: Transform::from_scale(scale, scale),
+            alpha: 1.0,
+            mask: None,
+        };
+        p.stroke_rect(ink.line, PAD - 0.5, PAD - 0.5, w - PAD * 2.0 + 1.0, h - PAD * 2.0 + 1.0);
+        let mut labels = Vec::new();
+        for d in self.stack() {
+            let [x, y, dw, dh] = self.to_px(self.rect_of(d));
+            let selected = Some(&d.id) == self.selected.as_ref();
+            let hovered = Some(&d.id) == self.hover.as_ref();
+            let shape = shape_of(d, dw, dh);
+            let edge = if selected {
+                ink.accent
+            } else if hovered {
+                ink.text
+            } else {
+                ink.stroke
+            };
+            p.alpha = if d.enabled { 1.0 } else { 0.35 };
+            let clip = draw_body(&mut p, &ink, shape, x + 0.5, y + 0.5, dw - 1.0, dh - 1.0, edge);
+            if let Some(path) = clip.and_then(|pb| pb.finish()) {
+                let mut mask = Mask::new(pw, ph)?;
+                mask.fill_path(&path, FillRule::Winding, true, p.ts);
+                p.mask = Some(mask);
+            }
+            draw_leds(&mut p, &ink, shape, d, self.colors.get(&d.id), x, y, dw, dh);
+            p.mask = None;
+            p.alpha = 1.0;
+            if selected {
+                p.stroke_rect(ink.accent, x - 2.5, y - 2.5, dw + 5.0, dh + 5.0);
+                p.fill_rect(ink.accent, x + dw - 4.0, y + dh - 4.0, 9.0, 9.0);
+            }
+            labels.push(Label {
+                x,
+                y: y - 20.0,
+                width: dw.max(if selected || hovered { 240.0 } else { 0.0 }),
+                text: if d.enabled {
+                    d.name.clone()
+                } else {
+                    format!("{} (off)", d.name)
+                },
+                strong: selected || hovered,
+            });
+        }
+        Some((pm, labels))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_body(
+    p: &mut Painter,
+    ink: &Ink,
+    shape: &str,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    edge: Color,
+) -> Option<PathBuilder> {
+    let s = w.min(h);
+    let outline = match shape {
+        "mouse" => {
+            p.fill(ink.plate, mouse_path(x, y, w, h));
+            p.stroke(ink.line, 1.0, line(x + w / 2.0, y + 1.0, x + w / 2.0, y + h * 0.4));
+            p.stroke(ink.line, 1.0, line(x + w * 0.02, y + h * 0.4, x + w * 0.98, y + h * 0.4));
+            p.fill_rect(ink.line, x + w / 2.0 - w * 0.07, y + h * 0.1, w * 0.14, h * 0.2);
+            mouse_path(x, y, w, h)
+        }
+        "memory" => {
+            let c = (s * 0.3).min(6.0);
+            p.fill(ink.plate, cut_path(x, y, w, h, c));
+            if h > w {
+                let fw = (w * 0.14).max(2.0);
+                p.fill_rect(ink.stroke, x + w - fw, y + h * 0.06, fw, h * 0.4);
+                p.fill_rect(ink.stroke, x + w - fw, y + h * 0.52, fw, h * 0.42);
+            } else {
+                let fh = (h * 0.14).max(2.0);
+                p.fill_rect(ink.stroke, x + w * 0.06, y + h - fh, w * 0.4, fh);
+                p.fill_rect(ink.stroke, x + w * 0.52, y + h - fh, w * 0.42, fh);
+            }
+            cut_path(x, y, w, h, c)
+        }
+        "gpu" => {
+            let c = (s * 0.25).min(8.0);
+            p.fill(ink.plate, cut_path(x, y, w, h, c));
+            p.fill_rect(ink.line, x, y, (w * 0.03).max(2.0), h);
+            let fh = (h * 0.08).max(2.0);
+            p.fill_rect(ink.stroke, x + w * 0.12, y + h - fh, w * 0.3, fh);
+            let fans = if w / h > 3.2 { 3 } else { 2 };
+            let r = (h * 0.3).min(w * 0.8 / fans as f32 / 2.3);
+            for i in 0..fans {
+                let cx = x + w * 0.1 + (i as f32 + 0.5) * w * 0.86 / fans as f32;
+                let cy = y + h * 0.6;
+                p.stroke(ink.line, 1.0, circle(cx, cy, r));
+                p.stroke(ink.line, 1.0, circle(cx, cy, r * 0.25));
+            }
+            cut_path(x, y, w, h, c)
+        }
+        "board" => {
+            let c = (s * 0.08).min(10.0);
+            p.fill(ink.plate, cut_path(x, y, w, h, c));
+            p.stroke_rect(ink.line, x + w * 0.38, y + h * 0.12, w * 0.22, h * 0.24);
+            for i in 0..4 {
+                p.stroke_rect(ink.line, x + w * (0.68 + i as f32 * 0.06), y + h * 0.08, w * 0.03, h * 0.42);
+            }
+            for i in 0..2 {
+                p.stroke_rect(ink.line, x + w * 0.08, y + h * (0.56 + i as f32 * 0.18), w * 0.6, h * 0.05);
+            }
+            p.stroke_rect(ink.line, x + w * 0.04, y + h * 0.06, w * 0.12, h * 0.36);
+            cut_path(x, y, w, h, c)
+        }
+        "fan" => {
+            let (cx, cy, r) = (x + w / 2.0, y + h / 2.0, s / 2.0);
+            p.fill_rect(ink.plate, cx - r, cy - r, r * 2.0, r * 2.0);
+            p.stroke(ink.line, 1.0, circle(cx, cy, r * 0.78));
+            for i in 0..7 {
+                let a = i as f32 / 7.0 * TAU;
+                let mut pb = PathBuilder::new();
+                pb.move_to(cx + a.cos() * r * 0.22, cy + a.sin() * r * 0.22);
+                pb.quad_to(
+                    cx + (a + 0.5).cos() * r * 0.55,
+                    cy + (a + 0.5).sin() * r * 0.55,
+                    cx + (a + 0.9).cos() * r * 0.72,
+                    cy + (a + 0.9).sin() * r * 0.72,
+                );
+                p.stroke(ink.line, 1.0, pb);
+            }
+            p.fill(ink.plate, circle(cx, cy, r * 0.22));
+            p.stroke(ink.line, 1.0, circle(cx, cy, r * 0.22));
+            rect_path(cx - r, cy - r, r * 2.0, r * 2.0)
+        }
+        "keyboard" => {
+            let c = (s * 0.08).min(10.0);
+            p.fill(ink.plate, cut_path(x, y, w, h, c));
+            cut_path(x, y, w, h, c)
+        }
+        "strip" => {
+            let c = (s * 0.4).min(4.0);
+            p.fill(ink.plate, cut_path(x, y, w, h, c));
+            cut_path(x, y, w, h, c)
+        }
+        _ => {
+            p.fill(ink.plate, rect_path(x, y, w, h));
+            rect_path(x, y, w, h)
+        }
+    };
+    p.stroke(edge, 1.0, outline);
+    (shape == "mouse").then(|| mouse_path(x, y, w, h))
+}
+
+fn led(ink: &Ink, colors: Option<&Vec<[u8; 3]>>, i: usize) -> Color {
+    match colors.and_then(|c| c.get(i)) {
+        Some(&[r, g, b]) if r as u32 + g as u32 + b as u32 > 24 => Color::from_rgba8(r, g, b, 255),
+        _ => ink.unlit,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_leds(
+    p: &mut Painter,
+    ink: &Ink,
+    shape: &str,
+    d: &Dev,
+    colors: Option<&Vec<[u8; 3]>>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) {
+    let leds = &d.leds;
+    let [cols, rows] = d.grid;
+    let cw = w / cols.max(1) as f32;
+    let ch = h / rows.max(1) as f32;
+    let at = |i: usize| (x + leds[i][0] * w, y + leds[i][1] * h);
+    let n = leds.len();
+    if shape == "memory" || (shape == "gpu" && rows == 1) {
+        let tall = h > w;
+        let nf = n as f32;
+        for i in 0..n {
+            let c = led(ink, colors, i);
+            let fi = i as f32;
+            if shape == "memory" && tall {
+                p.fill_rect(c, x + w * 0.1, y + h * 0.04 + fi * h * 0.92 / nf, w * 0.45, h * 0.92 / nf + 0.5);
+            } else if shape == "memory" {
+                p.fill_rect(c, x + w * 0.04 + fi * w * 0.92 / nf, y + h * 0.1, w * 0.92 / nf + 0.5, h * 0.45);
+            } else {
+                p.fill_rect(c, x + w * 0.06 + fi * w * 0.9 / nf, y + h * 0.08, w * 0.9 / nf + 0.5, (h * 0.14).max(2.0));
+            }
+        }
+        return;
+    }
+    if shape == "fan" {
+        let (cx, cy, r) = (x + w / 2.0, y + h / 2.0, w.min(h) / 2.0);
+        let width = (r * 0.16).max(2.0);
+        for i in 0..n {
+            let (lx, ly) = at(i);
+            let a = (ly - cy).atan2(lx - cx);
+            let half = PI / n as f32 + 0.01;
+            p.stroke(led(ink, colors, i), width, arc(cx, cy, r * 0.88, a - half, a + half));
+        }
+        return;
+    }
+    if matches!(shape, "mouse" | "strip" | "board") {
+        let r = if shape == "mouse" {
+            w.min(h) * 0.16
+        } else {
+            let cap = if shape == "board" { w.min(h) * 0.08 } else { f32::INFINITY };
+            (cw.min(ch).min(cap) * 0.36).max(1.0)
+        };
+        for i in 0..n {
+            let (lx, ly) = at(i);
+            p.fill(led(ink, colors, i), circle(lx, ly, r));
+        }
+        return;
+    }
+    let gap = if shape == "keyboard" {
+        (cw.min(ch) * 0.12).max(1.0)
+    } else {
+        (cw.min(ch) * 0.12).min(1.5)
+    };
+    let lw = (cw - gap * 2.0).max(1.0);
+    let lh = (ch - gap * 2.0).max(1.0);
+    for i in 0..n {
+        let (lx, ly) = at(i);
+        p.fill_rect(led(ink, colors, i), lx - lw / 2.0, ly - lh / 2.0, lw, lh);
+    }
+    if shape == "keyboard" && lw > 6.0 {
+        for i in 0..n {
+            let (lx, ly) = at(i);
+            p.stroke_rect(ink.plate, lx - lw / 2.0 + 1.5, ly - lh / 2.0 + 1.5, lw - 3.0, lh - 3.0);
+        }
+    }
+}

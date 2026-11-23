@@ -74,14 +74,41 @@ langs!(
     "zh-Hant"
 );
 
+const SHOW_EVENT: &str = "Local\\FoxDenNativeShow\0";
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().collect()
+}
+
+/// A second launch asks the first to show its window, then leaves.
 fn already_running() -> bool {
     use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
-    use windows_sys::Win32::System::Threading::CreateMutexW;
-    let name: Vec<u16> = "Local\\FoxDenNative\0".encode_utf16().collect();
+    use windows_sys::Win32::System::Threading::{CreateEventW, CreateMutexW, SetEvent};
     unsafe {
-        CreateMutexW(std::ptr::null(), 0, name.as_ptr());
-        GetLastError() == ERROR_ALREADY_EXISTS
+        CreateMutexW(std::ptr::null(), 0, wide("Local\\FoxDenNative\0").as_ptr());
+        if GetLastError() != ERROR_ALREADY_EXISTS {
+            return false;
+        }
+        let event = CreateEventW(std::ptr::null(), 0, 0, wide(SHOW_EVENT).as_ptr());
+        if !event.is_null() {
+            SetEvent(event);
+        }
+        true
     }
+}
+
+fn watch_show(app: AppHandle) {
+    use windows_sys::Win32::System::Threading::{CreateEventW, INFINITE, WaitForSingleObject};
+    let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, wide(SHOW_EVENT).as_ptr()) } as usize;
+    if event == 0 {
+        return;
+    }
+    std::thread::spawn(move || {
+        loop {
+            unsafe { WaitForSingleObject(event as _, INFINITE) };
+            tray::show_window(&app);
+        }
+    });
 }
 
 pub fn quit(app: &AppHandle) {
@@ -126,6 +153,7 @@ fn main() {
     report::send_last_crash();
     log::info("app", format!("FoxDen {} started (native)", env!("CARGO_PKG_VERSION")));
     tray::create(&app);
+    watch_show(app.clone());
     let at_sign_in = std::env::args().any(|arg| arg == autostart::TRAY_ARG);
     app.manage(state::spawn_worker(app.clone(), shared.clone()));
     app.manage(mixer::Mixer::start(shared.clone()));

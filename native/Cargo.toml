@@ -9,6 +9,7 @@ name = "foxden-native"
 path = "src/main.rs"
 
 [build-dependencies]
+slint-build = "1.19"
 winresource = "0.1"
 
 [dependencies]
