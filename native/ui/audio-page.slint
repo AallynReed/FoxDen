@@ -1,0 +1,226 @@
+import { AudOpt } from "audio-widgets.slint";
+
+export struct AudStrip {
+    id: string,
+    title: string,
+    off: bool,
+    turn-on-label: string,
+    volume: float,
+    vol-label: string,
+    muted: bool,
+    mute-label: string,
+    eq-on: bool,
+    eq-on-label: string,
+    eq-open: bool,
+    eq-label: string,
+    fx-open: bool,
+    fx-label: string,
+    empty: bool,
+    add-label: string,
+    chips-label: string,
+}
+
+export struct AudChip {
+    strip: int,
+    exe: string,
+    name: string,
+    mark: string,
+    tag: string,
+    warn: bool,
+    auto: bool,
+    device: bool,
+    note: string,
+    remove-label: string,
+}
+
+export struct AudPrio {
+    name: string,
+    num: int,
+    tag: string,
+    chosen: bool,
+    dim: bool,
+    up-label: string,
+    down-label: string,
+    remove-label: string,
+}
+
+export struct AudBand {
+    name: string,
+    gain: float,
+    db: string,
+    filter: int,
+    freq: string,
+    q: string,
+    gain-off: bool,
+    gain-label: string,
+    filter-label: string,
+    freq-label: string,
+    q-label: string,
+}
+
+export struct AudBlock {
+    id: string,
+    name: string,
+    hint: string,
+    on: bool,
+    meter: bool,
+    agc: bool,
+    gr-title: string,
+    check: string,
+    checked: bool,
+}
+
+export struct AudPSlider {
+    block: int,
+    field: string,
+    label: string,
+    value: float,
+    min: float,
+    max: float,
+    step: float,
+    text: string,
+    adv: bool,
+}
+
+export struct AudGr {
+    fill: float,
+    up: bool,
+    text: string,
+}
+
+export struct AudVol {
+    key: string,
+    name: string,
+    sub: string,
+    volume: float,
+    muted: bool,
+    idle: bool,
+    special: bool,
+    chosen: bool,
+    capture: bool,
+    make: bool,
+    make-label: string,
+    vol-label: string,
+    mute-label: string,
+}
+
+export struct AudSrc {
+    channel: string,
+    label: string,
+    options: [AudOpt],
+    index: int,
+}
+
+export struct AudSkip {
+    exe: string,
+    name: string,
+    label: string,
+}
+
+export global AudioPage {
+    in property <bool> loaded;
+    in property <[AudOpt]> outputs;
+    in property <int> output-index;
+    in property <bool> following;
+    in property <string> following-note;
+    in property <bool> running;
+    in property <bool> run-busy;
+    in property <string> problem;
+    in-out property <bool> prio-open;
+    in property <bool> prio-on;
+
+    in property <[AudStrip]> strips;
+    in property <[AudChip]> chips;
+    in property <[AudOpt]> free-apps;
+    in property <[float]> levels: [0, 0, 0, 0, 0];
+
+    in property <float> master: 1;
+    in property <bool> master-muted;
+    in property <string> plays-on;
+    in property <bool> master-fx-open;
+    in property <[string]> master-labels: ["", "", ""];
+
+    in property <float> chat;
+    in property <string> chat-word;
+    in property <string> side-end;
+    in property <[bool]> sides: [true, false, false];
+    in property <bool> dial;
+
+    in property <[AudOpt]> mics;
+    in property <int> mic-index;
+    in property <bool> mic-empty;
+    in property <[AudOpt]> mic-profiles;
+    in property <bool> vmic;
+    in property <string> vmic-note;
+    in property <bool> vmic-warn;
+    in property <bool> gate-on;
+    in property <float> gate-db: -50;
+    in property <bool> monitor;
+    in property <float> monitor-volume: 0.5;
+
+    in-out property <bool> sheet-open;
+    in property <string> sheet-progress;
+    in property <bool> installing;
+    in property <string> vmic-state;
+    in property <bool> vmic-removable;
+    in property <string> vmic-outcome;
+    in property <bool> removing;
+
+    in property <bool> p-on;
+    in property <bool> p-mixer;
+    in property <bool> p-windows;
+    in property <bool> p-inputs;
+    in property <[AudPrio]> prio-rows;
+    in property <[AudOpt]> prio-add;
+    in property <string> prio-note;
+
+    in property <bool> eq-open;
+    in property <string> eq-title;
+    in property <string> eq-on-label;
+    in property <bool> eq-on;
+    in property <int> preset: -1;
+    in property <[AudOpt]> pf-options;
+    in property <bool> pf-mine;
+    in-out property <string> pf-name;
+    in-out property <string> pf-code;
+    in property <string> pf-note;
+    in property <string> curve;
+    in property <bool> curve-off;
+    in-out property <bool> eq-adv;
+    in property <[AudBand]> bands;
+    in property <[AudOpt]> filters;
+
+    in property <bool> proc-open;
+    in property <string> proc-title;
+    in property <[AudOpt]> proc-presets;
+    in property <string> proc-note;
+    in-out property <bool> proc-adv;
+    in property <[AudBlock]> blocks;
+    in property <[AudPSlider]> psliders;
+    in property <[AudGr]> gr;
+
+    in-out property <bool> more-open;
+    in property <[AudOpt]> parks;
+    in property <int> park-index;
+    in property <string> parked;
+    in property <bool> auto-assign;
+    in property <[AudSkip]> skipped;
+    in property <[AudSrc]> sources;
+
+    in-out property <bool> apps-open;
+    in-out property <bool> devs-open;
+    in property <string> apps-count;
+    in property <string> devs-count;
+    in property <[AudVol]> apps;
+    in property <[AudVol]> devices;
+    in property <[float]> app-levels;
+    in property <[float]> dev-levels;
+    in property <string> vol-problem;
+
+    callback opened();
+    // Buttons: (what, which, extra).
+    callback act(string, string, string);
+    callback slide(string, string, float);
+    callback flip(string, string, bool);
+    callback pick(string, string, string);
+}

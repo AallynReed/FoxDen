@@ -1,13 +1,640 @@
-import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+import { Theme, I18n, Heading, Hint, Button, Toggle, Scroll } from "widgets.slint";
+import { AudOpt, AudBtn, IconBtn, Check, ASlider, Meter, Tag, Mark, Choice, Problem, Small, Num } from "audio-widgets.slint";
+import { AudioPage, AudStrip, AudChip, AudPrio } from "audio-page.slint";
+import { EqBox, ProcBox, VolPanels, MoreBox } from "audio-drawers.slint";
 
-export global AudioPage {
-    in property <bool> ready;
+export { AudioPage }
+
+component Chip inherits Rectangle {
+    in property <AudChip> c;
+    min-height: col.preferred-height;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: list-item;
+    accessible-label: c.name;
+    if c.warn: Rectangle { x: 0; width: 3px; background: Theme.danger; }
+    col := VerticalLayout {
+        padding-left: c.warn ? 6px : 8px;
+        padding: 1px;
+        HorizontalLayout {
+            spacing: 6px;
+            min-height: 26px;
+            if !c.device: VerticalLayout { alignment: center; Mark { kind: c.mark; } }
+            if c.device: VerticalLayout { alignment: center; Tag { text: I18n.t("Device"); } }
+            Text {
+                text: c.name;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            if c.tag != "": VerticalLayout { alignment: center; Tag { text: c.tag; tone: c.warn ? 2 : 0; } }
+            if c.auto: VerticalLayout { alignment: center; Tag { text: I18n.t("Auto"); tone: 1; } }
+            VerticalLayout {
+                alignment: center;
+                IconBtn {
+                    size: 24px;
+                    plain: true;
+                    label: c.remove-label;
+                    icon: "M4 4l8 8M12 4l-8 8";
+                    clicked => { AudioPage.act(c.device ? "unroute" : "remove-app", AudioPage.strips[c.strip].id, c.exe); }
+                }
+            }
+        }
+        if c.note != "": Text {
+            text: c.note;
+            font-size: 12px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+    }
 }
 
-export component AudioPanel inherits VerticalLayout {
-    padding: 16px;
+component Foot inherits VerticalLayout {
+    in property <int> idx;
+    property <AudStrip> s: AudioPage.strips[idx];
+    spacing: 6px;
+    Rectangle { height: 1px; background: Theme.line; }
+    Rectangle { height: 2px; }
+    Meter { level: AudioPage.levels[root.idx]; }
+    HorizontalLayout {
+        spacing: 8px;
+        ASlider {
+            label: s.vol-label;
+            value: s.volume;
+            step: 0.01;
+            changed(v) => { AudioPage.slide("volume", s.id, v); }
+        }
+        Num { text: round(s.volume * 100) + "%"; min-width: 36px; }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        AudBtn {
+            text: I18n.t("Mute");
+            label: s.mute-label;
+            toggle: true;
+            pressed: s.muted;
+            clicked => { AudioPage.flip("mute", s.id, !s.muted); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        AudBtn {
+            text: I18n.t("EQ");
+            label: s.eq-label;
+            expander: true;
+            pressed: s.eq-open;
+            clicked => { AudioPage.act("eq", s.id, ""); }
+        }
+        AudBtn {
+            text: I18n.t("FX");
+            label: s.fx-label;
+            expander: true;
+            pressed: s.fx-open;
+            clicked => { AudioPage.act("fx", s.id, ""); }
+        }
+        VerticalLayout {
+            alignment: center;
+            Toggle { label: s.eq-on-label; on: s.eq-on; toggled(v) => { AudioPage.flip("eq-on", s.id, v); } }
+        }
+    }
+}
+
+component Head inherits HorizontalLayout {
+    in property <string> title;
+    in property <bool> off;
+    in property <string> turn-on-label;
+    in property <string> cid;
     spacing: 8px;
-    alignment: start;
-    Heading { text: I18n.t("Audio"); }
-    Hint { text: "The mixer runs in this build; its controls are not drawn in the prototype yet."; }
+    min-height: 28px;
+    Text { text: root.title; font-weight: 600; color: root.off ? Theme.muted : Theme.text; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+    if root.off: VerticalLayout { alignment: center; Tag { text: I18n.t("Off"); under: Theme.panel; } }
+    Rectangle { horizontal-stretch: 1; }
+    if root.off: AudBtn {
+        text: I18n.t("Turn on");
+        label: root.turn-on-label;
+        clicked => { AudioPage.act("turn-on", root.cid, ""); }
+    }
+}
+
+component VmicBlock inherits VerticalLayout {
+    spacing: 6px;
+    Rectangle { height: 1px; background: Theme.line; }
+    Rectangle { height: 2px; }
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: I18n.t("Virtual mic"); font-weight: 600; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        Toggle { label: I18n.t("Virtual mic"); on: AudioPage.vmic; toggled(v) => { AudioPage.flip("vmic", "", v); } }
+    }
+    if AudioPage.vmic-note != "": Text {
+        text: AudioPage.vmic-note;
+        font-size: 12px;
+        color: AudioPage.vmic-warn ? Theme.danger : Theme.muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Check {
+            text: I18n.t("Gate");
+            label: I18n.t("Noise gate on");
+            checked: AudioPage.gate-on;
+            toggled(v) => { AudioPage.flip("gate", "", v); }
+        }
+        ASlider {
+            label: I18n.t("Noise gate threshold in dB");
+            minimum: -90;
+            maximum: 0;
+            step: 1;
+            value: AudioPage.gate-db;
+            enabled: AudioPage.gate-on;
+            changed(v) => { AudioPage.slide("gate", "", v); }
+        }
+        Num { text: round(AudioPage.gate-db) + " dB"; min-width: 48px; }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: I18n.t("Hear myself"); font-weight: 600; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        Toggle { label: I18n.t("Hear myself"); on: AudioPage.monitor; toggled(v) => { AudioPage.flip("monitor", "", v); } }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        ASlider {
+            label: I18n.t("Monitor volume");
+            value: AudioPage.monitor-volume;
+            enabled: AudioPage.monitor;
+            changed(v) => { AudioPage.slide("monitor", "", v); }
+        }
+        Num { text: round(AudioPage.monitor-volume * 100) + "%"; min-width: 36px; }
+    }
+}
+
+component Strip inherits Rectangle {
+    in property <int> idx;
+    property <AudStrip> s: AudioPage.strips[idx];
+    property <bool> mic: idx == 4;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: s.title;
+    VerticalLayout {
+        padding: 10px;
+        padding-top: 8px;
+        spacing: 8px;
+        Head { title: s.title; off: s.off; turn-on-label: s.turn-on-label; cid: s.id; }
+        if !mic: VerticalLayout {
+            accessible-role: list;
+            accessible-label: s.chips-label;
+            for c in AudioPage.chips: VerticalLayout {
+                padding-bottom: c.strip == root.idx ? 4px : 0;
+                if c.strip == root.idx: Chip { c: c; }
+            }
+        }
+        if !mic && s.empty: Small { text: I18n.t("No apps yet. Add an app to hear it here."); wrap: word-wrap; }
+        if !mic: Choice {
+            dashed: true;
+            label: s.add-label;
+            options: AudioPage.free-apps;
+            index: 0;
+            picked(v) => { AudioPage.pick("add-app", s.id, v); }
+        }
+        if mic: VerticalLayout {
+            spacing: 8px;
+            Small { text: I18n.t("Microphone"); }
+            Choice {
+                h: 32px;
+                label: I18n.t("Microphone");
+                options: AudioPage.mics;
+                index: AudioPage.mic-index;
+                picked(v) => { AudioPage.pick("mic", "", v); }
+            }
+            if AudioPage.mic-empty: Small { text: I18n.t("Pick a microphone."); }
+            VmicBlock { }
+            Choice {
+                h: 32px;
+                label: I18n.t("Apply a mic profile");
+                options: AudioPage.mic-profiles;
+                index: 0;
+                picked(v) => { AudioPage.pick("profile", "chatCapture", v); }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+        Foot { idx: root.idx; }
+    }
+}
+
+component MasterStrip inherits Rectangle {
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Master");
+    VerticalLayout {
+        padding: 10px;
+        padding-top: 8px;
+        spacing: 8px;
+        HorizontalLayout {
+            min-height: 28px;
+            Text { text: I18n.t("Master"); font-weight: 600; color: Theme.text; vertical-alignment: center; }
+        }
+        Small { text: AudioPage.plays-on; wrap: word-wrap; }
+        VerticalLayout {
+            spacing: 6px;
+            Rectangle { height: 1px; background: Theme.line; }
+            Rectangle { height: 8px; }
+            HorizontalLayout {
+                spacing: 8px;
+                ASlider {
+                    label: AudioPage.master-labels[0];
+                    value: AudioPage.master;
+                    changed(v) => { AudioPage.slide("master", "", v); }
+                }
+                Num { text: round(AudioPage.master * 100) + "%"; min-width: 36px; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                AudBtn {
+                    text: I18n.t("Mute");
+                    label: AudioPage.master-labels[1];
+                    toggle: true;
+                    pressed: AudioPage.master-muted;
+                    clicked => { AudioPage.flip("master-mute", "", !AudioPage.master-muted); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                AudBtn {
+                    text: I18n.t("FX");
+                    label: AudioPage.master-labels[2];
+                    expander: true;
+                    pressed: AudioPage.master-fx-open;
+                    clicked => { AudioPage.act("fx", "master", ""); }
+                }
+            }
+        }
+    }
+}
+
+component ChatBar inherits Rectangle {
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Chat mix");
+    Rectangle { x: 0; width: 3px; background: AudioPage.dial ? Theme.stroke : Theme.accent; }
+    VerticalLayout {
+        padding: 6px;
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: I18n.t("Chat mix"); font-weight: 600; color: Theme.text; vertical-alignment: center; }
+            Small { text: AudioPage.side-end; overflow: elide; max-width: 90px; }
+            ASlider {
+                label: I18n.t("Chat mix");
+                minimum: -100;
+                maximum: 100;
+                step: 1;
+                value: AudioPage.chat;
+                enabled: !AudioPage.dial;
+                changed(v) => { AudioPage.slide("chat", "", v); }
+            }
+            Small { text: I18n.t("Chat"); }
+            Num { text: AudioPage.chat-word; min-width: 64px; }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            accessible-role: groupbox;
+            accessible-label: I18n.t("Channels mixed against Chat");
+            Small { text: I18n.t("Mix against"); }
+            Rectangle { width: 4px; }
+            AudBtn { h: 24px; pad: 8px; mark: true; toggle: true; text: I18n.t("Game"); pressed: AudioPage.sides[0]; clicked => { AudioPage.act("side", "game", ""); } }
+            AudBtn { h: 24px; pad: 8px; mark: true; toggle: true; text: I18n.t("Media"); pressed: AudioPage.sides[1]; clicked => { AudioPage.act("side", "media", ""); } }
+            AudBtn { h: 24px; pad: 8px; mark: true; toggle: true; text: I18n.t("Aux"); pressed: AudioPage.sides[2]; clicked => { AudioPage.act("side", "aux", ""); } }
+        }
+        if AudioPage.dial: HorizontalLayout {
+            spacing: 6px;
+            VerticalLayout { alignment: center; Rectangle { width: 8px; height: 8px; background: Theme.accent; } }
+            Text { text: I18n.t("Set by the headset's ChatMix dial"); font-size: 12px; color: Theme.text; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+    }
+}
+
+component PrioRow inherits Rectangle {
+    in property <AudPrio> r;
+    in property <int> count;
+    height: 30px;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: r.chosen ? Theme.accent : Theme.line;
+    accessible-role: list-item;
+    accessible-label: r.name;
+    HorizontalLayout {
+        padding: 1px;
+        padding-left: 6px;
+        spacing: 6px;
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 8px;
+                height: 12px;
+                border-width: 0;
+                Rectangle { x: 0; width: 2px; background: Theme.stroke; }
+                Rectangle { x: 6px; width: 2px; background: Theme.stroke; }
+            }
+        }
+        Num { text: r.num; color: Theme.muted; min-width: 14px; }
+        Text {
+            text: r.name;
+            font-size: 12px;
+            font-weight: r.dim ? 400 : 600;
+            color: r.dim ? Theme.muted : Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        VerticalLayout { alignment: center; Tag { text: r.tag; tone: r.chosen ? 1 : 0; cut: r.chosen; } }
+        VerticalLayout {
+            alignment: center;
+            IconBtn { size: 24px; plain: true; label: r.up-label; icon: "M8 13V3M4 7l4-4 4 4"; enabled: r.num > 1; clicked => { AudioPage.act("prio-move", r.num - 1, r.num - 2); } }
+        }
+        VerticalLayout {
+            alignment: center;
+            IconBtn { size: 24px; plain: true; label: r.down-label; icon: "M8 3v10M4 9l4 4 4-4"; enabled: r.num < root.count; clicked => { AudioPage.act("prio-move", r.num - 1, r.num); } }
+        }
+        VerticalLayout {
+            alignment: center;
+            IconBtn { size: 24px; plain: true; label: r.remove-label; icon: "M4 4l8 8M12 4l-8 8"; clicked => { AudioPage.act("prio-remove", r.num - 1, ""); } }
+        }
+    }
+}
+
+component PrioBox inherits Rectangle {
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Priority");
+    VerticalLayout {
+        padding: 8px;
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: I18n.t("Follow priority"); font-size: 12px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+            VerticalLayout { alignment: center; Toggle { label: I18n.t("Follow priority"); on: AudioPage.p-on; toggled(v) => { AudioPage.flip("prio-on", "", v); } } }
+            Rectangle { horizontal-stretch: 1; }
+            HorizontalLayout {
+                accessible-role: groupbox;
+                accessible-label: I18n.t("Device list");
+                AudBtn { text: I18n.t("Outputs"); toggle: true; pressed: !AudioPage.p-inputs; clicked => { AudioPage.flip("prio-list", "", false); } }
+                AudBtn { text: I18n.t("Inputs"); toggle: true; pressed: AudioPage.p-inputs; clicked => { AudioPage.flip("prio-list", "", true); } }
+            }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: start;
+            Check { small: true; text: I18n.t("Mixer output"); checked: AudioPage.p-mixer; enabled: AudioPage.p-on; toggled(v) => { AudioPage.flip("prio-mixer", "", v); } }
+            Check { small: true; text: I18n.t("Windows default"); checked: AudioPage.p-windows; enabled: AudioPage.p-on; toggled(v) => { AudioPage.flip("prio-windows", "", v); } }
+        }
+        VerticalLayout {
+            spacing: 2px;
+            accessible-role: list;
+            accessible-label: I18n.t("Devices in priority order");
+            for r in AudioPage.prio-rows: PrioRow { r: r; count: AudioPage.prio-rows.length; }
+        }
+        if AudioPage.prio-add.length > 1: Choice {
+            dashed: true;
+            label: I18n.t("Add a device");
+            options: AudioPage.prio-add;
+            index: 0;
+            picked(v) => { AudioPage.pick("prio-add", "", v); }
+        }
+        Hint { text: AudioPage.prio-note; }
+    }
+}
+
+export component VmicSheet inherits Rectangle {
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.stroke;
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Virtual microphone");
+    forward-focus: fs;
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape { AudioPage.act("sheet-cancel", "", ""); return accept; }
+            reject
+        }
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            Heading { text: I18n.t("Virtual microphone"); }
+            Hint { text: I18n.t("FoxDen plays your mic, with its volume, mute, EQ and gate, into VB-CABLE, a virtual audio cable by VB-Audio. Apps then pick FoxDen VB-Cable (Microphone) as their mic."); }
+            Hint { text: I18n.t("VB-CABLE is VB-Audio's donationware. Download it from their page and run its setup as administrator, then press Check again."); }
+            if AudioPage.sheet-progress != "": Hint { text: AudioPage.sheet-progress; accessible-role: AccessibleRole.text; }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Button { text: I18n.t("Check again"); primary: true; enabled: !AudioPage.installing; clicked => { AudioPage.act("vmic-install", "", ""); } }
+                Button { text: I18n.t("Get VB-CABLE"); clicked => { AudioPage.act("vmic-donate", "", ""); } }
+                Button { text: I18n.t("Cancel"); clicked => { AudioPage.act("sheet-cancel", "", ""); } }
+            }
+        }
+    }
+}
+
+// The Settings tab's virtual microphone section.
+export component VmicSettings inherits VerticalLayout {
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: I18n.t("Virtual microphone"); color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        Toggle { label: I18n.t("Virtual microphone"); on: AudioPage.vmic; toggled(v) => { AudioPage.flip("vmic", "", v); } }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: "VB-CABLE"; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        Hint { text: AudioPage.vmic-state; horizontal-stretch: 0; }
+    }
+    Hint { text: I18n.t("Virtual microphone uses VB-CABLE by VB-Audio, donationware installed unchanged."); }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button { text: I18n.t("Donate to VB-Audio"); clicked => { AudioPage.act("vmic-donate", "", ""); } }
+        if AudioPage.vmic-removable: Button { text: I18n.t("Remove virtual microphone"); enabled: !AudioPage.removing; clicked => { AudioPage.act("vmic-remove", "", ""); } }
+    }
+    if AudioPage.vmic-outcome != "": Hint { text: AudioPage.vmic-outcome; accessible-role: AccessibleRole.text; }
+    if AudioPage.sheet-open: VmicSheet { }
+}
+
+component RunBar inherits HorizontalLayout {
+    spacing: 12px;
+    AudBtn {
+        text: I18n.t("Priority");
+        expander: true;
+        pressed: false;
+        outline: AudioPage.prio-on;
+        accessible-expanded: AudioPage.prio-open;
+        clicked => { AudioPage.act("prio-open", "", ""); }
+    }
+    Rectangle { horizontal-stretch: 1; }
+    HorizontalLayout {
+        spacing: 6px;
+        accessible-role: AccessibleRole.text;
+        accessible-label: AudioPage.running ? I18n.t("Running") : I18n.t("Stopped");
+        VerticalLayout { alignment: center; Mark { kind: AudioPage.running ? "on" : ""; } }
+        Small { text: AudioPage.running ? I18n.t("Running") : I18n.t("Stopped"); color: Theme.text; }
+    }
+    Button {
+        min-width: 88px;
+        text: AudioPage.running ? I18n.t("Stop") : I18n.t("Start");
+        primary: !AudioPage.running;
+        enabled: !AudioPage.run-busy;
+        accessible-label: AudioPage.running ? I18n.t("Stop the mixer") : I18n.t("Start the mixer");
+        clicked => { AudioPage.act("run", "", ""); }
+    }
+}
+
+component Pair inherits VerticalLayout {
+    in property <length> colw;
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 8px;
+        Strip { idx: 0; width: root.colw; }
+        Strip { idx: 1; width: root.colw; }
+    }
+    ChatBar { }
+}
+
+// Strips: six across, three, two or one as the window narrows. Game and Chat share the chat mix.
+component Strips inherits VerticalLayout {
+    in property <length> cw;
+    property <int> cols: cw >= 1180px ? 6 : cw >= 760px ? 3 : cw >= 560px ? 2 : 1;
+    property <length> colw: (cw - 24px - (cols - 1) * 8px) / cols;
+    spacing: 8px;
+    if cols == 1: VerticalLayout {
+        spacing: 8px;
+        Strip { idx: 0; }
+        Strip { idx: 1; }
+        ChatBar { }
+        Strip { idx: 2; }
+        Strip { idx: 3; }
+        Strip { idx: 4; }
+        MasterStrip { }
+    }
+    if cols == 2: VerticalLayout {
+        spacing: 8px;
+        Pair { colw: root.colw; }
+        HorizontalLayout { spacing: 8px; Strip { idx: 2; width: root.colw; } Strip { idx: 3; width: root.colw; } }
+        HorizontalLayout { spacing: 8px; Strip { idx: 4; width: root.colw; } MasterStrip { width: root.colw; } }
+    }
+    if cols == 3: VerticalLayout {
+        spacing: 8px;
+        HorizontalLayout { spacing: 8px; Pair { colw: root.colw; } Strip { idx: 2; width: root.colw; } }
+        HorizontalLayout { spacing: 8px; Strip { idx: 3; width: root.colw; } Strip { idx: 4; width: root.colw; } MasterStrip { width: root.colw; } }
+    }
+    if cols == 6: HorizontalLayout {
+        spacing: 8px;
+        Pair { colw: root.colw; }
+        Strip { idx: 2; width: root.colw; }
+        Strip { idx: 3; width: root.colw; }
+        Strip { idx: 4; width: root.colw; }
+        MasterStrip { width: root.colw; }
+    }
+}
+
+component Mixer inherits Rectangle {
+    in property <length> cw;
+    property <bool> wide: cw >= 700px;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Mixer");
+    VerticalLayout {
+        padding: 1px;
+        Rectangle {
+            height: 34px;
+            background: Theme.raised;
+            Text { x: 12px; text: I18n.t("Mixer"); font-weight: 600; color: Theme.text; vertical-alignment: center; height: parent.height; }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        VerticalLayout {
+            padding: 11px;
+            padding-top: 8px;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 10px;
+                Small { text: I18n.t("Output"); }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Choice {
+                        h: 32px;
+                        label: I18n.t("Output");
+                        options: AudioPage.outputs;
+                        index: AudioPage.output-index;
+                        enabled: !AudioPage.following;
+                        picked(v) => { AudioPage.pick("output", "", v); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: start;
+                    IconBtn {
+                        size: 32px;
+                        label: I18n.t("Rescan devices and apps");
+                        icon: "M13 3v4H9M3 13V9h4M12.6 7A5 5 0 0 0 3.6 5.5M3.4 9a5 5 0 0 0 9 1.5";
+                        clicked => { AudioPage.act("rescan", "", ""); }
+                    }
+                }
+                if root.wide: VerticalLayout { alignment: start; horizontal-stretch: 1; RunBar { } }
+            }
+            if AudioPage.following: Small { text: AudioPage.following-note; }
+            if !root.wide: RunBar { }
+            if AudioPage.prio-open: PrioBox { }
+            if AudioPage.problem != "": Problem { text: AudioPage.problem; }
+            Strips { cw: root.cw; }
+        }
+    }
+}
+
+export component AudioPanel inherits Rectangle {
+    property <bool> drawer: AudioPage.eq-open || AudioPage.proc-open;
+    property <length> cw: root.width - 32px;
+    init => { AudioPage.opened(); }
+    changed drawer => {
+        if drawer {
+            scroll.content-y = -max(0px, min(16px + mixer.height + 12px, scroll.content-height - scroll.height));
+        }
+    }
+    scroll := Scroll {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        content-height: body.preferred-height;
+        body := VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+            alignment: start;
+            mixer := Mixer { cw: root.cw; }
+            if AudioPage.eq-open: EqBox { cw: root.cw; }
+            if AudioPage.proc-open: ProcBox { cw: root.cw; }
+            VolPanels { cw: root.cw; }
+            MoreBox { cw: root.cw; }
+        }
+    }
+    if AudioPage.sheet-open: Rectangle {
+        background: #0009;
+        TouchArea { }
+        VmicSheet {
+            x: 16px;
+            y: max(16px, (parent.height - self.preferred-height) / 3);
+            width: parent.width - 32px;
+            height: self.preferred-height;
+            init => { self.focus(); }
+        }
+    }
 }

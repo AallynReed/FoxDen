@@ -1,0 +1,570 @@
+import { Theme, I18n, Heading, Hint, Toggle } from "widgets.slint";
+import { AudOpt, AudBtn, IconBtn, Check, ASlider, VSlider, Meter, GrBar, Tag, Choice, Problem, Small, Num, AField, Expander } from "audio-widgets.slint";
+import { AudioPage, AudBand, AudBlock, AudPSlider, AudVol, AudSrc, AudSkip } from "audio-page.slint";
+
+component DrawerHead inherits Rectangle {
+    background: Theme.raised;
+    min-height: 38px;
+}
+
+component Band inherits VerticalLayout {
+    in property <AudBand> b;
+    in property <int> i;
+    spacing: 4px;
+    horizontal-stretch: 1;
+    min-width: 0;
+    Num { text: b.name; color: Theme.muted; horizontal-alignment: center; }
+    HorizontalLayout {
+        alignment: center;
+        VSlider {
+            label: b.gain-label;
+            value: b.gain;
+            enabled: !b.gain-off;
+            changed(v) => { AudioPage.slide("band-gain", root.i, v); }
+        }
+    }
+    Num { text: b.db; horizontal-alignment: center; }
+    if AudioPage.eq-adv: Choice {
+        h: 26px;
+        min-width: 0;
+        label: b.filter-label;
+        options: AudioPage.filters;
+        index: b.filter;
+        picked(v) => { AudioPage.pick("band-filter", root.i, v); }
+    }
+    if AudioPage.eq-adv: AField {
+        height: 26px;
+        min-width: 0;
+        mono: true;
+        value: b.freq;
+        label: b.freq-label;
+        accepted(t) => { AudioPage.pick("band-freq", root.i, t); }
+    }
+    if AudioPage.eq-adv: AField {
+        height: 26px;
+        min-width: 0;
+        mono: true;
+        value: b.q;
+        label: b.q-label;
+        accepted(t) => { AudioPage.pick("band-q", root.i, t); }
+    }
+}
+
+component EqSide inherits VerticalLayout {
+    spacing: 8px;
+    Small { text: I18n.t("Preset"); }
+    HorizontalLayout {
+        accessible-role: groupbox;
+        accessible-label: I18n.t("Presets");
+        for p[n] in [I18n.t("Flat"), I18n.t("Bass boost"), I18n.t("Voice clarity"), I18n.t("Treble")]: AudBtn {
+            horizontal-stretch: 1;
+            pad: 6px;
+            text: p;
+            toggle: true;
+            pressed: AudioPage.preset == n;
+            clicked => { AudioPage.act("preset", n, ""); }
+        }
+    }
+    VerticalLayout {
+        spacing: 4px;
+        Small { text: I18n.t("Sound profile"); }
+        Choice {
+            h: 32px;
+            label: I18n.t("Apply a sound profile");
+            options: AudioPage.pf-options;
+            index: 0;
+            picked(v) => { AudioPage.pick("profile", "", v); }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            AField {
+                placeholder: I18n.t("Profile name");
+                text <=> AudioPage.pf-name;
+            }
+            AudBtn { text: I18n.t("Save"); label: I18n.t("Save current settings as a profile"); clicked => { AudioPage.act("pf-save", "", ""); } }
+            AudBtn { text: I18n.t("Rename"); enabled: AudioPage.pf-mine; clicked => { AudioPage.act("pf-rename", "", ""); } }
+            AudBtn { text: I18n.t("Delete"); enabled: AudioPage.pf-mine; clicked => { AudioPage.act("pf-delete", "", ""); } }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            AudBtn { text: I18n.t("Copy share code"); clicked => { AudioPage.act("pf-copy", "", ""); } }
+            AudBtn { text: I18n.t("Export"); label: I18n.t("Export the profile as a .foxsound file"); clicked => { AudioPage.act("pf-export", "", ""); } }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            AField {
+                placeholder: I18n.t("Paste share code");
+                label: I18n.t("Share code");
+                text <=> AudioPage.pf-code;
+            }
+            AudBtn { text: I18n.t("Add"); label: I18n.t("Add the pasted profile"); clicked => { AudioPage.act("pf-add", "", ""); } }
+        }
+        if AudioPage.pf-note != "": Small { text: AudioPage.pf-note; wrap: word-wrap; accessible-role: AccessibleRole.text; }
+    }
+    Rectangle {
+        height: 112px;
+        border-width: 1px;
+        border-color: Theme.line;
+        background: Theme.field;
+        accessible-role: none;
+        for db in [-12, -6, 0, 6, 12]: Rectangle {
+            x: 1px;
+            y: 1px + (parent.height - 2px) * (30 - db / 15 * 30) / 60;
+            width: parent.width - 2px;
+            height: 1px;
+            background: db == 0 ? Theme.stroke : Theme.line;
+        }
+        if AudioPage.curve != "": Path {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: parent.height - 2px;
+            viewbox-width: 100;
+            viewbox-height: 60;
+            fit: fill;
+            commands: AudioPage.curve;
+            stroke: AudioPage.curve-off ? Theme.stroke : Theme.accent;
+            stroke-width: 2px;
+        }
+    }
+    Check { small: true; text: I18n.t("Advanced: filter types, frequency and Q"); checked: AudioPage.eq-adv; toggled(v) => { AudioPage.eq-adv = v; } }
+}
+
+component EqBands inherits VerticalLayout {
+    in property <bool> ten;
+    spacing: 8px;
+    if root.ten: HorizontalLayout {
+        spacing: 6px;
+        for b[i] in AudioPage.bands: Band { b: b; i: i; }
+    }
+    if !root.ten: HorizontalLayout {
+        spacing: 6px;
+        for b[i] in AudioPage.bands: VerticalLayout {
+            horizontal-stretch: i < 5 ? 1 : 0;
+            if i < 5: Band { b: b; i: i; }
+        }
+    }
+    if !root.ten && AudioPage.bands.length > 5: HorizontalLayout {
+        spacing: 6px;
+        for b[i] in AudioPage.bands: VerticalLayout {
+            horizontal-stretch: i >= 5 ? 1 : 0;
+            if i >= 5: Band { b: b; i: i; }
+        }
+    }
+}
+
+export component EqBox inherits Rectangle {
+    in property <length> cw;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: AudioPage.eq-title;
+    VerticalLayout {
+        padding: 1px;
+        DrawerHead {
+            HorizontalLayout {
+                padding-left: 11px;
+                padding-right: 11px;
+                spacing: 12px;
+                Heading { text: AudioPage.eq-title; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout { alignment: center; Check { text: I18n.t("On"); label: AudioPage.eq-on-label; checked: AudioPage.eq-on; toggled(v) => { AudioPage.flip("eq-on", "", v); } } }
+                VerticalLayout { alignment: center; AudBtn { text: I18n.t("Close"); clicked => { AudioPage.act("eq", "", ""); } } }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        VerticalLayout {
+            padding: 11px;
+            padding-top: 8px;
+            spacing: 8px;
+            if root.cw < 900px: VerticalLayout {
+                spacing: 8px;
+                EqSide { }
+                EqBands { ten: root.cw > 560px; }
+            }
+            if root.cw >= 900px: HorizontalLayout {
+                spacing: 20px;
+                EqSide { width: (root.cw - 44px) * 2 / 7; }
+                VerticalLayout { alignment: start; EqBands { ten: true; } }
+            }
+        }
+    }
+}
+
+component Block inherits Rectangle {
+    in property <AudBlock> b;
+    in property <int> i;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: b.name;
+    VerticalLayout {
+        padding: 6px;
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 8px;
+            min-height: 28px;
+            VerticalLayout { alignment: center; Toggle { label: b.name; on: b.on; toggled(v) => { AudioPage.flip("block", b.id, v); } } }
+            Text { text: b.name; font-weight: 600; color: Theme.text; vertical-alignment: center; }
+            if b.hint != "": Small { text: b.hint; }
+            Rectangle { horizontal-stretch: 1; }
+            if b.meter: VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                GrBar { level: AudioPage.gr[root.i].fill; up: AudioPage.gr[root.i].up; }
+            }
+            if b.meter: Num { text: AudioPage.gr[root.i].text; min-width: 64px; accessible-label: b.gr-title; }
+        }
+        for s in AudioPage.psliders: VerticalLayout {
+            if s.block == root.i && (!s.adv || AudioPage.proc-adv): HorizontalLayout {
+                spacing: 6px;
+                Small { text: s.label; width: 72px; overflow: elide; }
+                ASlider {
+                    label: s.label;
+                    value: s.value;
+                    minimum: s.min;
+                    maximum: s.max;
+                    step: s.step;
+                    dim: !b.on;
+                    changed(v) => { AudioPage.slide("proc", b.id + "." + s.field, v); }
+                }
+                Num { text: s.text; width: 72px; }
+            }
+        }
+        if b.check != "" && AudioPage.proc-adv: Check {
+            small: true;
+            text: b.check;
+            checked: b.checked;
+            toggled(v) => { AudioPage.flip("block-check", b.id, v); }
+        }
+    }
+}
+
+export component ProcBox inherits Rectangle {
+    in property <length> cw;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: groupbox;
+    accessible-label: AudioPage.proc-title;
+    VerticalLayout {
+        padding: 1px;
+        DrawerHead {
+            VerticalLayout {
+                padding: 5px;
+                padding-left: 11px;
+                padding-right: 11px;
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Heading { text: AudioPage.proc-title; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    VerticalLayout { alignment: center; AudBtn { text: I18n.t("Close"); clicked => { AudioPage.act("fx", "", ""); } } }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Choice {
+                        label: I18n.t("Apply a processing preset");
+                        options: AudioPage.proc-presets;
+                        index: 0;
+                        picked(v) => { AudioPage.pick("proc-preset", "", v); }
+                    }
+                    VerticalLayout { alignment: start; Check { text: I18n.t("Advanced"); checked: AudioPage.proc-adv; toggled(v) => { AudioPage.proc-adv = v; } } }
+                }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        VerticalLayout {
+            padding: 11px;
+            padding-top: 8px;
+            spacing: 6px;
+            if AudioPage.proc-note != "": Small { text: AudioPage.proc-note; wrap: word-wrap; accessible-role: AccessibleRole.text; }
+            if root.cw < 900px: VerticalLayout {
+                spacing: 6px;
+                for b[i] in AudioPage.blocks: Block { b: b; i: i; }
+            }
+            if root.cw >= 900px: HorizontalLayout {
+                spacing: 6px;
+                VerticalLayout {
+                    alignment: start;
+                    width: (root.cw - 30px) / 2;
+                    for b[i] in AudioPage.blocks: VerticalLayout {
+                        padding-bottom: Math.mod(i, 2) == 0 ? 6px : 0;
+                        if Math.mod(i, 2) == 0: Block { b: b; i: i; }
+                    }
+                }
+                VerticalLayout {
+                    alignment: start;
+                    width: (root.cw - 30px) / 2;
+                    for b[i] in AudioPage.blocks: VerticalLayout {
+                        padding-bottom: Math.mod(i, 2) == 1 ? 6px : 0;
+                        if Math.mod(i, 2) == 1: Block { b: b; i: i; }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component VolVol inherits HorizontalLayout {
+    in property <AudVol> r;
+    in property <bool> device;
+    spacing: 4px;
+    ASlider {
+        label: r.vol-label;
+        value: r.volume;
+        changed(v) => { AudioPage.slide(root.device ? "dev-volume" : "app-volume", r.key, v); }
+    }
+    Num { text: round(r.volume * 100) + "%"; min-width: 40px; }
+}
+
+component VolButtons inherits HorizontalLayout {
+    in property <AudVol> r;
+    in property <bool> device;
+    spacing: 8px;
+    IconBtn {
+        label: r.mute-label;
+        toggle: true;
+        pressed: r.muted;
+        icon: r.capture ? (r.muted ? "M6.5 2h3v7h-3zM3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V15M5.5 15h5M2 2l12 12" : "M6.5 2h3v7h-3zM3.5 8a4.5 4.5 0 0 0 9 0M8 12.5V15M5.5 15h5")
+            : (r.muted ? "M2 6h3l4-3v10l-4-3H2zM11 6l4 4M15 6l-4 4" : "M2 6h3l4-3v10l-4-3H2zM11.5 5.5a3.5 3.5 0 0 1 0 5M13.5 3.5a6.5 6.5 0 0 1 0 9");
+        clicked => { AudioPage.flip(root.device ? "dev-mute" : "app-mute", r.key, !r.muted); }
+    }
+    if r.make: IconBtn {
+        label: r.make-label;
+        icon: "M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z";
+        clicked => { AudioPage.act("make-default", r.key, ""); }
+    }
+    if !r.make: Rectangle { width: 28px; }
+}
+
+component VolName inherits VerticalLayout {
+    in property <AudVol> r;
+    alignment: center;
+    Text {
+        text: r.name;
+        font-size: 12px;
+        font-weight: r.idle ? 400 : 600;
+        color: r.idle ? Theme.muted : Theme.text;
+        overflow: elide;
+    }
+    if r.sub != "": Text {
+        text: r.sub;
+        font-size: 12px;
+        color: r.special ? Theme.text : Theme.muted;
+        overflow: elide;
+    }
+}
+
+// Fixed columns, so every row of Apps and Devices lines up, with or without a default button.
+component VolRow inherits Rectangle {
+    in property <AudVol> r;
+    in property <float> level;
+    in property <bool> device;
+    in property <bool> wide;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: list-item;
+    accessible-label: r.name;
+    min-height: max(36px, col.preferred-height);
+    if r.chosen: Rectangle { x: 0; width: 3px; background: Theme.accent; }
+    col := VerticalLayout {
+        padding: 2px;
+        padding-left: r.chosen ? 6px : 8px;
+        padding-right: 4px;
+        if !root.wide: VerticalLayout {
+            spacing: 4px;
+            VolName { r: r; }
+            Meter { level: root.level; }
+            HorizontalLayout {
+                spacing: 8px;
+                VolVol { r: r; device: root.device; horizontal-stretch: 1; }
+                VolButtons { r: r; device: root.device; }
+            }
+        }
+        if root.wide: HorizontalLayout {
+            spacing: 8px;
+            VolName { r: r; horizontal-stretch: 1; min-width: 0; }
+            VerticalLayout { alignment: center; Meter { width: 56px; level: root.level; } }
+            VolVol { r: r; device: root.device; width: 150px; }
+            VerticalLayout { alignment: center; VolButtons { r: r; device: root.device; } }
+        }
+    }
+}
+
+component AppsPanel inherits Rectangle {
+    in property <bool> wide;
+    border-width: 1px;
+    border-color: Theme.line;
+    VerticalLayout {
+        padding: 1px;
+        Expander { title: I18n.t("Apps"); count: AudioPage.apps-count; open: AudioPage.apps-open; toggled => { AudioPage.flip("apps-open", "", !AudioPage.apps-open); } }
+        if AudioPage.apps-open: VerticalLayout {
+            padding: 9px;
+            padding-top: 8px;
+            spacing: 6px;
+            Rectangle { height: 1px; background: Theme.line; }
+            Hint { text: I18n.t("Windows' own volume for each app, as in its Volume mixer. Nothing is moved."); }
+            VerticalLayout {
+                spacing: 2px;
+                accessible-role: list;
+                accessible-label: I18n.t("Apps playing sound");
+                for r[i] in AudioPage.apps: VolRow { r: r; wide: root.wide; level: AudioPage.app-levels[i]; }
+            }
+            if AudioPage.apps.length == 0: Small { text: I18n.t("No app is playing sound."); }
+        }
+    }
+}
+
+component DevsPanel inherits VerticalLayout {
+    in property <bool> wide;
+    spacing: 12px;
+    Rectangle {
+        border-width: 1px;
+        border-color: Theme.line;
+        VerticalLayout {
+            padding: 1px;
+            Expander { title: I18n.t("Devices"); count: AudioPage.devs-count; open: AudioPage.devs-open; toggled => { AudioPage.flip("devs-open", "", !AudioPage.devs-open); } }
+            if AudioPage.devs-open: VerticalLayout {
+                padding: 9px;
+                padding-top: 8px;
+                spacing: 6px;
+                Rectangle { height: 1px; background: Theme.line; }
+                Text { text: I18n.t("Playback"); font-size: 12px; font-weight: 600; color: Theme.muted; }
+                VerticalLayout {
+                    accessible-role: list;
+                    accessible-label: I18n.t("Playback");
+                    for r[i] in AudioPage.devices: VerticalLayout {
+                        padding-bottom: r.capture ? 0 : 2px;
+                        if !r.capture: VolRow { r: r; device: true; wide: root.wide; level: AudioPage.dev-levels[i]; }
+                    }
+                }
+                Text { text: I18n.t("Recording"); font-size: 12px; font-weight: 600; color: Theme.muted; }
+                VerticalLayout {
+                    accessible-role: list;
+                    accessible-label: I18n.t("Recording");
+                    for r[i] in AudioPage.devices: VerticalLayout {
+                        padding-bottom: r.capture ? 2px : 0;
+                        if r.capture: VolRow { r: r; device: true; wide: root.wide; level: AudioPage.dev-levels[i]; }
+                    }
+                }
+                Hint { text: I18n.t("Recording levels move only while an app records from the device."); }
+            }
+        }
+    }
+    if AudioPage.vol-problem != "": Problem { text: AudioPage.vol-problem; }
+}
+
+// Apps and Devices, side by side when there is room.
+export component VolPanels inherits VerticalLayout {
+    in property <length> cw;
+    property <bool> pair: cw >= 1000px;
+    property <bool> wide: (pair ? (cw - 12px) / 2 : cw) > 560px;
+    spacing: 12px;
+    if !root.pair: AppsPanel { wide: root.wide; }
+    if !root.pair: DevsPanel { wide: root.wide; }
+    if root.pair: HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout { alignment: start; width: (root.cw - 12px) / 2; AppsPanel { wide: root.wide; } }
+        VerticalLayout { alignment: start; width: (root.cw - 12px) / 2; DevsPanel { wide: root.wide; } }
+    }
+}
+
+component Spare inherits VerticalLayout {
+    spacing: 6px;
+    Text { text: I18n.t("Spare output for apps"); font-weight: 600; color: Theme.text; }
+    Hint { text: I18n.t("Apps you add are moved to this output, which FoxDen keeps muted while the mixer runs, so you hear each app once."); }
+    Choice {
+        h: 32px;
+        label: I18n.t("Spare output for apps");
+        options: AudioPage.parks;
+        index: AudioPage.park-index;
+        picked(v) => { AudioPage.pick("park", "", v); }
+    }
+    if AudioPage.parked != "": Hint { text: AudioPage.parked; }
+}
+
+component AutoAssign inherits VerticalLayout {
+    spacing: 6px;
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: I18n.t("Auto-assign apps"); font-weight: 600; color: Theme.text; vertical-alignment: center; horizontal-stretch: 1; }
+        Toggle { label: I18n.t("Auto-assign apps"); on: AudioPage.auto-assign; toggled(v) => { AudioPage.flip("auto", "", v); } }
+    }
+    Hint { text: I18n.t("Apps that start playing go to their usual channel: chat apps to Chat, players and browsers to Media, games to Game. Your own choice always wins."); }
+    VerticalLayout {
+        spacing: 4px;
+        accessible-role: list;
+        accessible-label: I18n.t("Apps auto-assign leaves alone");
+        for k in AudioPage.skipped: Rectangle {
+            height: 30px;
+            background: Theme.field;
+            border-width: 1px;
+            border-color: Theme.line;
+            accessible-role: list-item;
+            accessible-label: k.name;
+            HorizontalLayout {
+                padding: 1px;
+                padding-left: 8px;
+                spacing: 6px;
+                VerticalLayout { alignment: center; Tag { text: I18n.t("Skipped"); } }
+                Text { text: k.name; font-size: 12px; font-weight: 600; color: Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                AudBtn { text: I18n.t("Allow"); label: k.label; under: Theme.field; clicked => { AudioPage.act("allow", k.exe, ""); } }
+            }
+        }
+    }
+}
+
+component Record inherits VerticalLayout {
+    spacing: 6px;
+    Text { text: I18n.t("Record from a device"); font-weight: 600; color: Theme.text; }
+    Hint { text: I18n.t("Mixes a device into a channel as well as its apps, for sound that does not come from an app, such as a line in."); }
+    for src in AudioPage.sources: HorizontalLayout {
+        spacing: 10px;
+        Small { text: src.label; width: 52px; color: Theme.text; }
+        Choice {
+            h: 32px;
+            label: src.label;
+            options: src.options;
+            index: src.index;
+            picked(v) => { AudioPage.pick("source", src.channel, v); }
+        }
+    }
+}
+
+// Rarely needed settings, closed by default.
+export component MoreBox inherits Rectangle {
+    in property <length> cw;
+    property <length> half: (cw - 24px - 24px) / 2;
+    border-width: 1px;
+    border-color: Theme.line;
+    VerticalLayout {
+        padding: 1px;
+        Expander { title: I18n.t("Advanced"); open: AudioPage.more-open; toggled => { AudioPage.more-open = !AudioPage.more-open; } }
+        if AudioPage.more-open && root.cw < 760px: VerticalLayout {
+            padding: 11px;
+            spacing: 16px;
+            Spare { }
+            AutoAssign { }
+            Record { }
+        }
+        if AudioPage.more-open && root.cw >= 760px: VerticalLayout {
+            padding: 11px;
+            spacing: 16px;
+            HorizontalLayout {
+                spacing: 24px;
+                VerticalLayout { alignment: start; width: root.half; Spare { } }
+                VerticalLayout { alignment: start; width: root.half; AutoAssign { } }
+            }
+            HorizontalLayout {
+                spacing: 24px;
+                alignment: start;
+                Record { width: root.half; }
+            }
+        }
+    }
+}
