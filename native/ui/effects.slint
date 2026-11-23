@@ -122,6 +122,14 @@ export global EffectsPage {
     in property <int> scope-index;
     in property <[CheckRow]> checks;
     in property <int> when-index;
+    in property <[GroupOption]> battery-options;
+    in property <int> battery-index;
+    in property <float> low;
+    in property <string> low-text;
+    in property <string> battery-hint;
+    callback set-battery(int);
+    callback set-low(float);
+    callback low-typed(string);
     in property <[string]> apps;
     in property <[string]> app-choices;
     in property <string> app-hint;
@@ -170,6 +178,7 @@ export global EffectsPage {
     in property <[StopRow]> stops;
     in property <string> stops-problem;
     in property <int> stops-bad: -1;
+    in property <bool> stops-level;
     callback stop-temp(int, string);
     callback add-stage();
     callback remove-stage(int);
@@ -973,12 +982,12 @@ component Stops inherits VerticalLayout {
                         Exact {
                             y: 2px;
                             value: s.temp;
-                            label: I18n.t("Stage " + (i + 1) + " temperature in °C");
+                            label: EffectsPage.stops-level ? I18n.t("Stage " + (i + 1) + " battery level in per cent") : I18n.t("Stage " + (i + 1) + " temperature in °C");
                             invalid: EffectsPage.stops-bad == i;
                             edited(t) => { EffectsPage.stop-temp(i, t); }
                             escape => { EffectsPage.clear-bad(); }
                         }
-                        Meta { text: "°C"; font-size: 14px; }
+                        Meta { text: EffectsPage.stops-level ? "%" : "°C"; font-size: 14px; }
                     }
                     Swatch {
                         chip: s.color;
@@ -1329,7 +1338,7 @@ component ParamRow inherits VerticalLayout {
             toggled(v) => { EffectsPage.set-toggle(root.target, root.p.name, v); }
         }
     }
-    if p.control == "choice" || p.control == "sensor": FieldRow {
+    if p.control == "choice" || p.control == "sensor" || p.control == "battery": FieldRow {
         label: root.p.label;
         Choice {
             options: root.p.options;
@@ -1338,7 +1347,7 @@ component ParamRow inherits VerticalLayout {
             selected(i) => { EffectsPage.set-choice(root.target, root.p.name, i); }
         }
     }
-    if p.control == "sensor" && p.status != "": Hint { text: root.p.status; accessible-role: text; }
+    if (p.control == "sensor" || p.control == "battery") && p.status != "": Hint { text: root.p.status; accessible-role: text; }
     if p.control == "stops": Stops { target: root.target; label: root.p.label; }
     if p.control == "keys": KeysField { label: root.p.label; }
     if p.control == "key_colours": PaintField { label: root.p.label; }
@@ -1580,12 +1589,48 @@ export component EffectsPanel inherits Scroll {
                     label: I18n.t("Active");
                     Choice {
                         label: I18n.t("Active");
-                        options: [{ label: I18n.t("Always") }, { label: I18n.t("App is open") }, { label: I18n.t("App is in front") }];
+                        options: [{ label: I18n.t("Always") }, { label: I18n.t("App is open") }, { label: I18n.t("App is in front") }, { label: I18n.t("Battery is low") }];
                         index: EffectsPage.when-index;
                         selected(i) => { EffectsPage.set-when(i); }
                     }
                 }
-                if EffectsPage.when-index > 0: VerticalLayout {
+                if EffectsPage.when-index == 3: VerticalLayout {
+                    spacing: 8px;
+                    FieldRow {
+                        label: I18n.t("Device");
+                        Choice {
+                            label: I18n.t("Device");
+                            options: EffectsPage.battery-options;
+                            index: EffectsPage.battery-index;
+                            selected(i) => { EffectsPage.set-battery(i); }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        min-height: 32px;
+                        Label { text: I18n.t("Low at"); }
+                        Slider {
+                            y: 4px;
+                            horizontal-stretch: 1;
+                            label: I18n.t("Low at");
+                            value: EffectsPage.low;
+                            minimum: 1;
+                            maximum: 100;
+                            step: 1;
+                            changed(v) => { EffectsPage.set-low(v); }
+                        }
+                        Exact {
+                            y: 2px;
+                            value: EffectsPage.low-text;
+                            label: I18n.t("Low at");
+                            invalid: EffectsPage.bad == "layer:low";
+                            edited(t) => { EffectsPage.low-typed(t); }
+                            escape => { EffectsPage.clear-bad(); }
+                        }
+                    }
+                    Hint { text: EffectsPage.battery-hint; accessible-role: text; }
+                }
+                if EffectsPage.when-index == 1 || EffectsPage.when-index == 2: VerticalLayout {
                     spacing: 8px;
                     if EffectsPage.apps.length > 0: VerticalLayout {
                         for a[n] in EffectsPage.apps: Rectangle {

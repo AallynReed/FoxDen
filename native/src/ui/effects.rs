@@ -27,7 +27,7 @@ const PRESETS: [(&str, &str); 10] = [
 ];
 const BLENDS: [&str; 5] = ["normal", "add", "screen", "multiply", "tint"];
 const SCOPES: [&str; 3] = ["all", "keyboards", "chosen"];
-const WHENS: [&str; 3] = ["always", "running", "front"];
+const WHENS: [&str; 4] = ["always", "running", "front", "battery_low"];
 const MAX_STAGES: usize = 8;
 
 #[derive(Default)]
@@ -69,6 +69,10 @@ struct Ed {
     stops_bad: i32,
     stops_problem: String,
     sensor_ids: Vec<String>,
+    battery_keys: Vec<String>,
+    layer_battery_keys: Vec<String>,
+    stops_max: f64,
+    stops_level: bool,
     show_pad: bool,
     brush: [u8; 3],
     erase: bool,
@@ -115,6 +119,10 @@ impl Default for Ed {
             stops_bad: -1,
             stops_problem: String::new(),
             sensor_ids: Vec::new(),
+            battery_keys: Vec::new(),
+            layer_battery_keys: Vec::new(),
+            stops_max: 150.0,
+            stops_level: false,
             show_pad: false,
             brush: [255, 106, 0],
             erase: false,
@@ -234,6 +242,7 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
             let p = e["params"].as_array()?.iter().find(|p| p["name"] == name.as_str())?.clone();
             match p["control"]["type"].as_str()? {
                 "sensor" => ed(|e| e.sensor_ids.get(i as usize).map(|id| json!(id))),
+                "battery" => ed(|e| e.battery_keys.get(i as usize).map(|key| json!(key))),
                 _ => p["control"]["options"].get(i as usize).cloned(),
             }
         });
@@ -297,7 +306,26 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
         })
     });
     let a = app.clone();
-    g.on_set_when(move |i| edit_layer(&a, |l| l["when"] = json!(WHENS[i as usize % 3])));
+    g.on_set_when(move |i| edit_layer(&a, |l| l["when"] = json!(WHENS[i as usize % 4])));
+    let a = app.clone();
+    g.on_set_battery(move |i| {
+        if let Some(key) = ed(|e| e.layer_battery_keys.get(i as usize).cloned()) {
+            edit_layer(&a, |l| l["battery"] = json!(key));
+        }
+    });
+    let a = app.clone();
+    g.on_set_low(move |v| {
+        clear_bad_of("layer:low");
+        edit_layer(&a, |l| l["low"] = json!(v));
+    });
+    let a = app.clone();
+    g.on_low_typed(move |text| {
+        let label = tr(&a, "Low at");
+        if let Some(v) = check_number(&a, "layer", "layer:low", &label, &text, 1.0, 100.0, 0) {
+            edit_layer(&a, |l| l["low"] = json!(v));
+        }
+        redraw(&a);
+    });
     let a = app.clone();
     g.on_app_typed(move |t| {
         ed(|e| e.app_typed = t.to_string());
@@ -449,7 +477,8 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
 
     let a = app.clone();
     g.on_stop_temp(move |i, text| {
-        let v = text.trim().parse::<f64>().ok().filter(|v| v.is_finite() && (0.0..=150.0).contains(v));
+        let (max, level) = ed(|e| (e.stops_max, e.stops_level));
+        let v = text.trim().parse::<f64>().ok().filter(|v| v.is_finite() && (0.0..=max).contains(v));
         match v {
             Some(v) => {
                 ed(|e| {
@@ -463,7 +492,7 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
                 });
             }
             None => {
-                let line = tr(&a, "Enter a temperature from 0 to 150 °C.");
+                let line = tr(&a, if level { "Enter a level from 0 to 100%." } else { "Enter a temperature from 0 to 150 °C." });
                 ed(|e| {
                     e.stops_bad = i;
                     e.stops_problem = line;
@@ -484,7 +513,7 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
                 .max_by(|x, y| x["temp"].as_f64().unwrap_or(0.0).total_cmp(&y["temp"].as_f64().unwrap_or(0.0)))
                 .cloned()
                 .unwrap_or_else(|| json!({ "temp": 50.0, "color": [255, 0, 0] }));
-            let temp = (last["temp"].as_f64().unwrap_or(50.0) + 10.0).min(150.0);
+            let temp = (last["temp"].as_f64().unwrap_or(50.0) + 10.0).min(ed(|e| e.stops_max));
             stops.push(json!({ "temp": temp, "color": last["color"] }));
         });
     });
@@ -661,7 +690,7 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
 }
 
 pub fn event(w: &AppWindow, app: &AppHandle, view: &mut View, name: &str) {
-    if name == "apps" || name == "fans" {
+    if name == "apps" || name == "fans" || name == "batteries" {
         apply(w, app, view);
     }
 }
@@ -805,6 +834,41 @@ fn apps_seen(v: &View) -> (Vec<String>, Option<String>) {
     (running, apps["front"].as_str().map(str::to_string))
 }
 
+/// Wireless devices' batteries, lowest first.
+fn batteries(v: &View) -> Vec<Value> {
+    match v.events.get("batteries") {
+        Some(Value::Array(list)) => list.clone(),
+        _ => serde_json::to_value(crate::battery::get_batteries())
+            .ok()
+            .and_then(|l| l.as_array().cloned())
+            .unwrap_or_default(),
+    }
+}
+
+fn battery_now(list: &[Value], chosen: &str) -> Option<Value> {
+    let mut read = list.iter().filter(|b| b["percent"].is_u64());
+    if chosen.is_empty() {
+        read.min_by_key(|b| b["percent"].as_u64()).cloned()
+    } else {
+        read.find(|b| b["key"] == chosen).cloned()
+    }
+}
+
+/// The first choice stands for the lowest or any battery; a chosen device that is gone stays listed.
+fn battery_options(v: &View, first: &str, chosen: &str) -> (Vec<GroupOption>, Vec<String>, i32) {
+    let mut options: Vec<(String, String)> = vec![(String::new(), first.to_string())];
+    for b in batteries(v) {
+        options.push((b["key"].as_str().unwrap_or_default().into(), b["name"].as_str().unwrap_or_default().into()));
+    }
+    if !options.iter().any(|(k, _)| k == chosen) {
+        options.push((chosen.to_string(), chosen.to_string()));
+    }
+    let index = options.iter().position(|(k, _)| k == chosen).unwrap_or(0) as i32;
+    let keys = options.iter().map(|(k, _)| k.clone()).collect();
+    let options = options.into_iter().map(|(_, n)| GroupOption { label: n.into(), header: false }).collect();
+    (options, keys, index)
+}
+
 fn app_name(name: &str) -> String {
     let n = name.trim().to_lowercase();
     n.strip_suffix(".exe").map(str::to_string).unwrap_or(n)
@@ -814,6 +878,15 @@ fn app_name(name: &str) -> String {
 fn live(v: &View, layer: &Value) -> bool {
     let (running, front) = apps_seen(v);
     let named = |n: &str| layer["apps"].as_array().into_iter().flatten().any(|a| app_name(a.as_str().unwrap_or("")) == n);
+    if layer["when"] == "battery_low" {
+        let key = layer["battery"].as_str().unwrap_or_default();
+        let low = layer["low"].as_f64().unwrap_or(20.0);
+        return batteries(v).iter().any(|b| {
+            (key.is_empty() || b["key"] == key)
+                && b["percent"].as_f64().is_some_and(|p| p <= low)
+                && !b["charging"].as_bool().unwrap_or(false)
+        });
+    }
     match layer["when"].as_str() {
         Some("running") => running.iter().any(|r| named(r)),
         Some("front") => front.is_some_and(|f| named(&f)),
@@ -965,7 +1038,7 @@ fn add_layer(app: &AppHandle, i: i32) {
     let layer = json!({
         "enabled": true, "opacity": 1.0, "blend": "normal",
         "scope": if keyboards { "keyboards" } else { "all" },
-        "devices": [], "when": "always", "apps": [], "effect": effect,
+        "devices": [], "when": "always", "apps": [], "battery": "", "low": 20, "effect": effect,
     });
     edit_layers(app, |l| l.push(layer));
     let len = with_view(|v| layers_len(v));
@@ -1068,7 +1141,17 @@ fn scope_words(app: &AppHandle, v: &View, layer: &Value) -> String {
     }
 }
 
-fn when_words(app: &AppHandle, layer: &Value) -> String {
+fn when_words(app: &AppHandle, v: &View, layer: &Value) -> String {
+    if layer["when"] == "battery_low" {
+        let low = num(layer["low"].as_f64().unwrap_or(20.0));
+        let key = layer["battery"].as_str().unwrap_or_default();
+        if key.is_empty() {
+            return tr(app, &format!("while any battery is at {low}% or less"));
+        }
+        let list = batteries(v);
+        let name = list.iter().find(|b| b["key"] == key).and_then(|b| b["name"].as_str()).unwrap_or(key);
+        return tr(app, &format!("while {name} is at {low}% or less"));
+    }
     let apps: Vec<&str> = layer["apps"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
     match layer["when"].as_str() {
         Some("always") | None => String::new(),
@@ -1099,7 +1182,7 @@ fn render_layers(g: &EffectsPage, app: &AppHandle, v: &View, e: &mut Ed) {
             let blend = l["blend"].as_str().unwrap_or("normal");
             let parts = [
                 scope_words(app, v, l),
-                when_words(app, l),
+                when_words(app, v, l),
                 if opacity < 1.0 { format!("{}%", (opacity * 100.0).round()) } else { String::new() },
                 if blend != "normal" && blend != "over" { tr(app, &words(blend)) } else { String::new() },
             ];
@@ -1226,6 +1309,24 @@ fn render_layer(g: &EffectsPage, app: &AppHandle, v: &View, e: &mut Ed) {
     fill(g.get_checks(), checks, |m| g.set_checks(m));
     let when = layer["when"].as_str().unwrap_or("always");
     g.set_when_index(WHENS.iter().position(|x| *x == when).unwrap_or(0) as i32);
+    let key = layer["battery"].as_str().unwrap_or_default();
+    let low = layer["low"].as_f64().unwrap_or(20.0);
+    let (options, keys, index) = battery_options(v, &tr(app, "Any device"), key);
+    e.layer_battery_keys = keys;
+    fill(g.get_battery_options(), options, |m| g.set_battery_options(m));
+    g.set_battery_index(index);
+    g.set_low(low as f32);
+    g.set_low_text(num(low).into());
+    let hint = if !v.snap["settings"]["battery_tray"].as_bool().unwrap_or(true) {
+        tr(app, "Turn on Batteries in Settings to read battery levels.")
+    } else if !key.is_empty() && battery_now(&batteries(v), key).is_none() {
+        tr(app, "No reading from this device. The layer stays hidden.")
+    } else if key.is_empty() {
+        tr(app, &format!("Shows while any device is at {}% or less and not charging.", num(low)))
+    } else {
+        tr(app, &format!("Shows while this device is at {}% or less and not charging.", num(low)))
+    };
+    g.set_battery_hint(hint.into());
     let apps: Vec<SharedString> = layer["apps"].as_array().into_iter().flatten().map(s).collect();
     let typed = e.app_typed.trim().to_lowercase();
     let choices: Vec<SharedString> = e
@@ -1349,8 +1450,36 @@ fn param_rows(app: &AppHandle, v: &View, e: &mut Ed, info: Option<&Value>, effec
                 };
                 row.status = status.into();
             }
+            "battery" => {
+                let chosen = value.as_str().unwrap_or_default();
+                let (options, keys, index) = battery_options(v, &tr(app, "Lowest battery"), chosen);
+                e.battery_keys = keys;
+                row.index = index;
+                row.options = ModelRc::new(VecModel::from(options));
+                let status = if !v.snap["settings"]["battery_tray"].as_bool().unwrap_or(true) {
+                    tr(app, "Turn on Batteries in Settings to read battery levels.")
+                } else {
+                    match battery_now(&batteries(v), chosen) {
+                        None if chosen.is_empty() => tr(app, "No battery readings yet. The lowest stage is shown."),
+                        None => tr(app, "No reading from this device. The lowest stage is shown."),
+                        Some(b) => {
+                            let (name, pct) = (b["name"].as_str().unwrap_or_default(), b["percent"].as_u64().unwrap_or(0));
+                            let charging = if b["charging"].as_bool().unwrap_or(false) { ", charging" } else { "" };
+                            if chosen.is_empty() {
+                                tr(app, &format!("Lowest is {name} at {pct}%{charging}"))
+                            } else {
+                                tr(app, &format!("Now {pct}%{charging}"))
+                            }
+                        }
+                    }
+                };
+                row.status = status.into();
+            }
             "stops" => {
                 e.stops_at = Some((target.to_string(), name.to_string()));
+                e.stops_max = c["max"].as_f64().unwrap_or(150.0);
+                e.stops_level = c["unit"] == "%";
+                let level = e.stops_level;
                 let stops: Vec<StopRow> = value
                     .as_array()
                     .into_iter()
@@ -1365,6 +1494,7 @@ fn param_rows(app: &AppHandle, v: &View, e: &mut Ed, info: Option<&Value>, effec
                     fill(g.get_stops(), stops, |m| g.set_stops(m));
                     g.set_stops_problem(e.stops_problem.clone().into());
                     g.set_stops_bad(e.stops_bad);
+                    g.set_stops_level(level);
                 });
             }
             _ => {}
