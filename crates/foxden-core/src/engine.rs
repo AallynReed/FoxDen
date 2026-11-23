@@ -4,7 +4,10 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::{Apps, Backend, Batteries, Color, Device, Effect, Inputs, Layer, Spot, paint, spots};
+use crate::{
+    Apps, Backend, Batteries, Color, Device, Effect, Hardware, HardwareSetting, Inputs, Layer,
+    Spot, paint, spots,
+};
 use serde::Serialize;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -20,6 +23,9 @@ struct Placed {
     home: [f32; 4],
     /// The key or zone under each LED, for key colour layers.
     spots: Vec<Spot>,
+    hardware: Option<Hardware>,
+    /// Running a hardware effect, so it gets no frames.
+    held: bool,
 }
 
 /// Newest colours for each device of one backend; `None` where nothing is waiting.
@@ -32,6 +38,9 @@ struct Mail {
     busy: bool,
     closed: bool,
     error: Option<String>,
+    /// Hardware effects to start or stop, by device index, before any more colours.
+    switches: Vec<(usize, Option<HardwareSetting>)>,
+    refused: Vec<(usize, String)>,
 }
 
 /// What the engine shares with the thread that owns a backend.
@@ -63,7 +72,15 @@ impl Link {
         }
         self.wake.notify_all();
     }
+
+    fn switch(&self, device: usize, setting: Option<HardwareSetting>) {
+        self.mail().switches.push((device, setting));
+        self.wake.notify_all();
+    }
 }
+
+/// How long `set_hardware` waits for the device to answer.
+const SWITCH_WAIT: Duration = Duration::from_secs(2);
 
 /// The longest a device goes without its colours being sent again, even when they have not changed.
 const RESEND: Duration = Duration::from_secs(1);
@@ -79,27 +96,47 @@ fn spawn_pusher(
         // Last colours sent per device: identical frames are skipped, but resent at least every
         // `RESEND` so devices that fall back to their own lighting without a steady signal stay put.
         let mut sent: Vec<Option<(Vec<Color>, Instant)>> = vec![None; devices.len()];
+        let mut held = vec![false; devices.len()];
         loop {
-            let batch = {
+            let (batch, switches) = {
                 let mut mail = link.mail();
                 mail.busy = false;
                 link.wake.notify_all();
-                while !mail.closed && mail.batch.iter().all(Option::is_none) {
+                while !mail.closed
+                    && mail.switches.is_empty()
+                    && mail.batch.iter().all(Option::is_none)
+                {
                     mail = link.wake.wait(mail).unwrap_or_else(|e| e.into_inner());
                 }
                 if mail.closed {
                     return;
                 }
                 mail.busy = true;
-                std::mem::take(&mut mail.batch)
+                (
+                    std::mem::take(&mut mail.batch),
+                    std::mem::take(&mut mail.switches),
+                )
             };
+            for (i, setting) in switches {
+                let Some((id, name)) = devices.get(i) else {
+                    continue;
+                };
+                sent[i] = None;
+                held[i] = setting.is_some();
+                if let Err(e) = backend.set_hardware(id, setting.as_ref()) {
+                    held[i] = false;
+                    link.mail().refused.push((i, format!("{name}: {e}")));
+                }
+            }
             let now = Instant::now();
             let mut any = false;
             let pushed = devices
                 .iter()
                 .zip(batch)
                 .zip(sent.iter_mut())
-                .filter_map(|((device, colors), last)| Some((device, colors?, last)))
+                .zip(&held)
+                .filter(|(_, held)| !**held)
+                .filter_map(|(((device, colors), last), _)| Some((device, colors?, last)))
                 .filter(|(_, colors, last)| {
                     last.as_ref()
                         .is_none_or(|(c, at)| c != colors || now.duration_since(*at) >= RESEND)
@@ -178,6 +215,8 @@ pub struct Engine {
     pub effect: Effect,
     /// Devices with an effect of their own instead of `effect`.
     pub overrides: HashMap<String, Effect>,
+    /// Devices told to run an effect of their own.
+    hardware: HashMap<String, HardwareSetting>,
     /// Drawn over the effect, bottom first.
     pub layers: Vec<Layer>,
     /// What layers tied to apps check against.
@@ -198,6 +237,7 @@ impl Engine {
             failed: Arc::default(),
             effect: Effect::default(),
             overrides: HashMap::new(),
+            hardware: HashMap::new(),
             layers: Vec::new(),
             apps: Apps::default(),
             batteries: Batteries::new(),
@@ -222,8 +262,10 @@ impl Engine {
                 .into_iter()
                 .map(|device| Placed {
                     home: device.rect,
+                    hardware: backend.hardware(&device.id),
                     device,
                     spots: Vec::new(),
+                    held: false,
                 })
                 .collect();
             let names = devices
@@ -232,12 +274,19 @@ impl Engine {
                 .collect();
             let link = Arc::new(Link::default());
             let pusher = spawn_pusher(backend, names, link.clone(), self.failed.clone());
-            self.slots.push(Slot {
+            let mut slot = Slot {
                 label: label.to_string(),
                 devices,
                 link,
                 pusher: Some(pusher),
-            });
+            };
+            for (i, p) in slot.devices.iter_mut().enumerate() {
+                if let Some(setting) = self.runnable(p) {
+                    slot.link.switch(i, Some(setting));
+                    p.held = true;
+                }
+            }
+            self.slots.push(slot);
         }
         let order = &self.order;
         self.slots
@@ -269,8 +318,100 @@ impl Engine {
         };
         self.tuning.insert(id.to_string(), tuning);
         self.layout();
+        if was_enabled != enabled {
+            self.rehold(id);
+        }
         if was_enabled && !enabled {
             self.black(Some(id));
+        }
+    }
+
+    /// Effects the device can run on its own.
+    pub fn hardware(&self, id: &str) -> Option<&Hardware> {
+        let (s, d) = self.find(id)?;
+        self.slots[s].devices[d].hardware.as_ref()
+    }
+
+    pub fn hardware_setting(&self, id: &str) -> Option<&HardwareSetting> {
+        self.hardware.get(id)
+    }
+
+    /// Has the device run one of its own effects, or with `None` hands it back to FoxDen's.
+    /// A device not connected yet starts the effect once it is.
+    pub fn set_hardware(
+        &mut self,
+        id: &str,
+        setting: Option<HardwareSetting>,
+    ) -> Result<(), String> {
+        if let (Some(setting), Some((s, d))) = (&setting, self.find(id)) {
+            let options = self.slots[s].devices[d].hardware.as_ref();
+            options
+                .ok_or("the device has no effects of its own")?
+                .fit(setting)?;
+        }
+        match setting {
+            Some(setting) => self.hardware.insert(id.to_string(), setting),
+            None => self.hardware.remove(id),
+        };
+        let Some((s, d)) = self.find(id) else {
+            return Ok(());
+        };
+        let link = self.slots[s].link.clone();
+        link.mail().refused.clear();
+        self.rehold(id);
+        let deadline = Instant::now() + SWITCH_WAIT;
+        let mut mail = link.mail();
+        while mail.error.is_none() && !mail.closed && (mail.busy || !mail.switches.is_empty()) {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            mail = link
+                .wake
+                .wait_timeout(mail, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+        let refused = mail
+            .refused
+            .iter()
+            .find(|(i, _)| *i == d)
+            .map(|(_, e)| e.clone());
+        drop(mail);
+        match refused {
+            Some(e) => {
+                self.hardware.remove(id);
+                self.slots[s].devices[d].held = false;
+                Err(e)
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn find(&self, id: &str) -> Option<(usize, usize)> {
+        self.slots.iter().enumerate().find_map(|(s, slot)| {
+            let d = slot.devices.iter().position(|p| p.device.id == id)?;
+            Some((s, d))
+        })
+    }
+
+    /// What the device should run now: the effect it was given, if it takes it and is switched on.
+    fn runnable(&self, p: &Placed) -> Option<HardwareSetting> {
+        let setting = self.hardware.get(&p.device.id)?;
+        let enabled = self.tuning.get(&p.device.id).is_none_or(|t| t.enabled);
+        let fits = p.hardware.as_ref().is_some_and(|h| h.fit(setting).is_ok());
+        (enabled && fits).then(|| setting.clone())
+    }
+
+    /// Starts or stops the device's hardware effect to match `runnable`.
+    fn rehold(&mut self, id: &str) {
+        let Some((s, d)) = self.find(id) else {
+            return;
+        };
+        let setting = self.runnable(&self.slots[s].devices[d]);
+        let p = &mut self.slots[s].devices[d];
+        if p.held || setting.is_some() {
+            p.held = setting.is_some();
+            self.slots[s].link.switch(d, setting);
         }
     }
 
@@ -347,7 +488,11 @@ impl Engine {
         let deadline = Instant::now() + limit;
         for slot in &self.slots {
             let mut mail = slot.link.mail();
-            while mail.error.is_none() && (mail.busy || mail.batch.iter().any(Option::is_some)) {
+            while mail.error.is_none()
+                && (mail.busy
+                    || !mail.switches.is_empty()
+                    || mail.batch.iter().any(Option::is_some))
+            {
                 let Some(left) = deadline.checked_duration_since(Instant::now()) else {
                     return;
                 };
@@ -418,7 +563,7 @@ impl Engine {
                 } else {
                     vec![Color::BLACK; device.leds.len()]
                 };
-                batch.push(tuning.enabled.then(|| colors.clone()));
+                batch.push((tuning.enabled && !p.held).then(|| colors.clone()));
                 frames.push(Frame {
                     device: device.id.clone(),
                     colors,
@@ -434,7 +579,7 @@ impl Engine {
             let batch = slot.devices.iter().map(|p| {
                 let id = p.device.id.as_str();
                 let enabled = self.tuning.get(id).is_none_or(|t| t.enabled);
-                only.map_or(enabled, |o| o == id)
+                (only.map_or(enabled, |o| o == id) && !p.held)
                     .then(|| vec![Color::BLACK; p.device.leds.len()])
             });
             slot.link.post(batch.collect());
@@ -769,5 +914,88 @@ mod tests {
         engine.flush(SOON);
         assert!(pushes.lock().unwrap().is_empty());
         assert_eq!(engine.devices().len(), 6);
+    }
+
+    /// One device with a hardware mode; logs pushes and switches, refuses mode "bad".
+    struct Own(Arc<Mutex<Vec<String>>>);
+
+    impl Backend for Own {
+        fn name(&self) -> &str {
+            "own"
+        }
+
+        fn devices(&self) -> Vec<Device> {
+            vec![Device::grid(
+                "h",
+                "H",
+                DeviceKind::Strip,
+                [0.0, 0.0, 1.0, 1.0],
+                2,
+                1,
+            )]
+        }
+
+        fn push(&mut self, device_id: &str, _: &[Color]) -> Result<(), String> {
+            self.0.lock().unwrap().push(format!("push {device_id}"));
+            Ok(())
+        }
+
+        fn hardware(&self, _: &str) -> Option<Hardware> {
+            let modes = ["spin", "bad"].map(|m| crate::HardwareMode::new(m, m));
+            Some(Hardware {
+                modes: modes.to_vec(),
+            })
+        }
+
+        fn set_hardware(&mut self, id: &str, s: Option<&HardwareSetting>) -> Result<(), String> {
+            let mode = s.map_or("none", |s| s.mode.as_str());
+            self.0.lock().unwrap().push(format!("hw {id} {mode}"));
+            if mode == "bad" {
+                Err("refused".into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn mode(m: &str) -> HardwareSetting {
+        serde_json::from_value(serde_json::json!({ "mode": m })).unwrap()
+    }
+
+    #[test]
+    fn a_device_in_a_hardware_mode_gets_no_frames_until_handed_back() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let mut engine = Engine::new(Vec::new());
+        engine.set_hardware("h", Some(mode("spin"))).unwrap();
+        engine.add("own", vec![Box::new(Own(log.clone()))]);
+        let taken = |log: &Arc<Mutex<Vec<String>>>| std::mem::take(&mut *log.lock().unwrap());
+        engine.render(0.0, &Inputs::default());
+        engine.blackout();
+        engine.flush(SOON);
+        assert_eq!(taken(&log), ["hw h spin"]);
+        assert!(engine.set_hardware("h", Some(mode("nope"))).is_err());
+        assert!(engine.set_hardware("virtual", Some(mode("spin"))).is_ok());
+
+        engine.set_hardware("h", None).unwrap();
+        engine.render(0.0, &Inputs::default());
+        engine.flush(SOON);
+        assert_eq!(taken(&log), ["hw h none", "push h"]);
+
+        let refused = engine.set_hardware("h", Some(mode("bad")));
+        assert_eq!(refused, Err("H: refused".into()));
+        assert_eq!(engine.hardware_setting("h"), None);
+        engine.render(1.0, &Inputs::default());
+        engine.flush(SOON);
+        assert_eq!(taken(&log), ["hw h bad", "push h"]);
+
+        engine.set_hardware("h", Some(mode("spin"))).unwrap();
+        engine.set_device("h", false, 1.0, None);
+        engine.flush(SOON);
+        assert_eq!(taken(&log), ["hw h spin", "hw h none", "push h"]);
+        engine.set_device("h", true, 1.0, None);
+        engine.render(2.0, &Inputs::default());
+        engine.flush(SOON);
+        assert_eq!(taken(&log), ["hw h spin"]);
+        assert_eq!(engine.hardware("h").unwrap().modes.len(), 2);
     }
 }

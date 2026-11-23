@@ -1,4 +1,4 @@
-use crate::{Color, Device, DeviceKind};
+use crate::{Color, Device, DeviceKind, Hardware, HardwareSetting};
 
 /// A source of devices: native drivers, the OpenRGB bridge, or the virtual preview.
 pub trait Backend: Send {
@@ -9,6 +9,21 @@ pub trait Backend: Send {
     /// Called once the pushes of one frame are done, for backends that send frames in batches.
     fn flush(&mut self) -> Result<(), String> {
         Ok(())
+    }
+    /// Effects the device can run on its own.
+    fn hardware(&self, _device_id: &str) -> Option<Hardware> {
+        None
+    }
+    /// Starts a hardware effect; `None` hands the device back to `push`, which takes it over afresh.
+    fn set_hardware(
+        &mut self,
+        _device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        match setting {
+            Some(_) => Err("no hardware effects".into()),
+            None => Ok(()),
+        }
     }
 }
 
