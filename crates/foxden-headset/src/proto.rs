@@ -19,6 +19,8 @@ pub enum Family {
     Arctis7,
     Arctis7Plus,
     ArctisPro,
+    Nova3,
+    NovaElite,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -298,9 +300,12 @@ impl Model {
                     },
                 ),
             ]),
-            Family::Arctis1 | Family::Arctis7 | Family::Arctis7Plus | Family::ArctisPro => {
-                out = arctis::controls(self)
-            }
+            Family::Arctis1
+            | Family::Arctis7
+            | Family::Arctis7Plus
+            | Family::ArctisPro
+            | Family::Nova3
+            | Family::NovaElite => out = arctis::controls(self),
         }
         out
     }
@@ -367,9 +372,12 @@ impl Model {
             Family::Nova5 | Family::Bragi => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
-            Family::Arctis1 | Family::Arctis7 | Family::Arctis7Plus | Family::ArctisPro => {
-                arctis::save(self)
-            }
+            Family::Arctis1
+            | Family::Arctis7
+            | Family::Arctis7Plus
+            | Family::ArctisPro
+            | Family::Nova3
+            | Family::NovaElite => arctis::save(self),
         }
     }
 
@@ -389,6 +397,7 @@ impl Model {
     pub fn reads(&self) -> Vec<Vec<u8>> {
         match self.family {
             Family::Nova7Gen2 | Family::Nova5 => vec![vec![0x00, 0x20], vec![0x00, 0xA0]],
+            Family::Nova3 => arctis::reads(self),
             _ => Vec::new(),
         }
     }
@@ -471,9 +480,12 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
             })
         }
         Family::Bragi => None,
-        Family::Arctis1 | Family::Arctis7 | Family::Arctis7Plus | Family::ArctisPro => {
-            arctis::status(m, r)
-        }
+        Family::Arctis1
+        | Family::Arctis7
+        | Family::Arctis7Plus
+        | Family::ArctisPro
+        | Family::Nova3
+        | Family::NovaElite => arctis::status(m, r),
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;
@@ -508,6 +520,9 @@ fn level(c: Control, b: u8, max: u8) -> Option<(Control, i32)> {
 
 /// Settings in a reply to one of [`Model::reads`]. Values outside their range are left out.
 pub fn settings(m: &Model, r: &[u8]) -> Vec<(Control, i32)> {
+    if m.family == Family::Nova3 {
+        return arctis::settings(m, r);
+    }
     let mut out = Vec::new();
     match (m.family, r.first()) {
         (Family::Nova7Gen2, Some(0x20)) if r.len() >= 4 => {
