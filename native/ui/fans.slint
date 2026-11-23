@@ -908,7 +908,7 @@ component Shape inherits VerticalLayout {
         HorizontalLayout {
             spacing: 12px;
             alignment: start;
-            Rectangle { width: 20px - 12px; }
+            Rectangle { width: 20px; }
             Label { width: 64px + 4px + 20px; text: I18n.t("Temperature"); }
             Label { width: 64px + 4px + 20px; text: I18n.t("Duty"); }
         }
@@ -917,7 +917,7 @@ component Shape inherits VerticalLayout {
             alignment: start;
             height: 32px;
             Text {
-                width: 20px - 12px;
+                width: 20px;
                 text: i + 1;
                 color: p.on ? Theme.accent : Theme.muted;
                 font-family: Theme.mono;
@@ -1252,9 +1252,9 @@ component Bar inherits Rectangle {
 export component FansPanel inherits Rectangle {
     changed width => { FansPage.resized(self.width); }
     init => { FansPage.resized(self.width); }
-    FocusScope {
-        focus-on-click: false;
+    keys := FocusScope {
         focus-on-tab-navigation: false;
+        init => { self.focus(); }
         capture-key-pressed(e) => {
             if e.modifiers.control && !e.modifiers.alt {
                 if e.text == "s" || e.text == "S" {
