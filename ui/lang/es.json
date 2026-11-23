@@ -1412,5 +1412,7 @@
  "{0}_service": "{0}_service",
  "· FoxDen {0}": "· FoxDen {0}",
  "· idle": "· inactivo",
- "· {0} own": "· {0} propios"
+ "· {0} own": "· {0} propios",
+ "Remind me later": "Recordármelo más tarde",
+ "Don't remind me": "No volver a recordar"
 }

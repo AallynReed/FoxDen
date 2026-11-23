@@ -130,6 +130,7 @@ pub fn show(app: &AppHandle) {
     });
     if exists {
         app.set_shown(true, false);
+        settings::prompt_update(app);
         return;
     }
     let win = match build(app) {
@@ -147,6 +148,7 @@ pub fn show(app: &AppHandle) {
         apply_all(&win, app, view);
     });
     let _ = win.show();
+    settings::prompt_update(app);
     let poll = Timer::default();
     let weak = win.as_weak();
     let a = app.clone();

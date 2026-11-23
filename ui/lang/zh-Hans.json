@@ -1412,5 +1412,7 @@
  "{0}_service": "{0}_service",
  "· FoxDen {0}": "· FoxDen {0}",
  "· idle": "· 空闲",
- "· {0} own": "· {0} 个独立"
+ "· {0} own": "· {0} 个独立",
+ "Remind me later": "稍后提醒",
+ "Don't remind me": "不再提醒"
 }

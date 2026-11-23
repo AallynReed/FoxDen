@@ -1024,6 +1024,8 @@ mod tests {
                 "openrgb_port",
                 "send_reports",
                 "start_minimized",
+                "update_ignored",
+                "update_remind_at",
                 "zone_leds"
             ]
         );

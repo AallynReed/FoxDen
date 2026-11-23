@@ -1412,5 +1412,7 @@
  "{0}_service": "{0}_service",
  "· FoxDen {0}": "· FoxDen {0}",
  "· idle": "· 대기",
- "· {0} own": "· 자체 {0}"
+ "· {0} own": "· 자체 {0}",
+ "Remind me later": "나중에 알림",
+ "Don't remind me": "다시 알리지 않음"
 }

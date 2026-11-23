@@ -1,4 +1,4 @@
-//! New releases from GitHub: checks a minute after start, then every hour, and tells the user.
+//! New releases from GitHub: checks shortly after start, then every hour, and tells the user.
 //! With `auto_update` on it installs by itself once the app is in the tray or a minute has passed.
 //! It reads the same latest.json as the Tauri build, so releases must publish a native installer there.
 
@@ -15,7 +15,7 @@ use crate::state::{Shared, lock};
 const ENDPOINT: &str = "https://github.com/AallynReed/FoxDen/releases/latest/download/latest.json";
 const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2OUExOEQ0OTdDRTBEMDEKUldRQkRjNlgxQmlhdHNRcDlJR2xIcVh4R1dobE1tU0JCMW0yall4U3BoRVdJcW9jTXh1WmVldVQK";
 const TARGETS: [&str; 2] = ["windows-x86_64-nsis", "windows-x86_64"];
-const FIRST: Duration = Duration::from_secs(60);
+const FIRST: Duration = Duration::from_secs(5);
 const EVERY: Duration = Duration::from_secs(60 * 60);
 const GRACE: Duration = Duration::from_secs(60);
 const DEV: &str = "development builds do not install updates";
@@ -183,7 +183,10 @@ async fn check(app: &AppHandle, shared: &Shared) -> Result<Option<Info>, String>
     let info = Info {
         version: release.version.clone(),
         notes: json["notes"].as_str().unwrap_or_default().to_string(),
-        auto: lock(shared).config.settings.auto_update,
+        auto: {
+            let settings = &lock(shared).config.settings;
+            settings.auto_update && settings.update_ignored != release.version
+        },
     };
     let known = lock(&FOUND)
         .replace((release, info.clone()))

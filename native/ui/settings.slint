@@ -150,6 +150,7 @@ export global SettingsPage {
     in property <bool> update-busy;
     callback install-update();
     callback later-update();
+    callback ignore-update();
 
     in-out property <int> feedback-type;
     in-out property <string> feedback-message;
@@ -981,7 +982,8 @@ export component SettingsSheets inherits Rectangle {
                         init => { self.focus(); }
                         clicked => { SettingsPage.install-update(); }
                     }
-                    Button { text: I18n.t("Later"); clicked => { SettingsPage.later-update(); } }
+                    Button { text: I18n.t("Remind me later"); clicked => { SettingsPage.later-update(); } }
+                    Button { text: I18n.t("Don't remind me"); clicked => { SettingsPage.ignore-update(); } }
                 }
             }
             if SettingsPage.sheet == "vmic": Sheet {

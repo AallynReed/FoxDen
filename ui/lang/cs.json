@@ -1412,5 +1412,7 @@
  "{0}_service": "{0}_service",
  "· FoxDen {0}": "· FoxDen {0}",
  "· idle": "· nečinné",
- "· {0} own": "· vlastní: {0}"
+ "· {0} own": "· vlastní: {0}",
+ "Remind me later": "Připomenout později",
+ "Don't remind me": "Nepřipomínat"
 }

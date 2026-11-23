@@ -1412,5 +1412,7 @@
  "{0}_service": "{0}_service",
  "· FoxDen {0}": "· FoxDen {0}",
  "· idle": "· boşta",
- "· {0} own": "· {0} kendine özgü"
+ "· {0} own": "· {0} kendine özgü",
+ "Remind me later": "Daha sonra hatırlat",
+ "Don't remind me": "Bir daha hatırlatma"
 }

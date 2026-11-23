@@ -33,6 +33,10 @@ pub struct Settings {
     pub auto_detect: bool,
     /// Download and install new releases from GitHub.
     pub auto_update: bool,
+    /// The release the user chose never to be reminded of.
+    pub update_ignored: String,
+    /// Unix time before which the update popup stays closed.
+    pub update_remind_at: u64,
     /// UI language: "auto" follows Windows.
     pub language: String,
     pub lighting_module: bool,
@@ -66,6 +70,8 @@ impl Default for Settings {
             autostart: true,
             auto_detect: true,
             auto_update: false,
+            update_ignored: String::new(),
+            update_remind_at: 0,
             language: "auto".into(),
             lighting_module: true,
             fans_module: true,

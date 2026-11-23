@@ -1412,5 +1412,7 @@
  "{0}_service": "{0}_service",
  "· FoxDen {0}": "· FoxDen {0}",
  "· idle": "· idle",
- "· {0} own": "· {0} own"
+ "· {0} own": "· {0} own",
+ "Remind me later": "Remind me later",
+ "Don't remind me": "Don't remind me"
 }

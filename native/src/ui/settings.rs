@@ -974,15 +974,45 @@ fn bind_conflicts(w: &AppWindow, app: &AppHandle) {
     });
 }
 
+const REMIND: u64 = 60 * 60;
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
 fn show_update(app: &AppHandle, info: &Value, announce: bool) {
     let version = s(&info["version"]).to_string();
     local(|l| {
         l.update = Some(info.clone());
         l.update_status = tf(app, "Version {0} available", &[&version]);
     });
-    if announce && info["auto"].as_bool().unwrap_or(false) {
-        note(app, &format!("Version {version} installs in a minute. Open the update to put it off."));
+    if announce {
+        prompt_update(app);
     }
+}
+
+/// Opens the update popup on a visible window, unless this release was put off or ignored.
+pub fn prompt_update(app: &AppHandle) {
+    let app = app.clone();
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        let Some(version) = local(|l| l.update.as_ref().map(|u| s(&u["version"]).to_string())) else {
+            return;
+        };
+        let settings = snap_settings(&app);
+        let ignored = settings["update_ignored"].as_str() == Some(version.as_str());
+        if ignored || unix_now() < settings["update_remind_at"].as_u64().unwrap_or(0) {
+            return;
+        }
+        with_win(|w| {
+            let g = w.global::<SettingsPage>();
+            if w.window().is_visible() && g.get_sheet().is_empty() {
+                g.set_sheet("update".into());
+            }
+        });
+        redraw(&app);
+    });
 }
 
 fn bind_updates(w: &AppWindow, app: &AppHandle) {
@@ -998,8 +1028,16 @@ fn bind_updates(w: &AppWindow, app: &AppHandle) {
     let a2 = app.clone();
     g.on_later_update(move || {
         crate::updater::later_update();
+        edit_settings(&a2, |s| s["update_remind_at"] = json!(unix_now() + REMIND));
         with_win(|w| w.global::<SettingsPage>().set_sheet("".into()));
-        note(&a2, "Update put off");
+    });
+    let a = app.clone();
+    g.on_ignore_update(move || {
+        crate::updater::later_update();
+        if let Some(version) = local(|l| l.update.as_ref().map(|u| s(&u["version"]).to_string())) {
+            edit_settings(&a, |s| s["update_ignored"] = json!(version));
+        }
+        with_win(|w| w.global::<SettingsPage>().set_sheet("".into()));
     });
     let a = app.clone();
     g.on_install_update(move || {
