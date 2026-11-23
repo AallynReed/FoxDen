@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareSetting};
 use hidapi::HidDevice;
 use std::time::Duration;
 
@@ -19,6 +19,13 @@ pub trait Proto: Send {
     fn frame(&mut self, colors: &[Color]) -> Vec<Op>;
     /// Called after a failed transfer so the next frame starts over.
     fn reset(&mut self) {}
+    fn hardware(&self) -> Option<Hardware> {
+        None
+    }
+    /// What starts one of the device's own effects.
+    fn hardware_ops(&mut self, _: &HardwareSetting) -> Result<Vec<Op>, String> {
+        Err("no hardware effects".into())
+    }
 }
 
 pub struct Driver<P: Proto> {
@@ -95,6 +102,30 @@ impl<P: Proto> Backend for Driver<P> {
                 Err(e)
             }
         }
+    }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        (device_id == self.device.id)
+            .then(|| self.proto.hardware())
+            .flatten()
+    }
+
+    /// The next frame takes control again from scratch.
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        if device_id != self.device.id {
+            return Err(format!("unknown device {device_id}"));
+        }
+        self.sent = None;
+        let ops = match setting {
+            Some(s) => self.proto.hardware_ops(s)?,
+            None => Vec::new(),
+        };
+        self.proto.reset();
+        run(&self.hid, &ops)
     }
 }
 

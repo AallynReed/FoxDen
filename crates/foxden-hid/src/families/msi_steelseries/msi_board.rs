@@ -2,7 +2,7 @@
 
 use super::common::{Driver, Op, Proto, device, get_feature, rows};
 use crate::registry::{Detector, Info};
-use foxden_core::{Backend, Color, DeviceKind};
+use foxden_core::{Backend, Color, DeviceKind, Hardware, HardwareMode, HardwareSetting};
 use hidapi::{HidApi, HidDevice};
 
 const J_RGB_1: u8 = 1;
@@ -321,6 +321,115 @@ fn zone_based_185() -> [u8; 185] {
     p
 }
 
+/// Mode id, name, effect byte, colours, random colours.
+const EFFECTS_185: [(&str, &str, u8, usize, bool); 9] = [
+    ("static", "Static", 1, 1, false),
+    ("breathing", "Breathing", 2, 1, false),
+    ("flashing", "Flashing", 3, 1, true),
+    ("double_flashing", "Double flashing", 4, 1, true),
+    ("lightning", "Lightning", 5, 1, false),
+    ("meteor", "Meteor", 7, 1, true),
+    ("color_cycle", "Colour cycle", 22, 0, false),
+    ("rainbow", "Rainbow", 26, 0, false),
+    ("fire", "Fire", 38, 0, false),
+];
+/// Effects past this one run the on-board LEDs and the RGB headers in sync.
+const LAST_PLAIN: u8 = 5;
+/// Zones in the order their records are written.
+const EFFECT_ORDER: [u8; 9] = [
+    J_RGB_1,
+    J_RGB_2,
+    J_RAINBOW_1,
+    J_RAINBOW_2,
+    J_RAINBOW_3,
+    J_CORSAIR,
+    J_PIPE_1,
+    J_PIPE_2,
+    ON_BOARD_LED_0,
+];
+
+pub(crate) fn hardware_185() -> Hardware {
+    let modes = EFFECTS_185.map(|(id, name, effect, colors, random)| HardwareMode {
+        speed: (effect != 1).then_some([0, 2]),
+        brightness: Some([0, 10]),
+        colors,
+        random,
+        ..HardwareMode::new(id, name)
+    });
+    Hardware {
+        modes: modes.to_vec(),
+    }
+}
+
+/// The settings read at open with every zone in `zones` running the effect; the save flag stays clear.
+fn effect_185(
+    onboard: usize,
+    mixed: bool,
+    zones: &[u8],
+    settings: &[u8],
+    s: &HardwareSetting,
+) -> Result<[u8; 185], String> {
+    let (_, f) = hardware_185().fit(s)?;
+    let &(_, _, effect, colors, _) = EFFECTS_185
+        .iter()
+        .find(|e| e.0 == s.mode)
+        .ok_or("unknown mode")?;
+    let rainbow = colors == 0 || f.random;
+    let c = f.colors.first().copied().unwrap_or(Color::BLACK);
+    let flags = ((f.brightness << 2) & 0x7C) | (f.speed & 0x03);
+    let mut p = [0u8; 185];
+    let n = settings.len().min(185);
+    p[..n].copy_from_slice(&settings[..n]);
+    p[0] = 0x52;
+    p[184] = 0;
+    let custom = |b: u8| if rainbow { b & !0x80 } else { b | 0x80 };
+    let ob = off_185(ON_BOARD_LED_0, mixed).unwrap_or(74);
+    let no_onboards = !zones.contains(&ON_BOARD_LED_0);
+    let onboard_rest: Vec<usize> = (0..onboard)
+        .filter_map(|i| off_185(ON_BOARD_LED_0 + 1 + i as u8, mixed))
+        .collect();
+    for &zone in EFFECT_ORDER.iter().filter(|z| zones.contains(z)) {
+        let Some(at) = off_185(zone, mixed) else {
+            continue;
+        };
+        p[at] = effect;
+        p[at + 4] = flags;
+        p[at + 8] = custom(p[at + 8]);
+        p[at + 9] = if zone == J_RAINBOW_3 { 4 } else { 0 };
+        let feeds_onboard = no_onboards && matches!(zone, J_RGB_1 | J_RGB_2 | J_PIPE_1 | J_PIPE_2);
+        if feeds_onboard {
+            p[ob] = effect;
+            p[ob + 8] |= 0x01;
+            p[ob + 9] = 0;
+        }
+        if effect > LAST_PLAIN {
+            p[ob + 4] |= 0x80;
+            p[ob + 8] |= 0x30;
+        } else {
+            p[ob + 4] &= !0x80;
+            p[ob + 8] &= !0x30;
+        }
+        if zone == ON_BOARD_LED_0 && effect <= LAST_PLAIN {
+            for &b in &onboard_rest {
+                p[b] = effect;
+                p[b + 4] = flags;
+                p[b + 8] = custom(p[b + 8]);
+                p[b + 9] = 0;
+            }
+        }
+        put_color(&mut p, at, c);
+        if feeds_onboard {
+            put_color(&mut p, ob, c);
+        }
+        if zone == ON_BOARD_LED_0 {
+            for &b in &onboard_rest {
+                put_color(&mut p, b, c);
+            }
+        }
+    }
+    Ok(p)
+}
+
 fn per_led_header(hdr1: u8, hdr2: u8) -> [u8; 725] {
     let mut p = [0u8; 725];
     p[..5].copy_from_slice(&[0x53, 0x25, hdr1, hdr2, 0x00]);
@@ -513,6 +622,13 @@ impl D99 {
     pub(crate) fn frames(&self, colors: &[Color]) -> Vec<Op> {
         Self::config().per_led_frames(&self.leds, self.sync, colors)
     }
+
+    /// The settings report that runs an effect on every zone, from the settings read at open.
+    pub(crate) fn effect(&self, settings: &[u8], s: &HardwareSetting) -> Result<[u8; 185], String> {
+        let config = Self::config();
+        let zones: Vec<u8> = self.leds.iter().map(|z| z.0).collect();
+        effect_185(config.onboard, config.mixed(), &zones, settings, s)
+    }
 }
 
 struct Gen185 {
@@ -545,6 +661,49 @@ impl Proto for Gen185 {
 
     fn reset(&mut self) {
         self.enabled = false;
+    }
+}
+
+/// A 185-byte board with the settings it had at open, for its own effects.
+struct Board185 {
+    inner: Gen185,
+    settings: [u8; 185],
+}
+
+impl Board185 {
+    fn new(inner: Gen185, read: &[u8]) -> Self {
+        let mut settings = [0u8; 185];
+        let n = read.len().min(185);
+        settings[..n].copy_from_slice(&read[..n]);
+        settings[184] = 0;
+        Board185 { inner, settings }
+    }
+}
+
+impl Proto for Board185 {
+    fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
+        self.inner.frame(colors)
+    }
+
+    fn reset(&mut self) {
+        self.inner.reset();
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hardware_185())
+    }
+
+    /// The state on the board first, then the new one, as two settings reports.
+    fn hardware_ops(&mut self, s: &HardwareSetting) -> Result<Vec<Op>, String> {
+        let config = self.inner.config;
+        let zones: Vec<u8> = self.inner.leds.iter().map(|z| z.0).collect();
+        let new = effect_185(config.onboard, config.mixed(), &zones, &self.settings, s)?;
+        let now = if self.inner.enabled {
+            config.enable(self.inner.sync)
+        } else {
+            self.settings
+        };
+        Ok(vec![Op::Feature(now.to_vec()), Op::Feature(new.to_vec())])
     }
 }
 
@@ -623,6 +782,7 @@ fn open(api: &HidApi, info: &Info, det: &Detector) -> Result<Box<dyn Backend>, S
                 leds,
                 enabled: false,
             };
+            let proto = Board185::new(proto, &settings);
             Ok(Driver::boxed(hid, "msi mystic light", dev, proto))
         }
         Generation::G162 => {
@@ -2413,5 +2573,96 @@ mod tests {
         assert_eq!(godlike.leds().iter().map(|z| z.1).sum::<usize>(), 148);
         assert!(DETECTORS.iter().any(|d| (d.vid, d.pid) == (0x1462, 0x0076)));
         assert!(config_185(0x0ABE).unwrap().per_led_active());
+    }
+
+    #[test]
+    fn effect_records_on_a_per_led_board() {
+        let config = config_185(0x7C56).unwrap();
+        assert!(!config.mixed() && config.has(ON_BOARD_LED_0));
+        let settings = defaults_185();
+        let mut s = HardwareSetting::new("flashing");
+        s.speed = Some(2);
+        s.brightness = Some(7);
+        s.colors = vec![Color(1, 2, 3)];
+        let zones: Vec<u8> = config.leds().iter().map(|z| z.0).collect();
+        let p = effect_185(config.onboard, false, &zones, &settings, &s).unwrap();
+        assert_eq!((p[0], p[184]), (0x52, 0));
+        assert_eq!(p[1..11], [3, 1, 2, 3, 0x1E, 1, 2, 3, 0x80, 0]);
+        assert_eq!(p[31..41], [3, 1, 2, 3, 0x1E, 1, 2, 3, 0x80, 0]);
+        assert_eq!(p[41], settings[41]);
+        assert_eq!(p[74..84], [3, 1, 2, 3, 0x1E, 1, 2, 3, 0x80, 0]);
+        for at in (84..=134).step_by(10) {
+            assert_eq!(p[at..at + 10], [3, 1, 2, 3, 0x1E, 1, 2, 3, 0x80, 0], "{at}");
+        }
+        assert_eq!(p[144..154], settings[144..154]);
+        s.random = true;
+        let r = effect_185(config.onboard, false, &zones, &settings, &s).unwrap();
+        assert_eq!((r[9], r[82]), (0x00, 0x00));
+
+        let mut cyc = HardwareSetting::new("color_cycle");
+        cyc.speed = Some(0);
+        cyc.brightness = Some(10);
+        let p = effect_185(config.onboard, false, &zones, &settings, &cyc).unwrap();
+        assert_eq!(p[1..11], [22, 0, 0, 0, 0x28, 0, 0, 0, 0x00, 0]);
+        assert_eq!((p[74], p[78], p[82]), (22, 0xA8, 0x30));
+        assert_eq!(p[84..94], settings[84..94]);
+
+        let st = HardwareSetting::new("static");
+        let p = effect_185(config.onboard, false, &zones, &settings, &st).unwrap();
+        assert_eq!(p[74..84], [1, 255, 255, 255, 0x28, 255, 255, 255, 0x80, 0]);
+        assert!(effect_185(6, false, &zones, &settings, &HardwareSetting::new("direct")).is_err());
+    }
+
+    #[test]
+    fn effect_records_without_onboard_leds_and_mixed() {
+        let mut s = HardwareSetting::new("meteor");
+        s.speed = Some(1);
+        s.brightness = Some(10);
+        s.colors = vec![Color(9, 8, 7)];
+        let settings = defaults_185();
+        let p = effect_185(0, true, &[J_RGB_1, J_RGB_2, J_RAINBOW_3], &settings, &s).unwrap();
+        assert_eq!(p[1..11], [7, 9, 8, 7, 0x29, 9, 8, 7, 0x80, 0]);
+        assert_eq!(p[134..144], [7, 9, 8, 7, 0x29, 9, 8, 7, 0x80, 0]);
+        assert_eq!(p[53..63], [7, 9, 8, 7, 0x29, 9, 8, 7, 0x80, 4]);
+        assert_eq!(p[74..84], [7, 9, 8, 7, 0x80, 9, 8, 7, 0x31, 0]);
+        assert_eq!(p[174..184], settings[174..184]);
+    }
+
+    #[test]
+    fn effect_then_direct_again() {
+        let config = config_185(0x7C56).unwrap();
+        let inner = Gen185 {
+            config,
+            leds: config.leds(),
+            sync: true,
+            enabled: false,
+        };
+        let mut read = defaults_185().to_vec();
+        read.push(0x01);
+        let mut b = Board185::new(inner, &read);
+        assert_eq!(b.settings[..], defaults_185()[..]);
+        let colors = vec![Color(1, 2, 3); 87];
+        let first = b.frame(&colors);
+        let mut s = HardwareSetting::new("breathing");
+        s.colors = vec![Color(4, 5, 6)];
+        let ops = b.hardware_ops(&s).unwrap();
+        assert_eq!(ops.len(), 2);
+        assert_eq!(feature(&ops[0]), &crate::msi::enable_direct()[..]);
+        assert_eq!(
+            feature(&ops[1])[1..11],
+            [2, 4, 5, 6, 0x29, 4, 5, 6, 0x80, 0]
+        );
+        b.reset();
+        assert_eq!(b.frame(&colors), first);
+        assert!(b.hardware().is_some());
+        assert_eq!(
+            feature(&b.hardware_ops(&s).unwrap()[0]),
+            &crate::msi::enable_direct()[..]
+        );
+        b.reset();
+        assert_eq!(
+            feature(&b.hardware_ops(&s).unwrap()[0]),
+            &defaults_185()[..]
+        );
     }
 }
