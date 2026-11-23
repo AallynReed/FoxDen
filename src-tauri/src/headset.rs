@@ -178,12 +178,13 @@ pub async fn headset_eq(
     bands: Vec<i32>,
 ) -> Result<(), String> {
     let sent = bands.clone();
-    tauri::async_runtime::spawn_blocking({
+    let f = tauri::async_runtime::spawn_blocking({
         let key = key.clone();
-        move || -> Result<(), String> {
+        move || -> Result<Found, String> {
             let f = found(&key)?;
             check_on(&f)?;
-            foxden_headset::set_eq(&f, &sent)
+            foxden_headset::set_eq(&f, &sent)?;
+            Ok(f)
         }
     })
     .await
@@ -193,6 +194,7 @@ pub async fn headset_eq(
         s.values
             .insert(Control::EqPreset, foxden_headset::EQ_CUSTOM);
     });
+    save_later(f);
     Ok(())
 }
 

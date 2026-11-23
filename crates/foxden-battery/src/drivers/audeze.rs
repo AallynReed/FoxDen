@@ -30,6 +30,7 @@ fn find_level(r: &[u8]) -> Option<u8> {
 
 fn read_level(c: &Coll) -> Option<u8> {
     let dev = Dev::open(c)?;
+    let _turn = foxden_core::hid_turn::take();
     let mut level = None;
     for _ in 0..2 {
         if !dev.write(&RACE_BATTERY) {

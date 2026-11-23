@@ -24,6 +24,11 @@ fn cached(pid: u16) -> Option<Battery> {
         .map(|(_, b)| b.clone())
 }
 
+/// The last reading of a V3-family headset, while it is fresh.
+pub fn last_reading(pid: u16) -> Option<Battery> {
+    cached(pid)
+}
+
 fn store(pid: u16, b: &Battery) {
     let mut g = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     g.get_or_insert_with(HashMap::new)
@@ -211,6 +216,7 @@ fn v3x_reply(txid: u8, cmd: u8, r: &[u8]) -> Option<Feature> {
 }
 
 fn v3x_get(dev: &Dev, cmd: u8) -> Option<u8> {
+    let _turn = foxden_core::hid_turn::take();
     for _ in 0..4 {
         let txid = V3X_TXID.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         if !dev.set_feature(&v3x_request(txid, cmd)) {
@@ -412,6 +418,7 @@ fn pa_reply(cmd: u8, r: &[u8]) -> Option<u8> {
 }
 
 fn pa_query(dev: &Dev, cmd: u8) -> Option<u8> {
+    let _turn = foxden_core::hid_turn::take();
     dev.flush();
     pa_remote(dev, true);
     let mut value = None;

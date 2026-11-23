@@ -1,7 +1,19 @@
-//! Settings of SteelSeries wireless headsets over their own HID protocol, and of Corsair headsets
-//! as Bragi properties.
+//! Settings of SteelSeries wireless headsets over their own HID protocol, of Corsair headsets
+//! as Bragi properties, and of other brands' headsets through their own modules.
 
+mod arctis;
+pub mod astro;
+pub mod audeze;
+mod epos;
+pub mod hyperx;
+mod jabra;
+mod jbl;
+mod logitech;
+mod poly;
 pub mod proto;
+mod razer;
+mod sony;
+pub mod turtlebeach;
 
 use std::sync::Mutex;
 use std::thread;
@@ -24,19 +36,23 @@ pub struct Found {
 pub fn find() -> Vec<Found> {
     let mut out: Vec<Found> = Vec::new();
     for c in enumerate() {
-        if c.out_len == 0 {
-            continue;
-        }
         let Some(model) = proto::any_model(c.vid, c.pid) else {
             continue;
         };
-        let fits = if model.family == Family::Bragi {
-            Bragi::fits(&c)
-        } else {
-            match model.collection() {
+        let fits = match model.family {
+            Family::Razer => razer::fits(&model, &c),
+            _ if c.out_len == 0 => false,
+            Family::Bragi => Bragi::fits(&c),
+            Family::AstroGen4 => astro::gen4_fits(&c),
+            Family::Logitech => logitech::fits(&c, &model),
+            Family::HyperX => hyperx::fits(&model, &c),
+            Family::TurtleBeach => turtlebeach::fits(&c),
+            Family::Inzone => sony::fits(&c),
+            Family::Jbl => jbl::fits(&c),
+            _ => match model.collection() {
                 (_, Some((page, usage))) => c.page == page && c.usage == usage,
                 (iface, None) => c.iface == iface,
-            }
+            },
         };
         let key = format!("{:04X}:{:04X}", c.vid, c.pid);
         if fits && !out.iter().any(|f| f.key == key) {
@@ -70,8 +86,32 @@ pub struct Reading {
 }
 
 pub fn read(f: &Found) -> Option<Reading> {
-    if f.model.family == Family::Bragi {
-        return bragi::read(f, true);
+    match f.model.family {
+        Family::Bragi => return bragi::read(f, true),
+        Family::Epos => return epos::read(f, true),
+        Family::Jabra => return jabra::read(f, true),
+        Family::Poly => return poly::read(f, true),
+        _ => {}
+    }
+    if f.model.family == Family::Logitech {
+        return logitech::read(f, true);
+    }
+    if f.model.family == Family::HyperX {
+        return hyperx::read(f, true);
+    }
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::read(f);
+    }
+    match f.model.family {
+        Family::Inzone => return sony::read(&f.model, &f.coll),
+        Family::Jbl => return jbl::read(&f.model, &f.coll),
+        _ => {}
+    }
+    if f.model.family == Family::Razer {
+        return razer::read(f, true);
+    }
+    if let Some(r) = own_read(f, true) {
+        return r;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -90,15 +130,65 @@ pub fn read(f: &Found) -> Option<Reading> {
     Some(Reading { status, values })
 }
 
+/// Reads of the brands with their own module; `None` for the others.
+fn own_read(f: &Found, settings: bool) -> Option<Option<Reading>> {
+    match f.model.family {
+        Family::AstroGen4 | Family::AstroGen5 => Some(astro::read(f, settings)),
+        Family::Audeze => Some(audeze::read(f, settings)),
+        _ => None,
+    }
+}
+
 /// Just the status: battery, power and the ChatMix dial. Cheap enough to ask often.
 pub fn status(f: &Found) -> Option<Status> {
-    if f.model.family == Family::Bragi {
-        return bragi::read(f, false)?.status;
+    match f.model.family {
+        Family::Bragi => return bragi::read(f, false)?.status,
+        Family::Epos => return slow_status(f, || epos::read(f, false)?.status),
+        Family::Jabra => return slow_status(f, || jabra::read(f, false)?.status),
+        Family::Poly => return slow_status(f, || poly::read(f, false)?.status),
+        _ => {}
+    }
+    if f.model.family == Family::Logitech {
+        return logitech::read(f, false)?.status;
+    }
+    if f.model.family == Family::HyperX {
+        return hyperx::read(f, false)?.status;
+    }
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::status(f);
+    }
+    match f.model.family {
+        Family::Inzone => return sony::status(&f.coll),
+        Family::Jbl => return jbl::status(&f.model, &f.coll),
+        _ => {}
+    }
+    if f.model.family == Family::Razer {
+        return razer::read(f, false)?.status;
+    }
+    if let Some(r) = own_read(f, false) {
+        return r?.status;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
     exchange(&dev, &f.model, &f.model.status_request()).and_then(|r| proto::status(&f.model, &r))
+}
+
+/// Last status of headsets that take a round trip or more per look, and when it was read.
+static SLOW: Mutex<Vec<(String, Instant, Option<Status>)>> = Mutex::new(Vec::new());
+const SLOW_EVERY: Duration = Duration::from_secs(10);
+
+fn slow_status(f: &Found, ask: impl FnOnce() -> Option<Status>) -> Option<Status> {
+    let mut slow = SLOW.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, at, s)) = slow.iter().find(|(k, _, _)| *k == f.key)
+        && at.elapsed() < SLOW_EVERY
+    {
+        return s.clone();
+    }
+    let s = ask();
+    slow.retain(|(k, _, _)| *k != f.key);
+    slow.push((f.key.clone(), Instant::now(), s.clone()));
+    s
 }
 
 fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {
@@ -118,14 +208,43 @@ fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {
 
 /// Sets one control. A settled save, if the model has one, is left to [`save`].
 pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
-    if f.model.family == Family::Bragi {
-        return bragi::set(f, c, v);
+    match f.model.family {
+        Family::Bragi => return bragi::set(f, c, v),
+        Family::Epos => return epos::set(f, c, v),
+        Family::Jabra => return jabra::set(f, c, v),
+        Family::Poly => return poly::set(f, c, v),
+        _ => {}
+    }
+    if f.model.family == Family::Logitech {
+        return logitech::set(f, c, v);
+    }
+    if f.model.family == Family::HyperX {
+        return hyperx::set(f, c, v);
+    }
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::send(f, f.model.set(c, v)?);
+    }
+    match f.model.family {
+        Family::Inzone => return sony::set(&f.model, &f.coll, c, v),
+        Family::Jbl => return jbl::set(&f.model, &f.coll, c, v),
+        _ => {}
+    }
+    if f.model.family == Family::Razer {
+        return razer::set(f, c, v);
+    }
+    match f.model.family {
+        Family::AstroGen4 | Family::AstroGen5 => return astro::set(f, c, v),
+        Family::Audeze => return audeze::set(f, c, v),
+        _ => {}
     }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }
 
 /// Custom EQ gains in half-dB steps.
 pub fn set_eq(f: &Found, bands: &[i32]) -> Result<(), String> {
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::send(f, f.model.eq(bands)?);
+    }
     send(f, f.model.eq(bands)?, f.model.save(None))
 }
 

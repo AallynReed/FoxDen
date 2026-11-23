@@ -18,6 +18,20 @@
     bt_call: "Bluetooth call",
     anc: "Noise cancelling",
     eq_preset: "EQ preset",
+    voice_prompts: "Voice prompts",
+    busy_light: "Busy light",
+    mic_noise_filter: "Mic noise reduction",
+    mic_mute: "Mic mute",
+    anc_level: "Noise cancelling level",
+    noise_gate: "Noise gate",
+    noise_gate_level: "Noise gate level",
+    ai_noise_reduction: "AI noise reduction",
+    superhuman: "Superhuman Hearing",
+    superhuman_mode: "Superhuman Hearing mode",
+    superhuman_level: "Superhuman Hearing level",
+    wake_on_motion: "Wake on motion",
+    ambient_level: "Ambient sound level",
+    voice_focus: "Voice focus",
   };
   const BANDS = ["32", "64", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
   let views = [];

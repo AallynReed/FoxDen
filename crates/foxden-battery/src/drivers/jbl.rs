@@ -51,7 +51,7 @@ fn key(pid: u16) -> String {
 }
 
 /// A numbered 2-byte feature report, read with an exact-size buffer.
-fn get_feature_byte(c: &Coll, id: u8) -> Option<u8> {
+pub fn get_feature_byte(c: &Coll, id: u8) -> Option<u8> {
     let path = CString::new(c.path.as_str()).ok()?;
     unsafe {
         let h = CreateFileA(

@@ -97,7 +97,8 @@ fn battery_payload(r: &[u8], tid: u16, min: usize) -> Option<Vec<u8>> {
 
 static TID: AtomicU16 = AtomicU16::new(1);
 
-fn next_tid() -> u16 {
+/// Transaction ids for this dongle, shared with headset settings so replies never mix.
+pub fn next_tid() -> u16 {
     loop {
         let t = TID.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
         if t > 1 {

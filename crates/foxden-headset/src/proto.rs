@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::arctis;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Family {
     /// Nova 7 on its first firmware: settings are write-only.
@@ -13,6 +15,27 @@ pub enum Family {
     NovaPro,
     /// Corsair headsets: every setting is a Bragi property.
     Bragi,
+    /// Logitech headsets over HID++ 2.0.
+    Logitech,
+    Arctis1,
+    Arctis7,
+    Arctis7Plus,
+    ArctisPro,
+    Nova3,
+    NovaElite,
+    Epos,
+    Jabra,
+    Poly,
+    /// HyperX headsets, HP or Kingston ids.
+    HyperX,
+    TurtleBeach,
+    AstroGen4,
+    AstroGen5,
+    Audeze,
+    Inzone,
+    Jbl,
+    /// Razer headsets; the framing depends on the model.
+    Razer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,13 +90,19 @@ const MODELS: &[Model] = &[
 ];
 
 pub fn model(pid: u16) -> Option<Model> {
-    MODELS.iter().copied().find(|m| m.pid == pid)
+    MODELS
+        .iter()
+        .copied()
+        .find(|m| m.pid == pid)
+        .or_else(|| arctis::model(pid))
 }
 
 /// A headset FoxDen has settings for, SteelSeries or Corsair.
 pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
     match vid {
         0x1038 => model(pid),
+        crate::sony::VID => crate::sony::model(pid),
+        crate::jbl::VID => crate::jbl::model(pid),
         0x1B1C => {
             let row = foxden_battery::corsair_catalog::corsair(pid)?;
             let receiver = foxden_battery::corsair_catalog::served(row);
@@ -91,6 +120,16 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
                 wireless: c.wireless || receiver.is_some(),
             })
         }
+        0x046D if pid == crate::astro::GEN5_PID => crate::astro::model(vid, pid),
+        crate::logitech::VID => crate::logitech::model(pid),
+        crate::epos::VID => crate::epos::model(pid),
+        crate::jabra::VID => crate::jabra::model(pid),
+        crate::poly::VID => crate::poly::model(pid),
+        0x03F0 | 0x0951 => crate::hyperx::model(vid, pid),
+        crate::turtlebeach::VID => crate::turtlebeach::model(pid),
+        crate::astro::VID => crate::astro::model(vid, pid),
+        crate::audeze::VID => crate::audeze::model(pid),
+        crate::razer::VID => crate::razer::model(pid),
         _ => None,
     }
 }
@@ -107,6 +146,20 @@ pub enum Control {
     BtCall,
     EqPreset,
     Anc,
+    VoicePrompts,
+    BusyLight,
+    MicNoiseFilter,
+    MicMute,
+    AncLevel,
+    NoiseGate,
+    NoiseGateLevel,
+    AiNoiseReduction,
+    Superhuman,
+    SuperhumanMode,
+    SuperhumanLevel,
+    WakeOnMotion,
+    AmbientLevel,
+    VoiceFocus,
 }
 
 impl Control {
@@ -121,6 +174,20 @@ impl Control {
             Control::BtCall => "bt_call",
             Control::EqPreset => "eq_preset",
             Control::Anc => "anc",
+            Control::VoicePrompts => "voice_prompts",
+            Control::BusyLight => "busy_light",
+            Control::MicNoiseFilter => "mic_noise_filter",
+            Control::MicMute => "mic_mute",
+            Control::AncLevel => "anc_level",
+            Control::NoiseGate => "noise_gate",
+            Control::NoiseGateLevel => "noise_gate_level",
+            Control::AiNoiseReduction => "ai_noise_reduction",
+            Control::Superhuman => "superhuman",
+            Control::SuperhumanMode => "superhuman_mode",
+            Control::SuperhumanLevel => "superhuman_level",
+            Control::WakeOnMotion => "wake_on_motion",
+            Control::AmbientLevel => "ambient_level",
+            Control::VoiceFocus => "voice_focus",
         }
     }
 }
@@ -193,15 +260,31 @@ pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
     pub fn brand(&self) -> &'static str {
-        if self.vid == 0x1B1C {
-            "Corsair"
-        } else {
-            "SteelSeries"
+        match self.family {
+            Family::AstroGen4 | Family::AstroGen5 => return "ASTRO",
+            Family::Audeze => return "Audeze",
+            _ => {}
+        }
+        match self.vid {
+            0x1B1C => "Corsair",
+            crate::logitech::VID => "Logitech",
+            crate::epos::VID => "EPOS",
+            crate::jabra::VID => "Jabra",
+            crate::poly::VID => "Poly",
+            0x03F0 | 0x0951 => "HyperX",
+            crate::turtlebeach::VID => "Turtle Beach",
+            crate::sony::VID => "Sony",
+            crate::jbl::VID => "JBL",
+            crate::razer::VID => "Razer",
+            _ => "SteelSeries",
         }
     }
 
-    /// Report id of every frame: 0 on the unnumbered Nova collections, 6 on the Nova Pro base station.
+    /// Report id of every frame: 0 on unnumbered collections, 6 on the Nova Pro base and Arctis 1/7.
     fn id(&self) -> u8 {
+        if arctis::has(self.family) {
+            return arctis::id(self);
+        }
         if self.family == Family::NovaPro {
             0x06
         } else {
@@ -213,6 +296,13 @@ impl Model {
     pub fn collection(&self) -> (i32, Option<(u16, u16)>) {
         match self.family {
             Family::NovaPro => (4, None),
+            Family::AstroGen4 => (6, Some((0xFF32, 0x0074))),
+            Family::AstroGen5 => (8, Some((0xFF32, 0x0074))),
+            Family::Audeze => crate::audeze::collection(self),
+            f if arctis::has(f) => arctis::collection(self),
+            Family::Epos => (3, Some((0xFFFF, 0x0001))),
+            Family::Jabra => (3, Some((0xFF00, crate::jabra::usage(self.pid)))),
+            Family::Poly => (3, Some((0xFFA2, 0x0003))),
             _ => (3, Some((0xFFC0, 0x0001))),
         }
     }
@@ -227,6 +317,9 @@ impl Model {
         };
         let mut out = Vec::new();
         match self.family {
+            Family::Epos => out = crate::epos::controls(),
+            Family::Jabra => out = crate::jabra::controls(),
+            Family::Poly => out = crate::poly::controls(),
             Family::Nova7 | Family::Nova7Gen2 => {
                 if self.sidetone {
                     out.push((Control::Sidetone, levels()));
@@ -269,6 +362,7 @@ impl Model {
                     out.push((Control::Anc, Shape::Switch));
                 }
             }
+            Family::Logitech => out.extend(crate::logitech::controls(self)),
             Family::NovaPro => out.extend([
                 (Control::Sidetone, levels()),
                 (
@@ -284,27 +378,71 @@ impl Model {
                     },
                 ),
             ]),
+            Family::Arctis1
+            | Family::Arctis7
+            | Family::Arctis7Plus
+            | Family::ArctisPro
+            | Family::Nova3
+            | Family::NovaElite => out = arctis::controls(self),
+            Family::HyperX => out = crate::hyperx::controls(self),
+            Family::AstroGen4 | Family::AstroGen5 => out = crate::astro::controls(self),
+            Family::Audeze => out = crate::audeze::controls(self),
+            Family::TurtleBeach => return crate::turtlebeach::controls(self),
+            Family::Inzone => out = crate::sony::controls(self),
+            Family::Jbl => out = crate::jbl::controls(self),
+            Family::Razer => out = crate::razer::controls(self),
         }
         out
     }
 
     pub fn has_eq(&self) -> bool {
-        self.family == Family::NovaPro
+        matches!(self.family, Family::NovaPro | Family::Arctis7Plus)
+            || crate::turtlebeach::has_eq(self)
     }
 
     /// The frames that set `c` to `v`, without the save. `Err` for a control this model lacks or a value out of range.
     pub fn set(&self, c: Control, v: i32) -> Result<Vec<Vec<u8>>, String> {
+        if self.family == Family::TurtleBeach {
+            return crate::turtlebeach::set(self, c, v);
+        }
+        if matches!(
+            self.family,
+            Family::Inzone
+                | Family::Jbl
+                | Family::Razer
+                | Family::AstroGen4
+                | Family::AstroGen5
+                | Family::Audeze
+        ) {
+            return Err(format!(
+                "{} takes its settings through its own driver",
+                self.name
+            ));
+        }
         let shape = self
             .controls()
             .into_iter()
             .find(|(k, _)| *k == c)
             .map(|(_, s)| s)
             .ok_or_else(|| format!("{} has no {} setting", self.name, c.id()))?;
+        if self.family == Family::HyperX {
+            return crate::hyperx::frames(self, c, v);
+        }
         if !shape.accepts(v) {
             return Err(format!("{v} is out of range for {}", c.id()));
         }
+        if let Some(frames) = arctis::set(self, c, v) {
+            return Ok(frames);
+        }
+        if matches!(self.family, Family::Epos | Family::Jabra | Family::Poly) {
+            return Err(format!(
+                "{} takes settings through its own module",
+                self.name
+            ));
+        }
         let byte = v as u8;
         let cmd = match (self.family, c) {
+            (Family::Logitech, _) => return Err("Logitech settings are sent over HID++".into()),
             (_, Control::Sidetone) => 0x39,
             (_, Control::MicVolume) => 0x37,
             (Family::Nova5, Control::VolumeLimiter) => 0x27,
@@ -315,7 +453,7 @@ impl Model {
             (_, Control::BtPowerOn) => 0xB2,
             (_, Control::BtCall) => 0xB3,
             (_, Control::EqPreset) => 0x2E,
-            (_, Control::Anc) => return Err(format!("{} has no {} setting", self.name, c.id())),
+            _ => return Err(format!("{} has no {} setting", self.name, c.id())),
         };
         let byte = match (self.family, c) {
             (Family::Nova5, Control::MicLed) => NOVA5_LED[v as usize],
@@ -326,11 +464,17 @@ impl Model {
 
     /// Custom EQ, in half-dB steps per band: selects the custom slot, then sends the gains.
     pub fn eq(&self, bands: &[i32]) -> Result<Vec<Vec<u8>>, String> {
+        if self.family == Family::TurtleBeach {
+            return crate::turtlebeach::eq(self, bands);
+        }
         if !self.has_eq() {
             return Err(format!("{} has no custom EQ here", self.name));
         }
         if bands.len() != EQ_BANDS || bands.iter().any(|b| !(EQ_MIN..=EQ_MAX).contains(b)) {
             return Err("the EQ takes 10 bands of -10 to +10 dB".into());
+        }
+        if self.family == Family::Arctis7Plus {
+            return Ok(arctis::eq(bands));
         }
         let mut gains = vec![self.id(), 0x33];
         gains.extend(bands.iter().map(|b| (20 + b) as u8));
@@ -341,9 +485,28 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5 | Family::Bragi => Save::None,
+            Family::Nova5
+            | Family::Bragi
+            | Family::Logitech
+            | Family::Epos
+            | Family::Jabra
+            | Family::Poly
+            | Family::HyperX
+            | Family::TurtleBeach
+            | Family::Inzone
+            | Family::Jbl
+            | Family::Razer
+            | Family::AstroGen4
+            | Family::AstroGen5
+            | Family::Audeze => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
+            Family::Arctis1
+            | Family::Arctis7
+            | Family::Arctis7Plus
+            | Family::ArctisPro
+            | Family::Nova3
+            | Family::NovaElite => arctis::save(self),
         }
     }
 
@@ -354,15 +517,16 @@ impl Model {
         }
     }
 
-    /// Status request; the reply starts with the same bytes after the report id is dropped.
+    /// Status request; the reply echoes it after the report id is dropped, except on the Pro Wireless.
     pub fn status_request(&self) -> Vec<u8> {
-        vec![self.id(), 0xB0]
+        arctis::status_request(self).unwrap_or_else(|| vec![self.id(), 0xB0])
     }
 
     /// Requests whose replies carry current settings, in order.
     pub fn reads(&self) -> Vec<Vec<u8>> {
         match self.family {
             Family::Nova7Gen2 | Family::Nova5 => vec![vec![0x00, 0x20], vec![0x00, 0xA0]],
+            Family::Nova3 => arctis::reads(self),
             _ => Vec::new(),
         }
     }
@@ -374,7 +538,13 @@ impl Model {
 
     /// The first bytes a reply to `req` starts with.
     pub fn reply_head<'a>(&self, req: &'a [u8]) -> &'a [u8] {
-        if self.id() == 0 { &req[1..] } else { req }
+        if !arctis::echoes(self) {
+            &req[..0]
+        } else if self.id() == 0 {
+            &req[1..]
+        } else {
+            req
+        }
     }
 }
 
@@ -438,7 +608,25 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
-        Family::Bragi => None,
+        Family::Bragi
+        | Family::Logitech
+        | Family::Epos
+        | Family::Jabra
+        | Family::Poly
+        | Family::HyperX
+        | Family::TurtleBeach
+        | Family::Inzone
+        | Family::Jbl
+        | Family::Razer
+        | Family::AstroGen4
+        | Family::AstroGen5
+        | Family::Audeze => None,
+        Family::Arctis1
+        | Family::Arctis7
+        | Family::Arctis7Plus
+        | Family::ArctisPro
+        | Family::Nova3
+        | Family::NovaElite => arctis::status(m, r),
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;
@@ -473,6 +661,9 @@ fn level(c: Control, b: u8, max: u8) -> Option<(Control, i32)> {
 
 /// Settings in a reply to one of [`Model::reads`]. Values outside their range are left out.
 pub fn settings(m: &Model, r: &[u8]) -> Vec<(Control, i32)> {
+    if m.family == Family::Nova3 {
+        return arctis::settings(m, r);
+    }
     let mut out = Vec::new();
     match (m.family, r.first()) {
         (Family::Nova7Gen2, Some(0x20)) if r.len() >= 4 => {
@@ -536,6 +727,35 @@ mod tests {
         assert_eq!((receiver.name, receiver.wireless), ("HS80", true));
         assert!(any_model(0x1B1C, 0x1B2D).is_none());
         assert_eq!(any_model(0x1038, 0x22A1).unwrap().brand(), "SteelSeries");
+    }
+
+    #[test]
+    fn hyperx_headsets() {
+        let a = any_model(0x03F0, 0x098D).unwrap();
+        assert_eq!((a.family, a.brand()), (Family::HyperX, "HyperX"));
+        assert_eq!(any_model(0x0951, 0x1718).unwrap().brand(), "HyperX");
+        assert_eq!(
+            a.set(Control::MicMute, 1).unwrap(),
+            vec![vec![0x21, 0xBB, 0x15, 1]]
+        );
+        assert_eq!(a.save(Some(Control::AutoOff)), Save::None);
+        assert!(nova7().set(Control::VoicePrompts, 1).is_err());
+        assert!(any_model(0x03F0, 0x0AB5).is_none());
+    }
+
+    #[test]
+    fn sony_and_jbl_models() {
+        let h9 = any_model(0x054C, 0x0FA8).unwrap();
+        assert_eq!(
+            (h9.family, h9.brand(), h9.name),
+            (Family::Inzone, "Sony", "INZONE H9 II")
+        );
+        let q = any_model(0x0ECB, 0x2069).unwrap();
+        assert_eq!((q.family, q.brand()), (Family::Jbl, "JBL"));
+        assert!(h9.set(Control::Sidetone, 1).is_err() && q.set(Control::Sidetone, 1).is_err());
+        assert_eq!(h9.save(Some(Control::Sidetone)), Save::None);
+        assert!(!h9.has_eq() && q.chatmix_switch(true).is_none());
+        assert!(any_model(0x054C, 0x0E53).is_none());
     }
 
     #[test]

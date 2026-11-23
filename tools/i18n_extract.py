@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "ui"
 SKIP_JS = {"mock.js", "fans-mock.js", "audio-mock.js", "headset-mock.js", "i18n.js", "logs.js"}
 # Files whose short capitalised strings are labels shown in the UI: effects, settings, presets.
-LABELS = {"effect.rs", "post.rs", "proto.rs", "profiles.rs", "presets.rs", "dsp.rs", "chain.rs"}
+LABELS = {"effect.rs", "post.rs", "proto.rs", "turtlebeach.rs", "profiles.rs", "presets.rs", "dsp.rs", "chain.rs", "razer.rs"}
 RUST = [ROOT / "src-tauri" / "src", *sorted((ROOT / "crates").glob("*/src"))]
 
 def wordy(s):
@@ -115,6 +115,12 @@ for d in RUST:
                 add(s, f.name)
             elif re.match(r"[A-Z]", s) and " " in s and plain and not re.search(r"::|\\|[a-z]+_[a-z]+\b|\$|%[0-9a-z]", s):
                 add(s, f.name)
+
+# Built at run time from ids or option tables the scan above can't see.
+RUNTIME = ["Left", "Right", "Custom {0}", "Preset {0}", "TalkThru", "Transparency", "Competition",
+           "Immersive", "Night", "Streaming", "Tournament", "Treble Boost"]
+for s in RUNTIME:
+    add(s, "runtime")
 
 out = UI / "lang" / "en.json"
 out.parent.mkdir(exist_ok=True)
