@@ -28,11 +28,14 @@ VIAddVersionKey "LegalCopyright" "GPL-2.0-or-later"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\foxden.exe"
 
 Var UpdateMode
+Var Passive
 
 !include "installer-hooks.nsh"
 
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfPassive
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -48,6 +51,13 @@ Function .onInit
   ${Else}
     StrCpy $UpdateMode 0
   ${EndIf}
+  ClearErrors
+  ${GetOptions} $0 "/P" $1
+  ${IfNot} ${Errors}
+    StrCpy $Passive 1
+  ${Else}
+    StrCpy $Passive 0
+  ${EndIf}
   ReadRegStr $0 HKLM "${UNINSTALL_KEY}" "InstallLocation"
   ${If} $0 != ""
     StrCpy $1 $0 1
@@ -55,6 +65,23 @@ Function .onInit
       StrCpy $0 $0 -1 1
     ${EndIf}
     StrCpy $INSTDIR $0
+  ${EndIf}
+FunctionEnd
+
+Function SkipIfPassive
+  ${If} $Passive = 1
+    Abort
+  ${EndIf}
+FunctionEnd
+
+; Explorer starts the app as the signed-in user, not elevated like the installer.
+Function Launch
+  Exec '"$WINDIR\explorer.exe" "$INSTDIR\foxden.exe"'
+FunctionEnd
+
+Function .onInstSuccess
+  ${If} $UpdateMode = 1
+    Call Launch
   ${EndIf}
 FunctionEnd
 

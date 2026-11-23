@@ -1,6 +1,6 @@
 # Packaging
 
-The installer is an NSIS setup program built by Tauri. It installs for all users into Program
+The installer is an NSIS setup program built from `native.nsi`. It installs for all users into Program
 Files and asks for administrator rights once. `installer-hooks.nsh` then:
 
 - runs PawnIO's official setup silently (`PawnIO_setup.exe -install -silent`) and keeps it in the
@@ -38,13 +38,15 @@ and installs signed updates by itself. The signing key is the `TAURI_SIGNING_PRI
 secret; the public key is in `src-tauri/tauri.conf.json`. Losing the private key means no
 further update can reach installed copies.
 
+Updates run the installer with `/P /UPDATE`: it skips its pages and starts the app again when done.
+
 ## Local test build
 
 ```powershell
 Invoke-WebRequest https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe -OutFile packaging/PawnIO_setup.exe
-$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content <path to the key> -Raw
-$env:CARGO_ENCODED_RUSTFLAGS = "--remap-path-prefix=$env:USERPROFILE=~"
-cargo tauri build --config packaging/tauri.bundle.json
+cargo build --release -p foxden-native -p foxden-service
+makensis /DVERSION=0.18.0 /DAPP=targeteleaseoxden-native.exe /DSERVICE=targeteleaseoxden-service.exe /DPAWNIO=packaging\PawnIO_setup.exe /DOUT=FoxDen-setup.exe packaging
+ative.nsi
 ```
 
 ## Icons

@@ -56,21 +56,35 @@ jobs:
           Invoke-WebRequest https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe -OutFile packaging/PawnIO_setup.exe
           if ((Get-FileHash packaging/PawnIO_setup.exe).Hash -ne '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032') { throw 'PawnIO_setup.exe hash mismatch' }
 
+      - name: Compile app
+        run: cargo build --release --locked -p foxden-native -p foxden-service
+
       - name: Compile installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          Remove-Item target/release/bundle -Recurse -Force -ErrorAction Ignore
-          npx --yes "@tauri-apps/cli@2.12.4" build --config packaging/tauri.bundle.json
+          $makensis = (Get-Command makensis -ErrorAction Ignore).Source
+          if (-not $makensis) {
+            choco install nsis --no-progress -y
+            $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          }
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages |
+            Where-Object name -eq 'foxden-native' | Select-Object -ExpandProperty version
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $setup = "$PWD\dist\FoxDen_${version}_x64-setup.exe"
+          & $makensis -V2 "/DVERSION=$version" "/DAPP=$PWD\target\release\foxden-native.exe" "/DSERVICE=$PWD\target\release\foxden-service.exe" "/DPAWNIO=$PWD\packaging\PawnIO_setup.exe" "/DOUT=$setup" packaging\native.nsi
+          if ($LASTEXITCODE) { throw 'makensis failed' }
+          npx --yes "@tauri-apps/cli@2.12.4" signer sign $setup
+          if ($LASTEXITCODE) { throw 'signing failed' }
 
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
           name: FoxDen-setup
           path: |
-            target/release/bundle/nsis/*-setup.exe
-            target/release/bundle/nsis/*-setup.exe.sig
+            dist/*-setup.exe
+            dist/*-setup.exe.sig
           if-no-files-found: error
 
       - name: Save cache
