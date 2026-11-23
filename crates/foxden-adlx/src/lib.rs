@@ -15,7 +15,7 @@ type Obj = *mut c_void;
 
 /// Method `index` of a COM-style object's vtable.
 unsafe fn method<T: Copy>(obj: Obj, index: usize) -> T {
-    let vtable = unsafe { *(obj as *const *const usize) };
+    let vtable = *unsafe { obj.cast::<*const usize>().as_ref() }.expect("ADLX object is null");
     let entry = unsafe { *vtable.add(index) };
     unsafe { std::mem::transmute_copy(&entry) }
 }

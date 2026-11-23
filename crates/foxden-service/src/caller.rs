@@ -125,7 +125,8 @@ fn signed_in(session: u32) -> bool {
         {
             return false;
         }
-        let named = !text.is_null() && *text != 0;
+        let named = !text.is_null()
+            && std::slice::from_raw_parts(text, len as usize / 2).first().is_some_and(|&c| c != 0);
         WTSFreeMemory(text.cast());
         named
     }
