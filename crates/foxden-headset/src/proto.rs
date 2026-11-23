@@ -13,6 +13,8 @@ pub enum Family {
     NovaPro,
     /// Corsair headsets: every setting is a Bragi property.
     Bragi,
+    /// HyperX headsets, HP or Kingston ids.
+    HyperX,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +93,7 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
                 wireless: c.wireless || receiver.is_some(),
             })
         }
+        0x03F0 | 0x0951 => crate::hyperx::model(vid, pid),
         _ => None,
     }
 }
@@ -107,6 +110,8 @@ pub enum Control {
     BtCall,
     EqPreset,
     Anc,
+    VoicePrompts,
+    MicMute,
 }
 
 impl Control {
@@ -121,6 +126,8 @@ impl Control {
             Control::BtCall => "bt_call",
             Control::EqPreset => "eq_preset",
             Control::Anc => "anc",
+            Control::VoicePrompts => "voice_prompts",
+            Control::MicMute => "mic_mute",
         }
     }
 }
@@ -193,10 +200,10 @@ pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
     pub fn brand(&self) -> &'static str {
-        if self.vid == 0x1B1C {
-            "Corsair"
-        } else {
-            "SteelSeries"
+        match self.vid {
+            0x1B1C => "Corsair",
+            0x03F0 | 0x0951 => "HyperX",
+            _ => "SteelSeries",
         }
     }
 
@@ -284,6 +291,7 @@ impl Model {
                     },
                 ),
             ]),
+            Family::HyperX => out = crate::hyperx::controls(self),
         }
         out
     }
@@ -300,6 +308,9 @@ impl Model {
             .find(|(k, _)| *k == c)
             .map(|(_, s)| s)
             .ok_or_else(|| format!("{} has no {} setting", self.name, c.id()))?;
+        if self.family == Family::HyperX {
+            return crate::hyperx::frames(self, c, v);
+        }
         if !shape.accepts(v) {
             return Err(format!("{v} is out of range for {}", c.id()));
         }
@@ -315,7 +326,9 @@ impl Model {
             (_, Control::BtPowerOn) => 0xB2,
             (_, Control::BtCall) => 0xB3,
             (_, Control::EqPreset) => 0x2E,
-            (_, Control::Anc) => return Err(format!("{} has no {} setting", self.name, c.id())),
+            (_, Control::Anc | Control::VoicePrompts | Control::MicMute) => {
+                return Err(format!("{} has no {} setting", self.name, c.id()));
+            }
         };
         let byte = match (self.family, c) {
             (Family::Nova5, Control::MicLed) => NOVA5_LED[v as usize],
@@ -341,7 +354,7 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5 | Family::Bragi => Save::None,
+            Family::Nova5 | Family::Bragi | Family::HyperX => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
         }
@@ -438,7 +451,7 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
-        Family::Bragi => None,
+        Family::Bragi | Family::HyperX => None,
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;
@@ -536,6 +549,20 @@ mod tests {
         assert_eq!((receiver.name, receiver.wireless), ("HS80", true));
         assert!(any_model(0x1B1C, 0x1B2D).is_none());
         assert_eq!(any_model(0x1038, 0x22A1).unwrap().brand(), "SteelSeries");
+    }
+
+    #[test]
+    fn hyperx_headsets() {
+        let a = any_model(0x03F0, 0x098D).unwrap();
+        assert_eq!((a.family, a.brand()), (Family::HyperX, "HyperX"));
+        assert_eq!(any_model(0x0951, 0x1718).unwrap().brand(), "HyperX");
+        assert_eq!(
+            a.set(Control::MicMute, 1).unwrap(),
+            vec![vec![0x21, 0xBB, 0x15, 1]]
+        );
+        assert_eq!(a.save(Some(Control::AutoOff)), Save::None);
+        assert!(nova7().set(Control::VoicePrompts, 1).is_err());
+        assert!(any_model(0x03F0, 0x0AB5).is_none());
     }
 
     #[test]
