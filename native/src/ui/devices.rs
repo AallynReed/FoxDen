@@ -29,12 +29,25 @@ const HS_LABELS: [(&str, &str); 9] = [
     ("eq_preset", "EQ preset"),
 ];
 
-const HARDWARE_MODES: [(&str, &str); 5] = [
+const HARDWARE_MODES: [(&str, &str); 18] = [
     ("breathing", "Breathing"),
     ("color_cycle", "Colour cycle"),
     ("star", "Star"),
     ("follow_board", "Follow motherboard"),
     ("static", "Static"),
+    ("flashing", "Flashing"),
+    ("double_flashing", "Double flashing"),
+    ("rainbow", "Rainbow"),
+    ("random", "Random"),
+    ("lightning", "Lightning"),
+    ("meteor", "Meteor"),
+    ("fire", "Fire"),
+    ("ripple", "Ripple"),
+    ("wave", "Wave"),
+    ("reload", "Reload"),
+    ("recoil", "Recoil"),
+    ("refill", "Refill"),
+    ("demo", "Demo"),
 ];
 
 struct Zone {
