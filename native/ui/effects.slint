@@ -11,6 +11,10 @@ export global EffectsPage {
     callback set-param-choice(string, int);
     callback reset-effect();
     callback randomise-effect();
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    callback undo();
+    callback redo();
 }
 
 export component EffectsPanel inherits Scroll {

@@ -9,6 +9,11 @@ export global SettingsPage {
     callback set-language(int);
     callback set-close-to-tray(bool);
     callback set-start-minimized(bool);
+    in property <bool> update-available;
+    in property <string> update-version;
+    callback open-update();
+    callback open-feedback();
+    callback open-logs();
 }
 
 export component SettingsPanel inherits Scroll {
