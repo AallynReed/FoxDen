@@ -2,7 +2,26 @@ const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", board: "Boards, memory
 const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
 // Names of the effects devices run on their own, by mode id; others show the name the driver gives.
-const HARDWARE_MODES = { breathing: "Breathing", color_cycle: "Colour cycle", star: "Star", follow_board: "Follow motherboard", static: "Static" };
+const HARDWARE_MODES = {
+  breathing: "Breathing",
+  color_cycle: "Colour cycle",
+  star: "Star",
+  follow_board: "Follow motherboard",
+  static: "Static",
+  flashing: "Flashing",
+  double_flashing: "Double flashing",
+  rainbow: "Rainbow",
+  random: "Random",
+  lightning: "Lightning",
+  meteor: "Meteor",
+  fire: "Fire",
+  ripple: "Ripple",
+  wave: "Wave",
+  reload: "Reload",
+  recoil: "Recoil",
+  refill: "Refill",
+  demo: "Demo",
+};
 // How a detected device could be driven: the name of the route and the setting that switches it on.
 const ROUTES = { native: ["Native driver", "set-native"], openrgb: ["OpenRGB", "set-openrgb"] };
 const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "No lighting control"], battery: ["on", "Battery and settings"] };
