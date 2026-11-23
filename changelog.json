@@ -1,5 +1,19 @@
 [
  {
+  "version": "0.18.2",
+  "date": "2026-11-23",
+  "added": [
+   "Changelog button at the bottom of the window, with every version",
+   "After an update, FoxDen shows what changed since the version you had"
+  ],
+  "changed": [
+   "The update window lists every version between yours and the new one"
+  ],
+  "fixed": [
+   "Scrollbars can be dragged"
+  ]
+ },
+ {
   "version": "0.18.1",
   "date": "2026-11-23",
   "changed": [
