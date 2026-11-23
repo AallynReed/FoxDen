@@ -7,7 +7,6 @@ use foxden_core::Backend;
 mod asus;
 mod common;
 mod coolermaster_corsair;
-mod generic;
 mod gigabyte_asrock;
 mod logitech;
 mod mixed_a;
@@ -37,7 +36,6 @@ pub fn detectors() -> Vec<&'static Detector> {
         more_c::detectors(),
         more_d::detectors(),
         asus::detectors(),
-        generic::detectors(),
         streamdeck::detectors(),
     ]
     .concat()
@@ -77,7 +75,6 @@ mod tests {
             super::more_c::detectors(),
             super::more_d::detectors(),
             super::asus::detectors(),
-            super::generic::detectors(),
             super::streamdeck::detectors(),
         ];
         for (i, a) in families.iter().enumerate() {
