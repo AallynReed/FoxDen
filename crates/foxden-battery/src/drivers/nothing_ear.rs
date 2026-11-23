@@ -68,7 +68,7 @@ fn find_status(data: &[u8]) -> Option<Levels> {
             && pairs.len() >= n as usize * 2
         {
             let mut l = Levels::default();
-            for pair in pairs.chunks_exact(2).take(n as usize) {
+            for pair in pairs.as_chunks::<2>().0.iter().take(n as usize) {
                 let (pct, chg) = (pair[1] & 0x7F, pair[1] & 0x80 != 0);
                 if pct > 100 {
                     continue;

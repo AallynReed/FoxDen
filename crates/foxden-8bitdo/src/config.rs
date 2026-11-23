@@ -219,7 +219,7 @@ fn put_range(b: &mut [u8], at: usize, p: Pair) {
 /// Names are UTF-16 big-endian, ending at the first zero pair (an erased name is all 0xFF).
 fn name(b: &[u8]) -> String {
     let units: Vec<u16> = b
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|c| u16::from_be_bytes([c[0], c[1]]))
         .take_while(|&u| u != 0 && u != 0xFFFF)
         .collect();

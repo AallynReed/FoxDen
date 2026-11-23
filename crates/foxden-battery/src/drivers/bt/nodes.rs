@@ -107,7 +107,7 @@ fn prop(set: HDEVINFO, dd: &SP_DEVINFO_DATA, key: &DEVPROPKEY) -> Option<(DEVPRO
 
 pub fn utf16_text(bytes: &[u8]) -> String {
     let w: Vec<u16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     from_wide(&w)

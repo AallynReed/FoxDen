@@ -42,7 +42,7 @@ fn request((cmd, sub): (u8, u8)) -> [u8; FRAME] {
 
 /// Data bytes of the first reply frame for `(cmd, sub)`; other frames the headset pushes are skipped.
 fn find_reply(buf: &[u8], (cmd, sub): (u8, u8)) -> Option<&[u8]> {
-    buf.chunks_exact(FRAME)
+    buf.as_chunks::<FRAME>().0.iter()
         .find(|f| f[1] == cmd && f[2] == sub)
         .map(|f| &f[3..])
 }

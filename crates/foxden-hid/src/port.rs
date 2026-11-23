@@ -130,7 +130,7 @@ impl Device {
         let step = |s: u8| Some(if s < 31 { s + 1 } else { 1 });
         let old = self
             .seq
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, step);
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, step);
         step(old.unwrap_or(0)).unwrap_or(1)
     }
 }

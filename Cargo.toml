@@ -12,6 +12,13 @@ foxden-core = { path = "crates/foxden-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Keeps target/ small: full debug info is most of its size.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

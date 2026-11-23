@@ -461,7 +461,7 @@ pub fn string_descriptor(d: &[u8]) -> String {
     let units: Vec<u16> = d
         .get(2..end)
         .unwrap_or_default()
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
     String::from_utf16_lossy(&units)

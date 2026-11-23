@@ -102,8 +102,7 @@ impl Bus {
             size,
         ];
         input.extend(
-            data.chunks_exact(8)
-                .map(|b| u64::from_le_bytes(b.try_into().unwrap())),
+            data.as_chunks::<8>().0.iter().map(|b| u64::from_le_bytes(*b)),
         );
         let out = self.lock.run(|| {
             if let Some(p) = self.port {

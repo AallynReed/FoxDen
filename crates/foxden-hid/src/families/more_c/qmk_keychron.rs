@@ -59,7 +59,7 @@ fn probe(io: &mut dyn Io, mut pid: u16) -> Option<Vec<Option<(u8, u8)>>> {
     }
     let raw = at.clone();
     if let Some((_, fix)) = PATCHES.iter().find(|(pids, _)| pids.contains(&pid)) {
-        for e in fix.chunks_exact(4) {
+        for e in fix.as_chunks::<4>().0 {
             if let Some(i) = raw.iter().position(|p| *p == Some((e[0], e[1]))) {
                 at[i] = Some((e[2], e[3]));
             }

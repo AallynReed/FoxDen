@@ -211,7 +211,7 @@ fn push_unique(ctx: &mut Ctx, mut b: Battery, pid: u16, keyboard: bool) {
 fn paired_pids(r: &[u8]) -> Vec<u16> {
     r.get(5..)
         .unwrap_or_default()
-        .chunks_exact(4)
+        .as_chunks::<4>().0.iter()
         .map(|s| u16::from_le_bytes([s[0], s[1]]))
         .take_while(|&p| p != 0)
         .collect()

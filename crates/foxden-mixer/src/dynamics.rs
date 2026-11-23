@@ -646,8 +646,8 @@ mod tests {
 
     /// Largest jump between neighbouring samples of one channel.
     fn biggest_step(s: &[f32]) -> f32 {
-        s.chunks_exact(2)
-            .zip(s.chunks_exact(2).skip(1))
+        s.as_chunks::<2>().0.iter()
+            .zip(s.as_chunks::<2>().0.iter().skip(1))
             .fold(0f32, |m, (a, b)| m.max((a[0] - b[0]).abs()))
     }
 

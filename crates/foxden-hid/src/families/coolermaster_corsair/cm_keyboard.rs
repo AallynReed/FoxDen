@@ -431,7 +431,7 @@ pub fn v2_firmware(read: &[u8]) -> String {
     let units: Vec<u16> = read
         .get(8..)
         .unwrap_or(&[])
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|p| u16::from_le_bytes([p[0], p[1]]))
         .take_while(|&u| u != 0)
         .collect();

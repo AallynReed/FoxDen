@@ -159,7 +159,7 @@ pub fn driver_present() -> bool {
                 continue;
             }
             let wide: Vec<u16> = buf[..(needed as usize).min(buf.len())]
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
                 .collect();
             if multi_sz(&wide).any(|id| id.eq_ignore_ascii_case(HARDWARE_ID)) {

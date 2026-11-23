@@ -44,7 +44,7 @@ fn parse_reply(r: &[u8]) -> Option<u8> {
         return None;
     }
     let value = r[5..body]
-        .chunks_exact(4)
+        .as_chunks::<4>().0.iter()
         .find(|p| u16::from_le_bytes([p[0], p[1]]) == BATTERY_REG)
         .map(|p| u16::from_le_bytes([p[2], p[3]]))?;
     u8::try_from(value).ok().filter(|&v| v <= 100)
