@@ -272,7 +272,7 @@ pub fn s(v: &Value) -> slint::SharedString {
 
 /// Changes some settings and saves them through the same command the web UI used.
 pub fn edit_settings(app: &AppHandle, change: impl FnOnce(&mut Value)) {
-    let mut settings = VIEW.with_borrow(|v| v.snap["settings"].clone());
+    let mut settings = serde_json::to_value(&crate::state::lock(&shared(app)).config.settings).unwrap_or_default();
     change(&mut settings);
     match serde_json::from_value(settings) {
         Ok(settings) => report(crate::commands::set_settings(

@@ -106,19 +106,18 @@ OpenRGB can optionally drive anything else through its server.
 
 ## Lightweight
 
-FoxDen lives in the tray. Closing the window shuts its web view down completely, and it only
-does work when something changes: an unchanged picture is drawn a few times a second instead of
-thirty, devices are only sent new colours, and the hardware list is only read again when
-something is plugged in or out. Measured on Windows 11 with a 28-thread CPU and five devices:
+FoxDen is a native Windows app that lives in the tray, and it only does work when something
+changes: an unchanged picture is drawn a few times a second instead of thirty, devices are only
+sent new colours, and the hardware list is only read again when something is plugged in or out.
+Measured on Windows 11 with a 28-thread CPU, five devices and 198 LEDs:
 
-| In the tray | Private memory | CPU |
+| In the tray, with the audio mixer | Private memory | CPU |
 | --- | --- | --- |
-| `foxden.exe`, static colour | 11 MB | about 1% of one core |
-| `foxden.exe`, animated effect and audio mixer | 11 MB | about 2.5% of one core |
+| `foxden.exe`, static colour | 14 MB | about 4% of one core |
+| `foxden.exe`, animated effect and a layer | 23 MB | about 4% of one core |
 | `foxden-service.exe`, fans | 7 MB | under 0.01% |
 
-That is under 0.1% of the whole CPU. The window adds about 200 MB while it is open and gives it
-back when closed.
+That is under 0.2% of the whole CPU. The open window adds about 10 MB and 6% of one core.
 
 ## Install
 
