@@ -101,15 +101,32 @@ pub fn read(f: &Found) -> Option<Reading> {
 pub fn status(f: &Found) -> Option<Status> {
     match f.model.family {
         Family::Bragi => return bragi::read(f, false)?.status,
-        Family::Epos => return epos::read(f, false)?.status,
-        Family::Jabra => return jabra::read(f, false)?.status,
-        Family::Poly => return poly::read(f, false)?.status,
+        Family::Epos => return slow_status(f, || epos::read(f, false)?.status),
+        Family::Jabra => return slow_status(f, || jabra::read(f, false)?.status),
+        Family::Poly => return slow_status(f, || poly::read(f, false)?.status),
         _ => {}
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
     exchange(&dev, &f.model, &f.model.status_request()).and_then(|r| proto::status(&f.model, &r))
+}
+
+/// Last status of headsets that take a round trip or more per look, and when it was read.
+static SLOW: Mutex<Vec<(String, Instant, Option<Status>)>> = Mutex::new(Vec::new());
+const SLOW_EVERY: Duration = Duration::from_secs(10);
+
+fn slow_status(f: &Found, ask: impl FnOnce() -> Option<Status>) -> Option<Status> {
+    let mut slow = SLOW.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, at, s)) = slow.iter().find(|(k, _, _)| *k == f.key)
+        && at.elapsed() < SLOW_EVERY
+    {
+        return s.clone();
+    }
+    let s = ask();
+    slow.retain(|(k, _, _)| *k != f.key);
+    slow.push((f.key.clone(), Instant::now(), s.clone()));
+    s
 }
 
 fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {

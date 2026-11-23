@@ -157,9 +157,11 @@ pub fn read(f: &Found, settings: bool) -> Option<Reading> {
         }
         if settings {
             for (c, _) in controls() {
-                if let Some(r) = item(c).and_then(|w| get(&dev, w)) {
-                    values.extend(setting(c, &r));
-                }
+                // A headset that ignores one GET ignores the rest; each costs the full wait.
+                let Some(r) = item(c).and_then(|w| get(&dev, w)) else {
+                    break;
+                };
+                values.extend(setting(c, &r));
             }
         }
     }
