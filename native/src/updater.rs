@@ -344,4 +344,10 @@ mod tests {
         assert!(newer("0.17.0", "0.17.0-beta"));
         assert!(!newer("0.17.0-beta", "0.17.0"));
     }
+
+    #[test]
+    fn the_client_has_tls() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        assert!(client(Duration::from_secs(1)).is_ok());
+    }
 }

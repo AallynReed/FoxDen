@@ -7,7 +7,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use tauri::{AppHandle, Manager};
 
 use super::{
-    AppWindow, NetCard, NetField, NetFound, SettingsPage, StagePage, StateRow, Strip, View, edit_settings, fill,
+    AppWindow, NetCard, NetField, NetFound, SettingsPage, StagePage, StateRow, Strip, View, fill,
     jobs, report, s, shared, tr, with_view, with_win,
 };
 
@@ -292,8 +292,22 @@ fn later<T: Send + 'static>(
     });
 }
 
-fn snap_settings() -> Value {
-    with_view(|v| v.snap["settings"].clone())
+/// The settings as the backend holds them now, which a save changes at once.
+fn snap_settings(app: &AppHandle) -> Value {
+    serde_json::to_value(&crate::state::lock(&shared(app)).config.settings).unwrap_or_default()
+}
+
+fn edit_settings(app: &AppHandle, change: impl FnOnce(&mut Value)) {
+    let mut settings = snap_settings(app);
+    change(&mut settings);
+    match serde_json::from_value(settings) {
+        Ok(settings) => report(crate::commands::set_settings(app.clone(), shared(app), jobs(app), settings)),
+        Err(e) => report(Err(e.to_string())),
+    }
+}
+
+fn entry<'a>(net: &'a mut Value, kind: &str, idx: usize) -> Option<&'a mut Value> {
+    net.get_mut(kind)?.get_mut(idx)
 }
 
 fn local_ip(text: &str) -> bool {
@@ -366,6 +380,12 @@ fn value_text(v: &Value) -> String {
 }
 
 pub fn bind(w: &AppWindow, app: &AppHandle) {
+    local(|l| {
+        l.net_key.clear();
+        l.strip_key.clear();
+        l.net_problems.clear();
+        l.strip_problems.clear();
+    });
     let g = w.global::<SettingsPage>();
     let a = app.clone();
     g.on_set_close_to_tray(move |on| edit_settings(&a, |s| s["close_to_tray"] = json!(on)));
@@ -420,7 +440,7 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
     g.on_server_commit(move |key, text| {
         if let Ok(value) = server_check(&a, &key, &text) {
             let name = if key == "host" { "openrgb_host" } else { "openrgb_port" };
-            if snap_settings()[name] != value {
+            if snap_settings(&a)[name] != value {
                 edit_settings(&a, |s| s[name] = value);
             }
         }
@@ -590,7 +610,11 @@ fn bind_network(w: &AppWindow, app: &AppHandle) {
     g.on_net_check(move |ci, fi, on| {
         if let Some((spec, idx)) = card(ci) {
             let key = spec.fields[fi as usize].0;
-            save_net(&a, |n| n[spec.key][idx][key] = json!(on));
+            save_net(&a, |n| {
+                if let Some(e) = entry(n, spec.key, idx) {
+                    e[key] = json!(on);
+                }
+            });
         }
     });
     let a = app.clone();
@@ -599,7 +623,11 @@ fn bind_network(w: &AppWindow, app: &AppHandle) {
             && let (key, _, Ty::Choice(options)) = spec.fields[fi as usize]
         {
             let value = options.get(o as usize).copied().unwrap_or_default();
-            save_net(&a, |n| n[spec.key][idx][key] = json!(value));
+            save_net(&a, |n| {
+                if let Some(e) = entry(n, spec.key, idx) {
+                    e[key] = json!(value);
+                }
+            });
         }
     });
     let a = app.clone();
@@ -617,7 +645,7 @@ fn bind_network(w: &AppWindow, app: &AppHandle) {
     let a = app.clone();
     g.on_net_pair(move |ci| {
         let Some((spec, idx)) = card(ci) else { return };
-        let item = snap_settings()["network"][spec.key][idx].clone();
+        let item = snap_settings(&a)["network"][spec.key][idx].clone();
         let port = item["port"].as_u64().unwrap_or(16021) as u16;
         pair(&a, spec.key, s(&item["ip"]).to_string(), port);
     });
@@ -647,9 +675,13 @@ fn net_field(app: &AppHandle, ci: i32, fi: i32, text: &str, commit: bool) {
     });
     if commit
         && let Ok(value) = out
-        && snap_settings()["network"][spec.key][idx][key] != value
+        && snap_settings(app)["network"][spec.key][idx][key] != value
     {
-        save_net(app, |n| n[spec.key][idx][key] = value);
+        save_net(app, |n| {
+            if let Some(e) = entry(n, spec.key, idx) {
+                e[key] = value;
+            }
+        });
         return;
     }
     with_win(|w| net_problems(w));
@@ -681,7 +713,7 @@ fn bind_strips(w: &AppWindow, app: &AppHandle) {
             &a,
             |_| crate::commands::serial_ports(),
             |app, ports| {
-                let settings = snap_settings();
+                let settings = snap_settings(app);
                 let used: Vec<&str> = settings["led_strips"]
                     .as_array()
                     .map(|l| l.iter().filter_map(|s| s["port"].as_str()).collect())
@@ -700,7 +732,7 @@ fn bind_strips(w: &AppWindow, app: &AppHandle) {
     let a = app.clone();
     g.on_strip_protocol(move |i, p| {
         local(|l| l.strip_protocol.insert(i as usize, p.max(0) as usize));
-        let port = strip_text(i as usize, "port");
+        let port = strip_text(&a, i as usize, "port");
         strip_field(&a, i as usize, "port", &port, true);
     });
     let a = app.clone();
@@ -725,29 +757,29 @@ fn save_strips(app: &AppHandle, change: impl FnOnce(&mut Value)) {
 }
 
 /// What a strip field holds now: typed text, or the saved value.
-fn strip_text(i: usize, key: &'static str) -> String {
+fn strip_text(app: &AppHandle, i: usize, key: &'static str) -> String {
     if let Some(t) = local(|l| l.strip_text.get(&(i, key)).cloned()) {
         return t;
     }
-    value_text(&snap_settings()["led_strips"][i][key])
+    value_text(&snap_settings(app)["led_strips"][i][key])
 }
 
-fn strip_protocol(i: usize) -> &'static str {
+fn strip_protocol(app: &AppHandle, i: usize) -> &'static str {
     if let Some(p) = local(|l| l.strip_protocol.get(&i).copied()) {
         return PROTOCOLS.get(p).map_or("adalight", |p| p.0);
     }
-    let saved = snap_settings()["led_strips"][i]["protocol"].as_str().unwrap_or_default().to_string();
+    let saved = snap_settings(app)["led_strips"][i]["protocol"].as_str().unwrap_or_default().to_string();
     PROTOCOLS.iter().find(|p| p.0 == saved).map_or("adalight", |p| p.0)
 }
 
 fn strip_field(app: &AppHandle, i: usize, key: &str, text: &str, commit: bool) {
     let Some(&key) = STRIP_KEYS.iter().find(|k| **k == key) else { return };
     local(|l| l.strip_text.insert((i, key), text.to_string()));
-    let protocol = strip_protocol(i);
-    let port = strip_text(i, "port");
+    let protocol = strip_protocol(app, i);
+    let port = strip_text(app, i, "port");
     let recheck: &[&'static str] = if key == "port" { &["port", "baud"] } else { &[key] };
     for &k in recheck {
-        let out = strip_check(app, k, &strip_text(i, k), protocol, &port);
+        let out = strip_check(app, k, &strip_text(app, i, k), protocol, &port);
         local(|l| match out {
             Ok(_) => l.strip_problems.remove(&(i, k)),
             Err(p) => l.strip_problems.insert((i, k), p),
@@ -756,13 +788,17 @@ fn strip_field(app: &AppHandle, i: usize, key: &str, text: &str, commit: bool) {
     if commit {
         let all: Result<serde_json::Map<String, Value>, String> = STRIP_KEYS
             .iter()
-            .map(|k| strip_check(app, k, &strip_text(i, k), protocol, &port).map(|v| (k.to_string(), v)))
+            .map(|k| strip_check(app, k, &strip_text(app, i, k), protocol, &port).map(|v| (k.to_string(), v)))
             .collect();
         if let Ok(mut all) = all {
             all.insert("protocol".into(), json!(protocol));
             let item = Value::Object(all);
-            if snap_settings()["led_strips"][i] != item {
-                save_strips(app, |s| s[i] = item);
+            if snap_settings(app)["led_strips"][i] != item {
+                save_strips(app, |s| {
+                    if let Some(slot) = s.get_mut(i) {
+                        *slot = item;
+                    }
+                });
                 return;
             }
         }
@@ -1037,6 +1073,7 @@ fn pick_file() -> Option<std::path::PathBuf> {
     ofn.lpstrFile = name.as_mut_ptr();
     ofn.nMaxFile = name.len() as u32;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    unsafe { windows_sys::Win32::System::Ole::OleInitialize(std::ptr::null_mut()) };
     if unsafe { GetOpenFileNameW(&mut ofn) } == 0 {
         return None;
     }

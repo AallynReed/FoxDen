@@ -75,47 +75,59 @@ export component LogsWindow inherits Window {
                 color: Theme.muted;
                 font-size: 12px;
             }
-            list := Flickable {
-                interactive: false;
-                content-height: column.preferred-height;
-                accessible-role: AccessibleRole.list;
-                accessible-label: I18n.t("Log entries");
-                property <bool> at-end: self.content-y <= self.height - self.content-height + 24px;
-                changed content-height => {
-                    if self.at-end-before { self.content-y = min(0, self.height - self.content-height); }
+            FocusScope {
+                function scroll-to(y: length) { list.content-y = max(min(0, list.height - list.content-height), min(0, y)); }
+                key-pressed(e) => {
+                    if e.text == Key.DownArrow { self.scroll-to(list.content-y - 18px); return accept; }
+                    if e.text == Key.UpArrow { self.scroll-to(list.content-y + 18px); return accept; }
+                    if e.text == Key.PageDown { self.scroll-to(list.content-y - list.height); return accept; }
+                    if e.text == Key.PageUp { self.scroll-to(list.content-y + list.height); return accept; }
+                    if e.text == Key.Home { self.scroll-to(0); return accept; }
+                    if e.text == Key.End { self.scroll-to(list.height - list.content-height); return accept; }
+                    reject
                 }
-                property <bool> at-end-before: true;
-                changed content-y => { self.at-end-before = self.at-end; }
-                column := VerticalLayout {
-                    padding-top: 4px;
-                    padding-bottom: 4px;
-                    for r in LogsPage.rows: Rectangle {
-                        background: ta.has-hover ? Theme.raised : transparent;
-                        accessible-role: list-item;
-                        accessible-label: r.at + " " + r.level + " " + r.source + ": " + r.text;
-                        ta := TouchArea { }
-                        HorizontalLayout {
-                            padding-left: 12px;
-                            padding-right: 12px;
-                            padding-top: 1px;
-                            padding-bottom: 1px;
-                            spacing: 12px;
-                            Text { width: 64px; text: r.at; color: Theme.muted; font-family: Theme.mono; font-size: 12px; }
-                            Text {
-                                width: 40px;
-                                text: r.level;
-                                color: r.level == "ERR" ? Theme.danger : r.level == "WARN" ? Theme.accent : Theme.muted;
-                                font-family: Theme.mono;
-                                font-size: 12px;
-                            }
-                            Text { width: 80px; text: r.source; color: Theme.muted; font-family: Theme.mono; font-size: 12px; overflow: elide; }
-                            Text {
-                                horizontal-stretch: 1;
-                                text: r.text;
-                                color: r.level == "ERR" ? Theme.danger : Theme.text;
-                                font-family: Theme.mono;
-                                font-size: 12px;
-                                wrap: char-wrap;
+                list := Flickable {
+                    interactive: false;
+                    content-height: column.preferred-height;
+                    accessible-role: AccessibleRole.list;
+                    accessible-label: I18n.t("Log entries");
+                    property <bool> at-end: self.content-y <= self.height - self.content-height + 24px;
+                    changed content-height => {
+                        if self.at-end-before { self.content-y = min(0, self.height - self.content-height); }
+                    }
+                    property <bool> at-end-before: true;
+                    changed content-y => { self.at-end-before = self.at-end; }
+                    column := VerticalLayout {
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        for r in LogsPage.rows: Rectangle {
+                            background: ta.has-hover ? Theme.raised : transparent;
+                            accessible-role: list-item;
+                            accessible-label: r.at + " " + r.level + " " + r.source + ": " + r.text;
+                            ta := TouchArea { }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                padding-top: 1px;
+                                padding-bottom: 1px;
+                                spacing: 12px;
+                                Text { width: 64px; text: r.at; color: Theme.muted; font-family: Theme.mono; font-size: 12px; }
+                                Text {
+                                    width: 40px;
+                                    text: r.level;
+                                    color: r.level == "ERR" ? Theme.danger : r.level == "WARN" ? Theme.accent : Theme.muted;
+                                    font-family: Theme.mono;
+                                    font-size: 12px;
+                                }
+                                Text { width: 80px; text: r.source; color: Theme.muted; font-family: Theme.mono; font-size: 12px; overflow: elide; }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: r.text;
+                                    color: r.level == "ERR" ? Theme.danger : Theme.text;
+                                    font-family: Theme.mono;
+                                    font-size: 12px;
+                                    wrap: char-wrap;
+                                }
                             }
                         }
                     }

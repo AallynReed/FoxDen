@@ -188,11 +188,11 @@ fn copy_wide(into: &mut [u16], text: &str) {
 /// A Windows notification from the tray icon.
 pub fn notify(title: &str, body: &str) {
     use windows_sys::Win32::UI::Shell::{
-        NIF_INFO, NIIF_RESPECT_QUIET_TIME, NIIF_USER, NIM_MODIFY, Shell_NotifyIconW,
+        NIF_INFO, NIIF_INFO, NIIF_RESPECT_QUIET_TIME, NIM_MODIFY, Shell_NotifyIconW,
     };
     let mut nid = notify_data();
     nid.uFlags |= NIF_INFO;
-    nid.dwInfoFlags = NIIF_USER | NIIF_RESPECT_QUIET_TIME;
+    nid.dwInfoFlags = NIIF_INFO | NIIF_RESPECT_QUIET_TIME;
     copy_wide(&mut nid.szInfoTitle, title);
     copy_wide(&mut nid.szInfo, body);
     if unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) } == 0 {

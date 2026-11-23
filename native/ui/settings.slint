@@ -233,6 +233,7 @@ component Section inherits Rectangle {
     accessible-role: groupbox;
     accessible-label: title;
     VerticalLayout {
+        alignment: start;
         Rectangle {
             height: 34px;
             background: Theme.raised;
@@ -240,6 +241,7 @@ component Section inherits Rectangle {
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
         VerticalLayout {
+            alignment: start;
             padding: 12px;
             padding-top: 8px;
             spacing: 8px;
@@ -441,328 +443,374 @@ export component Seg inherits Rectangle {
     }
 }
 
+component ModulesBox inherits Section {
+    title: I18n.t("Modules");
+    Switch { label: I18n.t("Lighting"); on: SettingsPage.lighting; toggled(v) => { SettingsPage.set-flag("lighting_module", v); } }
+    Switch { label: I18n.t("Fans"); on: SettingsPage.fans; toggled(v) => { SettingsPage.set-flag("fans_module", v); } }
+    Switch { label: I18n.t("Batteries"); on: SettingsPage.battery-tray; toggled(v) => { SettingsPage.set-flag("battery_tray", v); } }
+    Switch {
+        label: I18n.t("Low battery notifications");
+        sub: true;
+        enabled: SettingsPage.battery-tray;
+        on: SettingsPage.battery-alerts;
+        toggled(v) => { SettingsPage.set-flag("battery_alerts", v); }
+    }
+    Hint { text: I18n.t("Batteries shows wireless devices' levels in the tray. Off, FoxDen stops checking them."); }
+    Hint { text: I18n.t("With Lighting and Fans both off, FoxDen removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time."); }
+    if SettingsPage.modules-outcome != "" && SettingsPage.modules-ok: Hint { text: SettingsPage.modules-outcome; }
+    if SettingsPage.modules-outcome != "" && !SettingsPage.modules-ok: Problem { text: SettingsPage.modules-outcome; }
+}
+
+component VmicBox inherits Section {
+    title: I18n.t("Virtual microphone");
+    Switch { label: I18n.t("Virtual microphone"); on: SettingsPage.vmic-on; toggled(v) => { SettingsPage.set-vmic(v); } }
+    Row {
+        label: "VB-CABLE";
+        Text { text: SettingsPage.vmic-state; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+    }
+    Hint { text: I18n.t("Virtual microphone uses VB-CABLE by VB-Audio, donationware installed unchanged."); }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button { text: I18n.t("Donate to VB-Audio"); clicked => { SettingsPage.vmic-donate(); } }
+        if SettingsPage.vmic-ours: Button {
+            text: I18n.t("Remove virtual microphone");
+            enabled: !SettingsPage.vmic-busy;
+            clicked => { SettingsPage.vmic-remove(); }
+        }
+    }
+    if SettingsPage.vmic-outcome != "": Hint { text: SettingsPage.vmic-outcome; }
+}
+
+component RenderingBox inherits Section {
+    title: I18n.t("Rendering");
+    HorizontalLayout {
+        spacing: 8px;
+        min-height: 32px;
+        Text { text: I18n.t("Frame rate (fps)"); color: Theme.text; vertical-alignment: center; }
+        Slider {
+            y: (parent.height - self.height) / 2;
+            horizontal-stretch: 1;
+            label: I18n.t("Frame rate (fps)");
+            value: SettingsPage.fps;
+            minimum: 10;
+            maximum: 60;
+            step: 1;
+            changed(v) => { SettingsPage.set-fps(round(v)); }
+        }
+        Entry {
+            width: 56px;
+            mono: true;
+            label: I18n.t("Frame rate");
+            value: SettingsPage.fps-text;
+            invalid: SettingsPage.fps-problem != "";
+            edited(t) => { SettingsPage.fps-typed(t); }
+        }
+    }
+    if SettingsPage.fps-problem != "": Problem { text: SettingsPage.fps-problem; }
+}
+
+component DevicesBox inherits Section {
+    title: I18n.t("Devices");
+    Switch { label: I18n.t("Native drivers"); on: SettingsPage.native-drivers; toggled(v) => { SettingsPage.set-flag("native_drivers", v); } }
+    Hint { text: I18n.t("FoxDen's own drivers. On by default."); }
+}
+
+component NetworkBox inherits Section {
+    title: I18n.t("Network lights");
+    Switch { label: I18n.t("Lights on this network"); on: SettingsPage.net-enabled; toggled(v) => { SettingsPage.set-flag("network_enabled", v); } }
+    Hint { text: I18n.t("Philips Hue, Wiz, Nanoleaf, LIFX, Govee, Yeelight, Kasa, Elgato, E1.31, DDP and Espurna lights, and DMX on a serial port. FoxDen only talks to addresses on your own network. Off by default."); }
+    if SettingsPage.net-enabled: VerticalLayout {
+        spacing: 8px;
+        Switch { label: I18n.t("Also drive LIFX, Govee, Yeelight, Wiz and Kasa lights it finds"); on: SettingsPage.net-discover; toggled(v) => { SettingsPage.set-flag("network.discover", v); } }
+        HorizontalLayout {
+            spacing: 8px;
+            Button { text: I18n.t("Search network"); enabled: !SettingsPage.net-searching; clicked => { SettingsPage.net-search(); } }
+            Text { text: SettingsPage.net-status; color: Theme.muted; font-size: 12px; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+        for f[i] in SettingsPage.net-found: Card {
+            Split {
+                name: f.title;
+                Text { text: f.ip; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+            }
+            if f.action == "added": Text { text: I18n.t("Added"); color: Theme.muted; font-size: 12px; }
+            if f.action != "added": HorizontalLayout {
+                alignment: start;
+                Button {
+                    text: f.label;
+                    enabled: f.action == "add" || !SettingsPage.net-pairing;
+                    clicked => { SettingsPage.net-found-act(i); }
+                }
+            }
+        }
+        Text { text: I18n.t("Added lights"); color: Theme.muted; font-size: 12px; font-weight: 600; }
+        HorizontalLayout {
+            spacing: 8px;
+            Select {
+                horizontal-stretch: 1;
+                label: I18n.t("Kind of light");
+                options: SettingsPage.net-kinds;
+                index: SettingsPage.net-kind;
+                selected(i) => { SettingsPage.net-pick-kind(i); }
+            }
+            VerticalLayout {
+                alignment: start;
+                Button { text: I18n.t("Add"); clicked => { SettingsPage.net-add(); } }
+            }
+        }
+        for c[ci] in SettingsPage.net-cards: Card {
+            Split {
+                name: c.title;
+                if c.pairable: StateText { mark: c.paired ? "on" : "off"; text: c.paired ? I18n.t("Paired") : I18n.t("Not paired"); }
+            }
+            for f[fi] in c.fields: VerticalLayout {
+                if f.kind == "check": Check { label: f.label; on: f.on; toggled(v) => { SettingsPage.net-check(ci, fi, v); } }
+                if f.kind == "choice": Labelled {
+                    label: f.label;
+                    Select { label: f.label; options: f.options; index: f.index; selected(o) => { SettingsPage.net-choice(ci, fi, o); } }
+                }
+                if f.kind == "text": Labelled {
+                    label: f.label;
+                    Entry {
+                        label: f.label;
+                        value: f.text;
+                        edited(t) => { SettingsPage.net-edit(ci, fi, t); }
+                        commit(t) => { SettingsPage.net-commit(ci, fi, t); }
+                    }
+                }
+            }
+            if SettingsPage.net-problems[ci] != "": Problem { text: SettingsPage.net-problems[ci]; }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                if c.pairable: Button {
+                    text: c.pair-label;
+                    enabled: !SettingsPage.net-pairing;
+                    clicked => { SettingsPage.net-pair(ci); }
+                }
+                Button { text: I18n.t("Remove"); clicked => { SettingsPage.net-remove(ci); } }
+            }
+        }
+        if SettingsPage.net-cards.length == 0: Hint { text: I18n.t("None yet. Search the network, or pick a kind of light and add it by address."); }
+    }
+}
+
+component StripsBox inherits Section {
+    title: I18n.t("LED strips");
+    Hint { text: I18n.t("Strips on a microcontroller at a serial port: Adalight, TPM2 or Keyboard Visualizer. Keyboard Visualizer also takes udp:address, with the UDP port as the baud rate. Driven by the native drivers."); }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: I18n.t("Add strip"); clicked => { SettingsPage.strip-add(); } }
+    }
+    for s[i] in SettingsPage.strips: Card {
+        Split {
+            name: s.title;
+            Text { text: s.meta; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+        }
+        Labelled {
+            label: I18n.t("Name");
+            Entry { label: I18n.t("Name"); value: s.name; edited(t) => { SettingsPage.strip-edit(i, "name", t); } commit(t) => { SettingsPage.strip-commit(i, "name", t); } }
+        }
+        Labelled {
+            label: I18n.t("Port");
+            Entry { label: I18n.t("Port"); placeholder: "COM3"; value: s.port; edited(t) => { SettingsPage.strip-edit(i, "port", t); } commit(t) => { SettingsPage.strip-commit(i, "port", t); } }
+        }
+        Labelled {
+            label: I18n.t("Protocol");
+            Select { label: I18n.t("Protocol"); options: SettingsPage.protocols; index: s.protocol; selected(o) => { SettingsPage.strip-protocol(i, o); } }
+        }
+        Labelled {
+            label: I18n.t("Baud rate");
+            Entry { label: I18n.t("Baud rate"); value: s.baud; edited(t) => { SettingsPage.strip-edit(i, "baud", t); } commit(t) => { SettingsPage.strip-commit(i, "baud", t); } }
+        }
+        Labelled {
+            label: I18n.t("LEDs");
+            Entry { label: I18n.t("LEDs"); value: s.leds; edited(t) => { SettingsPage.strip-edit(i, "leds", t); } commit(t) => { SettingsPage.strip-commit(i, "leds", t); } }
+        }
+        if SettingsPage.strip-problems[i] != "": Problem { text: SettingsPage.strip-problems[i]; }
+        HorizontalLayout {
+            alignment: start;
+            Button { text: I18n.t("Remove"); clicked => { SettingsPage.strip-remove(i); } }
+        }
+    }
+    if SettingsPage.strips.length == 0: Hint { text: I18n.t("None yet."); }
+}
+
+component ServerBox inherits Section {
+    title: I18n.t("OpenRGB integration");
+    Switch { label: I18n.t("Use an OpenRGB server"); on: SettingsPage.server-enabled; toggled(v) => { SettingsPage.set-flag("openrgb_enabled", v); } }
+    Hint { text: I18n.t("Optional. Drives devices FoxDen has no driver for, through a running OpenRGB server."); }
+    if SettingsPage.server-enabled: VerticalLayout {
+        spacing: 8px;
+        Row {
+            label: I18n.t("Host");
+            Entry {
+                width: 168px;
+                label: I18n.t("Host");
+                value: SettingsPage.host;
+                invalid: SettingsPage.host-problem != "";
+                edited(t) => { SettingsPage.server-edited("host", t); }
+                commit(t) => { SettingsPage.server-commit("host", t); }
+            }
+        }
+        if SettingsPage.host-problem != "": Problem { text: SettingsPage.host-problem; }
+        Row {
+            label: I18n.t("Port");
+            Entry {
+                width: 168px;
+                label: I18n.t("Port");
+                value: SettingsPage.port;
+                invalid: SettingsPage.port-problem != "";
+                edited(t) => { SettingsPage.server-edited("port", t); }
+                commit(t) => { SettingsPage.server-commit("port", t); }
+            }
+        }
+        if SettingsPage.port-problem != "": Problem { text: SettingsPage.port-problem; }
+    }
+}
+
+component LanguageBox inherits Section {
+    title: I18n.t("Language");
+    Row {
+        label: I18n.t("Language");
+        Select { width: 180px; options: SettingsPage.languages; index: SettingsPage.language-index; label: I18n.t("Language"); selected(i) => { SettingsPage.set-language(i); } }
+    }
+    Hint { text: I18n.t("Automatic follows the Windows display language."); }
+}
+
+component WindowBox inherits Section {
+    title: I18n.t("Window");
+    Switch { label: I18n.t("Close to tray"); on: SettingsPage.close-to-tray; toggled(v) => { SettingsPage.set-close-to-tray(v); } }
+    Switch { label: I18n.t("Start minimised"); on: SettingsPage.start-minimized; toggled(v) => { SettingsPage.set-start-minimized(v); } }
+    Switch { label: I18n.t("Start with Windows"); on: SettingsPage.autostart; toggled(v) => { SettingsPage.set-flag("autostart", v); } }
+}
+
+component UpdatesBox inherits Section {
+    title: I18n.t("Updates");
+    Row {
+        label: I18n.t("Installed version");
+        Text { text: SettingsPage.version; color: Theme.text; font-family: Theme.mono; vertical-alignment: center; }
+    }
+    Switch { label: I18n.t("Install updates automatically"); on: SettingsPage.auto-update; toggled(v) => { SettingsPage.set-flag("auto_update", v); } }
+    HorizontalLayout {
+        spacing: 8px;
+        Button { text: I18n.t("Check for updates"); clicked => { SettingsPage.check-update(); } }
+        Text { text: SettingsPage.update-status; color: Theme.muted; font-size: 12px; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; accessible-role: AccessibleRole.text; }
+    }
+}
+
+component ConflictsBox inherits Section {
+    title: I18n.t("Conflicting software");
+    Switch { label: I18n.t("Close conflicting software"); on: SettingsPage.close-conflicts; toggled(v) => { SettingsPage.set-flag("close_conflicts", v); } }
+    Hint { text: I18n.t("Other lighting and fan apps hold the same devices. FoxDen closes them at start and whenever it looks for hardware."); }
+    VerticalLayout {
+        spacing: 4px;
+        for r[i] in SettingsPage.conflicts: HorizontalLayout {
+            spacing: 12px;
+            padding-left: r.exe ? 16px : 0;
+            min-height: r.exe ? 28px : 20px;
+            Text { text: r.name; color: r.exe ? Theme.muted : Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+            if !r.exe: StateText { mark: r.mark; text: r.state; }
+            if r.exe: Toggle {
+                y: (parent.height - self.height) / 2;
+                on: r.closes;
+                label: r.name;
+                opacity: r.kept ? 0.5 : 1;
+                toggled(v) => { if !r.kept { SettingsPage.set-exe-closes(i, v); } }
+            }
+        }
+    }
+    if SettingsPage.conflicts-empty: Hint { text: I18n.t("None found."); }
+    if SettingsPage.conflicts-last != "": Hint { text: SettingsPage.conflicts-last; }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        Button { text: I18n.t("Close now"); clicked => { SettingsPage.close-conflicts-now(); } }
+        Button { text: I18n.t("Refresh"); clicked => { SettingsPage.refresh-conflicts(); } }
+    }
+}
+
+component ReportsBox inherits Section {
+    title: I18n.t("Error reports");
+    Switch { label: I18n.t("Send anonymous error reports"); on: SettingsPage.send-reports; toggled(v) => { SettingsPage.set-flag("send_reports", v); } }
+    Hint { text: I18n.t("Sends the error, the FoxDen version and the hardware ids of your devices. Never names, serial numbers, paths or addresses."); }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: I18n.t("Open logs"); clicked => { SettingsPage.open-logs(); } }
+    }
+}
+
+component BackendsBox inherits Section {
+    title: I18n.t("Backends");
+    VerticalLayout {
+        spacing: 4px;
+        for b in SettingsPage.backends: VerticalLayout {
+            HorizontalLayout {
+                spacing: 12px;
+                min-height: 20px;
+                Text { text: b.name; color: Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                StateText { mark: b.mark; text: b.state; }
+            }
+            if b.problem != "": Text { text: b.problem; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
+        }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: I18n.t("Rescan devices"); clicked => { SettingsPage.rescan(); } }
+    }
+}
+
+// One column at the smallest window, two at the default size, never more than three, as the web's wide grid.
 export component SettingsPanel inherits Scroll {
-    content-height: settings-body.preferred-height;
-    settings-body := VerticalLayout {
+    private property <length> inner: self.width - 32px;
+    private property <int> cols: inner >= 1232px ? 3 : inner >= 816px ? 2 : 1;
+    private property <length> body;
+    content-height: body;
+    if root.cols == 1: GridLayout {
+        width: root.width;
         padding: 16px;
         spacing: 16px;
-
-        Section {
-            title: I18n.t("Modules");
-            Switch { label: I18n.t("Lighting"); on: SettingsPage.lighting; toggled(v) => { SettingsPage.set-flag("lighting_module", v); } }
-            Switch { label: I18n.t("Fans"); on: SettingsPage.fans; toggled(v) => { SettingsPage.set-flag("fans_module", v); } }
-            Switch { label: I18n.t("Batteries"); on: SettingsPage.battery-tray; toggled(v) => { SettingsPage.set-flag("battery_tray", v); } }
-            Switch {
-                label: I18n.t("Low battery notifications");
-                sub: true;
-                enabled: SettingsPage.battery-tray;
-                on: SettingsPage.battery-alerts;
-                toggled(v) => { SettingsPage.set-flag("battery_alerts", v); }
-            }
-            Hint { text: I18n.t("Batteries shows wireless devices' levels in the tray. Off, FoxDen stops checking them."); }
-            Hint { text: I18n.t("With Lighting and Fans both off, FoxDen removes its service and PawnIO. Turning one on again puts them back. Windows asks for administrator rights each time."); }
-            if SettingsPage.modules-outcome != "" && SettingsPage.modules-ok: Hint { text: SettingsPage.modules-outcome; }
-            if SettingsPage.modules-outcome != "" && !SettingsPage.modules-ok: Problem { text: SettingsPage.modules-outcome; }
-        }
-
-        Section {
-            title: I18n.t("Virtual microphone");
-            Switch { label: I18n.t("Virtual microphone"); on: SettingsPage.vmic-on; toggled(v) => { SettingsPage.set-vmic(v); } }
-            Row {
-                label: "VB-CABLE";
-                Text { text: SettingsPage.vmic-state; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
-            }
-            Hint { text: I18n.t("Virtual microphone uses VB-CABLE by VB-Audio, donationware installed unchanged."); }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Button { text: I18n.t("Donate to VB-Audio"); clicked => { SettingsPage.vmic-donate(); } }
-                if SettingsPage.vmic-ours: Button {
-                    text: I18n.t("Remove virtual microphone");
-                    enabled: !SettingsPage.vmic-busy;
-                    clicked => { SettingsPage.vmic-remove(); }
-                }
-            }
-            if SettingsPage.vmic-outcome != "": Hint { text: SettingsPage.vmic-outcome; }
-        }
-
-        Section {
-            title: I18n.t("Rendering");
-            HorizontalLayout {
-                spacing: 8px;
-                min-height: 32px;
-                Text { text: I18n.t("Frame rate (fps)"); color: Theme.text; vertical-alignment: center; }
-                Slider {
-                    y: (parent.height - self.height) / 2;
-                    horizontal-stretch: 1;
-                    label: I18n.t("Frame rate (fps)");
-                    value: SettingsPage.fps;
-                    minimum: 10;
-                    maximum: 60;
-                    step: 1;
-                    changed(v) => { SettingsPage.set-fps(round(v)); }
-                }
-                Entry {
-                    width: 56px;
-                    mono: true;
-                    label: I18n.t("Frame rate");
-                    value: SettingsPage.fps-text;
-                    invalid: SettingsPage.fps-problem != "";
-                    edited(t) => { SettingsPage.fps-typed(t); }
-                }
-            }
-            if SettingsPage.fps-problem != "": Problem { text: SettingsPage.fps-problem; }
-        }
-
-        Section {
-            title: I18n.t("Devices");
-            Switch { label: I18n.t("Native drivers"); on: SettingsPage.native-drivers; toggled(v) => { SettingsPage.set-flag("native_drivers", v); } }
-            Hint { text: I18n.t("FoxDen's own drivers. On by default."); }
-        }
-
-        Section {
-            title: I18n.t("Network lights");
-            Switch { label: I18n.t("Lights on this network"); on: SettingsPage.net-enabled; toggled(v) => { SettingsPage.set-flag("network_enabled", v); } }
-            Hint { text: I18n.t("Philips Hue, Wiz, Nanoleaf, LIFX, Govee, Yeelight, Kasa, Elgato, E1.31, DDP and Espurna lights, and DMX on a serial port. FoxDen only talks to addresses on your own network. Off by default."); }
-            if SettingsPage.net-enabled: VerticalLayout {
-                spacing: 8px;
-                Switch { label: I18n.t("Also drive LIFX, Govee, Yeelight, Wiz and Kasa lights it finds"); on: SettingsPage.net-discover; toggled(v) => { SettingsPage.set-flag("network.discover", v); } }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Button { text: I18n.t("Search network"); enabled: !SettingsPage.net-searching; clicked => { SettingsPage.net-search(); } }
-                    Text { text: SettingsPage.net-status; color: Theme.muted; font-size: 12px; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
-                }
-                for f[i] in SettingsPage.net-found: Card {
-                    Split {
-                        name: f.title;
-                        Text { text: f.ip; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
-                    }
-                    if f.action == "added": Text { text: I18n.t("Added"); color: Theme.muted; font-size: 12px; }
-                    if f.action != "added": HorizontalLayout {
-                        alignment: start;
-                        Button {
-                            text: f.label;
-                            enabled: f.action == "add" || !SettingsPage.net-pairing;
-                            clicked => { SettingsPage.net-found-act(i); }
-                        }
-                    }
-                }
-                Text { text: I18n.t("Added lights"); color: Theme.muted; font-size: 12px; font-weight: 600; }
-                HorizontalLayout {
-                    spacing: 8px;
-                    Select {
-                        horizontal-stretch: 1;
-                        label: I18n.t("Kind of light");
-                        options: SettingsPage.net-kinds;
-                        index: SettingsPage.net-kind;
-                        selected(i) => { SettingsPage.net-pick-kind(i); }
-                    }
-                    VerticalLayout {
-                        alignment: start;
-                        Button { text: I18n.t("Add"); clicked => { SettingsPage.net-add(); } }
-                    }
-                }
-                for c[ci] in SettingsPage.net-cards: Card {
-                    Split {
-                        name: c.title;
-                        if c.pairable: StateText { mark: c.paired ? "on" : "off"; text: c.paired ? I18n.t("Paired") : I18n.t("Not paired"); }
-                    }
-                    for f[fi] in c.fields: VerticalLayout {
-                        if f.kind == "check": Check { label: f.label; on: f.on; toggled(v) => { SettingsPage.net-check(ci, fi, v); } }
-                        if f.kind == "choice": Labelled {
-                            label: f.label;
-                            Select { label: f.label; options: f.options; index: f.index; selected(o) => { SettingsPage.net-choice(ci, fi, o); } }
-                        }
-                        if f.kind == "text": Labelled {
-                            label: f.label;
-                            Entry {
-                                label: f.label;
-                                value: f.text;
-                                edited(t) => { SettingsPage.net-edit(ci, fi, t); }
-                                commit(t) => { SettingsPage.net-commit(ci, fi, t); }
-                            }
-                        }
-                    }
-                    if SettingsPage.net-problems[ci] != "": Problem { text: SettingsPage.net-problems[ci]; }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        alignment: start;
-                        if c.pairable: Button {
-                            text: c.pair-label;
-                            enabled: !SettingsPage.net-pairing;
-                            clicked => { SettingsPage.net-pair(ci); }
-                        }
-                        Button { text: I18n.t("Remove"); clicked => { SettingsPage.net-remove(ci); } }
-                    }
-                }
-                if SettingsPage.net-cards.length == 0: Hint { text: I18n.t("None yet. Search the network, or pick a kind of light and add it by address."); }
-            }
-        }
-
-        Section {
-            title: I18n.t("LED strips");
-            Hint { text: I18n.t("Strips on a microcontroller at a serial port: Adalight, TPM2 or Keyboard Visualizer. Keyboard Visualizer also takes udp:address, with the UDP port as the baud rate. Driven by the native drivers."); }
-            HorizontalLayout {
-                alignment: start;
-                Button { text: I18n.t("Add strip"); clicked => { SettingsPage.strip-add(); } }
-            }
-            for s[i] in SettingsPage.strips: Card {
-                Split {
-                    name: s.title;
-                    Text { text: s.meta; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
-                }
-                Labelled {
-                    label: I18n.t("Name");
-                    Entry { label: I18n.t("Name"); value: s.name; edited(t) => { SettingsPage.strip-edit(i, "name", t); } commit(t) => { SettingsPage.strip-commit(i, "name", t); } }
-                }
-                Labelled {
-                    label: I18n.t("Port");
-                    Entry { label: I18n.t("Port"); placeholder: "COM3"; value: s.port; edited(t) => { SettingsPage.strip-edit(i, "port", t); } commit(t) => { SettingsPage.strip-commit(i, "port", t); } }
-                }
-                Labelled {
-                    label: I18n.t("Protocol");
-                    Select { label: I18n.t("Protocol"); options: SettingsPage.protocols; index: s.protocol; selected(o) => { SettingsPage.strip-protocol(i, o); } }
-                }
-                Labelled {
-                    label: I18n.t("Baud rate");
-                    Entry { label: I18n.t("Baud rate"); value: s.baud; edited(t) => { SettingsPage.strip-edit(i, "baud", t); } commit(t) => { SettingsPage.strip-commit(i, "baud", t); } }
-                }
-                Labelled {
-                    label: I18n.t("LEDs");
-                    Entry { label: I18n.t("LEDs"); value: s.leds; edited(t) => { SettingsPage.strip-edit(i, "leds", t); } commit(t) => { SettingsPage.strip-commit(i, "leds", t); } }
-                }
-                if SettingsPage.strip-problems[i] != "": Problem { text: SettingsPage.strip-problems[i]; }
-                HorizontalLayout {
-                    alignment: start;
-                    Button { text: I18n.t("Remove"); clicked => { SettingsPage.strip-remove(i); } }
-                }
-            }
-            if SettingsPage.strips.length == 0: Hint { text: I18n.t("None yet."); }
-        }
-
-        Section {
-            title: I18n.t("OpenRGB integration");
-            Switch { label: I18n.t("Use an OpenRGB server"); on: SettingsPage.server-enabled; toggled(v) => { SettingsPage.set-flag("openrgb_enabled", v); } }
-            Hint { text: I18n.t("Optional. Drives devices FoxDen has no driver for, through a running OpenRGB server."); }
-            if SettingsPage.server-enabled: VerticalLayout {
-                spacing: 8px;
-                Row {
-                    label: I18n.t("Host");
-                    Entry {
-                        width: 168px;
-                        label: I18n.t("Host");
-                        value: SettingsPage.host;
-                        invalid: SettingsPage.host-problem != "";
-                        edited(t) => { SettingsPage.server-edited("host", t); }
-                        commit(t) => { SettingsPage.server-commit("host", t); }
-                    }
-                }
-                if SettingsPage.host-problem != "": Problem { text: SettingsPage.host-problem; }
-                Row {
-                    label: I18n.t("Port");
-                    Entry {
-                        width: 168px;
-                        label: I18n.t("Port");
-                        value: SettingsPage.port;
-                        invalid: SettingsPage.port-problem != "";
-                        edited(t) => { SettingsPage.server-edited("port", t); }
-                        commit(t) => { SettingsPage.server-commit("port", t); }
-                    }
-                }
-                if SettingsPage.port-problem != "": Problem { text: SettingsPage.port-problem; }
-            }
-        }
-
-        Section {
-            title: I18n.t("Language");
-            Row {
-                label: I18n.t("Language");
-                Select { width: 180px; options: SettingsPage.languages; index: SettingsPage.language-index; label: I18n.t("Language"); selected(i) => { SettingsPage.set-language(i); } }
-            }
-            Hint { text: I18n.t("Automatic follows the Windows display language."); }
-        }
-
-        Section {
-            title: I18n.t("Window");
-            Switch { label: I18n.t("Close to tray"); on: SettingsPage.close-to-tray; toggled(v) => { SettingsPage.set-close-to-tray(v); } }
-            Switch { label: I18n.t("Start minimised"); on: SettingsPage.start-minimized; toggled(v) => { SettingsPage.set-start-minimized(v); } }
-            Switch { label: I18n.t("Start with Windows"); on: SettingsPage.autostart; toggled(v) => { SettingsPage.set-flag("autostart", v); } }
-        }
-
-        Section {
-            title: I18n.t("Updates");
-            Row {
-                label: I18n.t("Installed version");
-                Text { text: SettingsPage.version; color: Theme.text; font-family: Theme.mono; vertical-alignment: center; }
-            }
-            Switch { label: I18n.t("Install updates automatically"); on: SettingsPage.auto-update; toggled(v) => { SettingsPage.set-flag("auto_update", v); } }
-            HorizontalLayout {
-                spacing: 8px;
-                Button { text: I18n.t("Check for updates"); clicked => { SettingsPage.check-update(); } }
-                Text { text: SettingsPage.update-status; color: Theme.muted; font-size: 12px; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; accessible-role: AccessibleRole.text; }
-            }
-        }
-
-        Section {
-            title: I18n.t("Conflicting software");
-            Switch { label: I18n.t("Close conflicting software"); on: SettingsPage.close-conflicts; toggled(v) => { SettingsPage.set-flag("close_conflicts", v); } }
-            Hint { text: I18n.t("Other lighting and fan apps hold the same devices. FoxDen closes them at start and whenever it looks for hardware."); }
-            VerticalLayout {
-                spacing: 4px;
-                for r[i] in SettingsPage.conflicts: HorizontalLayout {
-                    spacing: 12px;
-                    padding-left: r.exe ? 16px : 0;
-                    min-height: r.exe ? 28px : 20px;
-                    Text { text: r.name; color: r.exe ? Theme.muted : Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                    if !r.exe: StateText { mark: r.mark; text: r.state; }
-                    if r.exe: Toggle {
-                        y: (parent.height - self.height) / 2;
-                        on: r.closes;
-                        label: r.name;
-                        opacity: r.kept ? 0.5 : 1;
-                        toggled(v) => { if !r.kept { SettingsPage.set-exe-closes(i, v); } }
-                    }
-                }
-            }
-            if SettingsPage.conflicts-empty: Hint { text: I18n.t("None found."); }
-            if SettingsPage.conflicts-last != "": Hint { text: SettingsPage.conflicts-last; }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Button { text: I18n.t("Close now"); clicked => { SettingsPage.close-conflicts-now(); } }
-                Button { text: I18n.t("Refresh"); clicked => { SettingsPage.refresh-conflicts(); } }
-            }
-        }
-
-        Section {
-            title: I18n.t("Error reports");
-            Switch { label: I18n.t("Send anonymous error reports"); on: SettingsPage.send-reports; toggled(v) => { SettingsPage.set-flag("send_reports", v); } }
-            Hint { text: I18n.t("Sends the error, the FoxDen version and the hardware ids of your devices. Never names, serial numbers, paths or addresses."); }
-            HorizontalLayout {
-                alignment: start;
-                Button { text: I18n.t("Open logs"); clicked => { SettingsPage.open-logs(); } }
-            }
-        }
-
-        Section {
-            title: I18n.t("Backends");
-            VerticalLayout {
-                spacing: 4px;
-                for b in SettingsPage.backends: VerticalLayout {
-                    HorizontalLayout {
-                        spacing: 12px;
-                        min-height: 20px;
-                        Text { text: b.name; color: Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                        StateText { mark: b.mark; text: b.state; }
-                    }
-                    if b.problem != "": Text { text: b.problem; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
-                }
-            }
-            HorizontalLayout {
-                alignment: start;
-                Button { text: I18n.t("Rescan devices"); clicked => { SettingsPage.rescan(); } }
-            }
-        }
+        init => { root.body = self.preferred-height; }
+        changed preferred-height => { root.body = self.preferred-height; }
+        Row { ModulesBox { } }
+        Row { VmicBox { } }
+        Row { RenderingBox { } }
+        Row { DevicesBox { } }
+        Row { NetworkBox { } }
+        Row { StripsBox { } }
+        Row { ServerBox { } }
+        Row { LanguageBox { } }
+        Row { WindowBox { } }
+        Row { UpdatesBox { } }
+        Row { ConflictsBox { } }
+        Row { ReportsBox { } }
+        Row { BackendsBox { } }
+    }
+    if root.cols == 2: GridLayout {
+        width: root.width;
+        padding: 16px;
+        spacing: 16px;
+        init => { root.body = self.preferred-height; }
+        changed preferred-height => { root.body = self.preferred-height; }
+        Row { ModulesBox { } VmicBox { } }
+        Row { RenderingBox { } DevicesBox { } }
+        Row { NetworkBox { } StripsBox { } }
+        Row { ServerBox { } LanguageBox { } }
+        Row { WindowBox { } UpdatesBox { } }
+        Row { ConflictsBox { } ReportsBox { } }
+        Row { BackendsBox { } }
+    }
+    if root.cols == 3: GridLayout {
+        width: root.width;
+        padding: 16px;
+        spacing: 16px;
+        init => { root.body = self.preferred-height; }
+        changed preferred-height => { root.body = self.preferred-height; }
+        Row { ModulesBox { } VmicBox { } RenderingBox { } }
+        Row { DevicesBox { } NetworkBox { } StripsBox { } }
+        Row { ServerBox { } LanguageBox { } WindowBox { } }
+        Row { UpdatesBox { } ConflictsBox { } ReportsBox { } }
+        Row { BackendsBox { } }
     }
 }
 
