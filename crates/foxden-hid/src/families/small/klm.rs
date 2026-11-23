@@ -379,6 +379,17 @@ impl Klm {
         self.keys.iter().map(|k| k.value).collect()
     }
 
+    /// Each key at its cell centre, and the grid size.
+    pub fn positions(&self) -> (Vec<[f32; 2]>, [u32; 2]) {
+        let (w, h) = (self.cols.max(1) as f32, self.rows.max(1) as f32);
+        let at = self
+            .keys
+            .iter()
+            .map(|k| [(k.col as f32 + 0.5) / w, (k.row as f32 + 0.5) / h])
+            .collect();
+        (at, [self.cols.max(1) as u32, self.rows.max(1) as u32])
+    }
+
     /// A device with one LED per key, placed at its row and column.
     pub fn device(&self, info: &Info, family: &str, d: &Detector) -> Device {
         let at: Vec<(u32, u32)> = self
