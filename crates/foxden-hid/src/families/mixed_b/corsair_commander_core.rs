@@ -18,6 +18,8 @@ const FANS: usize = 6;
 /// Fan headers report no size; 34 is the maximum and the stride of every header.
 const FAN_LEDS: usize = 34;
 const REPLY_MS: i32 = 500;
+/// The XT's external header; the u16-framed write allows far more, 204 is a Corsair ARGB channel.
+const EXTERNAL_MAX: usize = 204;
 
 #[rustfmt::skip]
 const MAP29: [u32; 49] = [
@@ -145,12 +147,28 @@ fn with_replies(size: usize, packets: Vec<Vec<u8>>) -> Vec<Op> {
 }
 
 /// The pump, then each fan header at the user's length.
+#[cfg(test)]
 fn sized(id: &str, pump: usize) -> Vec<usize> {
+    sized_with(id, pump, &[])
+}
+
+/// Like `sized`, each fan defaulting to the count the hub reports when it reports one.
+fn sized_with(id: &str, pump: usize, reported: &[usize]) -> Vec<usize> {
     let fans = (1..=FANS).map(|i| {
         let name = format!("Fan {i}");
-        crate::lengths::length(id, i, &name, FAN_LEDS, 0, FAN_LEDS)
+        let default = reported
+            .get(i)
+            .copied()
+            .filter(|n| (1..=FAN_LEDS).contains(n))
+            .unwrap_or(FAN_LEDS);
+        crate::lengths::length(id, i, &name, default, 0, FAN_LEDS)
     });
     std::iter::once(pump).chain(fans).collect()
+}
+
+/// The XT's external header at the user's length, off by default.
+fn external(id: &str) -> usize {
+    crate::lengths::length(id, 0, "External ARGB", 0, 0, EXTERNAL_MAX)
 }
 
 struct Core {
@@ -219,8 +237,13 @@ fn size_after(pid: u16, size: usize, firmware_major: u8) -> usize {
 }
 
 /// `SetFanMode(false)`, then `ReadData(20 00)` for `GetLedCounts` (its middle packet answers).
+#[cfg(test)]
 fn init_packets(size: usize, pid: u16) -> (Vec<Vec<u8>>, [Vec<u8>; 3]) {
-    let mut fan = write_data(size, [0x1E, 0x00], [0x0D, 0x00], &fan_mode(pid, false));
+    init_packets_with(size, pid, false)
+}
+
+fn init_packets_with(size: usize, pid: u16, external: bool) -> (Vec<Vec<u8>>, [Vec<u8>; 3]) {
+    let mut fan = write_data(size, [0x1E, 0x00], [0x0D, 0x00], &fan_mode(pid, external));
     fan.push(command(size, [0x01, 0x03], &[0x00, 0x02]));
     let counts = [
         command(size, [0x0D, 0x00], &[0x20, 0x00]),
@@ -230,11 +253,11 @@ fn init_packets(size: usize, pid: u16) -> (Vec<Vec<u8>>, [Vec<u8>; 3]) {
     (fan, counts)
 }
 
-fn handshake(hid: &Port, pid: u16) -> Result<(usize, Vec<usize>), String> {
+fn handshake(hid: &Port, pid: u16, external: bool) -> Result<(usize, Vec<usize>), String> {
     let first = first_size(pid);
     let firmware = exchange(hid, &firmware_request(first), first)?;
     let size = size_after(pid, first, firmware[3]);
-    let (fan, [open, read, close]) = init_packets(size, pid);
+    let (fan, [open, read, close]) = init_packets_with(size, pid, external);
     for p in fan {
         exchange(hid, &p, size)?;
     }
@@ -244,9 +267,12 @@ fn handshake(hid: &Port, pid: u16) -> Result<(usize, Vec<usize>), String> {
     Ok((size, led_counts(&reply[3..])))
 }
 
-fn layout(zones: &[usize]) -> Vec<[f32; 2]> {
+fn layout(zones: &[usize], strip: bool) -> Vec<[f32; 2]> {
     let pump = zones[0];
     let mut leds: Vec<[f32; 2]> = match pump {
+        _ if strip => (0..pump)
+            .map(|i| [(i as f32 + 0.5) / pump as f32, 0.5])
+            .collect(),
         24 => matrix(&MAP24, 11, 24, |_| [0.5, 0.5]),
         _ => matrix(&MAP29, 7, pump, |_| [0.5, 0.5]),
     }
@@ -266,21 +292,23 @@ fn layout(zones: &[usize]) -> Vec<[f32; 2]> {
 
 fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     open_with(api, info, "corsair commander core", |hid| {
-        let (size, counts) = handshake(hid, info.pid)?;
-        // The XT's first zone is the external header, which starts at 0 LEDs.
-        let pump = if info.pid == XT {
-            0
+        let id = info.device_id("corsair-commander-core");
+        let xt = info.pid == XT;
+        let ext = if xt { external(&id) } else { 0 };
+        let (size, counts) = handshake(hid, info.pid, ext > 0)?;
+        // The XT's first zone is the external header.
+        let pump = if xt {
+            ext
         } else {
             *counts.first().ok_or("no pump")?
         };
-        let id = info.device_id("corsair-commander-core");
-        let zones = sized(&id, pump);
+        let zones = sized_with(&id, pump, &counts);
         let dev = device(
             id,
             d.name,
             DeviceKind::Other,
             [FAN_LEDS as u32, FANS as u32],
-            layout(&zones),
+            layout(&zones, xt),
         );
         Ok((dev, Core { size, zones }))
     })
@@ -446,6 +474,40 @@ mod tests {
         assert_eq!(zones, [29, 34, 8, 34, 34, 34, 34]);
         let colors = vec![Color(1, 1, 1); 207];
         assert_eq!(color_data(&colors, &zones).len(), 3 * (29 + 6 * 34));
+    }
+
+    #[test]
+    fn fans_default_to_reported_counts() {
+        let id = "hid:commander-core-reported";
+        crate::lengths::set_one(id, 3, 20);
+        let zones = sized_with(id, 29, &[29, 16, 0, 8, 34, 50]);
+        assert_eq!(zones, [29, 16, 34, 20, 34, 34, 34]);
+        let colors = vec![Color(1, 1, 1); 201];
+        assert_eq!(color_data(&colors, &zones).len(), 3 * (29 + 6 * 34));
+    }
+
+    #[test]
+    fn xt_external_header_is_resizable() {
+        let id = "hid:commander-core-xt";
+        assert_eq!(external(id), 0);
+        crate::lengths::set_one(id, 0, 150);
+        assert_eq!(external(id), 150);
+        crate::lengths::set_one(id, 0, 500);
+        assert_eq!(external(id), EXTERNAL_MAX);
+        let (fan, _) = init_packets_with(385, XT, true);
+        assert_eq!(fan[1][10..25], fan_mode(XT, true));
+        assert_eq!(init_packets_with(385, XT, false), init_packets(385, XT));
+        let zones = [150, 34, 34, 34, 34, 34, 34];
+        let colors: Vec<Color> = (0..354).map(|i| Color(i as u8, 0, 1)).collect();
+        let data = color_data(&colors, &zones);
+        assert_eq!(data.len(), 3 * (150 + 6 * 34));
+        assert_eq!(data[149 * 3..150 * 3], [149, 0, 1]);
+        assert_eq!(data[150 * 3..151 * 3], [150, 0, 1]);
+        let leds = layout(&zones, true);
+        assert_eq!(leds.len(), 354);
+        assert!(leds[..150].iter().all(|p| p[0] <= 0.3 && p[1] == 0.5));
+        let off = [0, 34, 34, 34, 34, 34, 34];
+        assert_eq!(layout(&off, true), layout(&off, false));
     }
 
     // SetDirectColor -> WriteData(22 00, 12 00) for a 29-LED pump and six full fans
