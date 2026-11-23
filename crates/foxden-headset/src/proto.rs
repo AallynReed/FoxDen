@@ -13,6 +13,9 @@ pub enum Family {
     NovaPro,
     /// Corsair headsets: every setting is a Bragi property.
     Bragi,
+    Epos,
+    Jabra,
+    Poly,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +94,9 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
                 wireless: c.wireless || receiver.is_some(),
             })
         }
+        crate::epos::VID => crate::epos::model(pid),
+        crate::jabra::VID => crate::jabra::model(pid),
+        crate::poly::VID => crate::poly::model(pid),
         _ => None,
     }
 }
@@ -107,6 +113,9 @@ pub enum Control {
     BtCall,
     EqPreset,
     Anc,
+    VoicePrompts,
+    BusyLight,
+    MicNoiseFilter,
 }
 
 impl Control {
@@ -121,6 +130,9 @@ impl Control {
             Control::BtCall => "bt_call",
             Control::EqPreset => "eq_preset",
             Control::Anc => "anc",
+            Control::VoicePrompts => "voice_prompts",
+            Control::BusyLight => "busy_light",
+            Control::MicNoiseFilter => "mic_noise_filter",
         }
     }
 }
@@ -193,10 +205,12 @@ pub const SAVE_BUSY_MS: u64 = 1500;
 
 impl Model {
     pub fn brand(&self) -> &'static str {
-        if self.vid == 0x1B1C {
-            "Corsair"
-        } else {
-            "SteelSeries"
+        match self.vid {
+            0x1B1C => "Corsair",
+            crate::epos::VID => "EPOS",
+            crate::jabra::VID => "Jabra",
+            crate::poly::VID => "Poly",
+            _ => "SteelSeries",
         }
     }
 
@@ -213,6 +227,9 @@ impl Model {
     pub fn collection(&self) -> (i32, Option<(u16, u16)>) {
         match self.family {
             Family::NovaPro => (4, None),
+            Family::Epos => (3, Some((0xFFFF, 0x0001))),
+            Family::Jabra => (3, Some((0xFF00, crate::jabra::usage(self.pid)))),
+            Family::Poly => (3, Some((0xFFA2, 0x0003))),
             _ => (3, Some((0xFFC0, 0x0001))),
         }
     }
@@ -227,6 +244,9 @@ impl Model {
         };
         let mut out = Vec::new();
         match self.family {
+            Family::Epos => out = crate::epos::controls(),
+            Family::Jabra => out = crate::jabra::controls(),
+            Family::Poly => out = crate::poly::controls(),
             Family::Nova7 | Family::Nova7Gen2 => {
                 if self.sidetone {
                     out.push((Control::Sidetone, levels()));
@@ -303,6 +323,12 @@ impl Model {
         if !shape.accepts(v) {
             return Err(format!("{v} is out of range for {}", c.id()));
         }
+        if matches!(self.family, Family::Epos | Family::Jabra | Family::Poly) {
+            return Err(format!(
+                "{} takes settings through its own module",
+                self.name
+            ));
+        }
         let byte = v as u8;
         let cmd = match (self.family, c) {
             (_, Control::Sidetone) => 0x39,
@@ -315,7 +341,12 @@ impl Model {
             (_, Control::BtPowerOn) => 0xB2,
             (_, Control::BtCall) => 0xB3,
             (_, Control::EqPreset) => 0x2E,
-            (_, Control::Anc) => return Err(format!("{} has no {} setting", self.name, c.id())),
+            (
+                _,
+                Control::Anc | Control::VoicePrompts | Control::BusyLight | Control::MicNoiseFilter,
+            ) => {
+                return Err(format!("{} has no {} setting", self.name, c.id()));
+            }
         };
         let byte = match (self.family, c) {
             (Family::Nova5, Control::MicLed) => NOVA5_LED[v as usize],
@@ -341,7 +372,9 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5 | Family::Bragi => Save::None,
+            Family::Nova5 | Family::Bragi | Family::Epos | Family::Jabra | Family::Poly => {
+                Save::None
+            }
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
         }
@@ -438,7 +471,7 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
-        Family::Bragi => None,
+        Family::Bragi | Family::Epos | Family::Jabra | Family::Poly => None,
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;
