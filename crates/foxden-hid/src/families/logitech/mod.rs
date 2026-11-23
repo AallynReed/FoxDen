@@ -16,6 +16,7 @@ mod x56;
 use foxden_core::Color;
 use hidapi::{HidApi, HidDevice};
 
+use crate::generic_any::receiver::path_key;
 use crate::registry::{Detector, Info, Open};
 
 const VID: u16 = 0x046D;
@@ -56,31 +57,6 @@ fn ack(hid: &dyn Hid, report: &[u8], timeout_ms: i32) -> Result<(), String> {
 /// Colour `i` of a frame, black when the frame is short.
 fn at(colors: &[Color], i: usize) -> Color {
     colors.get(i).copied().unwrap_or(Color::BLACK)
-}
-
-/// LogitechDevicePathKey: one key for every collection of one physical interface.
-fn path_key(path: &str) -> String {
-    let mut key = path.to_string();
-    let bytes = key.as_bytes();
-    let found = (0..bytes.len().saturating_sub(3))
-        .find(|&pos| bytes[pos] == b'&' && bytes[pos + 1..pos + 4].eq_ignore_ascii_case(b"col"))
-        .map(|pos| {
-            let end = (pos + 4..bytes.len())
-                .find(|&e| !bytes[e].is_ascii_hexdigit())
-                .unwrap_or(bytes.len());
-            pos..end
-        });
-    let collection = found.is_some();
-    if let Some(range) = found {
-        key.replace_range(range, "");
-    }
-    if collection
-        && let Some(guid) = key.rfind('#')
-        && let Some(last) = key[..guid].rfind('&')
-    {
-        key.replace_range(last..guid, "");
-    }
-    key
 }
 
 /// Opens the collection of the same physical interface whose usage page and usage match.
@@ -539,8 +515,7 @@ mod tests {
     fn detector_lines() {
         let d = detectors();
         assert_eq!(d.len(), 37 + 4);
-        let skipped = [0xC539, 0xC547, 0xC08D, 0xC355];
-        assert!(d.iter().all(|d| !skipped.contains(&d.pid)));
+        assert!(d.iter().all(|d| !crate::hidpp::PIDS.contains(&d.pid)));
         let g502 = d.iter().find(|d| d.pid == 0xC090).unwrap();
         assert_eq!(
             (g502.interface, g502.usage_page, g502.usage),
@@ -555,20 +530,5 @@ mod tests {
         assert_eq!(x56.len(), 4);
         let g933 = d.iter().find(|d| d.pid == 0x0A5B).unwrap();
         assert_eq!(g933.usage, Some(0x0202));
-    }
-
-    // Device path keys.
-    #[test]
-    fn path_key_joins_collections_of_one_interface() {
-        let a = r"\\?\HID#VID_046D&PID_C53A&MI_02&Col01#8&b41415e&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
-        let b = r"\\?\HID#VID_046D&PID_C53A&MI_02&Col02#8&b41415e&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}";
-        let other = r"\\?\HID#VID_046D&PID_C53A&MI_02&Col02#8&c00000e&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}";
-        assert_eq!(path_key(a), path_key(b));
-        assert_ne!(path_key(a), path_key(other));
-        assert_eq!(
-            path_key(a),
-            r"\\?\HID#VID_046D&PID_C53A&MI_02#8&b41415e&0#{4d1e55b2-f16f-11cf-88cb-001111000030}"
-        );
-        assert_eq!(path_key("/dev/hidraw3"), "/dev/hidraw3");
     }
 }
