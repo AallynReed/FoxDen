@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 foxden-core.workspace = true
+foxden-8bitdo = { path = "../foxden-8bitdo" }
 hidapi = "2"
 windows-sys = { version = "0.61", features = [
     "Win32_Devices_Communication",

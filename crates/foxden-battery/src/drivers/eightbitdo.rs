@@ -2,6 +2,7 @@
 //! 02 in), else the level byte in D-input / Bluetooth gamepad input reports.
 
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use crate::hid::{Coll, Dev};
@@ -38,6 +39,13 @@ const MODELS: [(u16, &str, bool); 19] = [
     (0x6000, "8BitDo SF30 Pro", true),
     (0x6100, "8BitDo SF30 Pro", true),
 ];
+
+static CHANNEL: Mutex<()> = Mutex::new(());
+
+/// Held while anything talks on the vendor channel, so settings writes and polls don't interleave.
+pub fn lock() -> MutexGuard<'static, ()> {
+    CHANNEL.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Last level of the Ultimate 2, kept while it sits on its dock with the radio off.
 static LAST_ULTIMATE2: AtomicI32 = AtomicI32::new(-1);
@@ -107,6 +115,7 @@ fn ask(d: &Dev, req: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn poll_vendor(c: &Coll, ctx: &Ctx) -> Option<Battery> {
+    let _held = lock();
     let d = Dev::open(c)?;
     let ult2 = ultimate2(c.pid);
     let mut b = Battery {

@@ -8,6 +8,7 @@ pub mod util;
 
 pub use ctx::Ctx;
 pub use drivers::corsair::Channel as Bragi;
+pub use drivers::eightbitdo_lock;
 
 /// Read-only HID++ answers of a Logitech receiver and its devices, for device reports.
 pub fn logitech_diagnose(pid: u16) -> Vec<String> {

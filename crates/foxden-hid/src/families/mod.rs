@@ -54,7 +54,9 @@ pub use more_d::{LedProtocol, LedStrip, led_strips, other_ids, serial_ports, win
 
 /// Vendor-wide `HID_PID_ANY` lines of the ported families.
 pub fn matchers() -> Vec<&'static Matcher> {
-    more_c::matchers()
+    let mut all = more_c::matchers();
+    all.extend(small::eightbitdo::MATCHERS.iter());
+    all
 }
 
 #[cfg(test)]

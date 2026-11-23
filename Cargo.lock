@@ -1278,6 +1278,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "foxden-8bitdo"
+version = "0.17.0"
+dependencies = [
+ "foxden-battery",
+ "serde",
+]
+
+[[package]]
 name = "foxden-adlx"
 version = "0.17.0"
 dependencies = [
@@ -1353,6 +1361,7 @@ dependencies = [
 name = "foxden-hid"
 version = "0.17.0"
 dependencies = [
+ "foxden-8bitdo",
  "foxden-core",
  "hidapi",
  "windows-sys 0.61.2",
