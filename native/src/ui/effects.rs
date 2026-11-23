@@ -1171,6 +1171,7 @@ fn render_base(g: &EffectsPage, app: &AppHandle, v: &View, e: &mut Ed) {
             Some(EffectPick { kind: k.into(), label: label.into(), tag: !hit })
         })
         .collect();
+    g.set_effect_at(shown.iter().position(|k| *k == kind).map_or(-1, |i| i as i32));
     e.shown = shown;
     fill(g.get_effects(), picks, |m| g.set_effects(m));
     g.set_no_match(matches == 0);

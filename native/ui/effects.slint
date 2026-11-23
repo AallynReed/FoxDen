@@ -93,6 +93,7 @@ export global EffectsPage {
     in property <bool> no-match;
     in-out property <int> search-focus;
     in property <string> effect-kind;
+    in property <int> effect-at: -1;
     callback search-changed(string);
     callback search-key(string) -> string;
     callback pick-effect(string);
@@ -1408,6 +1409,11 @@ export component EffectsPanel inherits Scroll {
                         width: parent.width - 2px;
                         height: parent.height - 2px;
                         content-height: stack.preferred-height;
+                        property <int> at: EffectsPage.effect-at;
+                        changed at => {
+                            if at >= 0 && at * 32px < -self.content-y { self.content-y = -at * 32px; }
+                            if at >= 0 && (at + 1) * 32px > self.height - self.content-y { self.content-y = self.height - (at + 1) * 32px; }
+                        }
                         stack := VerticalLayout {
                             for e[i] in EffectsPage.effects: Rectangle {
                                 height: 32px;
