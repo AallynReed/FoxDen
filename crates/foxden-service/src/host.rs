@@ -1558,7 +1558,7 @@ pub(crate) mod tests {
         assert_eq!(r["devices"].as_array().unwrap().len(), 2);
         assert_eq!(
             r["zones"],
-            json!([{"device": "hid:a", "index": 1, "name": "Fan 1", "leds": 12, "min": 0, "max": 34}])
+            json!([{"device": "hid:a", "index": 1, "name": "Fan 1", "leds": 12, "min": 0, "max": 34, "step": 1}])
         );
         // Only a change to the hubs' own zones opens them again.
         ask(json!({"hid:a#1": 12, "other#0": 9}));
