@@ -240,12 +240,17 @@ fn param_problem(app: &AppHandle, control: &Value, value: &Value) -> Option<Stri
         "color" => color_problem(value).then_some("three whole numbers from 0 to 255"),
         "toggle" => (!value.is_boolean()).then_some("true or false"),
         "sensor" => (!value.is_string()).then_some("a sensor id in quotes"),
+        "battery" => (!value.is_string()).then_some("a device key in quotes, or empty quotes for the lowest battery"),
         "stops" => {
             let stage = |s: &Value| s["temp"].as_f64().is_some_and(f64::is_finite) && !color_problem(&s["color"]);
             let ok = value
                 .as_array()
                 .is_some_and(|l| (1..=MAX_STAGES).contains(&l.len()) && l.iter().all(stage));
-            (!ok).then_some("a list of 1 to 8 stages, each with a temperature and a colour")
+            (!ok).then_some(if control["unit"] == "%" {
+                "a list of 1 to 8 stages, each with a battery level and a colour"
+            } else {
+                "a list of 1 to 8 stages, each with a temperature and a colour"
+            })
         }
         "choice" => {
             let options = control["options"].as_array()?;
