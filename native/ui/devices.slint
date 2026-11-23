@@ -458,6 +458,7 @@ component HsRow inherits Rectangle {
                 y: (parent.height - 20px) / 2;
                 on: root.c.value == 1;
                 label: root.c.label;
+                enabled: !root.off;
                 toggled(v) => { if !root.off { DevicesPage.hs-set(root.key, root.c.id, v ? 1 : 0); } }
             }
             if root.c.kind == "select": Select {
@@ -465,6 +466,7 @@ component HsRow inherits Rectangle {
                 options: root.c.options;
                 index: root.c.index;
                 label: root.c.label;
+                enabled: !root.off;
                 selected(i) => {
                     if !root.off && root.c.values[i] != -1000000 && (!root.c.set || root.c.values[i] != root.c.value) { DevicesPage.hs-set(root.key, root.c.id, root.c.values[i]); }
                 }
@@ -476,7 +478,7 @@ component HsRow inherits Rectangle {
             maximum: root.c.max;
             step: 1;
             value: root.shown;
-            opacity: root.off ? 0.5 : 1;
+            enabled: !root.off;
             changed(v) => {
                 if !root.off {
                     root.shown = round(v);

@@ -138,6 +138,9 @@ export component Slider inherits Rectangle {
     in property <float> maximum: 1;
     in property <float> step: 0.01;
     in property <string> label;
+    in property <bool> enabled: true;
+    opacity: enabled ? 1 : 0.5;
+    accessible-enabled: enabled;
     callback changed(float);
     private property <float> dragged: value;
     private property <float> shown: ta.pressed ? dragged : value;
@@ -173,6 +176,7 @@ export component Slider inherits Rectangle {
         background: ta.has-hover || ta.pressed || fs.has-focus ? Theme.accent : Theme.text;
     }
     fs := FocusScope {
+        enabled: root.enabled;
         key-pressed(e) => {
             if e.text == Key.LeftArrow || e.text == Key.DownArrow { nudge(-1); return accept; }
             if e.text == Key.RightArrow || e.text == Key.UpArrow { nudge(1); return accept; }
@@ -180,6 +184,7 @@ export component Slider inherits Rectangle {
         }
     }
     ta := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         pointer-event(e) => {
             if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
@@ -194,6 +199,9 @@ export component Slider inherits Rectangle {
 export component Toggle inherits Rectangle {
     in property <bool> on;
     in property <string> label;
+    in property <bool> enabled: true;
+    opacity: enabled ? 1 : 0.5;
+    accessible-enabled: enabled;
     callback toggled(bool);
     width: 36px;
     height: 20px;
@@ -214,12 +222,14 @@ export component Toggle inherits Rectangle {
         background: root.on ? Theme.on-accent : Theme.stroke;
     }
     fs := FocusScope {
+        enabled: root.enabled;
         key-pressed(e) => {
             if e.text == " " { root.toggled(!root.on); return accept; }
             reject
         }
     }
     TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { fs.focus(); root.toggled(!root.on); }
     }
@@ -229,6 +239,8 @@ export component Select inherits VerticalLayout {
     in property <[string]> options;
     in property <int> index;
     in property <string> label;
+    in property <bool> enabled: true;
+    accessible-enabled: enabled;
     callback selected(int);
     property <bool> open;
     min-width: 144px;
@@ -240,6 +252,7 @@ export component Select inherits VerticalLayout {
     accessible-action-expand => { open = !open; }
     forward-focus: fs;
     Rectangle {
+        opacity: root.enabled ? 1 : 0.5;
         height: 32px;
         background: ta.has-hover ? Theme.hover : Theme.raised;
         border-width: 1px;
@@ -265,6 +278,7 @@ export component Select inherits VerticalLayout {
             stroke-width: 1.5px;
         }
         fs := FocusScope {
+            enabled: root.enabled;
             key-pressed(e) => {
                 if e.text == Key.DownArrow && root.index < root.options.length - 1 { root.selected(root.index + 1); return accept; }
                 if e.text == Key.UpArrow && root.index > 0 { root.selected(root.index - 1); return accept; }
@@ -274,11 +288,12 @@ export component Select inherits VerticalLayout {
             }
         }
         ta := TouchArea {
+            enabled: root.enabled;
             mouse-cursor: pointer;
             clicked => { fs.focus(); root.open = !root.open; }
         }
     }
-    if root.open: Rectangle {
+    if root.open && root.enabled: Rectangle {
         background: Theme.raised;
         border-width: 1px;
         border-color: Theme.stroke;
