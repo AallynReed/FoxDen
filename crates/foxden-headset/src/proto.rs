@@ -210,7 +210,7 @@ impl Model {
         }
     }
 
-    /// Report id of every frame: 0 on the unnumbered Nova collections, 6 on the Nova Pro base station.
+    /// Report id of every frame: 0 on unnumbered collections, 6 on the Nova Pro base and Arctis 1/7.
     fn id(&self) -> u8 {
         if arctis::has(self.family) {
             return arctis::id(self);
@@ -380,7 +380,7 @@ impl Model {
         }
     }
 
-    /// Status request; the reply starts with the same bytes after the report id is dropped.
+    /// Status request; the reply echoes it after the report id is dropped, except on the Pro Wireless.
     pub fn status_request(&self) -> Vec<u8> {
         arctis::status_request(self).unwrap_or_else(|| vec![self.id(), 0xB0])
     }
