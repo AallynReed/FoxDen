@@ -26,6 +26,11 @@ pub fn probe() -> Result<Vec<Box<dyn Backend>>, String> {
     Ok(found)
 }
 
+/// Addresses the report reads, without 0x30-0x37 where SPD takes any access as a command.
+fn scanned() -> impl Iterator<Item = u8> {
+    (0x08..0x78u8).filter(|a| !(0x30..=0x37).contains(a))
+}
+
 /// What each SMBus answers, read only: which addresses reply, and the ID registers where boards
 /// and memory keep their lighting chips. For device reports.
 pub fn report() -> Vec<String> {
@@ -43,7 +48,7 @@ pub fn report() -> Vec<String> {
         .collect();
     for bus in buses {
         let i = bus.info().clone();
-        let alive: Vec<u8> = (0x08..0x78u8)
+        let alive: Vec<u8> = scanned()
             .filter(|&a| bus.read_byte_data(a, 0).is_ok())
             .collect();
         out.push(format!(
@@ -87,4 +92,15 @@ pub fn gpu_families() -> Vec<i2c::Detect> {
 /// PCI ids (vendor, device, subsystem vendor, subsystem device) of every card those families list.
 pub fn gpu_cards() -> Vec<[u16; 4]> {
     families::gpu_cards()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_report_leaves_the_spd_control_addresses_alone() {
+        let scanned: Vec<u8> = super::scanned().collect();
+        assert!(scanned.iter().all(|a| !(0x30..=0x37).contains(a)));
+        assert!(scanned.contains(&0x2F) && scanned.contains(&0x38) && scanned.contains(&0x50));
+        assert_eq!(scanned.len(), 0x70 - 8);
+    }
 }

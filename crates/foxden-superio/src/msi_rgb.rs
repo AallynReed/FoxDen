@@ -111,7 +111,7 @@ impl MsiRgb {
 
 impl Driver for MsiRgb {
     fn write(&mut self, colors: &[Color], _first: bool) {
-        self.sio.locked(|| {
+        let _ = self.sio.locked(|| {
             self.sio.enter();
             self.set_color(colors[0]);
             self.sio.exit();
@@ -145,7 +145,7 @@ pub(crate) fn detect(dmi: &Dmi, open: OpenSio) -> Vec<Box<dyn Backend>> {
             }
             sio.exit();
             hit
-        });
+        }) == Some(true);
         if hit {
             let device = Device::grid(
                 &format!("superio:msi-rgb-{addr:02x}"),

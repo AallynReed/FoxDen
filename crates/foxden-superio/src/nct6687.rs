@@ -27,20 +27,12 @@ impl Chip {
         self.base
     }
 
-    fn locked<T>(&self, f: impl FnOnce() -> T) -> T {
+    /// `None` when another program kept the bus lock too long.
+    fn locked<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
         match &self.lock {
-            Some(lock) => lock.run(f),
-            None => f(),
+            Some(lock) => lock.run(f).ok(),
+            None => Some(f()),
         }
-    }
-
-    /// One byte of the chip's EC space, as `page << 8 | index`.
-    pub fn read(&self, address: u16) -> u8 {
-        self.locked(|| self.raw_read(address))
-    }
-
-    pub fn write(&self, address: u16, value: u8) {
-        self.locked(|| self.raw_write(address, value))
     }
 
     fn raw_read(&self, address: u16) -> u8 {
@@ -72,16 +64,22 @@ impl Chip {
 
     /// Temperature at a register pair, in degrees Celsius.
     pub fn temperature(&self, register: u16) -> Option<f32> {
-        let whole = self.read(register) as i8 as f32;
-        let half = (self.read(register + 1) >> 7) as f32 * 0.5;
-        let t = whole + half;
+        let (whole, half) =
+            self.locked(|| (self.raw_read(register), self.raw_read(register + 1)))?;
+        let t = whole as i8 as f32 + (half >> 7) as f32 * 0.5;
         (t > -55.0 && t < 125.0 && t != 0.0).then_some(t)
     }
 
-    /// Fan speed in rpm at a register pair, 0 when stopped or absent.
+    /// Fan speed in rpm at a register pair, 0 when stopped, absent or unreadable.
     pub fn rpm(&self, register: u16) -> u32 {
-        let high = self.read(register) as u32;
-        let low = self.read(register + 1) as u32;
+        let Some((high, low)) = self.locked(|| {
+            (
+                self.raw_read(register) as u32,
+                self.raw_read(register + 1) as u32,
+            )
+        }) else {
+            return 0;
+        };
         if high == 0xFF && low == 0xF8 {
             return 0;
         }
@@ -96,36 +94,40 @@ const COMMAND: u16 = 0xA28;
 const CFG_REQUEST: u8 = 0x80;
 const CFG_COMPLETE: u8 = 0x40;
 
-impl Chip {
-    /// The duty the board itself is using on a header, 0 to 255.
-    pub fn duty(&self, header: u8) -> u8 {
-        self.read(0x160 + header as u16)
-    }
+const BUSY: &str = "another program holds the Super I/O lock";
 
+impl Chip {
     /// Takes a header into manual mode at `duty` (0 to 255).
-    pub fn set(&self, header: u8, duty: u8) {
-        self.write(REQUEST, CFG_REQUEST);
-        self.lpc.sleep(50);
-        let mode = self.read(MODE) | (1 << header);
-        self.write(MODE, mode);
-        self.write(COMMAND + header as u16, duty);
-        self.write(REQUEST, CFG_COMPLETE);
-        self.lpc.sleep(50);
+    pub fn set(&self, header: u8, duty: u8) -> Result<(), String> {
+        self.locked(|| {
+            self.raw_write(REQUEST, CFG_REQUEST);
+            self.lpc.sleep(50);
+            let mode = self.raw_read(MODE) | (1 << header);
+            self.raw_write(MODE, mode);
+            self.raw_write(COMMAND + header as u16, duty);
+            self.raw_write(REQUEST, CFG_COMPLETE);
+            self.lpc.sleep(50);
+        })
+        .ok_or_else(|| BUSY.to_string())
     }
 
     /// Hands a header back to the board's own fan curve, restoring the command it had.
-    pub fn release(&self, header: u8, command: u8) {
-        self.write(REQUEST, CFG_REQUEST);
-        self.lpc.sleep(50);
-        let mode = self.read(MODE) & !(1 << header);
-        self.write(MODE, mode);
-        self.write(COMMAND + header as u16, command);
-        self.write(REQUEST, CFG_COMPLETE);
-        self.lpc.sleep(50);
+    pub fn release(&self, header: u8, command: u8) -> Result<(), String> {
+        self.locked(|| {
+            self.raw_write(REQUEST, CFG_REQUEST);
+            self.lpc.sleep(50);
+            let mode = self.raw_read(MODE) & !(1 << header);
+            self.raw_write(MODE, mode);
+            self.raw_write(COMMAND + header as u16, command);
+            self.raw_write(REQUEST, CFG_COMPLETE);
+            self.lpc.sleep(50);
+        })
+        .ok_or_else(|| BUSY.to_string())
     }
 
-    pub fn command(&self, header: u8) -> u8 {
-        self.read(COMMAND + header as u16)
+    pub fn command(&self, header: u8) -> Result<u8, String> {
+        self.locked(|| self.raw_read(COMMAND + header as u16))
+            .ok_or_else(|| BUSY.to_string())
     }
 }
 

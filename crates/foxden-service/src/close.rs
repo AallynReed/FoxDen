@@ -7,12 +7,14 @@ use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
+use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, TerminateProcess, WaitForSingleObject,
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    PROCESS_TERMINATE, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
 };
 
-/// Stops the listed services and ends the listed processes. Never runs under `cargo test`.
-pub fn run(scope: Scope) -> Closed {
+/// Stops the listed services and ends listed processes in `session` only; not under `cargo test`.
+pub fn run(scope: Scope, session: Option<u32>) -> Closed {
     let mut out = Closed::default();
     if cfg!(test) {
         return out;
@@ -32,11 +34,41 @@ pub fn run(scope: Scope) -> Closed {
             }
         }
     }
-    let running = processes();
+    let Some(session) = session else {
+        return out;
+    };
+    let running: Vec<Process> = processes()
+        .into_iter()
+        .filter(|p| session_of(p.pid) == Some(session))
+        .collect();
     for (process, app) in conflicts::targets(&running, scope, std::process::id()) {
-        out.add(app, kill(process.pid));
+        out.add(app, kill(process, session));
     }
     out
+}
+
+fn session_of(pid: u32) -> Option<u32> {
+    let mut session = 0;
+    (unsafe { ProcessIdToSessionId(pid, &mut session) } != 0).then_some(session)
+}
+
+/// The file name of the program a process runs.
+fn image_name(handle: windows_sys::Win32::Foundation::HANDLE) -> Option<String> {
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    let ok = unsafe {
+        QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len)
+    };
+    if ok == 0 {
+        return None;
+    }
+    let path = String::from_utf16_lossy(&buf[..len as usize]);
+    path.rsplit(['/', '\\']).next().map(str::to_string)
+}
+
+/// Whether the process behind an opened handle is still the one that was listed.
+fn same(listed: &Process, image: Option<&str>, session: Option<u32>, wanted: u32) -> bool {
+    session == Some(wanted) && image.is_some_and(|name| name.eq_ignore_ascii_case(&listed.name))
 }
 
 fn processes() -> Vec<Process> {
@@ -62,10 +94,17 @@ fn processes() -> Vec<Process> {
     found
 }
 
-fn kill(pid: u32) -> bool {
+fn kill(process: &Process, session: u32) -> bool {
     unsafe {
-        let handle = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, 0, pid);
+        let access = PROCESS_TERMINATE | PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION;
+        let handle = OpenProcess(access, 0, process.pid);
         if handle.is_null() {
+            return false;
+        }
+        // Held open, the id can no longer pass to another process; it may have already.
+        let image = image_name(handle);
+        if !same(process, image.as_deref(), session_of(process.pid), session) {
+            CloseHandle(handle);
             return false;
         }
         let ok = TerminateProcess(handle, 1) != 0;
@@ -75,5 +114,33 @@ fn kill(pid: u32) -> bool {
         }
         CloseHandle(handle);
         ok
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_listed_program_in_the_callers_session_is_ended() {
+        let listed = Process {
+            pid: 1234,
+            name: "Conflict.exe".into(),
+        };
+        assert!(same(&listed, Some("conflict.EXE"), Some(2), 2));
+        assert!(!same(&listed, Some("notepad.exe"), Some(2), 2));
+        assert!(!same(&listed, None, Some(2), 2));
+        assert!(!same(&listed, Some("Conflict.exe"), Some(3), 2));
+        assert!(!same(&listed, Some("Conflict.exe"), None, 2));
+    }
+
+    #[test]
+    fn this_process_reports_its_own_image_and_session() {
+        let me = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, std::process::id()) };
+        assert!(!me.is_null());
+        let name = image_name(me).unwrap();
+        unsafe { CloseHandle(me) };
+        assert!(name.to_lowercase().ends_with(".exe"), "{name}");
+        assert!(session_of(std::process::id()).is_some());
     }
 }

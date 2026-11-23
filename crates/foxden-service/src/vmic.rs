@@ -34,6 +34,17 @@ pub fn act(action: &str) -> Result<String, String> {
     }
 }
 
+/// As `act`, but VB-Audio's setup must sit where only administrators can change it.
+pub fn act_as_service(action: &str) -> Result<String, String> {
+    if matches!(action, "install" | "remove") {
+        let setup = files()?.join(vc::SETUP);
+        if setup.exists() {
+            crate::guard::locked_down(&setup)?;
+        }
+    }
+    act(action)
+}
+
 /// Names the endpoints again if an update of VB-CABLE reset them.
 pub fn reapply(log: impl Fn(&str)) {
     vc::com_init();

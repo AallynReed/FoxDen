@@ -22,6 +22,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::SystemInformation::GetLocalTime;
 
+use crate::caller::{Caller, NOT_ALLOWED};
 use crate::pipe;
 
 pub const MAX_LINE: usize = 64 * 1024;
@@ -61,6 +62,8 @@ const PATIENCE: Duration = if cfg!(test) {
     Duration::from_secs(3)
 };
 const STUCK: &str = "the control loop is stuck";
+/// While no lighting was found, the next request looks again only after this long.
+const REPROBE: Duration = Duration::from_secs(60);
 /// The app's folder under `%APPDATA%`, named after its identifier.
 const APP_FOLDER: &str = "com.foxden.desktop";
 
@@ -162,7 +165,10 @@ fn save<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), String> {
 }
 
 pub fn load_config(dir: &Path) -> Result<FanConfig, String> {
-    load(dir, "fans.json")
+    load(dir, "fans.json").map(|mut c: FanConfig| {
+        c.lift_low_duties();
+        c
+    })
 }
 
 pub fn save_config(dir: &Path, config: &FanConfig) -> Result<(), String> {
@@ -213,6 +219,33 @@ enum Request {
     },
     #[cfg(test)]
     Panic,
+}
+
+impl Request {
+    /// Everything but reading the state changes hardware or settings, the lighting probe included.
+    fn changes(&self) -> bool {
+        match self {
+            Request::Status | Request::GetConfig => false,
+            Request::SetConfig { .. }
+            | Request::Shutdown
+            | Request::Lights
+            | Request::SetLights { .. }
+            | Request::CloseConflicts(_)
+            | Request::SmbusReport
+            | Request::VirtualMic { .. }
+            | Request::HubLights { .. }
+            | Request::SetHubLights { .. }
+            | Request::ReleaseHubLights { .. }
+            | Request::SetHubHardware { .. } => true,
+            #[cfg(test)]
+            Request::Panic => false,
+        }
+    }
+}
+
+/// Whether to look for lighting again, last looked for at `probed`.
+fn probe_due(probed: Option<Instant>) -> bool {
+    probed.is_none_or(|at| at.elapsed() >= REPROBE)
 }
 
 #[derive(Deserialize)]
@@ -294,9 +327,12 @@ pub struct Host {
     ended: Mutex<Option<Result<(), String>>>,
     /// SMBus, Super I/O and WMI lighting, opened on the first request for it.
     lights: Mutex<Option<Vec<Box<dyn Backend>>>>,
+    /// When the lighting was last looked for.
+    probed: Mutex<Option<Instant>>,
     hubs: Mutex<Hubs>,
     hub_opener: HubOpener,
-    closer: fn(Scope) -> Closed,
+    /// Closes conflicting software in the given session only.
+    closer: fn(Scope, Option<u32>) -> Closed,
 }
 
 impl Host {
@@ -327,6 +363,7 @@ impl Host {
             stop: AtomicBool::new(false),
             ended: Mutex::new(None),
             lights: Mutex::new(None),
+            probed: Mutex::new(None),
             hubs: Mutex::default(),
             hub_opener: open_hubs,
             closer: crate::close::run,
@@ -346,16 +383,22 @@ impl Host {
         locked(&self.ended).get_or_insert(outcome);
     }
 
-    /// Answers one request line with one reply line. The flag is set when the process should
-    /// end once the reply has been sent.
-    pub fn handle(&self, line: &str) -> (String, bool) {
+    /// Answers one request line from `caller`; the flag asks the process to end after the reply.
+    pub fn handle(&self, line: &str, caller: &Caller) -> (String, bool) {
         if line.len() > MAX_LINE {
             let reply = fail(format!("line longer than {MAX_LINE} bytes"));
             return (reply.to_string(), false);
         }
+        let request: Request = match serde_json::from_str(line) {
+            Ok(request) => request,
+            Err(e) => return (fail(format!("bad request: {e}")).to_string(), false),
+        };
+        if request.changes() && !caller.may_change() {
+            return (fail(NOT_ALLOWED.into()).to_string(), false);
+        }
         let mut shutdown = false;
-        let reply = match serde_json::from_str(line) {
-            Ok(Request::Status) => {
+        let reply = match request {
+            Request::Status => {
                 let state = self.lock();
                 json!({
                     "ok": true,
@@ -363,20 +406,23 @@ impl Host {
                     "version": env!("CARGO_PKG_VERSION"),
                 })
             }
-            Ok(Request::GetConfig) => {
+            Request::GetConfig => {
                 json!({"ok": true, "config": self.lock().controller.config()})
             }
-            Ok(Request::SetConfig { config }) => done(self.set_config(config)),
-            Ok(Request::Shutdown) => match self.mode {
+            Request::SetConfig { config } => done(self.set_config(config)),
+            Request::Shutdown => match self.mode {
                 Mode::Console => {
                     shutdown = true;
                     json!({"ok": true})
                 }
                 Mode::Service => fail(NO_SHUTDOWN.into()),
             },
-            Ok(Request::Lights) => {
+            Request::Lights => {
                 let mut lights = locked(&self.lights);
-                if lights.as_ref().is_none_or(|found| found.is_empty()) {
+                let mut probed = locked(&self.probed);
+                // Detection writes to the buses, so it is not repeated on every request.
+                if lights.as_ref().is_none_or(|found| found.is_empty()) && probe_due(*probed) {
+                    *probed = Some(Instant::now());
                     let mut found = foxden_smbus::probe().unwrap_or_default();
                     found.extend(foxden_superio::lights());
                     found.extend(foxden_wmi::lights());
@@ -385,7 +431,7 @@ impl Host {
                 let devices: Vec<_> = lights.iter().flatten().flat_map(|b| b.devices()).collect();
                 json!({"ok": true, "devices": devices})
             }
-            Ok(Request::SetLights { device, colors }) => {
+            Request::SetLights { device, colors } => {
                 let mut lights = locked(&self.lights);
                 let backend = lights
                     .iter_mut()
@@ -396,17 +442,17 @@ impl Host {
                     None => Err(format!("unknown device {device}")),
                 })
             }
-            Ok(Request::SmbusReport) => {
+            Request::SmbusReport => {
                 let _lights = locked(&self.lights);
                 json!({"ok": true, "lines": foxden_smbus::report()})
             }
-            Ok(Request::CloseConflicts(scope)) => {
-                let out = (self.closer)(scope);
+            Request::CloseConflicts(scope) => {
+                let out = (self.closer)(scope, caller.session);
                 json!({"ok": true, "closed": out.closed, "left": out.left})
             }
-            Ok(Request::VirtualMic { action }) => match (self.mode, action.as_str()) {
+            Request::VirtualMic { action } => match (self.mode, action.as_str()) {
                 (Mode::Service, "install" | "remove" | "rename") => {
-                    let out = crate::vmic::act(&action);
+                    let out = crate::vmic::act_as_service(&action);
                     log(&self.dir, &format!("virtual mic {action}: {out:?}"));
                     match out {
                         Ok(text) => json!({"ok": true, "text": text}),
@@ -416,12 +462,12 @@ impl Host {
                 (Mode::Service, _) => fail(format!("unknown virtual mic action {action}")),
                 (Mode::Console, _) => fail(NO_VIRTUAL_MIC.into()),
             },
-            Ok(Request::HubLights { lengths }) => self.hub_lights(lengths),
-            Ok(Request::SetHubLights { frames }) => {
+            Request::HubLights { lengths } => self.hub_lights(lengths),
+            Request::SetHubLights { frames } => {
                 let open = locked(&self.hubs).open.is_some();
                 json!({"ok": true, "open": open, "failed": self.set_hub_lights(frames)})
             }
-            Ok(Request::SetHubHardware { device, setting }) => {
+            Request::SetHubHardware { device, setting } => {
                 let mut hubs = locked(&self.hubs);
                 let hub = hubs
                     .open
@@ -435,7 +481,7 @@ impl Host {
                     None => fail(format!("{device}: unknown device")),
                 }
             }
-            Ok(Request::ReleaseHubLights { generation }) => {
+            Request::ReleaseHubLights { generation } => {
                 let mut hubs = locked(&self.hubs);
                 if generation.is_none_or(|g| g == hubs.generation) {
                     hubs.open = None;
@@ -443,8 +489,7 @@ impl Host {
                 json!({"ok": true})
             }
             #[cfg(test)]
-            Ok(Request::Panic) => panic!("the request panics on purpose"),
-            Err(e) => fail(format!("bad request: {e}")),
+            Request::Panic => panic!("the request panics on purpose"),
         };
         (reply.to_string(), shutdown)
     }
@@ -1255,6 +1300,13 @@ pub(crate) mod tests {
         assert!(log_of(&dir).contains("this hardware cannot be listed"));
     }
 
+    /// An administrator at the screen.
+    pub const TRUSTED: Caller = Caller {
+        session: Some(7),
+        admin: true,
+        same_user: false,
+    };
+
     pub fn scratch(name: &str) -> PathBuf {
         // Beside the test binary by default, so nothing is left in the system temp folder.
         let beside = || {
@@ -1287,7 +1339,7 @@ pub(crate) mod tests {
     }
 
     fn reply(host: &Host, line: &str) -> Value {
-        serde_json::from_str(&host.handle(line).0).unwrap()
+        serde_json::from_str(&host.handle(line, &TRUSTED).0).unwrap()
     }
 
     fn fan_ids(host: &Host) -> Vec<String> {
@@ -1299,9 +1351,9 @@ pub(crate) mod tests {
 
     #[test]
     fn close_conflicts_uses_only_the_scope() {
-        static SEEN: Mutex<Vec<Scope>> = Mutex::new(Vec::new());
-        fn fake(scope: Scope) -> Closed {
-            SEEN.lock().unwrap().push(scope);
+        static SEEN: Mutex<Vec<(Scope, Option<u32>)>> = Mutex::new(Vec::new());
+        fn fake(scope: Scope, session: Option<u32>) -> Closed {
+            SEEN.lock().unwrap().push((scope, session));
             Closed {
                 closed: vec!["Fan Control".into()],
                 left: Vec::new(),
@@ -1322,7 +1374,51 @@ pub(crate) mod tests {
             lighting: true,
             ..Scope::default()
         };
-        assert_eq!(*SEEN.lock().unwrap(), [lighting, Scope::default()]);
+        assert_eq!(
+            *SEEN.lock().unwrap(),
+            [(lighting, Some(7)), (Scope::default(), Some(7))]
+        );
+    }
+
+    #[test]
+    fn a_caller_away_from_the_screen_can_only_read() {
+        let host = host("away");
+        let away = Caller {
+            session: Some(u32::MAX - 1),
+            admin: false,
+            same_user: false,
+        };
+        let ask =
+            |line: &str| -> Value { serde_json::from_str(&host.handle(line, &away).0).unwrap() };
+        assert_eq!(ask(r#"{"cmd":"status"}"#)["ok"], true);
+        assert_eq!(ask(r#"{"cmd":"get_config"}"#)["ok"], true);
+        let changes = [
+            json!({"cmd": "set_config", "config": sample()}),
+            json!({"cmd": "shutdown"}),
+            json!({"cmd": "lights"}),
+            json!({"cmd": "set_lights", "device": "x", "colors": []}),
+            json!({"cmd": "close_conflicts"}),
+            json!({"cmd": "smbus_report"}),
+            json!({"cmd": "virtual_mic", "action": "install"}),
+            json!({"cmd": "hub_lights"}),
+            json!({"cmd": "set_hub_lights", "frames": []}),
+            json!({"cmd": "release_hub_lights"}),
+            json!({"cmd": "set_hub_hardware", "device": "x"}),
+        ];
+        for request in changes {
+            let (line, shutdown) = host.handle(&request.to_string(), &away);
+            let r: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(r["error"], NOT_ALLOWED, "{request}");
+            assert!(!shutdown);
+        }
+        assert_eq!(load_config(&host.dir), Ok(FanConfig::default()));
+    }
+
+    #[test]
+    fn lighting_that_was_not_found_is_looked_for_again_only_after_a_while() {
+        assert!(probe_due(None));
+        assert!(!probe_due(Some(Instant::now())));
+        assert!(probe_due(Instant::now().checked_sub(REPROBE)));
     }
 
     #[test]
@@ -1348,12 +1444,12 @@ pub(crate) mod tests {
     #[test]
     fn shutdown_is_for_console_mode_only() {
         let console = host("shutdown");
-        let (line, shutdown) = console.handle(r#"{"cmd":"shutdown"}"#);
+        let (line, shutdown) = console.handle(r#"{"cmd":"shutdown"}"#, &TRUSTED);
         assert_eq!(line, r#"{"ok":true}"#);
         assert!(shutdown);
 
         let service = Host::new(scratch("shutdown-service"), Vec::new, Mode::Service);
-        let (line, shutdown) = service.handle(r#"{"cmd":"shutdown"}"#);
+        let (line, shutdown) = service.handle(r#"{"cmd":"shutdown"}"#, &TRUSTED);
         let r: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(r["ok"], false);
         assert!(r["error"].is_string());
@@ -1463,7 +1559,7 @@ pub(crate) mod tests {
             r#"{"cmd":"set_sim","on":true}"#,
         ];
         for line in lines {
-            let (text, shutdown) = host.handle(line);
+            let (text, shutdown) = host.handle(line, &TRUSTED);
             let r: Value = serde_json::from_str(&text).unwrap();
             assert_eq!(r["ok"], false, "{line}");
             assert!(r["error"].is_string(), "{line}");

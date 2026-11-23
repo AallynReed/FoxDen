@@ -58,10 +58,11 @@ impl Sio {
         Sio { pawn, addr, lock }
     }
 
-    pub fn locked<T>(&self, f: impl FnOnce() -> T) -> T {
+    /// `None` when another program kept the bus lock too long.
+    pub fn locked<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
         match &self.lock {
-            Some(lock) => lock.run(f),
-            None => f(),
+            Some(lock) => lock.run(f).ok(),
+            None => Some(f()),
         }
     }
 

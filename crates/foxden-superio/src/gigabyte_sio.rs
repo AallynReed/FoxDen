@@ -69,7 +69,7 @@ impl GigabyteSio {
 
 impl Driver for GigabyteSio {
     fn write(&mut self, colors: &[Color], first: bool) {
-        self.sio.locked(|| {
+        let _ = self.sio.locked(|| {
             if first {
                 self.set_mode_static();
             }
@@ -90,10 +90,12 @@ pub(crate) fn detect(dmi: &Dmi, open: OpenSio) -> Vec<Box<dyn Backend>> {
     let mut found = Vec::new();
     for addr in [0x2E, 0x4E] {
         let Some(sio) = open(addr) else { continue };
-        let id = sio.locked(|| {
+        let Some(id) = sio.locked(|| {
             enter(&sio);
             sio.devid()
-        });
+        }) else {
+            continue;
+        };
         if matches!(id & SIO_ID_MASK, SIO_ITE8620_ID | SIO_ITE8688_ID) {
             let device = Device::grid(
                 &format!("superio:gigabyte-{addr:02x}"),

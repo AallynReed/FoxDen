@@ -110,7 +110,7 @@ impl Bus {
                 self.module.execute("ioctl_piix4_port_sel", &[p], 1)?;
             }
             self.module.execute("ioctl_smbus_xfer", &input, 5)
-        })?;
+        })??;
         for (i, value) in out.iter().enumerate().take(5) {
             data[i * 8..i * 8 + 8].copy_from_slice(&value.to_le_bytes());
         }

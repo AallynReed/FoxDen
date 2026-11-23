@@ -1,5 +1,6 @@
 //! Client for the background service's named pipe.
 
+mod owner;
 #[cfg(test)]
 mod tests;
 
@@ -412,7 +413,10 @@ fn connect(pipe: &str) -> Result<Conn, String> {
             .security_qos_flags(SECURITY_IDENTIFICATION)
             .open(pipe);
         match opened {
-            Ok(file) => return Ok(BufReader::new(file)),
+            Ok(file) => {
+                owner::verify(&file)?;
+                return Ok(BufReader::new(file));
+            }
             Err(e) if e.kind() == ErrorKind::NotFound => return Err(NOT_RUNNING.into()),
             Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
                 thread::sleep(Duration::from_millis(20))

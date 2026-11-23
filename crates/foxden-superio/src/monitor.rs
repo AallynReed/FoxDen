@@ -60,11 +60,16 @@ impl Shared {
             let Shared {
                 lock, chip, values, ..
             } = self;
-            match lock {
-                Some(lock) => lock.run(|| chip.update(values)),
-                None => chip.update(values),
+            let updated = match lock {
+                Some(lock) => lock.run(|| chip.update(values)).is_ok(),
+                None => {
+                    chip.update(values);
+                    true
+                }
+            };
+            if updated {
+                self.at = Some(Instant::now());
             }
-            self.at = Some(Instant::now());
         }
         &self.values
     }
@@ -72,7 +77,7 @@ impl Shared {
     fn set(&mut self, index: usize, value: Option<u8>) -> Result<(), String> {
         let Shared { lock, chip, .. } = self;
         match lock {
-            Some(lock) => lock.run(|| chip.set_control(index, value)),
+            Some(lock) => lock.run(|| chip.set_control(index, value))?,
             None => chip.set_control(index, value),
         }
     }

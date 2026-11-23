@@ -89,7 +89,7 @@ pub fn install() -> Result<(), String> {
     let access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
     let manager = ServiceManager::local_computer(None::<&str>, access).map_err(describe)?;
     // Only now, with administrator rights certain: made by anyone else it would not be trusted.
-    guard::data_dir(&host::data_dir(host::Mode::Service))?;
+    guard::claim_data_dir(&host::data_dir(host::Mode::Service))?;
     let info = ServiceInfo {
         name: NAME.into(),
         display_name: DISPLAY_NAME.into(),

@@ -859,3 +859,168 @@ fn a_swinging_sim_heats_up_and_cools_down_by_itself() {
     sim.step(45.0);
     assert_eq!(read(), cold);
 }
+
+fn reading(id: &str, name: &str, value: f32) -> SensorStatus {
+    SensorStatus {
+        id: id.into(),
+        name: name.into(),
+        value: Some(value),
+        kind: Kind::Temperature,
+    }
+}
+
+#[test]
+fn a_critical_cpu_puts_every_driven_fan_at_full_until_it_cools_off() {
+    let mut config = simple(0.0, 0.01);
+    config.rules[0].max_duty = 0.5;
+    let (mut controller, _) = bench(1, 2, config);
+    let at = |controller: &mut Controller, cpu: f32| {
+        controller.apply(
+            1.0,
+            vec![
+                reading("s0", "s0", 30.0),
+                reading("cpu/package", "CPU", cpu),
+            ],
+        )
+    };
+    let calm = at(&mut controller, 80.0);
+    assert!(close(duty(&calm, 0), 0.2));
+    assert!(!calm.fans[0].failsafe);
+
+    let hot = at(&mut controller, CPU_CRITICAL);
+    // Past the rule's maximum and its ramp, but only for the fan that has a rule.
+    assert_eq!(duty(&hot, 0), 1.0);
+    assert!(hot.fans[0].failsafe);
+    assert!(
+        hot.fans[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("critically hot")
+    );
+    assert_eq!(hot.fans[1].duty, None);
+
+    let cooling = at(&mut controller, CPU_CRITICAL - CRITICAL_CLEAR + 0.5);
+    assert_eq!(duty(&cooling, 0), 1.0);
+    let cool = at(&mut controller, CPU_CRITICAL - CRITICAL_CLEAR - 0.5);
+    assert!(!cool.fans[0].failsafe);
+    assert_eq!(cool.fans[0].error, None);
+    assert!(duty(&cool, 0) < 1.0);
+}
+
+#[test]
+fn only_cpu_and_gpu_temperatures_have_a_critical_limit() {
+    let limit = |id: &str, name: &str| critical_limit(&reading(id, name, 0.0));
+    assert_eq!(limit("cpu/package", "CPU package"), Some(CPU_CRITICAL));
+    assert_eq!(limit("board/it8688e-2e/t0", "CPU"), Some(CPU_CRITICAL));
+    assert_eq!(
+        limit("gpu0/temperature", "RX 7900 temperature"),
+        Some(GPU_CRITICAL)
+    );
+    assert_eq!(
+        limit("gpu0/hotspot", "RX 7900 hotspot"),
+        Some(GPU_HOTSPOT_CRITICAL)
+    );
+    assert_eq!(limit("gpu0/memory", "RX 7900 memory temperature"), None);
+    assert_eq!(limit("board/x/t1", "MOS CPU"), None);
+    assert_eq!(limit("board/x/t2", "PCH CPU"), None);
+    assert_eq!(limit("board/x/t3", "System"), None);
+    let watts = SensorStatus {
+        kind: Kind::Power,
+        ..reading("cpu/power", "CPU", 200.0)
+    };
+    assert_eq!(critical_limit(&watts), None);
+}
+
+#[test]
+fn a_hot_gpu_hotspot_needs_its_own_higher_limit() {
+    let (mut controller, _) = bench(1, 1, simple(0.0, 1000.0));
+    let at = |controller: &mut Controller, hotspot: f32| {
+        let sensors = vec![
+            reading("s0", "s0", 30.0),
+            reading("gpu0/hotspot", "GPU hotspot", hotspot),
+            reading("gpu0/memory", "GPU memory temperature", 104.0),
+        ];
+        controller.apply(1.0, sensors)
+    };
+    assert!(!at(&mut controller, GPU_CRITICAL + 10.0).fans[0].failsafe);
+    assert!(at(&mut controller, GPU_HOTSPOT_CRITICAL).fans[0].failsafe);
+}
+
+#[test]
+fn no_config_can_keep_a_fan_below_a_fifth() {
+    let mut low_max = simple(0.0, 1.0);
+    low_max.rules[0].max_duty = 0.19;
+    assert!(low_max.validate().unwrap_err().contains("at least 20%"));
+
+    let mut flat = simple(0.0, 1.0);
+    flat.curves[0].points = vec![(30.0, 0.0), (90.0, 0.1)];
+    assert!(flat.validate().unwrap_err().contains("never run above"));
+    flat.rules[0].min_duty = 0.3;
+    assert_eq!(flat.validate(), Ok(()));
+
+    // Stopped while cool, still allowed.
+    let mut zero_rpm = simple(0.0, 1.0);
+    zero_rpm.curves[0].points = vec![(40.0, 0.0), (60.0, 0.0), (80.0, 1.0)];
+    zero_rpm.rules[0].max_duty = MIN_MAX_DUTY;
+    assert_eq!(zero_rpm.validate(), Ok(()));
+}
+
+#[test]
+fn old_low_configs_are_lifted_on_load() {
+    let mut c = simple(0.0, 1.0);
+    c.rules[0].max_duty = 0.1;
+    c.curves[0].points = vec![(30.0, 0.0), (90.0, 0.1)];
+    c.lift_low_duties();
+    assert_eq!(c.rules[0].max_duty, MIN_MAX_DUTY);
+    assert_eq!(c.rules[0].min_duty, MIN_MAX_DUTY);
+    assert_eq!(c.validate(), Ok(()));
+}
+
+struct Pump(Shared);
+
+impl Fan for Pump {
+    fn id(&self) -> &str {
+        "board/aio"
+    }
+    fn name(&self) -> &str {
+        "AIO pump"
+    }
+    fn rpm(&mut self) -> Option<u32> {
+        None
+    }
+    fn set_duty(&mut self, duty: f32) -> Result<(), String> {
+        self.0.lock().unwrap().sets[0].push(duty);
+        Ok(())
+    }
+    fn release(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+struct PumpBackend(Shared);
+
+impl FanBackend for PumpBackend {
+    fn name(&self) -> &str {
+        "pump"
+    }
+    fn sensors(&mut self) -> Vec<Box<dyn Sensor>> {
+        Vec::new()
+    }
+    fn fans(&mut self) -> Vec<Box<dyn Fan>> {
+        vec![Box::new(Pump(self.0.clone()))]
+    }
+}
+
+#[test]
+fn a_pump_keeps_its_floor() {
+    let shared = rig(0, 1);
+    let mut config = simple(0.0, 1000.0);
+    config.curves[0].points = vec![(30.0, 0.0), (80.0, 1.0)];
+    config.rules[0].fan = "board/aio".into();
+    let mut controller = Controller::new(vec![Box::new(PumpBackend(shared.clone()))], config);
+    let status = controller.apply(1.0, vec![reading("s0", "s0", 20.0)]);
+    assert_eq!(duty(&status, 0), PUMP_FLOOR);
+    let status = controller.apply(1.0, vec![reading("s0", "s0", 80.0)]);
+    assert_eq!(duty(&status, 0), 1.0);
+}

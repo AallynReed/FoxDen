@@ -675,3 +675,42 @@ fn hub_hardware_effects_are_listed_and_set_and_an_older_service_says_no() {
     let (old, _) = fake("old-hub-hardware");
     assert!(old.set_hub_hardware("hid:hub", None).is_err());
 }
+
+fn sid(text: &str) -> Vec<u8> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::ConvertStringSidToSidW;
+    use windows_sys::Win32::Security::GetLengthSid;
+    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+    let mut raw = std::ptr::null_mut();
+    unsafe {
+        assert_ne!(ConvertStringSidToSidW(wide.as_ptr(), &mut raw), 0, "{text}");
+        let out = std::slice::from_raw_parts(raw.cast::<u8>(), GetLengthSid(raw) as usize).to_vec();
+        LocalFree(raw);
+        out
+    }
+}
+
+#[test]
+fn only_system_administrators_or_this_account_may_own_the_pipe() {
+    let me = sid("S-1-5-21-1-2-3-1001");
+    let own = [me.clone()];
+    let trusted = |s: &[u8]| owner::trusted_owner(s.as_ptr().cast_mut().cast(), &own);
+    assert!(trusted(&sid("S-1-5-18")));
+    assert!(trusted(&sid("S-1-5-32-544")));
+    assert!(trusted(&me));
+    assert!(!trusted(&sid("S-1-5-21-1-2-3-1002")));
+    assert!(!trusted(&sid("S-1-5-32-545")));
+    assert!(!trusted(&sid("S-1-1-0")));
+}
+
+#[test]
+fn a_pipe_this_account_made_is_accepted() {
+    let pipe = serve("owner", |mut peer| while peer.read().is_some() {});
+    assert!(connect(&pipe).is_ok());
+}
+
+#[test]
+#[ignore = "needs the installed service running"]
+fn the_installed_service_owns_its_pipe() {
+    assert!(connect(PIPE).is_ok());
+}

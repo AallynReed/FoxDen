@@ -5,7 +5,7 @@ mod sim;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,17 @@ const PLAUSIBLE_WATTS: RangeInclusive<f32> = 0.0..=5000.0;
 const WRITE_TRIES: u32 = 3;
 /// Seconds a fan handed back that way is left alone before the next try.
 const RETRY_AFTER: f32 = 30.0;
+/// Readings at or above these put every driven fan at full duty, whatever the curves say.
+pub const CPU_CRITICAL: f32 = 95.0;
+pub const GPU_CRITICAL: f32 = 90.0;
+pub const GPU_HOTSPOT_CRITICAL: f32 = 105.0;
+/// Degrees below its limit every reading must fall before the curves take over again.
+pub const CRITICAL_CLEAR: f32 = 5.0;
+/// No rule may cap a fan below this, so a config cannot stop every fan for good.
+pub const MIN_MAX_DUTY: f32 = 0.2;
+/// The least a pump is driven at.
+pub const PUMP_FLOOR: f32 = 0.5;
+const OVERHEAT: &str = "a CPU or GPU is critically hot, so every fan runs at full speed";
 
 /// What a sensor measures. Only temperatures can drive a curve.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +135,24 @@ impl Curve {
 }
 
 impl FanConfig {
+    /// Brings rules saved before the 20% limit up to it, so an old config still loads.
+    pub fn lift_low_duties(&mut self) {
+        let peaks: HashMap<String, f32> = self
+            .curves
+            .iter()
+            .map(|c| (c.name.clone(), c.points.iter().map(|p| p.1).fold(0.0, f32::max)))
+            .collect();
+        for rule in &mut self.rules {
+            if rule.max_duty.is_finite() && rule.max_duty < MIN_MAX_DUTY {
+                rule.max_duty = MIN_MAX_DUTY;
+            }
+            let peak = peaks.get(&rule.curve).copied().unwrap_or(0.0);
+            if rule.min_duty.is_finite() && peak.max(rule.min_duty) < MIN_MAX_DUTY {
+                rule.min_duty = MIN_MAX_DUTY.min(rule.max_duty);
+            }
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         let mut names = HashSet::new();
         for curve in &self.curves {
@@ -170,6 +199,23 @@ impl FanConfig {
             if !(rule.min_duty >= 0.0 && rule.min_duty <= rule.max_duty && rule.max_duty <= 1.0) {
                 return Err(format!(
                     "fan '{fan}' needs duties from 0 to 1, with the minimum not above the maximum"
+                ));
+            }
+            if rule.max_duty < MIN_MAX_DUTY {
+                return Err(format!(
+                    "fan '{fan}' needs a maximum duty of at least {}%",
+                    MIN_MAX_DUTY * 100.0
+                ));
+            }
+            let peak = self
+                .curves
+                .iter()
+                .find(|c| c.name == rule.curve)
+                .map_or(0.0, |c| c.points.iter().map(|p| p.1).fold(0.0, f32::max));
+            if peak.max(rule.min_duty) < MIN_MAX_DUTY {
+                return Err(format!(
+                    "fan '{fan}' would never run above {}%: its curve must reach that duty",
+                    MIN_MAX_DUTY * 100.0
                 ));
             }
             if !(rule.ramp >= 0.01 && rule.ramp.is_finite()) {
@@ -304,6 +350,45 @@ impl Probe {
     }
 }
 
+/// The reading at which a sensor counts as critically hot, for CPU and GPU temperatures.
+pub fn critical_limit(sensor: &SensorStatus) -> Option<f32> {
+    if sensor.kind != Kind::Temperature {
+        return None;
+    }
+    let (id, name) = (sensor.id.to_lowercase(), sensor.name.to_lowercase());
+    let has = |word: &str| id.contains(word) || name.contains(word);
+    if id.starts_with("gpu") || name.contains("gpu") {
+        if has("memory") {
+            None
+        } else if has("hotspot") || has("junction") {
+            Some(GPU_HOTSPOT_CRITICAL)
+        } else {
+            Some(GPU_CRITICAL)
+        }
+    } else if (id.starts_with("cpu") || name.contains("cpu"))
+        && !["pch", "mos", "vrm"].iter().any(|w| has(w))
+    {
+        Some(CPU_CRITICAL)
+    } else {
+        None
+    }
+}
+
+/// Whether the override holds after these readings, given whether it held before.
+fn overheated(sensors: &[SensorStatus], before: bool) -> bool {
+    let margin = if before { CRITICAL_CLEAR } else { 0.0 };
+    sensors.iter().any(|sensor| {
+        matches!((critical_limit(sensor), sensor.value), (Some(limit), Some(t)) if t >= limit - margin)
+    })
+}
+
+fn pump_like(fan: &dyn Fan) -> bool {
+    let (id, name) = (fan.id().to_lowercase(), fan.name().to_lowercase());
+    ["pump", "aio"]
+        .iter()
+        .any(|w| id.contains(w) || name.contains(w))
+}
+
 /// Elapsed seconds, with anything that is not a positive number counted as none.
 fn seconds(dt: f32) -> f32 {
     if dt.is_finite() && dt > 0.0 { dt } else { 0.0 }
@@ -315,6 +400,8 @@ pub struct Controller {
     config: FanConfig,
     /// Per curve, the temperature that set its current duty.
     anchors: Vec<Option<f32>>,
+    /// A CPU or GPU reached its critical limit and has not cooled off since.
+    overheat: bool,
 }
 
 impl Controller {
@@ -330,6 +417,7 @@ impl Controller {
             fans: Vec::new(),
             anchors: vec![None; config.curves.len()],
             config,
+            overheat: false,
         };
         controller.attach(backends);
         controller
@@ -381,6 +469,7 @@ impl Controller {
     /// last call.
     pub fn apply(&mut self, dt: f32, sensors: Vec<SensorStatus>) -> Status {
         let dt = seconds(dt);
+        self.overheat = overheated(&sensors, self.overheat);
         let reading = |id: &String| {
             sensors
                 .iter()
@@ -426,6 +515,10 @@ impl Controller {
                 Some(rule) => {
                     let curve = self.config.curves.iter().position(|c| c.name == rule.curve);
                     let duty = match curve.and_then(|index| wanted[index]) {
+                        _ if self.overheat => {
+                            status.failsafe = true;
+                            1.0
+                        }
                         Some(duty) => {
                             let target = duty.clamp(rule.min_duty, rule.max_duty);
                             let step = rule.ramp * dt;
@@ -441,11 +534,20 @@ impl Controller {
                             1.0
                         }
                     };
+                    let duty = if pump_like(slot.fan.as_ref()) {
+                        duty.max(PUMP_FLOOR)
+                    } else {
+                        duty
+                    };
                     if slot.rest == 0.0 {
                         slot.write(duty);
                     }
                     status.curve = Some(rule.curve.clone());
-                    status.error = slot.fault.clone();
+                    status.error = match (&slot.fault, self.overheat) {
+                        (Some(fault), _) => Some(fault.clone()),
+                        (None, true) => Some(OVERHEAT.into()),
+                        (None, false) => None,
+                    };
                 }
                 // A fan whose rule was removed goes back to the firmware.
                 None => status.error = slot.release().err(),

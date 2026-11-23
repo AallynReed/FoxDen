@@ -81,13 +81,15 @@ fn boards() -> Vec<Box<dyn FanBackend>> {
             .map(|m| Box::new(m) as Box<dyn Pawn>)
     };
     let lock = SharedLock::new(ISA_MUTEX);
-    let found = lock.run(|| detect::detect(&open, &board));
+    let Ok(found) = lock.run(|| detect::detect(&open, &board)) else {
+        return Vec::new();
+    };
     let mut seen: Vec<Chip> = Vec::new();
     let mut backends = Vec::new();
     for f in found {
         let index = seen.iter().filter(|&&c| c == f.chip).count();
         seen.push(f.chip);
-        backends.extend(lock.run(|| backend(f, &board, index)));
+        backends.extend(lock.run(|| backend(f, &board, index)).ok().flatten());
     }
     backends
 }
@@ -198,15 +200,15 @@ impl Fan for Header {
             duty
         };
         if self.saved.is_none() {
-            self.saved = Some(self.chip.command(self.index));
+            self.saved = Some(self.chip.command(self.index)?);
         }
         self.chip
-            .set(self.index, (duty.clamp(0.0, 1.0) * 255.0).round() as u8);
-        Ok(())
+            .set(self.index, (duty.clamp(0.0, 1.0) * 255.0).round() as u8)
     }
     fn release(&mut self) -> Result<(), String> {
-        if let Some(command) = self.saved.take() {
-            self.chip.release(self.index, command);
+        if let Some(command) = self.saved {
+            self.chip.release(self.index, command)?;
+            self.saved = None;
         }
         Ok(())
     }

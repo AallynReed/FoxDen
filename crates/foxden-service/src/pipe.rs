@@ -1,9 +1,9 @@
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
     ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE, LocalFree,
@@ -13,15 +13,25 @@ use windows_sys::Win32::Security::Authorization::{
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
+use windows_sys::Win32::System::IO::CancelSynchronousIo;
 use windows_sys::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
-    PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientSessionId, PIPE_READMODE_BYTE,
+    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 
+use crate::caller::Caller;
 use crate::host::{Host, MAX_LINE, log};
 
 pub const PIPE_NAME: &str = r"\\.\pipe\foxden-service";
 const MAX_CLIENTS: usize = 16;
+/// Per Windows session, so one session cannot take every place.
+const PER_SESSION: usize = 8;
+/// A client that sends no complete request for this long is dropped.
+const IDLE: Duration = if cfg!(test) {
+    Duration::from_secs(2)
+} else {
+    Duration::from_secs(30)
+};
 /// Who may open the pipe. By default users could only read one made by LocalSystem.
 /// 0x12019b is read and write without the right to add instances.
 const ACCESS: &str =
@@ -78,7 +88,7 @@ fn create_with(name: &str, first: bool, access: &str) -> Result<File, String> {
     Ok(unsafe { File::from_raw_handle(handle as _) })
 }
 
-fn connect(pipe: &File) -> bool {
+pub(crate) fn connect(pipe: &File) -> bool {
     let ok = unsafe { ConnectNamedPipe(pipe.as_raw_handle() as _, std::ptr::null_mut()) };
     ok != 0 || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED
 }
@@ -88,10 +98,46 @@ pub fn wake(name: &str) {
     let _ = OpenOptions::new().read(true).write(true).open(name);
 }
 
+fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// When the client's wait for a request or its reply began; `None` while a request is handled.
+type Idle = Arc<Mutex<Option<Instant>>>;
+
+struct Conn {
+    thread: JoinHandle<()>,
+    session: u32,
+    idle: Idle,
+}
+
+fn session_of(pipe: &File) -> u32 {
+    let mut id = u32::MAX;
+    unsafe { GetNamedPipeClientSessionId(pipe.as_raw_handle() as _, &mut id) };
+    id
+}
+
+/// Ends the pipe reads and writes of clients that have been idle too long.
+fn reap(host: &Host, conns: &Mutex<Vec<Conn>>) {
+    while !host.stopping() {
+        thread::sleep(Duration::from_millis(200));
+        for conn in locked(conns).iter() {
+            // Held while cancelling, so the thread cannot have moved on to other work.
+            let idle = locked(&conn.idle);
+            if idle.is_some_and(|since| since.elapsed() > IDLE) && !conn.thread.is_finished() {
+                unsafe { CancelSynchronousIo(conn.thread.as_raw_handle() as _) };
+            }
+        }
+    }
+}
+
 /// Accepts clients until the host stops, one thread per client.
 pub fn serve(host: &Arc<Host>, name: &str, first: File) {
-    // Every client thread holds a clone, which it gives back even when it panics.
-    let slots = Arc::new(());
+    let conns: Arc<Mutex<Vec<Conn>>> = Arc::default();
+    {
+        let (host, conns) = (host.clone(), conns.clone());
+        thread::spawn(move || reap(&host, &conns));
+    }
     let mut listener = first;
     while !host.stopping() {
         let connected = connect(&listener);
@@ -111,21 +157,30 @@ pub fn serve(host: &Arc<Host>, name: &str, first: File) {
         if !connected {
             continue;
         }
-        if Arc::strong_count(&slots) > MAX_CLIENTS {
+        let session = session_of(&pipe);
+        // A thread that panicked counts as finished too, so its place comes free.
+        let mut list = locked(&conns);
+        list.retain(|conn| !conn.thread.is_finished());
+        let ours = list.iter().filter(|conn| conn.session == session).count();
+        if list.len() >= MAX_CLIENTS || ours >= PER_SESSION {
             continue;
         }
-        let (host, slot) = (host.clone(), slots.clone());
-        thread::spawn(move || {
-            let _slot = slot;
-            serve_client(&host, &pipe);
+        let idle: Idle = Arc::new(Mutex::new(Some(Instant::now())));
+        let (host, mine) = (host.clone(), idle.clone());
+        let thread = thread::spawn(move || serve_client(&host, &pipe, &mine));
+        list.push(Conn {
+            thread,
+            session,
+            idle,
         });
     }
 }
 
-fn serve_client(host: &Host, pipe: &File) {
+fn serve_client(host: &Host, pipe: &File, idle: &Mutex<Option<Instant>>) {
     let mut reader = BufReader::new(pipe);
     let mut writer = pipe;
     let mut buf = Vec::new();
+    let mut caller = None;
     loop {
         buf.clear();
         match reader
@@ -136,10 +191,20 @@ fn serve_client(host: &Host, pipe: &File) {
             Ok(n) if n > 0 => {}
             _ => return,
         }
+        *locked(idle) = None;
+        // Asked once the client has written, which impersonation needs.
+        let who = match caller {
+            Some(known) => known,
+            None => match Caller::of_pipe(pipe) {
+                Ok(found) => *caller.insert(found),
+                Err(()) => return,
+            },
+        };
         let complete = buf.ends_with(b"\n");
         let line = String::from_utf8_lossy(&buf);
-        let (mut reply, shutdown) = host.handle(line.trim_end_matches(['\r', '\n']));
+        let (mut reply, shutdown) = host.handle(line.trim_end_matches(['\r', '\n']), &who);
         reply.push('\n');
+        *locked(idle) = Some(Instant::now());
         let sent = writer.write_all(reply.as_bytes()).is_ok();
         // Only now, so the reply is in the pipe before the process starts to stop.
         if shutdown {
@@ -282,16 +347,32 @@ mod tests {
     }
 
     #[test]
-    fn clients_beyond_the_limit_are_turned_away() {
+    fn clients_beyond_the_limit_of_a_session_are_turned_away() {
         let (_running, name, _dir) = bare_host("limit", Mode::Console);
         let status = r#"{"cmd":"status"}"#;
-        let mut idle: Vec<File> = (0..MAX_CLIENTS).map(|_| open(&name)).collect();
+        let mut idle: Vec<File> = (0..PER_SESSION).map(|_| open(&name)).collect();
         assert_eq!(try_ask(&open(&name), status), None);
         assert_eq!(ask(&idle[0], status)["ok"], true);
 
         // A place that comes free is given out again.
         idle.pop();
         wait_for("a free place", || try_ask(&open(&name), status).is_some());
+    }
+
+    #[test]
+    fn a_client_that_says_nothing_or_half_a_line_is_dropped() {
+        let (_running, name, _dir) = bare_host("idle", Mode::Console);
+        let silent = open(&name);
+        let half = open(&name);
+        (&half).write_all(br#"{"cmd":"#).unwrap();
+        let busy = open(&name);
+        thread::sleep(IDLE / 2);
+        assert_eq!(ask(&busy, r#"{"cmd":"status"}"#)["ok"], true);
+        thread::sleep(IDLE / 2 + Duration::from_secs(1));
+        assert_eq!(try_ask(&silent, r#"{"cmd":"status"}"#), None);
+        assert_eq!(try_ask(&half, r#""status"}"#), None);
+        // A request within the time keeps the client.
+        assert_eq!(ask(&busy, r#"{"cmd":"status"}"#)["ok"], true);
     }
 
     #[test]

@@ -213,6 +213,48 @@ fn unsafe_folder(access: Access) -> Option<&'static str> {
 /// Makes the data folder of an installed service, open to SYSTEM and Administrators only, or
 /// checks that one which is already there is as closed as that.
 pub fn data_dir(dir: &Path) -> Result<(), String> {
+    prepare(dir, false)
+}
+
+/// As `data_dir`, but an unsafe folder other than a link is moved aside; elevated install only.
+pub fn claim_data_dir(dir: &Path) -> Result<(), String> {
+    prepare(dir, true)
+}
+
+fn prepare(dir: &Path, claim: bool) -> Result<(), String> {
+    // Someone who keeps putting the folder back gets a refusal after a few rounds.
+    for _ in 0..3 {
+        match make(dir)? {
+            None => return Ok(()),
+            Some(access) if claim && !access.link => set_aside(dir)?,
+            Some(access) => return Err(refusal(dir, access)),
+        }
+    }
+    Err(refusal(dir, read(dir)?))
+}
+
+fn refusal(dir: &Path, access: Access) -> String {
+    let why = unsafe_folder(access).unwrap_or("it keeps being replaced");
+    format!(
+        "{} cannot hold the files of a service that runs as LocalSystem: {why}. Remove it, \
+         or hand it to Administrators and close it to everyone else, then try again.",
+        dir.display()
+    )
+}
+
+/// Renames an untrusted folder out of the way, so nothing in it is ever used.
+fn set_aside(dir: &Path) -> Result<(), String> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let mut aside = dir.as_os_str().to_owned();
+    aside.push(format!(".untrusted-{stamp}"));
+    std::fs::rename(dir, &aside)
+        .map_err(|e| format!("{}: cannot be moved aside: {e}", dir.display()))
+}
+
+/// Makes the folder closed, or returns the access of an existing one that is not safe.
+fn make(dir: &Path) -> Result<Option<Access>, String> {
     let (name, list) = (wide(dir), wide(PRIVATE));
     let mut descriptor = null_mut();
     let converted = unsafe {
@@ -236,47 +278,57 @@ pub fn data_dir(dir: &Path) -> Result<(), String> {
     unsafe { LocalFree(descriptor) };
     // Made here and now, with that list, it needs no second look.
     if made {
-        return Ok(());
+        return Ok(None);
     }
     if error != ERROR_ALREADY_EXISTS {
         let e = std::io::Error::from_raw_os_error(error as i32);
         return Err(format!("{}: cannot be made: {e}", dir.display()));
     }
-    match unsafe_folder(read(dir)?) {
-        Some(why) => Err(format!(
-            "{} cannot hold the files of a service that runs as LocalSystem: {why}. Remove it, \
-             or hand it to Administrators and close it to everyone else, then try again.",
-            dir.display()
-        )),
-        None => Ok(()),
-    }
+    let access = read(dir)?;
+    Ok(unsafe_folder(access).map(|_| access))
 }
 
-/// Checks that only administrators can change the program at `exe` or put another in its
-/// place: the file, its folder and every folder above that.
-pub fn program(exe: &Path) -> Result<(), String> {
-    let refuse = |path: &Path, why: &str| {
-        Err(format!(
-            "{} cannot be registered as a service: {} {why}. Copy foxden-service.exe to a folder \
-             that only administrators can write to, such as one under Program Files, and run \
-             install from there.",
-            exe.display(),
-            path.display()
-        ))
-    };
+/// The first file or folder on the way to `exe` that a non-administrator could change, and why.
+fn weak_point(exe: &Path) -> Result<Option<(&Path, &'static str)>, String> {
     for (depth, path) in exe.ancestors().enumerate() {
         let access = read(path)?;
         // Changing the file or its folder is enough; further up it takes replacing a folder.
         let rights = if depth < 2 { CHANGE } else { REPLACE };
         if access.link {
-            return refuse(path, "is a link");
+            return Ok(Some((path, "is a link")));
         } else if !access.owned {
-            return refuse(path, "does not belong to SYSTEM or Administrators");
+            return Ok(Some((path, "does not belong to SYSTEM or Administrators")));
         } else if access.here & rights != 0 {
-            return refuse(path, "can be changed by ordinary users");
+            return Ok(Some((path, "can be changed by ordinary users")));
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+/// Checks that only administrators can change the program at `exe` or put another in its place.
+pub fn program(exe: &Path) -> Result<(), String> {
+    match weak_point(exe)? {
+        Some((path, why)) => Err(format!(
+            "{} cannot be registered as a service: {} {why}. Copy foxden-service.exe to a folder \
+             that only administrators can write to, such as one under Program Files, and run \
+             install from there.",
+            exe.display(),
+            path.display()
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Checks that only administrators can change or replace a program the service runs as SYSTEM.
+pub fn locked_down(exe: &Path) -> Result<(), String> {
+    match weak_point(exe)? {
+        Some((path, why)) => Err(format!(
+            "{} was not run: {} {why}. Reinstall FoxDen to put its files back in place.",
+            exe.display(),
+            path.display()
+        )),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -404,6 +456,30 @@ mod tests {
     }
 
     #[test]
+    fn an_install_moves_an_open_data_folder_aside_and_makes_a_closed_one() {
+        let base = scratch("guard-claim");
+        let dir = base.join("data");
+        open_folder(&dir);
+        fs::write(dir.join("fans.json"), b"{}").unwrap();
+        assert_eq!(claim_data_dir(&dir), Ok(()));
+        let _tidy = Reopened(dir.clone());
+        let access = read(&dir).unwrap();
+        assert_eq!(access.here & CHANGE, 0, "{:#x}", access.here);
+        assert!(!dir.join("fans.json").exists());
+        let aside: Vec<_> = fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("data.untrusted-")
+            })
+            .collect();
+        assert_eq!(aside.len(), 1);
+        assert!(aside[0].path().join("fans.json").exists());
+    }
+
+    #[test]
     fn a_link_is_refused_as_a_data_folder() {
         let base = scratch("guard-link");
         let (target, link) = (base.join("target"), base.join("link"));
@@ -421,6 +497,8 @@ mod tests {
         assert!(!read(&target).unwrap().link);
         let refused = data_dir(&link).unwrap_err();
         assert!(refused.contains("link"), "{refused}");
+        let refused = claim_data_dir(&link).unwrap_err();
+        assert!(refused.contains("link"), "{refused}");
         fs::remove_dir(&link).unwrap();
     }
 
@@ -429,6 +507,13 @@ mod tests {
         let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
         let shell = PathBuf::from(root).join("System32").join("cmd.exe");
         assert_eq!(program(&shell), Ok(()));
+    }
+
+    #[test]
+    #[ignore = "needs FoxDen installed with VB-CABLE's setup"]
+    fn the_installed_vb_cable_setup_may_be_run() {
+        let setup = Path::new(r"C:\Program Files\FoxDen\vbcable\VBCABLE_Setup_x64.exe");
+        assert_eq!(locked_down(setup), Ok(()));
     }
 
     #[test]
