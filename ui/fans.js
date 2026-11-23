@@ -7,7 +7,6 @@
   // The status bar's passing line, from main.js.
   const tell = window.note;
 
-  const SVG_NS = "http://www.w3.org/2000/svg";
   const T_MIN = 20;
   const T_MAX = 100;
   const EMPTY = '{"curves":[],"rules":[]}';
@@ -55,27 +54,8 @@
   const speed = (v) => (v == null ? "no speed signal" : v.toLocaleString("en-GB") + " rpm");
   const pump = (name) => /\bpump\b/i.test(name);
   const source = (id) => (SOURCES.find(([p]) => p.test(id)) || [null, "Other"])[1];
-  const message = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
-  const sentence = (s) => s.charAt(0).toUpperCase() + s.slice(1);
   const quoted = (name) => '"' + name + '"';
   const list = new Intl.ListFormat("en-GB", { type: "conjunction" });
-
-  function el(tag, props, ...children) {
-    const node = Object.assign(document.createElement(tag), props);
-    node.append(...children);
-    return node;
-  }
-
-  function svg(tag, attrs, ...children) {
-    const node = document.createElementNS(SVG_NS, tag);
-    for (const name in attrs) node.setAttribute(name, attrs[name]);
-    node.append(...children);
-    return node;
-  }
-
-  function setText(node, text) {
-    if (node.textContent !== text) node.textContent = text;
-  }
 
   const button = (text, className = "") => el("button", { type: "button", className, textContent: text });
   const number = (min, max, step) => el("input", { type: "number", min, max, step });
@@ -385,7 +365,7 @@
       await invoke(action + "_service");
       await refresh();
     } catch (e) {
-      problem = { where: "service", text: sentence(message(e)) };
+      problem = { where: "service", text: sentence(errText(e)) };
     }
     pending = "";
     render();
@@ -424,7 +404,7 @@
       await invoke("set_fan_config", { config: JSON.parse(sent) });
     } catch (e) {
       pending = "";
-      return reject(message(e));
+      return reject(errText(e));
     }
     if (pack(draft) === sent) base = sent;
     note = "Applied";
@@ -1278,7 +1258,7 @@
     render();
   });
   refresh()
-    .catch((e) => (live = { ...live, service: "error", detail: message(e) }))
+    .catch((e) => (live = { ...live, service: "error", detail: errText(e) }))
     .then(render);
   render();
 })();
