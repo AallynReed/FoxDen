@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use slint::{ComponentHandle, Model, ModelRc, Timer, TimerMode, VecModel};
@@ -8,7 +8,7 @@ use tauri::AppHandle;
 
 use super::stage::{backend_name, fmt, note, plural, sentence, show_error};
 use super::{
-    AppWindow, DeviceRow, DevicesPage, FoundRow, HsCard, HsControl, StagePage, View, ZoneRow, edit_settings, fill,
+    AppWindow, DeviceRow, DevicesPage, FoundRow, HsCard, HsControl, HwRange, StagePage, View, ZoneRow, edit_settings, fill,
     jobs, refresh, report, s, shared, tr, with_view, with_win,
 };
 use crate::canvas::Dev;
@@ -29,14 +29,36 @@ const HS_LABELS: [(&str, &str); 9] = [
     ("eq_preset", "EQ preset"),
 ];
 
+const HARDWARE_MODES: [(&str, &str); 5] = [
+    ("breathing", "Breathing"),
+    ("color_cycle", "Colour cycle"),
+    ("star", "Star"),
+    ("follow_board", "Follow motherboard"),
+    ("static", "Static"),
+];
+
 struct Zone {
     key: String,
     name: String,
     min: usize,
     max: usize,
+    /// LEDs per fan for a zone set in whole fans, 1 for a free count.
+    per: usize,
+}
+
+/// The selected device's own lighting as the panel shows it.
+#[derive(Default)]
+struct Hw {
+    id: String,
+    modes: Vec<Value>,
+    now: Option<Value>,
+    last: Option<Value>,
+    at: Option<Instant>,
+    pending: Option<(String, Option<Value>)>,
 }
 
 thread_local! {
+    static HW: RefCell<Hw> = RefCell::new(Hw::default());
     static ZONES: RefCell<Vec<Zone>> = const { RefCell::new(Vec::new()) };
     static DETECT: RefCell<Option<Timer>> = const { RefCell::new(None) };
     static HS_TIMER: RefCell<Option<Timer>> = const { RefCell::new(None) };
@@ -55,6 +77,265 @@ fn kind_name(kind: &str) -> String {
         "strip" => "Light strip".into(),
         k => words(k),
     }
+}
+
+/// Whether the device runs one of its own effects.
+fn own_effect(d: &Value) -> bool {
+    let Some(mode) = d["hardware_setting"]["mode"].as_str() else {
+        return false;
+    };
+    d["hardware"]["modes"]
+        .as_array()
+        .is_some_and(|l| l.iter().any(|m| m["id"] == mode))
+}
+
+/// The values a hardware mode runs with when the setting leaves them out, as the app fills them in.
+fn hardware_values(mode: &Value, setting: Option<&Value>) -> Value {
+    let id = mode["id"].as_str().unwrap_or_default();
+    let blank = json!({ "mode": id });
+    let s = setting.filter(|s| s["mode"] == id).unwrap_or(&blank);
+    let fit = |key: &str, default: fn(i64, i64) -> i64| -> Value {
+        let Some(r) = mode[key].as_array() else {
+            return Value::Null;
+        };
+        let lo = r.first().and_then(|v| v.as_i64()).unwrap_or(0);
+        let hi = r.get(1).and_then(|v| v.as_i64()).unwrap_or(lo).max(lo);
+        json!(s[key].as_i64().unwrap_or_else(|| default(lo, hi)).clamp(lo, hi))
+    };
+    let n = mode["colors"].as_u64().unwrap_or(0) as usize;
+    let colors: Vec<Value> = (0..n)
+        .map(|i| match &s["colors"][i] {
+            c if c.is_array() => c.clone(),
+            _ => json!([255, 255, 255]),
+        })
+        .collect();
+    let dirs = mode["directions"].as_array().cloned().unwrap_or_default();
+    let direction = if dirs.contains(&s["direction"]) {
+        s["direction"].clone()
+    } else {
+        dirs.first().cloned().unwrap_or(Value::Null)
+    };
+    let mut out = json!({
+        "mode": id,
+        "colors": colors,
+        "random": mode["random"].as_bool().unwrap_or(false) && s["random"].as_bool().unwrap_or(false),
+    });
+    for (key, v) in [
+        ("speed", fit("speed", |lo, hi| lo + (hi - lo) / 2)),
+        ("brightness", fit("brightness", |_, hi| hi)),
+        ("direction", direction),
+    ] {
+        if !v.is_null() {
+            out[key] = v;
+        }
+    }
+    out
+}
+
+fn rgb(v: &Value) -> [u8; 3] {
+    [0, 1, 2].map(|i| v[i].as_u64().unwrap_or(0).min(255) as u8)
+}
+
+fn hex(c: [u8; 3]) -> String {
+    format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2])
+}
+
+fn from_hex(text: &str) -> Option<[u8; 3]> {
+    let t = text.trim();
+    let t = t.strip_prefix('#').unwrap_or(t);
+    if !t.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let six: String = match t.len() {
+        3 => t.chars().flat_map(|c| [c, c]).collect(),
+        6 => t.to_string(),
+        _ => return None,
+    };
+    let byte = |i: usize| u8::from_str_radix(&six[i..i + 2], 16).ok();
+    Some([byte(0)?, byte(2)?, byte(4)?])
+}
+
+/// Shows the lighting choice and the fields of the mode in `values`.
+fn render_hw(g: &DevicesPage, app: &AppHandle, modes: &[Value], values: Option<&Value>) {
+    let names: Vec<slint::SharedString> = if modes.is_empty() {
+        Vec::new()
+    } else {
+        std::iter::once(tr(app, "FoxDen effects"))
+            .chain(modes.iter().map(|m| {
+                let id = m["id"].as_str().unwrap_or_default();
+                let name = HARDWARE_MODES
+                    .iter()
+                    .find(|(k, _)| *k == id)
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or_else(|| m["name"].as_str().unwrap_or(id).to_string());
+                tr(app, &name)
+            }))
+            .map(Into::into)
+            .collect()
+    };
+    fill(g.get_hw_modes(), names, |m| g.set_hw_modes(m));
+    let mode = values.and_then(|v| modes.iter().find(|m| m["id"] == v["mode"]));
+    let index = values
+        .and_then(|v| modes.iter().position(|m| m["id"] == v["mode"]))
+        .map_or(0, |i| i + 1);
+    g.set_hw_index(index as i32);
+    let (Some(mode), Some(v)) = (mode, values) else {
+        g.set_hw_speed(Default::default());
+        g.set_hw_bright(Default::default());
+        fill(g.get_hw_colors(), Vec::new(), |m| g.set_hw_colors(m));
+        fill(g.get_hw_dirs(), Vec::new(), |m| g.set_hw_dirs(m));
+        g.set_hw_random_on(false);
+        return;
+    };
+    let range = |key: &str| match mode[key].as_array() {
+        Some(r) => HwRange {
+            on: true,
+            min: r.first().and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+            max: r.get(1).and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+            value: v[key].as_i64().unwrap_or(0) as i32,
+        },
+        None => HwRange::default(),
+    };
+    g.set_hw_speed(range("speed"));
+    g.set_hw_bright(range("brightness"));
+    let colors: Vec<[u8; 3]> = v["colors"].as_array().map(|l| l.iter().map(rgb).collect()).unwrap_or_default();
+    let many = colors.len() > 1;
+    fill(
+        g.get_hw_colors(),
+        colors.iter().map(|c| slint::Color::from_rgb_u8(c[0], c[1], c[2])).collect(),
+        |m| g.set_hw_colors(m),
+    );
+    fill(g.get_hw_hexes(), colors.iter().map(|c| hex(*c).into()).collect(), |m| g.set_hw_hexes(m));
+    fill(
+        g.get_hw_color_labels(),
+        (0..colors.len())
+            .map(|i| {
+                if many {
+                    fmt(app, "Colour {0}", &[&(i + 1).to_string()]).into()
+                } else {
+                    tr(app, "Colour").into()
+                }
+            })
+            .collect(),
+        |m| g.set_hw_color_labels(m),
+    );
+    let dirs: Vec<&str> = mode["directions"]
+        .as_array()
+        .map(|l| l.iter().filter_map(|d| d.as_str()).collect())
+        .unwrap_or_default();
+    fill(g.get_hw_dirs(), dirs.iter().map(|d| tr(app, &words(d)).into()).collect(), |m| g.set_hw_dirs(m));
+    g.set_hw_dir(dirs.iter().position(|d| v["direction"] == *d).unwrap_or(0) as i32);
+    g.set_hw_random_on(mode["random"].as_bool().unwrap_or(false));
+    g.set_hw_random(v["random"].as_bool().unwrap_or(false));
+}
+
+/// Sends a lighting choice made here, at most once a frame, and keeps its echo from overriding it.
+fn set_hw(app: &AppHandle, setting: Option<Value>) {
+    let idle = HW.with_borrow_mut(|hw| {
+        hw.at = Some(Instant::now());
+        if setting.is_some() {
+            hw.last = setting.clone();
+        }
+        hw.now = setting.clone();
+        let modes = hw.modes.clone();
+        with_win(|w| render_hw(&w.global::<DevicesPage>(), app, &modes, setting.as_ref()));
+        hw.pending.replace((hw.id.clone(), setting)).is_none()
+    });
+    if !idle {
+        return;
+    }
+    let a = app.clone();
+    Timer::single_shot(Duration::from_millis(16), move || {
+        let Some((id, setting)) = HW.with_borrow_mut(|hw| hw.pending.take()) else {
+            return;
+        };
+        let parsed = match setting.map(serde_json::from_value).transpose() {
+            Ok(p) => p,
+            Err(e) => return report(Err(e.to_string())),
+        };
+        report(commands::set_hardware(a.clone(), shared(&a), id, parsed));
+    });
+}
+
+/// Changes one value of the shown mode and sends it.
+fn edit_hw(app: &AppHandle, change: impl FnOnce(&mut Value)) {
+    let Some(mut now) = HW.with_borrow(|hw| hw.now.clone()) else {
+        return;
+    };
+    change(&mut now);
+    set_hw(app, Some(now));
+}
+
+fn bind_hw(g: &DevicesPage, app: &AppHandle) {
+    let a = app.clone();
+    g.on_hw_mode(move |i| {
+        let setting = HW.with_borrow(|hw| {
+            let mode = hw.modes.get((i as usize).checked_sub(1)?)?;
+            let mut base = hw.last.clone().unwrap_or_else(|| json!({}));
+            base["mode"] = mode["id"].clone();
+            Some(hardware_values(mode, Some(&base)))
+        });
+        set_hw(&a, setting);
+    });
+    let a = app.clone();
+    g.on_hw_range(move |n, v| {
+        let key = if n == 0 { "speed" } else { "brightness" };
+        edit_hw(&a, |s| s[key] = json!(v));
+    });
+    let a = app.clone();
+    g.on_hw_range_typed(move |n, text| {
+        let (key, label) = if n == 0 { ("speed", "Speed") } else { ("brightness", "Brightness") };
+        let range = HW.with_borrow(|hw| {
+            let now = hw.now.as_ref()?;
+            let mode = hw.modes.iter().find(|m| m["id"] == now["mode"])?;
+            let r = mode[key].as_array()?;
+            Some((r.first()?.as_i64()?, r.get(1)?.as_i64()?))
+        });
+        let Some((lo, hi)) = range else {
+            return false;
+        };
+        match text.trim().parse::<i64>().ok().filter(|v| (lo..=hi).contains(v)) {
+            Some(v) => {
+                problem("");
+                edit_hw(&a, |s| s[key] = json!(v));
+                true
+            }
+            None => {
+                problem(&fmt(
+                    &a,
+                    "{0} must be from {1} to {2}{3}.",
+                    &[&tr(&a, label), &lo.to_string(), &hi.to_string(), ""],
+                ));
+                false
+            }
+        }
+    });
+    let a = app.clone();
+    g.on_hw_color(move |i, c| {
+        edit_hw(&a, |s| {
+            if let Some(slot) = s["colors"].get_mut(i as usize) {
+                *slot = json!([c.red(), c.green(), c.blue()]);
+            }
+        })
+    });
+    let a = app.clone();
+    g.on_hw_direction(move |i| {
+        let dir = HW.with_borrow(|hw| {
+            let now = hw.now.as_ref()?;
+            let mode = hw.modes.iter().find(|m| m["id"] == now["mode"])?;
+            mode["directions"].get(i as usize).cloned()
+        });
+        if let Some(dir) = dir {
+            edit_hw(&a, |s| s["direction"] = dir);
+        }
+    });
+    let a = app.clone();
+    g.on_hw_set_random(move |on| edit_hw(&a, |s| s["random"] = json!(on)));
+    g.on_hex_valid(|t| from_hex(&t).is_some());
+    g.on_hex_color(|t| {
+        let c = from_hex(&t).unwrap_or([0, 0, 0]);
+        slint::Color::from_rgb_u8(c[0], c[1], c[2])
+    });
 }
 
 fn problem(text: &str) {
@@ -76,6 +357,7 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
     let g = w.global::<DevicesPage>();
     let a = app.clone();
     g.on_opened(move || refresh_headsets(&a));
+    bind_hw(&g, app);
     let a = app.clone();
     g.on_select_device(move |id| {
         with_view(|v| {
@@ -297,16 +579,14 @@ fn place_value(app: &AppHandle, n: i32, text: &str) -> Option<f32> {
 fn zone_value(app: &AppHandle, key: &str, text: &str) -> Option<usize> {
     ZONES.with_borrow(|zones| {
         let z = zones.iter().find(|z| z.key == key)?;
-        let n = text.trim().parse::<usize>().ok().filter(|n| (z.min..=z.max).contains(n));
+        let (lo, hi) = (z.min.div_ceil(z.per), z.max / z.per);
+        let n = text.trim().parse::<usize>().ok().filter(|n| (lo..=hi).contains(n));
+        let why = if z.per > 1 { "{0} takes {1} to {2} fans." } else { "{0} takes {1} to {2} LEDs." };
         problem(&match n {
             Some(_) => String::new(),
-            None => fmt(
-                app,
-                "{0} takes {1} to {2} LEDs.",
-                &[&z.name, &z.min.to_string(), &z.max.to_string()],
-            ),
+            None => fmt(app, why, &[&z.name, &lo.to_string(), &hi.to_string()]),
         });
-        n
+        n.map(|n| n * z.per)
     })
 }
 
@@ -600,6 +880,7 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
                         leds: serde_json::from_value(d["leds"].clone()).unwrap_or_default(),
                         enabled: d["enabled"].as_bool().unwrap_or(true),
                         brightness: d["brightness"].as_f64().unwrap_or(1.0) as f32,
+                        own: d["enabled"].as_bool().unwrap_or(true) && own_effect(d),
                     })
                 })
                 .collect()
@@ -631,6 +912,10 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
                     enabled: d.enabled,
                     brightness: d.brightness,
                     selected: view.canvas.selected.as_ref() == Some(&d.id),
+                    resizable: raw
+                        .get(d.id.as_str())
+                        .and_then(|r| r["zones"].as_array())
+                        .is_some_and(|z| !z.is_empty()),
                 }
             })
             .collect(),
@@ -649,6 +934,7 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
                     name: z["name"].as_str().unwrap_or_default().into(),
                     min: z["min"].as_u64().unwrap_or(0) as usize,
                     max: z["max"].as_u64().unwrap_or(0) as usize,
+                    per: z["step"].as_u64().unwrap_or(1).max(1) as usize,
                 })
                 .collect()
         })
@@ -670,12 +956,42 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
             .map(|z| ZoneRow {
                 key: z.key.as_str().into(),
                 name: z.name.as_str().into(),
-                leds: leds(&z.key).to_string().into(),
+                leds: (leds(&z.key) / z.per as u64).to_string().into(),
+                suffix: if z.per > 1 {
+                    fmt(app, "fans × {0} LEDs per fan", &[&z.per.to_string()]).into()
+                } else {
+                    "".into()
+                },
             })
             .collect(),
         |m| g.set_zones(m),
     );
+    g.set_zones_tall(zones.iter().any(|z| z.per > 1));
     ZONES.with_borrow_mut(|zs| *zs = zones);
+    view.canvas.own_text = tr(app, "Runs its own effect");
+    let selected = view.canvas.selected.as_deref().and_then(|id| raw.get(id).copied());
+    HW.with_borrow_mut(|hw| {
+        let id = selected.and_then(|d| d["id"].as_str()).unwrap_or_default();
+        if hw.id != id {
+            *hw = Hw { id: id.into(), ..Default::default() };
+        }
+        hw.modes = selected
+            .and_then(|d| d["hardware"]["modes"].as_array().cloned())
+            .unwrap_or_default();
+        if hw.at.is_some_and(|t| t.elapsed() < Duration::from_millis(400)) {
+            return;
+        }
+        let setting = selected.filter(|d| own_effect(d)).map(|d| &d["hardware_setting"]);
+        if let Some(s) = setting {
+            hw.last = Some(s.clone());
+        }
+        let values = setting.and_then(|s| {
+            let mode = hw.modes.iter().find(|m| m["id"] == s["mode"])?;
+            Some(hardware_values(mode, Some(s)))
+        });
+        hw.now = values.clone();
+        render_hw(&g, app, &hw.modes, values.as_ref());
+    });
     show_place(w, view);
     g.set_auto_detect(snap["settings"]["auto_detect"].as_bool().unwrap_or(false));
     fill(
