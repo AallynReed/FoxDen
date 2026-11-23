@@ -80,10 +80,27 @@ for f in sorted(UI.glob("*.js")):
             add(number(chain), f.name)
             i = j + 1
 
+TEST_MOD = re.compile(r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*([{;])")
+SKIP = re.compile(r'r(#*)"[\s\S]*?"\1|"(?:[^"\\]|\\.)*"|\'(?:\\.|[^\\\'])\'|//[^\n]*|/\*[\s\S]*?\*/')
+
+def strip_test_mods(text):
+    """Drops `#[cfg(test)]` modules, braces balanced outside strings, chars and comments."""
+    out, pos = [], 0
+    while m := TEST_MOD.search(text, pos):
+        out.append(text[pos:m.start()])
+        i, depth = m.end(), 1 if m.group(1) == "{" else 0
+        while depth and i < len(text):
+            if s := SKIP.match(text, i):
+                i = s.end()
+                continue
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+            i += 1
+        pos = i
+    return "".join(out) + text[pos:]
+
 for d in RUST:
     for f in sorted(d.rglob("*.rs")):
-        text = f.read_text(encoding="utf-8")
-        text = re.sub(r"#\[cfg\(test\)\][\s\S]*", "", text)
+        text = strip_test_mods(f.read_text(encoding="utf-8"))
         for m in re.finditer(r'"((?:[^"\\]|\\.)*)"', text):
             s = m.group(1)
             if "{" in s:
