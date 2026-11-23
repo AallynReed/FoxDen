@@ -48,13 +48,9 @@ static INSTALLING: Mutex<bool> = Mutex::new(false);
 /// Whether a countdown to an automatic install is running.
 static WAITING: Mutex<bool> = Mutex::new(false);
 
-fn guard<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 /// Whether the automatic install goes ahead now.
-pub fn due(auto: bool, put_off: bool, idle: bool, waited: Duration) -> bool {
-    auto && !put_off && (idle || waited >= GRACE)
+fn due(idle: bool, waited: Duration) -> bool {
+    idle || waited >= GRACE
 }
 
 pub fn start(app: &AppHandle, shared: Shared) {
@@ -75,19 +71,19 @@ pub fn start(app: &AppHandle, shared: Shared) {
 }
 
 async fn wait_and_install(app: &AppHandle, info: &Info) {
-    if !info.auto || std::mem::replace(&mut *guard(&WAITING), true) {
+    if !info.auto || std::mem::replace(&mut *lock(&WAITING), true) {
         return;
     }
     let found = Instant::now();
     loop {
-        let put_off = guard(&LATER).as_deref() == Some(info.version.as_str());
+        let put_off = lock(&LATER).as_deref() == Some(info.version.as_str());
         let idle = app
             .get_webview_window("main")
             .is_none_or(|w| !w.is_visible().unwrap_or(false));
-        if put_off || *guard(&INSTALLING) {
+        if put_off || *lock(&INSTALLING) {
             break;
         }
-        if due(true, put_off, idle, found.elapsed()) {
+        if due(idle, found.elapsed()) {
             if let Err(e) = install(app).await {
                 crate::log::warn("updates", format!("installing {} failed: {e}", info.version));
             }
@@ -95,7 +91,7 @@ async fn wait_and_install(app: &AppHandle, info: &Info) {
         }
         tokio_sleep(Duration::from_secs(1)).await;
     }
-    *guard(&WAITING) = false;
+    *lock(&WAITING) = false;
 }
 
 /// Test-only path for development builds: `FOXDEN_FAKE_UPDATE=<version>` shows the UI for a release that is not there.
@@ -189,7 +185,7 @@ async fn check(app: &AppHandle, shared: &Shared) -> Result<Option<Info>, String>
         notes: json["notes"].as_str().unwrap_or_default().to_string(),
         auto: lock(shared).config.settings.auto_update,
     };
-    let known = guard(&FOUND)
+    let known = lock(&FOUND)
         .replace((release, info.clone()))
         .is_some_and(|(_, old)| old == info);
     if !known {
@@ -227,19 +223,19 @@ async fn install(app: &AppHandle) -> Result<(), String> {
     if cfg!(debug_assertions) {
         return Err(DEV.into());
     }
-    let release = guard(&FOUND)
+    let release = lock(&FOUND)
         .as_ref()
         .map(|(r, _)| r.clone())
         .ok_or("no update to install")?;
     {
-        let mut busy = guard(&INSTALLING);
+        let mut busy = lock(&INSTALLING);
         if *busy {
             return Err("already installing".into());
         }
         *busy = true;
     }
     let result = download_and_run(app, &release).await;
-    *guard(&INSTALLING) = false;
+    *lock(&INSTALLING) = false;
     result?;
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || crate::quit(&handle));
@@ -320,11 +316,11 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 }
 
 pub fn later_update() {
-    *guard(&LATER) = guard(&FOUND).as_ref().map(|(_, info)| info.version.clone());
+    *lock(&LATER) = lock(&FOUND).as_ref().map(|(_, info)| info.version.clone());
 }
 
 pub fn get_update() -> Option<Info> {
-    guard(&FOUND).as_ref().map(|(_, info)| info.clone())
+    lock(&FOUND).as_ref().map(|(_, info)| info.clone())
 }
 
 async fn tokio_sleep(time: Duration) {
@@ -334,6 +330,13 @@ async fn tokio_sleep(time: Duration) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_automatic_install_waits_for_the_tray_or_a_minute() {
+        assert!(!due(false, Duration::ZERO));
+        assert!(due(true, Duration::ZERO));
+        assert!(due(false, GRACE));
+    }
 
     #[test]
     fn versions_compare_by_number() {

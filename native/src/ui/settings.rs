@@ -1245,7 +1245,9 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
     let snap = &view.snap;
     let settings = &snap["settings"];
     let choice = settings["language"].as_str().unwrap_or("auto");
-    w.global::<super::I18n>().set_lang(crate::i18n::language(choice).into());
+    let lang = crate::i18n::language(choice);
+    super::logs::set_lang(app, &lang);
+    w.global::<super::I18n>().set_lang(lang.into());
     let mut langs: Vec<SharedString> = vec![tr(app, "Automatic").into()];
     langs.extend(LANGS.iter().map(|l| SharedString::from(l.1)));
     fill(g.get_languages(), langs, |m| g.set_languages(m));
