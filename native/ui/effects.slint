@@ -1,124 +1,1683 @@
-import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Scroll } from "widgets.slint";
+
+export struct LayerRow {
+    name: string,
+    tag: string,
+    enabled: bool,
+    waiting: bool,
+}
+
+export struct EffectPick {
+    kind: string,
+    label: string,
+    tag: bool,
+}
+
+export struct GroupOption {
+    label: string,
+    header: bool,
+}
+
+export struct EParam {
+    name: string,
+    label: string,
+    control: string,
+    value: float,
+    min: float,
+    max: float,
+    step: float,
+    text: string,
+    color: color,
+    hex: string,
+    on: bool,
+    options: [GroupOption],
+    index: int,
+    status: string,
+}
+
+export struct Tile {
+    name: string,
+    hex: string,
+    color: color,
+    on: bool,
+}
+
+export struct CheckRow {
+    id: string,
+    name: string,
+    on: bool,
+}
+
+export struct StopRow {
+    temp: string,
+    color: color,
+    hex: string,
+}
+
+export struct KeyCap {
+    vk: int,
+    x: float,
+    w: float,
+    row: int,
+    label: string,
+    title: string,
+    pad: bool,
+    on: bool,
+    fill: color,
+    ink: color,
+    cursor: bool,
+}
 
 export global EffectsPage {
-    in property <[EffectItem]> effects;
+    // Layer stack, top layer first.
+    in property <[LayerRow]> layers;
+    in property <int> layer-sel: -1;
+    in property <string> base-tag;
+    in property <int> focus-row: -2;
+    in property <int> focus-tick;
+    in property <[GroupOption]> add-options;
+    callback select-layer(int);
+    callback toggle-layer(int);
+    callback move-layer(int, int);
+    callback add-layer(int);
+
+    // Background.
+    in property <[GroupOption]> edit-options;
+    in property <int> edit-index;
+    in property <bool> follow;
+    in property <bool> own;
+    callback edit-device(int);
+    callback follow-main();
+    in-out property <string> search;
+    in property <[EffectPick]> effects;
+    in property <bool> no-match;
+    in-out property <int> search-focus;
     in property <string> effect-kind;
-    in property <[Param]> params;
+    in property <int> effect-at: -1;
+    in property <string> effect-label;
+    callback search-changed(string);
+    callback search-key(string) -> string;
     callback pick-effect(string);
-    callback set-param(string, float);
-    callback set-param-hex(string, string);
-    callback set-param-bool(string, bool);
-    callback set-param-choice(string, int);
+    callback pick-step(int);
+    in property <[EParam]> params;
+    in property <string> params-problem;
     callback reset-effect();
     callback randomise-effect();
+
+    // Parameters, for "effect" or "layer".
+    in property <string> bad;
+    callback set-range(string, string, float);
+    callback range-text(string, string, string);
+    callback set-toggle(string, string, bool);
+    callback set-choice(string, string, int);
+    callback clear-bad();
+
+    // Layer editor.
+    in property <string> layer-title;
+    in property <[GroupOption]> kind-options;
+    in property <int> kind-index;
+    in property <int> blend-index;
+    in property <float> opacity;
+    in property <string> opacity-text;
+    in property <int> scope-index;
+    in property <[CheckRow]> checks;
+    in property <int> when-index;
+    in property <[string]> apps;
+    in property <[string]> app-choices;
+    in property <string> app-hint;
+    in property <[EParam]> layer-params;
+    in property <string> layer-problem;
+    callback set-layer-kind(int);
+    callback set-blend(int);
+    callback set-opacity(float);
+    callback opacity-typed(string);
+    callback set-scope(int);
+    callback set-check(string, bool);
+    callback set-when(int);
+    callback app-typed(string);
+    callback add-app(string);
+    callback remove-app(int);
+    callback reset-layer();
+    callback copy-layer();
+    callback remove-layer();
+
+    // The open colour picker.
+    in property <string> picker;
+    in property <float> pick-h;
+    in property <float> pick-s;
+    in property <float> pick-v;
+    in property <string> pick-ht;
+    in property <string> pick-st;
+    in property <string> pick-vt;
+    in property <string> pick-hex;
+    in property <[color]> hue-track;
+    in property <[color]> sat-track;
+    in property <[color]> val-track;
+    in property <[Tile]> presets;
+    in property <[Tile]> recent;
+    in property <string> picker-problem;
+    in property <int> picker-bad: -1;
+    in property <color> brush;
+    in property <string> brush-hex;
+    callback open-picker(string);
+    callback picker-set(int, float);
+    callback picker-typed(int, string);
+    callback picker-hex(string);
+    callback picker-tile(string);
+    callback picker-escape();
+
+    // Temperature stages.
+    in property <[StopRow]> stops;
+    in property <string> stops-problem;
+    in property <int> stops-bad: -1;
+    callback stop-temp(int, string);
+    callback add-stage();
+    callback remove-stage(int);
+
+    // Keyboards.
+    in property <[KeyCap]> keys;
+    in property <bool> show-pad;
+    in property <string> key-count;
+    callback set-show-pad(bool);
+    callback key-toggle(int);
+    callback board-key(string, bool) -> bool;
+    callback clear-keys();
+    callback board-hit(float, int, bool, bool);
+    callback paint-key(string) -> bool;
+    callback paint-tool(bool);
+    in property <bool> erasing;
+    in property <[Tile]> paint-recent;
+    callback paint-recent-pick(string);
+    callback paint-group(int);
+    callback fill-empty();
+    callback clear-paint();
+    in property <string> zones;
+    in property <[GroupOption]> map-choices;
+    in property <string> map-name;
+    in property <bool> can-delete-map;
+    in property <string> share-code;
+    in property <int> copy-tick;
+    in property <int> code-reset;
+    in property <string> paint-note;
+    callback use-map(int);
+    callback map-named(string);
+    callback save-map(string);
+    callback delete-map(string);
+    callback copy-code(string);
+    callback add-code(string);
+
     in property <bool> can-undo;
     in property <bool> can-redo;
     callback undo();
     callback redo();
 }
 
-export component EffectsPanel inherits Scroll {
-    content-height: effects-body.preferred-height;
-    effects-body := VerticalLayout {
-        padding: 16px;
-        spacing: 8px;
-        Heading { text: I18n.t("Background"); }
+component Label inherits Text {
+    color: Theme.text;
+    vertical-alignment: center;
+    overflow: elide;
+}
+
+component Meta inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+    vertical-alignment: center;
+}
+
+component Problem inherits Text {
+    color: Theme.danger;
+    font-size: 12px;
+    wrap: word-wrap;
+    accessible-role: text;
+}
+
+// A text box that keeps what is typed while it has focus, and follows `value` otherwise.
+component Entry inherits Rectangle {
+    in property <string> value;
+    in property <string> label;
+    in property <string> placeholder;
+    in property <bool> mono;
+    in property <bool> right;
+    in property <bool> invalid;
+    out property <bool> focused: input.has-focus;
+    out property <string> typed: input.text;
+    callback edited(string);
+    callback accepted(string);
+    callback escape();
+    callback capture(KeyEvent) -> bool;
+    public function set(t: string) { input.text = t; }
+    public function copy-all() { input.select-all(); input.copy(); }
+    public function take-focus() { input.focus(); input.select-all(); }
+    height: 32px;
+    min-width: 56px;
+    background: Theme.field;
+    border-width: invalid ? 2px : 1px;
+    border-color: invalid ? Theme.danger : input.has-focus ? Theme.accent : Theme.stroke;
+    forward-focus: input;
+    init => { input.text = value; }
+    changed value => { if !input.has-focus && !invalid { input.text = value; } }
+    changed focused => { if !focused && !invalid { input.text = value; } }
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        capture-key-pressed(e) => {
+            if root.capture(e) { return accept; }
+            reject
+        }
+        key-pressed(e) => {
+            if e.text == Key.Escape && root.invalid {
+                root.escape();
+                input.text = root.value;
+                return accept;
+            }
+            reject
+        }
+        input := TextInput {
+            x: 6px;
+            width: parent.width - 12px;
+            height: parent.height;
+            color: Theme.text;
+            font-family: root.mono ? Theme.mono : "";
+            horizontal-alignment: root.right ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+            vertical-alignment: center;
+            single-line: true;
+            accessible-label: root.label;
+            edited => { root.edited(self.text); }
+            accepted => { root.accepted(self.text); }
+        }
+    }
+    if input.text == "" && root.placeholder != "": Text {
+        x: 6px;
+        height: parent.height;
+        text: root.placeholder;
+        color: Theme.muted;
+        vertical-alignment: center;
+    }
+}
+
+component Exact inherits Entry {
+    width: 56px;
+    height: 28px;
+    mono: true;
+    right: true;
+}
+
+component Box inherits Rectangle {
+    in property <bool> checked;
+    in property <string> text;
+    callback toggled(bool);
+    min-height: 24px;
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: checked;
+    accessible-label: text;
+    accessible-action-default => { toggled(!checked); }
+    forward-focus: fs;
+    Rectangle {
+        x: 0;
+        y: (parent.height - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        background: root.checked ? Theme.accent : Theme.field;
+        border-width: 1px;
+        border-color: fs.has-focus ? Theme.text : root.checked ? Theme.accent : Theme.stroke;
+        if root.checked: Rectangle {
+            x: 4px;
+            y: 4px;
+            width: 8px;
+            height: 8px;
+            background: Theme.on-accent;
+        }
+    }
+    Text {
+        x: 24px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.text;
+        color: Theme.text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " { root.toggled(!root.checked); return accept; }
+            reject
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.toggled(!root.checked); }
+    }
+}
+
+// A drop-down list whose options may include group headings.
+component GroupSelect inherits VerticalLayout {
+    in property <[GroupOption]> options;
+    in property <int> index;
+    in property <string> label;
+    in property <bool> steps: true;
+    callback selected(int);
+    property <bool> open;
+    property <int> hi;
+    min-width: 144px;
+    accessible-role: combobox;
+    accessible-label: label;
+    accessible-value: options[index].label;
+    accessible-expandable: true;
+    accessible-expanded: open;
+    accessible-action-expand => { open = !open; hi = index; }
+    forward-focus: fs;
+    function next(from: int, by: int) -> int {
+        if from + by < 0 || from + by >= options.length { return from; }
+        if !options[from + by].header { return from + by; }
+        if from + 2 * by < 0 || from + 2 * by >= options.length { return from; }
+        from + 2 * by
+    }
+    Rectangle {
+        height: 32px;
+        background: ta.has-hover ? Theme.hover : Theme.raised;
+        border-width: 1px;
+        border-color: fs.has-focus || root.open ? Theme.accent : Theme.stroke;
+        Text {
+            x: 8px;
+            width: parent.width - 28px;
+            height: parent.height;
+            text: root.options[root.index].label;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Path {
+            x: parent.width - 20px;
+            y: (parent.height - 8px) / 2;
+            width: 10px;
+            height: 8px;
+            viewbox-width: 10;
+            viewbox-height: 8;
+            commands: root.open ? "M 1 6 L 5 2 L 9 6" : "M 1 2 L 5 6 L 9 2";
+            stroke: Theme.muted;
+            stroke-width: 1.5px;
+        }
+        fs := FocusScope {
+            key-pressed(e) => {
+                if root.open {
+                    if e.text == Key.DownArrow { root.hi = root.next(root.hi, 1); return accept; }
+                    if e.text == Key.UpArrow { root.hi = root.next(root.hi, -1); return accept; }
+                    if e.text == " " || e.text == Key.Return {
+                        root.open = false;
+                        if !root.options[root.hi].header { root.selected(root.hi); }
+                        return accept;
+                    }
+                    if e.text == Key.Escape { root.open = false; return accept; }
+                    return reject;
+                }
+                if e.text == Key.DownArrow && root.steps && root.next(root.index, 1) != root.index { root.selected(root.next(root.index, 1)); return accept; }
+                if e.text == Key.UpArrow && root.steps && root.next(root.index, -1) != root.index { root.selected(root.next(root.index, -1)); return accept; }
+                if e.text == " " || e.text == Key.Return || (!root.steps && e.text == Key.DownArrow) {
+                    root.open = true;
+                    root.hi = root.next(root.index, root.options[root.index].header || !root.steps ? 1 : 0);
+                    return accept;
+                }
+                reject
+            }
+        }
+        ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { fs.focus(); root.open = !root.open; root.hi = root.index; }
+        }
+    }
+    if root.open: Rectangle {
+        background: Theme.raised;
+        border-width: 1px;
+        border-color: Theme.stroke;
+        VerticalLayout {
+            padding: 1px;
+            for option[i] in root.options: Rectangle {
+                height: option.header ? 24px : 28px;
+                background: !option.header && (item.has-hover || i == root.hi) ? Theme.hover : transparent;
+                accessible-role: list-item;
+                accessible-label: option.label;
+                accessible-item-selectable: !option.header;
+                accessible-item-selected: i == root.index;
+                Rectangle {
+                    x: 0;
+                    width: 3px;
+                    background: i == root.index && !option.header ? Theme.accent : transparent;
+                }
+                Text {
+                    x: option.header ? 8px : 17px;
+                    width: parent.width - 20px;
+                    height: parent.height;
+                    text: option.label;
+                    color: option.header ? Theme.muted : i == root.index ? Theme.text : Theme.muted;
+                    font-size: option.header ? 12px : 14px;
+                    font-weight: option.header ? 600 : 400;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                item := TouchArea {
+                    enabled: !option.header;
+                    mouse-cursor: pointer;
+                    clicked => { root.open = false; root.selected(i); }
+                }
+            }
+        }
+    }
+}
+
+// A labelled row: the label takes the room, the control sits on the right.
+component FieldRow inherits HorizontalLayout {
+    in property <string> label;
+    spacing: 12px;
+    min-height: 32px;
+    Label { text: root.label; horizontal-stretch: 1; }
+    @children
+}
+
+component Choice inherits GroupSelect {
+    max-width: 144px;
+    horizontal-stretch: 0;
+}
+
+component IconButton inherits Rectangle {
+    in property <string> label;
+    in property <string> icon;
+    in property <bool> filled;
+    in property <color> ink: Theme.text;
+    callback clicked;
+    width: 28px;
+    height: 28px;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { clicked(); }
+    forward-focus: fs;
+    border-width: fs.has-focus ? 1px : 0;
+    border-color: Theme.accent;
+    Path {
+        x: 6px;
+        y: 6px;
+        width: 16px;
+        height: 16px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: root.icon;
+        fill: root.filled ? root.ink : transparent;
+        fill-rule: evenodd;
+        stroke: root.filled ? transparent : root.ink;
+        stroke-width: 1.5px;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == Key.Return { root.clicked(); return accept; }
+            reject
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component Grip inherits Rectangle {
+    width: 16px;
+    height: 24px;
+    for d in 12: Rectangle {
+        x: mod(d, 3) * 6px + 2px;
+        y: floor(d / 3) * 6px + 2px;
+        width: 2px;
+        height: 2px;
+        background: Theme.muted;
+    }
+}
+
+component LayerLine inherits Rectangle {
+    in property <string> name;
+    in property <string> tag;
+    in property <bool> enabled: true;
+    in property <bool> waiting;
+    in property <bool> selected;
+    in property <bool> base;
+    in property <bool> dragging;
+    callback pick();
+    callback eye();
+    callback step(int);
+    callback move(int);
+    callback drag-start();
+    callback drag(length);
+    callback drop();
+    public function take-focus() { fs.focus(); }
+    height: 36px;
+    background: selected ? Theme.raised : ta.has-hover ? Theme.hover : transparent;
+    opacity: dragging ? 0.4 : 1;
+    property <length> down-y;
+    property <bool> moving;
+    Rectangle {
+        x: 0;
+        width: 3px;
+        background: root.selected ? Theme.accent : transparent;
+    }
+    if selected: Cut { x: parent.width - self.size; under: Theme.panel; }
+    HorizontalLayout {
+        padding-left: 7px;
+        spacing: 0;
+        alignment: stretch;
+        if !root.base: Grip { y: 6px; }
+        if !root.base: IconButton {
+            y: 4px;
+            label: root.enabled ? I18n.t("Hide " + root.name) : I18n.t("Show " + root.name);
+            icon: root.enabled ? "M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5zm7 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" : "M2 2l12 12M6.5 3.2A7 7 0 0 1 8 3c4.5 0 7 5 7 5a12 12 0 0 1-2 2.6M10 12.6A7 7 0 0 1 8 13c-4.5 0-7-5-7-5a12 12 0 0 1 2.4-3";
+            filled: root.enabled;
+            ink: root.enabled ? Theme.text : Theme.muted;
+            clicked => { root.eye(); }
+        }
+        if root.base: Rectangle { width: 44px; }
         Rectangle {
-            height: 260px;
-            border-width: 1px;
-            border-color: Theme.line;
-            accessible-role: list;
-            accessible-label: I18n.t("Effects");
-            Scroll {
-                x: 1px;
-                y: 1px;
-                width: parent.width - 2px;
-                height: parent.height - 2px;
-                content-height: picks.preferred-height;
-                picks := VerticalLayout {
-                    for e in EffectsPage.effects: Pick {
-                        text: I18n.t(e.label);
-                        selected: e.kind == EffectsPage.effect-kind;
-                        clicked => { EffectsPage.pick-effect(e.kind); }
+            horizontal-stretch: 1;
+            border-width: fs.has-focus ? 1px : 0;
+            border-color: Theme.accent;
+            accessible-role: button;
+            accessible-label: root.name + ", " + root.tag;
+            accessible-description: root.base ? "" : I18n.t("Alt+Up and Alt+Down move the layer");
+            accessible-item-selectable: true;
+            accessible-item-selected: root.selected;
+            accessible-action-default => { root.pick(); }
+            name-text := Text {
+                x: 6px;
+                width: min(self.preferred-width, (parent.width - 16px) * 0.6);
+                height: parent.height;
+                text: root.base ? I18n.t("Background") : root.name;
+                color: !root.enabled || root.waiting ? Theme.muted : Theme.text;
+                font-weight: root.selected ? 600 : 400;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if !root.enabled: Rectangle {
+                x: 6px;
+                y: parent.height / 2;
+                width: name-text.width;
+                height: 1px;
+                background: Theme.muted;
+            }
+            Text {
+                x: name-text.width + 14px;
+                width: parent.width - self.x - 10px;
+                height: parent.height;
+                text: root.tag;
+                color: Theme.muted;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            fs := FocusScope {
+                key-pressed(e) => {
+                    if e.modifiers.alt && e.text == Key.UpArrow { root.move(1); return accept; }
+                    if e.modifiers.alt && e.text == Key.DownArrow { root.move(-1); return accept; }
+                    if e.text == Key.UpArrow { root.step(-1); return accept; }
+                    if e.text == Key.DownArrow { root.step(1); return accept; }
+                    if e.text == " " || e.text == Key.Return { root.pick(); return accept; }
+                    reject
+                }
+            }
+            ta := TouchArea {
+                mouse-cursor: root.base ? pointer : (root.moving ? MouseCursor.grabbing : pointer);
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                        root.down-y = self.mouse-y;
+                        root.moving = false;
+                    }
+                    if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                        if root.moving { root.moving = false; root.drop(); } else { fs.focus(); root.pick(); }
+                    }
+                }
+                moved => {
+                    if self.pressed && !root.base {
+                        if !root.moving && abs(self.mouse-y - root.down-y) > 4px {
+                            root.moving = true;
+                            root.drag-start();
+                        }
+                        if root.moving { root.drag(self.mouse-y); }
                     }
                 }
             }
         }
-        Heading { text: I18n.t("Parameters"); }
-        if EffectsPage.params.length == 0: Hint { text: I18n.t("This effect has no parameters."); }
-        for p in EffectsPage.params: HorizontalLayout {
-            spacing: 8px;
-            min-height: 32px;
-            Text {
-                width: 96px;
-                text: I18n.t(p.label);
-                color: Theme.muted;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-            if p.control == "range": HorizontalLayout {
-                spacing: 8px;
-                Slider {
-                    y: 4px;
-                    label: I18n.t(p.label);
-                    value: p.value;
-                    minimum: p.min;
-                    maximum: p.max;
-                    step: p.step;
-                    changed(v) => { EffectsPage.set-param(p.name, v); }
-                }
-                Text {
-                    width: 44px;
-                    text: round(p.value / p.step) * p.step;
-                    color: Theme.text;
-                    font-family: Theme.mono;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                }
-            }
-            if p.control == "color": HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-                Rectangle {
-                    width: 32px;
-                    height: 32px;
-                    background: p.color;
-                    border-width: 1px;
-                    border-color: Theme.stroke;
-                }
-                Field {
-                    width: 96px;
-                    text: p.hex;
-                    mono: true;
-                    placeholder: I18n.t(p.label);
-                    accepted(s) => { EffectsPage.set-param-hex(p.name, s); }
+    }
+}
+
+component LayerList inherits Rectangle {
+    property <int> from: -1;
+    property <int> to: -1;
+    property <length> pitch: 37px;
+    border-width: 1px;
+    border-color: Theme.line;
+    accessible-role: list;
+    accessible-label: I18n.t("Layers");
+    height: stack.preferred-height + 2px;
+    stack := VerticalLayout {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        for l[d] in EffectsPage.layers: VerticalLayout {
+            line := LayerLine {
+                name: l.name;
+                tag: l.tag;
+                enabled: l.enabled;
+                waiting: l.waiting;
+                selected: EffectsPage.layer-sel == EffectsPage.layers.length - 1 - d;
+                dragging: root.from == d;
+                property <int> tick: EffectsPage.focus-tick;
+                changed tick => { if EffectsPage.focus-row == d { self.take-focus(); } }
+                pick => { EffectsPage.select-layer(EffectsPage.layers.length - 1 - d); }
+                eye => { EffectsPage.toggle-layer(EffectsPage.layers.length - 1 - d); }
+                step(by) => { EffectsPage.select-layer(EffectsPage.layers.length - 1 - d - by); }
+                move(by) => { EffectsPage.move-layer(EffectsPage.layers.length - 1 - d, EffectsPage.layers.length - 1 - d + by); }
+                drag-start => { root.from = d; root.to = d; }
+                drag(y) => { root.to = max(0, min(EffectsPage.layers.length, round((d * root.pitch + y) / root.pitch))); }
+                drop => {
+                    if root.from >= 0 {
+                        EffectsPage.move-layer(EffectsPage.layers.length - 1 - root.from, EffectsPage.layers.length - (root.to > root.from ? root.to : root.to + 1));
+                    }
+                    root.from = -1;
+                    root.to = -1;
                 }
             }
-            if p.control == "toggle": HorizontalLayout {
-                alignment: start;
-                Toggle {
-                    y: 6px;
-                    on: p.on;
-                    label: I18n.t(p.label);
-                    toggled(v) => { EffectsPage.set-param-bool(p.name, v); }
-                }
-            }
-            if p.control == "choice": Select {
-                options: p.options;
-                index: p.index;
-                label: I18n.t(p.label);
-                selected(i) => { EffectsPage.set-param-choice(p.name, i); }
-            }
-            if p.control == "other": Hint {
-                text: I18n.t("Edit this in the web interface.");
-                vertical-alignment: center;
+            Rectangle { height: 1px; background: Theme.line; }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        LayerLine {
+            base: true;
+            name: I18n.t("Background");
+            tag: EffectsPage.base-tag;
+            selected: EffectsPage.layer-sel < 0;
+            property <int> tick: EffectsPage.focus-tick;
+            changed tick => { if EffectsPage.focus-row == -1 { self.take-focus(); } }
+            pick => { EffectsPage.select-layer(-1); }
+            step(by) => { if by < 0 { EffectsPage.select-layer(0); } }
+        }
+    }
+    if root.from >= 0: Rectangle {
+        x: 1px;
+        y: 1px + root.to * root.pitch - (root.to > 0 ? 1px : 0);
+        width: parent.width - 2px;
+        height: 2px;
+        background: Theme.accent;
+    }
+}
+
+component Swatch inherits Rectangle {
+    in property <color> chip;
+    in property <string> hex;
+    in property <string> label;
+    in property <bool> open;
+    callback clicked;
+    callback escape;
+    height: 32px;
+    width: row.preferred-width + 2px;
+    background: open ? Theme.hover : ta.has-hover ? Theme.hover : Theme.raised;
+    border-width: 1px;
+    border-color: open || fs.has-focus ? Theme.accent : Theme.stroke;
+    accessible-role: button;
+    accessible-label: label + " " + hex;
+    accessible-expandable: true;
+    accessible-expanded: open;
+    accessible-action-default => { clicked(); }
+    forward-focus: fs;
+    row := HorizontalLayout {
+        padding-left: 5px;
+        padding-right: 10px;
+        spacing: 8px;
+        Rectangle {
+            y: 6px;
+            width: 20px;
+            height: 20px;
+            background: root.chip;
+            border-width: 1px;
+            border-color: Theme.stroke;
+        }
+        Text {
+            text: root.hex;
+            color: Theme.text;
+            font-family: Theme.mono;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == Key.Return { root.clicked(); return accept; }
+            if e.text == Key.Escape && root.open { root.escape(); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.clicked(); }
+    }
+}
+
+// A slider whose track shows the colours it moves through.
+component Track inherits Rectangle {
+    in property <float> value;
+    in property <float> maximum;
+    in property <[color]> blocks;
+    in property <string> label;
+    callback changed(float);
+    property <float> dragged: value;
+    property <float> shown: ta.pressed ? dragged : value;
+    height: 24px;
+    min-width: 60px;
+    horizontal-stretch: 1;
+    accessible-role: slider;
+    accessible-label: label;
+    accessible-value: round(shown);
+    accessible-value-minimum: 0;
+    accessible-value-maximum: maximum;
+    accessible-value-step: 1;
+    accessible-action-increment => { changed(min(maximum, value + 1)); }
+    accessible-action-decrement => { changed(max(0, value - 1)); }
+    forward-focus: fs;
+    function set-from(x: length) {
+        dragged = clamp(round((x - 5px) / (root.width - 10px) * maximum), 0, maximum);
+        changed(dragged);
+    }
+    HorizontalLayout {
+        y: 7px;
+        height: 10px;
+        for c in root.blocks: Rectangle { background: c; }
+    }
+    Rectangle {
+        x: root.shown / max(1, root.maximum) * (root.width - 10px);
+        y: 2px;
+        width: 10px;
+        height: 20px;
+        background: ta.has-hover || fs.has-focus ? Theme.accent : Theme.text;
+        border-width: 1px;
+        border-color: Theme.panel;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.LeftArrow || e.text == Key.DownArrow { root.changed(max(0, root.value - 1)); return accept; }
+            if e.text == Key.RightArrow || e.text == Key.UpArrow { root.changed(min(root.maximum, root.value + 1)); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                fs.focus();
+                root.set-from(self.mouse-x);
             }
         }
+        moved => { if self.pressed { root.set-from(self.mouse-x); } }
+    }
+}
+
+component Tiles inherits HorizontalLayout {
+    in property <[Tile]> tiles;
+    in property <string> verb;
+    callback picked(string);
+    spacing: 1px;
+    alignment: start;
+    for t in root.tiles: Rectangle {
+        width: 24px;
+        height: 24px;
+        border-width: t.on ? 2px : tile.has-hover || tf.has-focus ? 1px : 0;
+        border-color: t.on ? Theme.text : tf.has-focus ? Theme.accent : Theme.stroke;
+        accessible-role: radio-button;
+        accessible-label: root.verb != "" ? I18n.t(root.verb + t.hex) : t.name != "" ? t.name : t.hex;
+        accessible-checkable: true;
+        accessible-checked: t.on;
+        accessible-action-default => { root.picked(t.hex); }
+        Rectangle {
+            x: 3px;
+            y: 3px;
+            width: 18px;
+            height: 18px;
+            background: t.color;
+            border-width: 1px;
+            border-color: Theme.stroke;
+        }
+        tf := FocusScope {
+            key-pressed(e) => {
+                if e.text == " " || e.text == Key.Return { root.picked(t.hex); return accept; }
+                reject
+            }
+        }
+        tile := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.picked(t.hex); }
+        }
+    }
+}
+
+component PickRow inherits HorizontalLayout {
+    in property <int> n;
+    in property <string> name;
+    in property <float> maximum;
+    in property <float> value;
+    in property <string> text;
+    in property <[color]> blocks;
+    spacing: 8px;
+    Label { width: 76px; text: I18n.t(root.name); }
+    Track {
+        label: I18n.t(root.name);
+        value: root.value;
+        maximum: root.maximum;
+        blocks: root.blocks;
+        changed(v) => { EffectsPage.picker-set(root.n, v); }
+    }
+    Exact {
+        y: 2px;
+        value: root.text;
+        label: I18n.t(root.name);
+        invalid: EffectsPage.picker-bad == root.n;
+        edited(t) => { EffectsPage.picker-typed(root.n, t); }
+        escape => { EffectsPage.picker-escape(); }
+    }
+}
+
+component Picker inherits Rectangle {
+    in property <string> pid;
+    border-width: 1px;
+    border-color: Theme.line;
+    height: body.preferred-height;
+    accessible-role: groupbox;
+    Rectangle { x: 0; width: 3px; background: Theme.accent; }
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(e) => {
+            if e.text == Key.Escape { EffectsPage.open-picker(root.pid); return accept; }
+            reject
+        }
+        body := VerticalLayout {
+        padding: 10px;
+        padding-left: 13px;
+        spacing: 8px;
+        PickRow { n: 0; name: "Hue"; maximum: 360; value: EffectsPage.pick-h; text: EffectsPage.pick-ht; blocks: EffectsPage.hue-track; }
+        PickRow { n: 1; name: "Saturation"; maximum: 100; value: EffectsPage.pick-s; text: EffectsPage.pick-st; blocks: EffectsPage.sat-track; }
+        PickRow { n: 2; name: "Brightness"; maximum: 100; value: EffectsPage.pick-v; text: EffectsPage.pick-vt; blocks: EffectsPage.val-track; }
+        FieldRow {
+            label: I18n.t("Hex");
+            Entry {
+                width: 88px;
+                mono: true;
+                value: EffectsPage.pick-hex;
+                label: I18n.t("Hex");
+                invalid: EffectsPage.picker-bad == 3;
+                edited(t) => { EffectsPage.picker-hex(t); }
+                escape => { EffectsPage.picker-escape(); }
+            }
+        }
+        if EffectsPage.picker-problem != "": Problem { text: EffectsPage.picker-problem; }
+        Meta { text: I18n.t("Presets"); }
+        Tiles {
+            tiles: EffectsPage.presets;
+            picked(hex) => { EffectsPage.picker-tile(hex); }
+        }
+        if EffectsPage.recent.length > 0: Meta { text: I18n.t("Recent"); }
+        if EffectsPage.recent.length > 0: Tiles {
+            tiles: EffectsPage.recent;
+            picked(hex) => { EffectsPage.picker-tile(hex); }
+        }
+        }
+    }
+}
+
+component ColourField inherits VerticalLayout {
+    in property <string> pid;
+    in property <string> label;
+    in property <color> color;
+    in property <string> hex;
+    spacing: 8px;
+    FieldRow {
+        label: root.label;
+        Swatch {
+            chip: root.color;
+            hex: root.hex;
+            label: root.label;
+            open: EffectsPage.picker == root.pid;
+            clicked => { EffectsPage.open-picker(root.pid); }
+            escape => { EffectsPage.open-picker(root.pid); }
+        }
+    }
+    if EffectsPage.picker == root.pid: Picker { pid: root.pid; }
+}
+
+component Stops inherits VerticalLayout {
+    in property <string> target;
+    in property <string> label;
+    spacing: 8px;
+    accessible-role: groupbox;
+    accessible-label: label;
+    FieldRow {
+        label: root.label;
+        Button {
+            text: I18n.t("Add stage");
+            enabled: EffectsPage.stops.length < 8;
+            clicked => { EffectsPage.add-stage(); }
+        }
+    }
+    HorizontalLayout {
+        Rectangle { width: 1px; background: Theme.line; }
+        VerticalLayout {
+            padding-left: 12px;
+            spacing: 4px;
+            for s[i] in EffectsPage.stops: VerticalLayout {
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Exact {
+                            y: 2px;
+                            value: s.temp;
+                            label: I18n.t("Stage " + (i + 1) + " temperature in °C");
+                            invalid: EffectsPage.stops-bad == i;
+                            edited(t) => { EffectsPage.stop-temp(i, t); }
+                            escape => { EffectsPage.clear-bad(); }
+                        }
+                        Meta { text: "°C"; font-size: 14px; }
+                    }
+                    Swatch {
+                        chip: s.color;
+                        hex: s.hex;
+                        label: I18n.t("Stage " + (i + 1));
+                        open: EffectsPage.picker == root.target + ":stop:" + i;
+                        clicked => { EffectsPage.open-picker(root.target + ":stop:" + i); }
+                        escape => { EffectsPage.open-picker(root.target + ":stop:" + i); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button {
+                        text: I18n.t("Remove");
+                        accessible-label: I18n.t("Remove stage " + (i + 1));
+                        enabled: EffectsPage.stops.length > 1;
+                        clicked => { EffectsPage.remove-stage(i); }
+                    }
+                }
+                if EffectsPage.picker == root.target + ":stop:" + i: Picker { pid: root.target + ":stop:" + i; }
+            }
+        }
+    }
+    if EffectsPage.stops-problem != "": Problem { text: EffectsPage.stops-problem; }
+}
+
+// The full-size keyboard, drawn from the snapshot's key layout.
+component Board inherits Rectangle {
+    in property <bool> paint;
+    in property <string> label;
+    property <float> units: EffectsPage.show-pad ? 22.75 : 18.25;
+    property <length> unit: self.width / units;
+    property <length> pitch: self.height / 6;
+    property <bool> erase-stroke;
+    height: self.width * 6 / units;
+    accessible-role: groupbox;
+    accessible-label: label;
+    forward-focus: fs;
+    border-width: fs.has-focus ? 1px : 0;
+    border-color: Theme.accent;
+    for k in EffectsPage.keys: Rectangle {
+        visible: EffectsPage.show-pad || !k.pad;
+        x: (k.x - k.w / 2) * root.unit + 1px;
+        y: k.row * root.pitch + 1px;
+        width: k.w * root.unit - 2px;
+        height: root.pitch - 2px;
+        background: k.on ? k.fill : Theme.raised;
+        border-width: k.cursor && fs.has-focus ? 2px : 1px;
+        border-color: k.cursor && fs.has-focus ? Theme.text : k.on ? k.fill : fs.has-focus && !root.paint ? Theme.stroke : Theme.line;
+        accessible-role: button;
+        accessible-label: k.title;
+        accessible-checkable: !root.paint;
+        accessible-checked: k.on;
+        accessible-action-default => { if root.paint { EffectsPage.board-hit(k.x, k.row, false, true); } else { EffectsPage.key-toggle(k.vk); } }
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: k.label;
+            color: k.on ? k.ink : Theme.muted;
+            font-family: Theme.mono;
+            font-size: 10px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: clip;
+        }
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Tab || e.text == Key.Backtab { return reject; }
+            if root.paint {
+                if !e.modifiers.control && !e.modifiers.alt && !e.modifiers.meta && EffectsPage.paint-key(e.text) { return accept; }
+                return reject;
+            }
+            if e.text == Key.Escape { self.clear-focus(); return accept; }
+            if EffectsPage.board-key(e.text, e.repeat) { return accept; }
+            reject
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && (e.button == PointerEventButton.left || e.button == PointerEventButton.right) {
+                fs.focus();
+                if root.paint {
+                    root.erase-stroke = e.button == PointerEventButton.right || EffectsPage.erasing;
+                    EffectsPage.board-hit(self.mouse-x / root.unit, floor(self.mouse-y / root.pitch), root.erase-stroke, true);
+                } else if e.button == PointerEventButton.left {
+                    EffectsPage.board-hit(self.mouse-x / root.unit, floor(self.mouse-y / root.pitch), false, true);
+                }
+            }
+            if e.kind == PointerEventKind.up && root.paint {
+                EffectsPage.board-hit(-1, -1, root.erase-stroke, false);
+            }
+        }
+        moved => {
+            if self.pressed && root.paint {
+                EffectsPage.board-hit(self.mouse-x / root.unit, floor(self.mouse-y / root.pitch), root.erase-stroke, false);
+            }
+        }
+    }
+}
+
+component SmallButton inherits Button {
+    height: 28px;
+}
+
+component KeysField inherits VerticalLayout {
+    in property <string> label;
+    spacing: 8px;
+    Label { text: root.label; }
+    Board { label: root.label; }
+    Hint { text: I18n.t("Click keys, or click the board and press them. Tab moves on."); }
+    FieldRow {
+        label: I18n.t("Show number pad");
+        Toggle { y: 6px; on: EffectsPage.show-pad; label: I18n.t("Show number pad"); toggled(v) => { EffectsPage.set-show-pad(v); } }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        Meta { text: EffectsPage.key-count; horizontal-stretch: 1; wrap: word-wrap; }
+        Button { text: I18n.t("Clear keys"); clicked => { EffectsPage.clear-keys(); } }
+    }
+}
+
+component Seg inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    height: 26px;
+    width: t.preferred-width + 24px;
+    background: on ? Theme.accent : ta.has-hover ? Theme.hover : transparent;
+    border-width: fs.has-focus ? 1px : 0;
+    border-color: on ? Theme.on-accent : Theme.accent;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-checkable: true;
+    accessible-checked: on;
+    accessible-action-default => { clicked(); }
+    forward-focus: fs;
+    t := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.on ? Theme.on-accent : Theme.text;
+        font-weight: root.on ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if on: Cut { x: parent.width - self.size; under: Theme.panel; }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == Key.Return { root.clicked(); return accept; }
+            reject
+        }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { fs.focus(); root.clicked(); } }
+}
+
+component PaintField inherits VerticalLayout {
+    in property <string> label;
+    spacing: 8px;
+    ColourField {
+        pid: "brush";
+        label: I18n.t("Paint colour");
+        color: EffectsPage.brush;
+        hex: EffectsPage.brush-hex;
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        alignment: start;
+        Rectangle {
+            border-width: 1px;
+            border-color: Theme.stroke;
+            width: seg.preferred-width + 2px;
+            height: 28px;
+            accessible-role: groupbox;
+            accessible-label: I18n.t("Tool");
+            seg := HorizontalLayout {
+                x: 1px;
+                y: 1px;
+                Seg { text: I18n.t("Paint"); on: !EffectsPage.erasing; clicked => { EffectsPage.paint-tool(false); } }
+                Rectangle { width: 1px; background: Theme.line; }
+                Seg { text: I18n.t("Erase"); on: EffectsPage.erasing; clicked => { EffectsPage.paint-tool(true); } }
+            }
+        }
+        if EffectsPage.paint-recent.length > 0: Tiles {
+            padding-top: 2px;
+            tiles: EffectsPage.paint-recent;
+            verb: "Paint with ";
+            picked(hex) => { EffectsPage.paint-recent-pick(hex); }
+        }
+    }
+    VerticalLayout {
+        spacing: 4px;
+        accessible-role: groupbox;
+        accessible-label: I18n.t("Paint a group of keys");
         HorizontalLayout {
-            spacing: 8px;
+            spacing: 4px;
             alignment: start;
-            Button { text: I18n.t("Reset to defaults"); clicked => { EffectsPage.reset-effect(); } }
-            Button { text: I18n.t("Randomise"); clicked => { EffectsPage.randomise-effect(); } }
+            SmallButton { text: I18n.t("F-keys"); clicked => { EffectsPage.paint-group(0); } }
+            SmallButton { text: I18n.t("Numbers"); clicked => { EffectsPage.paint-group(1); } }
+            SmallButton { text: I18n.t("Letters"); clicked => { EffectsPage.paint-group(2); } }
+            SmallButton { text: I18n.t("WASD"); clicked => { EffectsPage.paint-group(3); } }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            SmallButton { text: I18n.t("Arrows"); clicked => { EffectsPage.paint-group(4); } }
+            SmallButton { text: I18n.t("Number pad"); clicked => { EffectsPage.paint-group(5); } }
+            SmallButton { text: I18n.t("Modifiers"); clicked => { EffectsPage.paint-group(6); } }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            SmallButton { text: I18n.t("Nav cluster"); clicked => { EffectsPage.paint-group(7); } }
+            SmallButton { text: I18n.t("All"); clicked => { EffectsPage.paint-group(8); } }
+        }
+    }
+    Board { paint: true; label: root.label + ": " + I18n.t("arrow keys move, Space paints, Delete erases"); }
+    Hint { text: I18n.t("Click or drag to paint, right-click to erase. On the board, arrow keys move, Space paints and Delete erases."); }
+    if EffectsPage.zones != "": Hint { text: EffectsPage.zones; }
+    FieldRow {
+        label: I18n.t("Show number pad");
+        Toggle { y: 6px; on: EffectsPage.show-pad; label: I18n.t("Show number pad"); toggled(v) => { EffectsPage.set-show-pad(v); } }
+    }
+    Meta { text: EffectsPage.key-count; }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        SmallButton { text: I18n.t("Undo"); enabled: EffectsPage.can-undo; clicked => { EffectsPage.undo(); } }
+        SmallButton { text: I18n.t("Redo"); enabled: EffectsPage.can-redo; clicked => { EffectsPage.redo(); } }
+        SmallButton {
+            text: I18n.t("Fill empty");
+            accessible-description: I18n.t("Paint every key that has no colour yet");
+            clicked => { EffectsPage.fill-empty(); }
+        }
+        SmallButton {
+            text: I18n.t("Clear");
+            accessible-description: I18n.t("Clear every key");
+            clicked => { EffectsPage.clear-paint(); }
+        }
+    }
+    Text {
+        text: I18n.t("Key maps");
+        color: Theme.text;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    GroupSelect {
+        label: I18n.t("Use a saved key map");
+        options: EffectsPage.map-choices;
+        index: 0;
+        steps: false;
+        selected(i) => { EffectsPage.use-map(i - 1); }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        name := Entry {
+            horizontal-stretch: 1;
+            value: EffectsPage.map-name;
+            placeholder: I18n.t("Key map name");
+            label: I18n.t("Key map name");
+            edited(t) => { EffectsPage.map-named(t); }
+            accepted(t) => { EffectsPage.save-map(t); }
+        }
+        SmallButton {
+            y: 2px;
+            text: I18n.t("Save");
+            accessible-description: I18n.t("Save these colours as a key map");
+            clicked => {
+                if name.typed == "" { name.take-focus(); } else { EffectsPage.save-map(name.typed); }
+            }
+        }
+        SmallButton {
+            y: 2px;
+            text: I18n.t("Delete");
+            enabled: EffectsPage.can-delete-map;
+            accessible-description: I18n.t("Delete the saved key map of this name");
+            clicked => { EffectsPage.delete-map(name.typed); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        code := Entry {
+            horizontal-stretch: 1;
+            value: EffectsPage.share-code;
+            mono: true;
+            placeholder: I18n.t("Paste share code");
+            label: I18n.t("Key map share code");
+            property <int> tick: EffectsPage.copy-tick;
+            changed tick => { self.set(EffectsPage.share-code); self.take-focus(); self.copy-all(); }
+            property <int> reset: EffectsPage.code-reset;
+            changed reset => { self.set(""); }
+            accepted(t) => { EffectsPage.add-code(t); }
+        }
+        SmallButton {
+            y: 2px;
+            text: I18n.t("Add");
+            accessible-description: I18n.t("Add the key map in the share code");
+            clicked => { EffectsPage.add-code(code.typed); }
+        }
+        SmallButton {
+            y: 2px;
+            text: I18n.t("Copy code");
+            accessible-description: I18n.t("Copy a share code for these colours");
+            clicked => { EffectsPage.copy-code(name.typed); }
+        }
+    }
+    if EffectsPage.paint-note != "": Hint { text: EffectsPage.paint-note; accessible-role: text; }
+}
+
+component ParamRow inherits VerticalLayout {
+    in property <EParam> p;
+    in property <string> target;
+    property <string> pid: target + ":" + p.name;
+    if p.control == "range": HorizontalLayout {
+        spacing: 8px;
+        min-height: 32px;
+        Label { width: 96px; text: root.p.label; }
+        Slider {
+            y: 4px;
+            horizontal-stretch: 1;
+            label: root.p.label;
+            value: root.p.value;
+            minimum: root.p.min;
+            maximum: root.p.max;
+            step: root.p.step;
+            changed(v) => { EffectsPage.set-range(root.target, root.p.name, v); }
+        }
+        Exact {
+            y: 2px;
+            value: root.p.text;
+            label: root.p.label;
+            invalid: EffectsPage.bad == root.pid;
+            edited(t) => { EffectsPage.range-text(root.target, root.p.name, t); }
+            escape => { EffectsPage.clear-bad(); }
+        }
+    }
+    if p.control == "color": ColourField {
+        pid: root.pid;
+        label: root.p.label;
+        color: root.p.color;
+        hex: root.p.hex;
+    }
+    if p.control == "toggle": FieldRow {
+        label: root.p.label;
+        Toggle {
+            y: 6px;
+            on: root.p.on;
+            label: root.p.label;
+            toggled(v) => { EffectsPage.set-toggle(root.target, root.p.name, v); }
+        }
+    }
+    if p.control == "choice" || p.control == "sensor": FieldRow {
+        label: root.p.label;
+        Choice {
+            options: root.p.options;
+            index: root.p.index;
+            label: root.p.label;
+            selected(i) => { EffectsPage.set-choice(root.target, root.p.name, i); }
+        }
+    }
+    if p.control == "sensor" && p.status != "": Hint { text: root.p.status; accessible-role: text; }
+    if p.control == "stops": Stops { target: root.target; label: root.p.label; }
+    if p.control == "keys": KeysField { label: root.p.label; }
+    if p.control == "key_colours": PaintField { label: root.p.label; }
+}
+
+export component EffectsPanel inherits Scroll {
+    content-height: body.preferred-height;
+    FocusScope {
+        height: body.preferred-height;
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(e) => {
+            if (e.modifiers.control || e.modifiers.meta) && !e.modifiers.alt {
+                if (e.text == "z" || e.text == "Z") && !e.modifiers.shift { EffectsPage.undo(); return accept; }
+                if e.text == "y" || e.text == "Y" || ((e.text == "z" || e.text == "Z") && e.modifiers.shift) { EffectsPage.redo(); return accept; }
+                if (e.text == "f" || e.text == "F") && EffectsPage.layer-sel < 0 { EffectsPage.search-focus += 1; return accept; }
+            }
+            reject
+        }
+        body := VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            Heading { text: I18n.t("Layers"); }
+            LayerList { }
+            GroupSelect {
+                label: I18n.t("Add a layer");
+                options: EffectsPage.add-options;
+                index: 0;
+                steps: false;
+                selected(i) => { EffectsPage.add-layer(i); }
+            }
+            Hint { text: I18n.t("Drag a layer to move it. Layers higher in the list are drawn over the ones below."); }
+
+            if EffectsPage.layer-sel < 0: VerticalLayout {
+                spacing: 8px;
+                Heading { text: I18n.t("Background"); }
+                FieldRow {
+                    label: I18n.t("Editing");
+                    Choice {
+                        label: I18n.t("Editing");
+                        options: EffectsPage.edit-options;
+                        index: EffectsPage.edit-index;
+                        selected(i) => { EffectsPage.edit-device(i); }
+                    }
+                }
+                if EffectsPage.follow: Hint { text: I18n.t("This device follows the main background. Choose an effect or change a setting to give it its own."); }
+                if EffectsPage.own: HorizontalLayout {
+                    alignment: start;
+                    padding-bottom: 8px;
+                    Button { text: I18n.t("Follow the main background"); clicked => { EffectsPage.follow-main(); } }
+                }
+                search := Entry {
+                    value: EffectsPage.search;
+                    placeholder: I18n.t("Search effects");
+                    label: I18n.t("Search effects");
+                    property <int> tick: EffectsPage.search-focus;
+                    changed tick => { self.take-focus(); }
+                    edited(t) => { EffectsPage.search-changed(t); }
+                    capture(e) => {
+                        if e.text == Key.Escape && self.typed != "" {
+                            self.set("");
+                            EffectsPage.search-changed("");
+                            return true;
+                        }
+                        if e.text == Key.DownArrow || (e.text == Key.Return && self.typed != "") {
+                            if EffectsPage.search-key(e.text == Key.DownArrow ? "down" : "enter") != "" && e.text == Key.DownArrow { picks.focus(); }
+                            return true;
+                        }
+                        false
+                    }
+                }
+                Rectangle {
+                    height: 260px;
+                    border-width: 1px;
+                    border-color: picks.has-focus ? Theme.accent : Theme.line;
+                    accessible-role: list;
+                    accessible-label: I18n.t("Background");
+                    Scroll {
+                        x: 1px;
+                        y: 1px;
+                        width: parent.width - 2px;
+                        height: parent.height - 2px;
+                        content-height: stack.preferred-height;
+                        property <int> at: EffectsPage.effect-at;
+                        changed at => {
+                            if at >= 0 && at * 32px < -self.content-y { self.content-y = -at * 32px; }
+                            if at >= 0 && (at + 1) * 32px > self.height - self.content-y { self.content-y = self.height - (at + 1) * 32px; }
+                        }
+                        stack := VerticalLayout {
+                            for e[i] in EffectsPage.effects: Rectangle {
+                                height: 32px;
+                                background: e.kind == EffectsPage.effect-kind ? Theme.raised : row.has-hover ? Theme.hover : transparent;
+                                accessible-role: radio-button;
+                                accessible-label: e.label;
+                                accessible-checkable: true;
+                                accessible-checked: e.kind == EffectsPage.effect-kind;
+                                accessible-action-default => { EffectsPage.pick-effect(e.kind); }
+                                Rectangle {
+                                    x: 0;
+                                    width: 3px;
+                                    background: e.kind == EffectsPage.effect-kind ? Theme.accent : transparent;
+                                }
+                                if e.kind == EffectsPage.effect-kind: Cut { x: parent.width - self.size; under: Theme.panel; }
+                                Text {
+                                    x: 12px;
+                                    width: parent.width - 24px - (e.tag ? tag.preferred-width + 8px : 0);
+                                    height: parent.height;
+                                    text: e.label;
+                                    color: e.kind == EffectsPage.effect-kind ? Theme.text : Theme.muted;
+                                    font-weight: e.kind == EffectsPage.effect-kind ? 600 : 400;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                tag := Text {
+                                    x: parent.width - self.width - 12px;
+                                    height: parent.height;
+                                    visible: e.tag;
+                                    text: I18n.t("In use");
+                                    color: Theme.muted;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                row := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { picks.focus(); EffectsPage.pick-effect(e.kind); }
+                                }
+                            }
+                        }
+                    }
+                    picks := FocusScope {
+                        width: 0;
+                        height: 0;
+                        accessible-role: list;
+                        accessible-label: I18n.t("Background");
+                        accessible-value: EffectsPage.effect-label;
+                        key-pressed(e) => {
+                            if e.text == Key.DownArrow || e.text == Key.RightArrow { EffectsPage.pick-step(1); return accept; }
+                            if e.text == Key.UpArrow || e.text == Key.LeftArrow { EffectsPage.pick-step(-1); return accept; }
+                            reject
+                        }
+                    }
+                }
+                if EffectsPage.effects.length == 0 || EffectsPage.no-match: Hint { text: I18n.t("No effects match. Clear the search to see them all."); }
+                Heading { text: I18n.t("Parameters"); }
+                for p in EffectsPage.params: ParamRow {
+                    p: p;
+                    target: "effect";
+                }
+                if EffectsPage.params-problem != "": Problem { text: EffectsPage.params-problem; }
+                if EffectsPage.params.length == 0: Hint { text: I18n.t("This effect has no parameters."); }
+                if EffectsPage.params.length > 0: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    padding-top: 4px;
+                    Button { text: I18n.t("Reset to defaults"); clicked => { EffectsPage.reset-effect(); } }
+                    Button { text: I18n.t("Randomise"); clicked => { EffectsPage.randomise-effect(); } }
+                }
+            }
+
+            if EffectsPage.layer-sel >= 0: VerticalLayout {
+                spacing: 8px;
+                Heading { text: EffectsPage.layer-title; }
+                FieldRow {
+                    label: I18n.t("Effect");
+                    Choice {
+                        label: I18n.t("Effect");
+                        options: EffectsPage.kind-options;
+                        index: EffectsPage.kind-index;
+                        selected(i) => { EffectsPage.set-layer-kind(i); }
+                    }
+                }
+                FieldRow {
+                    label: I18n.t("Blend");
+                    Choice {
+                        label: I18n.t("Blend");
+                        options: [
+                            { label: I18n.t("Normal") }, { label: I18n.t("Add") }, { label: I18n.t("Screen") },
+                            { label: I18n.t("Multiply") }, { label: I18n.t("Tint") }
+                        ];
+                        index: EffectsPage.blend-index;
+                        selected(i) => { EffectsPage.set-blend(i); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    min-height: 32px;
+                    Label { text: I18n.t("Opacity"); }
+                    Slider {
+                        y: 4px;
+                        horizontal-stretch: 1;
+                        label: I18n.t("Opacity");
+                        value: EffectsPage.opacity;
+                        minimum: 0;
+                        maximum: 100;
+                        step: 1;
+                        changed(v) => { EffectsPage.set-opacity(v); }
+                    }
+                    Exact {
+                        y: 2px;
+                        value: EffectsPage.opacity-text;
+                        label: I18n.t("Opacity");
+                        invalid: EffectsPage.bad == "layer:opacity";
+                        edited(t) => { EffectsPage.opacity-typed(t); }
+                        escape => { EffectsPage.clear-bad(); }
+                    }
+                }
+                FieldRow {
+                    label: I18n.t("Shows on");
+                    Choice {
+                        label: I18n.t("Shows on");
+                        options: [{ label: I18n.t("All devices") }, { label: I18n.t("Keyboards") }, { label: I18n.t("Chosen devices") }];
+                        index: EffectsPage.scope-index;
+                        selected(i) => { EffectsPage.set-scope(i); }
+                    }
+                }
+                if EffectsPage.scope-index == 2: Rectangle {
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    height: min(180px, checks.preferred-height + 2px);
+                    Scroll {
+                        x: 1px;
+                        y: 1px;
+                        width: parent.width - 2px;
+                        height: parent.height - 2px;
+                        content-height: checks.preferred-height;
+                        checks := VerticalLayout {
+                            padding: 6px;
+                            padding-left: 8px;
+                            spacing: 4px;
+                            for c in EffectsPage.checks: Box {
+                                text: c.name;
+                                checked: c.on;
+                                toggled(v) => { EffectsPage.set-check(c.id, v); }
+                            }
+                        }
+                    }
+                }
+                FieldRow {
+                    label: I18n.t("Active");
+                    Choice {
+                        label: I18n.t("Active");
+                        options: [{ label: I18n.t("Always") }, { label: I18n.t("App is open") }, { label: I18n.t("App is in front") }];
+                        index: EffectsPage.when-index;
+                        selected(i) => { EffectsPage.set-when(i); }
+                    }
+                }
+                if EffectsPage.when-index > 0: VerticalLayout {
+                    spacing: 8px;
+                    if EffectsPage.apps.length > 0: VerticalLayout {
+                        for a[n] in EffectsPage.apps: Rectangle {
+                            height: 32px;
+                            border-width: 1px;
+                            border-color: Theme.line;
+                            Text {
+                                x: 10px;
+                                width: parent.width - remove.width - 18px;
+                                height: parent.height;
+                                text: a;
+                                color: Theme.text;
+                                font-family: Theme.mono;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            remove := Button {
+                                x: parent.width - self.width - 1px;
+                                y: 1px;
+                                height: 30px;
+                                text: I18n.t("Remove");
+                                accessible-label: I18n.t("Remove " + a);
+                                clicked => { EffectsPage.remove-app(n); app.take-focus(); }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        app := Entry {
+                            horizontal-stretch: 1;
+                            value: "";
+                            mono: true;
+                            placeholder: "game.exe";
+                            label: I18n.t("App to add");
+                            changed focused => { if self.focused { EffectsPage.app-typed(self.typed); } }
+                            edited(t) => { EffectsPage.app-typed(t); }
+                            accepted(t) => { if t != "" { EffectsPage.add-app(t); self.set(""); EffectsPage.app-typed(""); } }
+                        }
+                        Button {
+                            text: I18n.t("Add app");
+                            clicked => { if app.typed != "" { EffectsPage.add-app(app.typed); app.set(""); EffectsPage.app-typed(""); } }
+                        }
+                    }
+                    if app.focused && EffectsPage.app-choices.length > 0: Rectangle {
+                        border-width: 1px;
+                        border-color: Theme.stroke;
+                        background: Theme.raised;
+                        height: choices.preferred-height + 2px;
+                        choices := VerticalLayout {
+                            x: 1px;
+                            y: 1px;
+                            width: parent.width - 2px;
+                            for c in EffectsPage.app-choices: Rectangle {
+                                height: 28px;
+                                background: pick.has-hover ? Theme.hover : transparent;
+                                accessible-role: list-item;
+                                accessible-label: c;
+                                accessible-action-default => { EffectsPage.add-app(c); }
+                                Text {
+                                    x: 10px;
+                                    width: parent.width - 20px;
+                                    height: parent.height;
+                                    text: c;
+                                    color: Theme.text;
+                                    font-family: Theme.mono;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                pick := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { EffectsPage.add-app(c); app.set(""); EffectsPage.app-typed(""); }
+                                }
+                            }
+                        }
+                    }
+                    Hint { text: EffectsPage.app-hint; }
+                }
+                Heading { text: I18n.t("Settings"); }
+                for p in EffectsPage.layer-params: ParamRow {
+                    p: p;
+                    target: "layer";
+                }
+                if EffectsPage.layer-problem != "": Problem { text: EffectsPage.layer-problem; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    padding-top: 4px;
+                    if EffectsPage.layer-params.length > 0: Button { text: I18n.t("Reset to defaults"); clicked => { EffectsPage.reset-layer(); } }
+                    Button { text: I18n.t("Duplicate"); clicked => { EffectsPage.copy-layer(); } }
+                    Button { text: I18n.t("Remove"); clicked => { EffectsPage.remove-layer(); } }
+                }
+            }
         }
     }
 }

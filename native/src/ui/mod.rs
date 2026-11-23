@@ -4,6 +4,7 @@ mod audio;
 mod clipboard;
 mod devices;
 mod effects;
+mod effects_keys;
 mod fans;
 mod profiles;
 mod settings;
