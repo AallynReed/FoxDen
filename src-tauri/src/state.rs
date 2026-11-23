@@ -221,10 +221,7 @@ impl AppState {
                 leds: device.leds.clone(),
                 enabled,
                 brightness,
-                zones: match backend {
-                    "hid" => self.zones.get(&device.id).cloned().unwrap_or_default(),
-                    _ => Vec::new(),
-                },
+                zones: self.zones.get(&device.id).cloned().unwrap_or_default(),
             })
             .collect();
         Snapshot {
@@ -656,10 +653,10 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
 fn group_zones(zones: Vec<foxden_hid::Zone>) -> HashMap<String, Vec<ZoneView>> {
     let mut by_device: HashMap<String, Vec<ZoneView>> = HashMap::new();
     for z in zones {
-        by_device
-            .entry(z.device.clone())
-            .or_default()
-            .push(z.into());
+        let list = by_device.entry(z.device.clone()).or_default();
+        let z = ZoneView::from(z);
+        list.retain(|seen| seen.key != z.key);
+        list.push(z);
     }
     by_device
 }
@@ -1093,6 +1090,33 @@ mod tests {
             json!({ "name": "net", "active": false, "devices": 0, "error": null })
         );
         assert_eq!(backends.len(), 4);
+    }
+
+    #[test]
+    fn zones_reach_every_group_once() {
+        let mut state = AppState::new(Config::default());
+        state.engine.add("board", vec![Box::new(VirtualBackend)]);
+        let zone = |leds| foxden_hid::Zone {
+            device: "virtual:gpu".into(),
+            index: 0,
+            name: "Header 1".into(),
+            leds,
+            min: 0,
+            max: 120,
+        };
+        state.zones = group_zones(vec![zone(10), zone(20)]);
+        let json = serde_json::to_value(state.snapshot()).unwrap();
+        let gpu = json["devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["id"] == "virtual:gpu")
+            .unwrap();
+        assert_eq!(gpu["backend"], "board");
+        assert_eq!(
+            gpu["zones"],
+            json!([{ "key": "virtual:gpu#0", "name": "Header 1", "leds": 20, "min": 0, "max": 120 }])
+        );
     }
 
     #[test]
