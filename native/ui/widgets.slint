@@ -430,13 +430,31 @@ export component Pick inherits Rectangle {
 
 export component Scroll inherits Flickable {
     interactive: false;
-    Rectangle {
+    thumb := Rectangle {
         x: root.width - 4px;
         y: -root.content-y * root.height / max(1px, root.content-height);
         width: 3px;
         height: min(root.height, root.height * root.height / max(1px, root.content-height));
-        background: Theme.stroke;
+        background: grab.pressed || grab.has-hover ? Theme.muted : Theme.stroke;
         visible: root.content-height > root.height;
+        grab := TouchArea {
+            x: -8px;
+            width: 14px;
+            property <length> start-content;
+            property <length> start-thumb;
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down {
+                    self.start-content = root.content-y;
+                    self.start-thumb = thumb.y;
+                }
+            }
+            moved => {
+                if self.pressed {
+                    root.content-y = max(root.height - root.content-height, min(0px,
+                        self.start-content - (self.mouse-y - self.pressed-y + thumb.y - self.start-thumb) * root.content-height / root.height));
+                }
+            }
+        }
     }
 }
 

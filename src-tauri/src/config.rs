@@ -37,6 +37,8 @@ pub struct Settings {
     pub update_ignored: String,
     /// Unix time before which the update popup stays closed.
     pub update_remind_at: u64,
+    /// The last version whose window was opened, to show what changed after an update.
+    pub seen_version: String,
     /// UI language: "auto" follows Windows.
     pub language: String,
     pub lighting_module: bool,
@@ -72,6 +74,7 @@ impl Default for Settings {
             auto_update: false,
             update_ignored: String::new(),
             update_remind_at: 0,
+            seen_version: String::new(),
             language: "auto".into(),
             lighting_module: true,
             fans_module: true,

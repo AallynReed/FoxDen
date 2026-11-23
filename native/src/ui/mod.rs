@@ -130,6 +130,7 @@ pub fn show(app: &AppHandle) {
     });
     if exists {
         app.set_shown(true, false);
+        settings::show_whats_new(app);
         settings::prompt_update(app);
         return;
     }
@@ -148,6 +149,7 @@ pub fn show(app: &AppHandle) {
         apply_all(&win, app, view);
     });
     let _ = win.show();
+    settings::show_whats_new(app);
     settings::prompt_update(app);
     let poll = Timer::default();
     let weak = win.as_weak();

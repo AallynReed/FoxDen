@@ -65,6 +65,7 @@ export global SettingsPage {
     callback open-changelog();
     in property <[ChangeRow]> update-log;
     in property <[ChangeRow]> changelog;
+    in property <string> changelog-title;
     callback open-logs();
 
     in property <bool> lighting;
@@ -1017,7 +1018,7 @@ export component SettingsSheets inherits Rectangle {
                 wide: 620px;
                 x: (root.width - self.width) / 2;
                 y: max(16px, (root.height - self.preferred-height) / 2);
-                title: I18n.t("Changelog");
+                title: SettingsPage.changelog-title;
                 Scroll {
                     height: min(root.height - 150px, log.preferred-height);
                     content-height: log.preferred-height;

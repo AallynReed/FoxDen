@@ -1022,6 +1022,7 @@ mod tests {
                 "openrgb_enabled",
                 "openrgb_host",
                 "openrgb_port",
+                "seen_version",
                 "send_reports",
                 "start_minimized",
                 "update_ignored",

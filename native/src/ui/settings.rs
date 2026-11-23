@@ -993,6 +993,47 @@ fn show_update(app: &AppHandle, info: &Value, announce: bool) {
     }
 }
 
+/// The first time the window opens on a newer version, shows what changed since the last one opened.
+pub fn show_whats_new(app: &AppHandle) {
+    let app = app.clone();
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        let current = env!("CARGO_PKG_VERSION");
+        let seen = s(&snap_settings(&app)["seen_version"]).to_string();
+        if seen == current || !with_win_visible() {
+            return;
+        }
+        edit_settings(&app, |s| s["seen_version"] = json!(current));
+        if !seen.is_empty() && !crate::updater::newer(current, &seen) {
+            return;
+        }
+        let all = crate::changelog::built_in();
+        let entries: Vec<Value> = if seen.is_empty() {
+            all.as_array().into_iter().flatten().filter(|e| e["version"] == current).cloned().collect()
+        } else {
+            crate::changelog::between(&all, &seen, current)
+        };
+        if entries.is_empty() {
+            return;
+        }
+        let rows = log_rows(&app, &entries);
+        with_win(|w| {
+            let g = w.global::<SettingsPage>();
+            if g.get_sheet().is_empty() {
+                g.set_changelog(slint::ModelRc::new(VecModel::from(rows)));
+                g.set_changelog_title(tf(&app, "FoxDen {0}", &[current]).into());
+                g.set_sheet("changelog".into());
+            }
+        });
+        redraw(&app);
+    });
+}
+
+fn with_win_visible() -> bool {
+    let mut visible = false;
+    with_win(|w| visible = w.window().is_visible());
+    visible
+}
+
 /// Opens the update popup on a visible window, unless this release was put off or ignored.
 pub fn prompt_update(app: &AppHandle) {
     let app = app.clone();
@@ -1042,6 +1083,7 @@ fn bind_updates(w: &AppWindow, app: &AppHandle) {
         with_win(|w| {
             let g = w.global::<SettingsPage>();
             g.set_changelog(slint::ModelRc::new(VecModel::from(rows)));
+            g.set_changelog_title(tr(&a, "Changelog").into());
             g.set_sheet("changelog".into());
         });
     });
