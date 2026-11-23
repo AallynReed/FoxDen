@@ -112,6 +112,9 @@ pub struct HubZone {
     pub leds: usize,
     pub min: usize,
     pub max: usize,
+    /// LEDs per fan; 0 or 1 for a free count.
+    #[serde(default)]
+    pub step: usize,
 }
 
 /// The fan hubs whose lighting the service drives.

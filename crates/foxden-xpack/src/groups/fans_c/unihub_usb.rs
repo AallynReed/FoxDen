@@ -245,13 +245,14 @@ impl UsbProto for V2Lights {
 fn fans_per_channel(id: &str) -> [usize; CHANNELS] {
     std::array::from_fn(|i| {
         let name = format!("Channel {}", i + 1);
-        fans_of(foxden_hid::zone_length(
+        fans_of(foxden_hid::zone_length_step(
             id,
             i,
             &name,
             CHANNEL_LEDS,
             FAN_LEDS,
             CHANNEL_LEDS,
+            FAN_LEDS,
         ))
     })
 }
@@ -603,6 +604,16 @@ mod tests {
         let d = layout("x".into(), "X", &[1, 4, 2, 3]);
         assert_eq!((d.leds.len(), d.grid), (160, [64, 4]));
         assert_eq!(layout("x".into(), "X", &[4; 4]).leds.len(), 256);
+        assert_eq!(fans_per_channel("fan:unihub-step-test"), [4; 4]);
+        let zones: Vec<_> = foxden_hid::resizable()
+            .into_iter()
+            .filter(|z| z.device == "fan:unihub-step-test")
+            .collect();
+        assert!(
+            zones
+                .iter()
+                .all(|z| (z.leds, z.min, z.max, z.step) == (64, 16, 64, 16))
+        );
     }
 
     // getChannelColors: "Inline", "RBG".
