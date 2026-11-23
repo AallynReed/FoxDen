@@ -1,5 +1,5 @@
-//! Frames and replies of the SteelSeries Arctis Nova headsets, the controls of Corsair Bragi
-//! headsets, and the model table that leads to the other brands' modules. Pure: no device access.
+//! Frames and replies of the SteelSeries Arctis Nova headsets, and the controls of Corsair Bragi
+//! headsets. Pure: no device access.
 
 use serde::{Deserialize, Serialize};
 
@@ -341,7 +341,8 @@ impl Model {
             (_, Control::BtPowerOn) => 0xB2,
             (_, Control::BtCall) => 0xB3,
             (_, Control::EqPreset) => 0x2E,
-            (_, Control::Anc | Control::NoiseGate | Control::VoicePrompts) => {
+            (_, Control::Anc) => return Err(format!("{} has no {} setting", self.name, c.id())),
+            (_, Control::NoiseGate | Control::VoicePrompts) => {
                 return Err(format!("{} has no {} setting", self.name, c.id()));
             }
         };
@@ -369,11 +370,8 @@ impl Model {
     pub fn save(&self, c: Option<Control>) -> Save {
         match self.family {
             Family::Nova7 | Family::Nova7Gen2 => Save::Settled(vec![0x00, 0x09]),
-            Family::Nova5
-            | Family::Bragi
-            | Family::AstroGen4
-            | Family::AstroGen5
-            | Family::Audeze => Save::None,
+            Family::Nova5 | Family::Bragi => Save::None,
+            Family::AstroGen4 | Family::AstroGen5 | Family::Audeze => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
         }
@@ -470,7 +468,8 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
                 values: Vec::new(),
             })
         }
-        Family::Bragi | Family::AstroGen4 | Family::AstroGen5 | Family::Audeze => None,
+        Family::Bragi => None,
+        Family::AstroGen4 | Family::AstroGen5 | Family::Audeze => None,
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;

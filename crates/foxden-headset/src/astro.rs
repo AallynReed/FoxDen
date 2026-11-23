@@ -1,11 +1,10 @@
-//! ASTRO A50 base stations: the Gen 4 answers every request with a status byte, the Gen 5 speaks
-//! marker-framed commands and also pushes them on its own.
+//! ASTRO A50 base stations: Gen 4 replies carry a status byte, Gen 5 frames carry a marker.
 
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 
-use foxden_battery::hid::Dev;
+use foxden_battery::hid::{Coll, Dev};
 
 use crate::proto::{Control, Family, Model, Shape, Status};
 use crate::{Found, Reading};
@@ -74,6 +73,11 @@ fn checked(m: &Model, c: Control, v: i32) -> Result<(), String> {
     }
 }
 
+/// The battery driver's vendor collection test.
+pub fn gen4_fits(c: &Coll) -> bool {
+    matches!(c.page, 0xFF31 | 0xFF32 | 0xFF00) && c.in_len >= 64 && c.out_len >= 64
+}
+
 pub fn read(f: &Found, settings: bool) -> Option<Reading> {
     match f.model.family {
         Family::AstroGen4 => gen4::read(f, settings),
@@ -112,7 +116,7 @@ mod gen4 {
     const MIC: u8 = 0x04;
     const SIDETONE: u8 = 0x05;
 
-    /// Whether the collection numbers its reports (`02 cmd`) or wants a leading 0 (`00 02 cmd`).
+    /// `02 cmd`, or `00 02 cmd` on a collection without report ids.
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Framing {
         Numbered,
@@ -169,7 +173,6 @@ mod gen4 {
         }
     }
 
-    /// The command and payload that set `c` to `v`.
     pub fn write(c: Control, v: i32) -> Option<(u8, Vec<u8>)> {
         let b = v as u8;
         Some(match c {
@@ -207,7 +210,6 @@ mod gen4 {
             .map(|p| *p as i32)
     }
 
-    /// Percent and charging.
     pub fn battery(d: &[u8]) -> Option<(u8, bool)> {
         d.first()
             .filter(|b| *b & 0x7F <= 100)
@@ -307,7 +309,7 @@ mod gen4 {
             None => return Err("the base station did not answer".into()),
         }
         if c == Control::EqPreset {
-            // The preset reads back late; wait until it agrees so the next look shows it.
+            // The preset reads back late.
             for _ in 0..8 {
                 sleep(Duration::from_millis(200));
                 if data(&dev, fr, GET_PRESET, &[]).and_then(|d| preset(&d)) == Some(v) {

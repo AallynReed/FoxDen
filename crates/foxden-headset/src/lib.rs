@@ -1,5 +1,5 @@
-//! Settings of SteelSeries, ASTRO and Audeze wireless headsets over their own HID protocols, and
-//! of Corsair headsets as Bragi properties.
+//! Settings of SteelSeries wireless headsets over their own HID protocol, and of Corsair headsets
+//! as Bragi properties.
 
 pub mod astro;
 pub mod audeze;
@@ -34,6 +34,8 @@ pub fn find() -> Vec<Found> {
         };
         let fits = if model.family == Family::Bragi {
             Bragi::fits(&c)
+        } else if model.family == Family::AstroGen4 {
+            astro::gen4_fits(&c)
         } else {
             match model.collection() {
                 (_, Some((page, usage))) => c.page == page && c.usage == usage,
@@ -72,11 +74,11 @@ pub struct Reading {
 }
 
 pub fn read(f: &Found) -> Option<Reading> {
-    match f.model.family {
-        Family::Bragi => return bragi::read(f, true),
-        Family::AstroGen4 | Family::AstroGen5 => return astro::read(f, true),
-        Family::Audeze => return audeze::read(f, true),
-        _ => {}
+    if f.model.family == Family::Bragi {
+        return bragi::read(f, true);
+    }
+    if let Some(r) = own_read(f, true) {
+        return r;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -95,13 +97,22 @@ pub fn read(f: &Found) -> Option<Reading> {
     Some(Reading { status, values })
 }
 
+/// Reads of the brands with their own module; `None` for the others.
+fn own_read(f: &Found, settings: bool) -> Option<Option<Reading>> {
+    match f.model.family {
+        Family::AstroGen4 | Family::AstroGen5 => Some(astro::read(f, settings)),
+        Family::Audeze => Some(audeze::read(f, settings)),
+        _ => None,
+    }
+}
+
 /// Just the status: battery, power and the ChatMix dial. Cheap enough to ask often.
 pub fn status(f: &Found) -> Option<Status> {
-    match f.model.family {
-        Family::Bragi => return bragi::read(f, false)?.status,
-        Family::AstroGen4 | Family::AstroGen5 => return astro::read(f, false)?.status,
-        Family::Audeze => return audeze::read(f, false)?.status,
-        _ => {}
+    if f.model.family == Family::Bragi {
+        return bragi::read(f, false)?.status;
+    }
+    if let Some(r) = own_read(f, false) {
+        return r?.status;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -126,8 +137,10 @@ fn send(f: &Found, frames: Vec<Vec<u8>>, save: Save) -> Result<(), String> {
 
 /// Sets one control. A settled save, if the model has one, is left to [`save`].
 pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
+    if f.model.family == Family::Bragi {
+        return bragi::set(f, c, v);
+    }
     match f.model.family {
-        Family::Bragi => return bragi::set(f, c, v),
         Family::AstroGen4 | Family::AstroGen5 => return astro::set(f, c, v),
         Family::Audeze => return audeze::set(f, c, v),
         _ => {}

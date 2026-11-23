@@ -1,5 +1,4 @@
-//! Audeze Maxwell and Maxwell 2 through their 2.4 GHz dongles. Requests go out as report 06 and
-//! replies come back in the input report 07 as a stream of `05 type len body` messages.
+//! Audeze Maxwell and Maxwell 2 dongles: report 06 out, `05 type len body` messages in report 07.
 
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -131,7 +130,6 @@ pub fn write_param(p: u8, v: &[u8]) -> Vec<u8> {
 
 const BATTERY: [u8; 3] = [0xD6, 0x0C, 0x00];
 
-/// Output reports carrying one request.
 pub fn reports(body: &[u8]) -> Vec<Vec<u8>> {
     let mut msg = vec![0x05, REQUEST];
     msg.extend_from_slice(&(body.len() as u16).to_le_bytes());
@@ -181,7 +179,6 @@ fn is(m: &[u8], kind: u8, cmd: [u8; 2]) -> bool {
     m.len() >= 6 && m[1] == kind && m[4..6] == cmd
 }
 
-/// The value in a reply to [`read_key`] `k`.
 pub fn key_value(m: &[u8], k: u8) -> Option<Option<u8>> {
     (is(m, RESPONSE, [0x01, 0x09]) && m.len() >= 8 && m[6..8] == [k, 0])
         .then(|| (m.len() > 9 && m[8] == 0).then(|| m[9]))
@@ -191,13 +188,11 @@ pub fn key_written(m: &[u8], k: u8) -> bool {
     is(m, RESPONSE, [0x00, 0x09]) && m.len() >= 8 && m[6..8] == [k, 0]
 }
 
-/// The value in a reply to [`read_param`] `p`.
 pub fn param_value(m: &[u8], p: u8) -> Option<Option<u8>> {
     (is(m, RESPONSE, [0x83, 0x2C]) && m.len() >= 9 && m[7..9] == [p, 0])
         .then(|| (m.len() > 9 && m[6] == 0).then(|| m[9]))
 }
 
-/// Whether a reply to [`write_param`] `p` took it.
 pub fn param_written(m: &[u8], p: u8) -> Option<bool> {
     (is(m, RESPONSE, [0x82, 0x2C]) && m.len() >= 9 && m[7..9] == [p, 0]).then(|| m[6] == 0)
 }
@@ -217,8 +212,7 @@ pub fn auto_off(minutes: i32) -> Vec<u8> {
     vec![on, 0, secs[0], secs[1], on, 0, secs[0], secs[1]]
 }
 
-/// The bodies that set sidetone to `v`, given the current switch. Writing the switch flips it
-/// whatever is sent, so it is only written when it must change.
+/// Writing the sidetone switch flips it whatever is sent, so it is written only to change it.
 pub fn sidetone(on_now: bool, v: i32, max: u8) -> Vec<Vec<u8>> {
     let on = v > 0;
     let mut out = Vec::new();
@@ -242,8 +236,7 @@ pub fn mix(raw: u8) -> (u8, u8) {
 const POLL: Duration = Duration::from_millis(50);
 const TIMEOUT: Duration = Duration::from_millis(1250);
 
-/// Sends a request and waits for the message `pick` accepts. Reads may be sent again on a
-/// timeout; a write never is, since the headset may still apply one that answers late.
+/// Writes go once: a late reply may still mean the headset applied it.
 fn request<T>(
     dev: &Dev,
     body: &[u8],
@@ -312,32 +305,48 @@ pub fn read(f: &Found, settings: bool) -> Option<Reading> {
     };
     let mut values = Vec::new();
     if settings {
-        if let (Some(l), Some(on)) = (key(&dev, KEY_SIDETONE), param(&dev, PARAM_SIDETONE_ON))
-            && l <= SIDETONE_MAX
-        {
-            values.push((Control::Sidetone, if on == 0 { 0 } else { l as i32 }));
-        }
-        if let Some(p) = key(&dev, KEY_PRESET).filter(|p| (1..=10).contains(p)) {
-            values.push((Control::EqPreset, p as i32));
-        }
-        if let Some(g) = key(&dev, KEY_GATE).filter(|g| *g <= 2) {
-            values.push((Control::NoiseGate, g as i32));
-        }
-        if let Some(p) = key(&dev, KEY_PROMPTS).filter(|p| *p <= 15) {
-            values.push((Control::VoicePrompts, (p > 0) as i32));
-        }
+        let mut keys = vec![KEY_SIDETONE, KEY_PRESET, KEY_GATE, KEY_PROMPTS];
         if MAXWELL.contains(&f.model.pid) {
-            match key(&dev, KEY_LIMITER) {
-                Some(LIMITER_ON) => values.push((Control::VolumeLimiter, 1)),
-                Some(LIMITER_OFF) => values.push((Control::VolumeLimiter, 0)),
-                _ => {}
-            }
+            keys.push(KEY_LIMITER);
         }
+        let mut got = Vec::new();
+        for k in keys {
+            // A silent headset would hold the shared HID turn for every read left.
+            let Some(v) = request(&dev, &read_key(k), 2, TIMEOUT, |m| key_value(m, k)) else {
+                break;
+            };
+            got.extend(v.map(|v| (k, v)));
+        }
+        let on = (!got.is_empty())
+            .then(|| param(&dev, PARAM_SIDETONE_ON))
+            .flatten();
+        values = settings_of(&got, on);
     }
     Some(Reading {
         status: Some(status),
         values,
     })
+}
+
+/// Settings from key reads, with the sidetone switch.
+pub fn settings_of(keys: &[(u8, u8)], sidetone_on: Option<u8>) -> Vec<(Control, i32)> {
+    let mut out = Vec::new();
+    for &(k, v) in keys {
+        match (k, v) {
+            (KEY_SIDETONE, l) if l <= SIDETONE_MAX => {
+                if let Some(on) = sidetone_on {
+                    out.push((Control::Sidetone, if on == 0 { 0 } else { l as i32 }));
+                }
+            }
+            (KEY_PRESET, p) if (1..=10).contains(&p) => out.push((Control::EqPreset, p as i32)),
+            (KEY_GATE, g) if g <= 2 => out.push((Control::NoiseGate, g as i32)),
+            (KEY_PROMPTS, p) if p <= 15 => out.push((Control::VoicePrompts, (p > 0) as i32)),
+            (KEY_LIMITER, LIMITER_ON) => out.push((Control::VolumeLimiter, 1)),
+            (KEY_LIMITER, LIMITER_OFF) => out.push((Control::VolumeLimiter, 0)),
+            _ => {}
+        }
+    }
+    out
 }
 
 fn write(dev: &Dev, body: &[u8]) -> Result<(), String> {
@@ -561,6 +570,33 @@ mod tests {
             battery(&[0x05, 0x5B, 0x03, 0x00, 0xD6, 0x0C, 0x01]),
             Some(None)
         );
+    }
+
+    #[test]
+    fn read_back() {
+        let keys = [
+            (KEY_SIDETONE, 12),
+            (KEY_PRESET, 7),
+            (KEY_GATE, 2),
+            (KEY_PROMPTS, 7),
+            (KEY_LIMITER, 0x8E),
+        ];
+        assert_eq!(
+            settings_of(&keys, Some(1)),
+            vec![
+                (Control::Sidetone, 12),
+                (Control::EqPreset, 7),
+                (Control::NoiseGate, 2),
+                (Control::VoicePrompts, 1),
+                (Control::VolumeLimiter, 0)
+            ]
+        );
+        assert_eq!(
+            settings_of(&keys[..1], Some(0)),
+            vec![(Control::Sidetone, 0)]
+        );
+        assert!(settings_of(&keys[..1], None).is_empty());
+        assert!(settings_of(&[(KEY_PRESET, 11), (KEY_GATE, 3), (KEY_LIMITER, 1)], None).is_empty());
     }
 
     #[test]
