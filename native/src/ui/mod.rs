@@ -1,6 +1,7 @@
 //! The window: one module per tab, plus the device canvas stage.
 
 mod audio;
+mod clipboard;
 mod devices;
 mod effects;
 mod fans;

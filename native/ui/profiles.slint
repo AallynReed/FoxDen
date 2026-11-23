@@ -1,28 +1,362 @@
-import { Theme, I18n, Cut, Heading, Hint, Button, Slider, Toggle, Select, Field, Pick, Scroll, EffectItem, Param, DeviceItem, CanvasLabel, Line } from "widgets.slint";
+import { Theme, I18n, Cut, Heading, Hint, Button, Scroll } from "widgets.slint";
 
 export global ProfilesPage {
     in property <[string]> profiles;
     in property <string> active-profile;
-    callback load-profile(string);
-    callback save-profile(string);
+    in-out property <string> new-name;
+    in-out property <string> new-problem;
+    // The name a second Save replaces.
+    in-out property <string> replace;
+    callback save-new(string);
+
+    callback load(string);
+    callback rename(string);
+    callback duplicate(string);
+    callback delete(string);
+
+    in-out property <bool> name-open;
+    in-out property <string> name-title;
+    in-out property <string> name-text;
+    in-out property <string> name-problem;
+    callback name-submit(string);
+
+    in-out property <bool> json-open;
+    in-out property <string> json-hint;
+    in-out property <string> json-text;
+    in-out property <string> json-problem;
+    callback json-edited(string);
+    callback json-apply(string);
+    callback copy-effect();
+    callback paste-effect();
 }
 
-export component ProfilesPanel inherits Scroll {
-    content-height: profiles-body.preferred-height;
-    profiles-body := VerticalLayout {
-        padding: 16px;
-        spacing: 8px;
-        Heading { text: I18n.t("Profiles"); }
-        if ProfilesPage.profiles.length == 0: Hint { text: I18n.t("No profiles saved yet."); }
-        for name in ProfilesPage.profiles: Pick {
-            text: name;
-            selected: name == ProfilesPage.active-profile;
-            clicked => { ProfilesPage.load-profile(name); }
-        }
-        HorizontalLayout {
-            spacing: 8px;
-            name-field := Field { placeholder: I18n.t("Name"); accepted(s) => { ProfilesPage.save-profile(s); } }
-            Button { primary: true; text: I18n.t("Save"); clicked => { ProfilesPage.save-profile(name-field.text); } }
+component Label inherits Text {
+    color: Theme.muted;
+    font-size: 12px;
+}
+
+component Problem inherits HorizontalLayout {
+    in property <string> text;
+    spacing: 6px;
+    Path {
+        y: 4px;
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M 4 0 L 8 8 L 0 8 Z";
+        fill: Theme.danger;
+        stroke-width: 0;
+    }
+    Text {
+        text: root.text;
+        color: Theme.danger;
+        font-size: 12px;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+    }
+}
+
+component NameInput inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> label;
+    in property <bool> invalid;
+    callback edited();
+    callback accepted();
+    public function select() {
+        input.focus();
+        input.select-all();
+    }
+    height: 32px;
+    min-width: 88px;
+    background: Theme.field;
+    border-width: invalid ? 2px : 1px;
+    border-color: invalid ? Theme.danger : input.has-focus ? Theme.accent : Theme.stroke;
+    forward-focus: input;
+    clip: true;
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        color: Theme.text;
+        vertical-alignment: center;
+        single-line: true;
+        accessible-label: root.label;
+        edited => { root.edited(); }
+        accepted => { root.accepted(); }
+    }
+}
+
+component SmallButton inherits Rectangle {
+    in property <string> text;
+    in property <string> label;
+    callback clicked;
+    height: 24px;
+    min-width: txt.preferred-width + 16px;
+    background: ta.pressed ? Theme.line : ta.has-hover ? Theme.hover : Theme.raised;
+    border-width: 1px;
+    border-color: fs.has-focus ? Theme.accent : Theme.stroke;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { clicked(); }
+    forward-focus: fs;
+    txt := Text {
+        text: root.text;
+        color: Theme.text;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if e.text == " " || e.text == "\n" { root.clicked(); return accept; }
+            reject
         }
     }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); root.clicked(); }
+    }
+}
+
+component ProfileRow inherits Rectangle {
+    in property <string> name;
+    in property <bool> active;
+    property <string> armed;
+    min-height: col.preferred-height;
+    accessible-role: list-item;
+    accessible-label: name;
+    accessible-item-selectable: true;
+    accessible-item-selected: active;
+    Rectangle {
+        x: 0;
+        width: 3px;
+        background: root.active ? Theme.accent : transparent;
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+    }
+    col := VerticalLayout {
+        padding-left: 12px;
+        padding-bottom: 8px;
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: root.name;
+                color: Theme.text;
+                font-weight: root.active ? 600 : 400;
+                overflow: elide;
+                horizontal-stretch: 1;
+                vertical-alignment: center;
+            }
+            if root.active: Text {
+                text: I18n.t("Active");
+                color: Theme.accent;
+                font-size: 12px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+            SmallButton {
+                text: I18n.t("Load");
+                label: I18n.t("Load " + root.name);
+                clicked => { ProfilesPage.load(root.name); }
+            }
+            SmallButton {
+                text: I18n.t("Rename");
+                label: I18n.t("Rename " + root.name);
+                clicked => { ProfilesPage.rename(root.name); }
+            }
+            SmallButton {
+                text: I18n.t("Duplicate");
+                label: I18n.t("Duplicate " + root.name);
+                clicked => { ProfilesPage.duplicate(root.name); }
+            }
+            SmallButton {
+                text: root.armed == root.name ? I18n.t("Confirm") : I18n.t("Delete");
+                label: root.armed == root.name ? I18n.t("Confirm deleting " + root.name) : I18n.t("Delete " + root.name);
+                clicked => {
+                    if root.armed == root.name {
+                        root.armed = "";
+                        ProfilesPage.delete(root.name);
+                    } else {
+                        root.armed = root.name;
+                    }
+                }
+            }
+        }
+    }
+    Timer {
+        interval: 4s;
+        running: root.armed != "";
+        triggered => { root.armed = ""; }
+    }
+}
+
+component Sheet inherits Rectangle {
+    callback cancel();
+    background: #0009;
+    TouchArea { }
+    FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape { root.cancel(); return accept; }
+            reject
+        }
+        Rectangle {
+            x: 16px;
+            y: max(16px, (root.height - self.height) / 2);
+            width: min(440px, root.width - 32px);
+            height: min(body.preferred-height, root.height - 32px);
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.stroke;
+            clip: true;
+            body := VerticalLayout {
+                padding: 16px;
+                spacing: 8px;
+                @children
+            }
+        }
+    }
+}
+
+component NameSheet inherits Sheet {
+    accessible-role: groupbox;
+    accessible-label: I18n.t(ProfilesPage.name-title);
+    cancel => { ProfilesPage.name-open = false; }
+    init => { field.select(); }
+    Heading { text: I18n.t(ProfilesPage.name-title); }
+    Label { text: I18n.t("Name"); }
+    field := NameInput {
+        text <=> ProfilesPage.name-text;
+        label: I18n.t("Name");
+        invalid: ProfilesPage.name-problem != "";
+        edited => { ProfilesPage.name-problem = ""; }
+        accepted => { ProfilesPage.name-submit(self.text); }
+    }
+    if ProfilesPage.name-problem != "": Problem { text: ProfilesPage.name-problem; }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        padding-top: 4px;
+        Button { primary: true; text: I18n.t("Save"); clicked => { ProfilesPage.name-submit(field.text); } }
+        Button { text: I18n.t("Cancel"); clicked => { ProfilesPage.name-open = false; } }
+    }
+}
+
+component JsonSheet inherits Sheet {
+    accessible-role: groupbox;
+    accessible-label: I18n.t("Effect as JSON");
+    cancel => { ProfilesPage.json-open = false; }
+    init => {
+        input.focus();
+        input.select-all();
+    }
+    Heading { text: I18n.t("Effect as JSON"); }
+    Label { text: I18n.t(ProfilesPage.json-hint); wrap: word-wrap; }
+    box := Rectangle {
+        height: 216px;
+        background: Theme.field;
+        border-width: ProfilesPage.json-problem != "" ? 2px : 1px;
+        border-color: ProfilesPage.json-problem != "" ? Theme.danger : input.has-focus ? Theme.accent : Theme.stroke;
+        flick := Flickable {
+            x: 8px;
+            y: 8px;
+            width: parent.width - 16px;
+            height: parent.height - 16px;
+            content-height: max(self.height, input.preferred-height);
+            input := TextInput {
+                width: flick.width;
+                height: flick.content-height;
+                text <=> ProfilesPage.json-text;
+                single-line: false;
+                wrap: word-wrap;
+                color: Theme.text;
+                font-family: Theme.mono;
+                font-size: 13px;
+                accessible-label: I18n.t(ProfilesPage.json-hint);
+                edited => { ProfilesPage.json-edited(self.text); }
+                cursor-position-changed(p) => {
+                    if p.y + flick.content-y < 0 {
+                        flick.content-y = -p.y;
+                    } else if p.y + 18px + flick.content-y > flick.height {
+                        flick.content-y = flick.height - p.y - 18px;
+                    }
+                }
+            }
+        }
+        Rectangle {
+            x: parent.width - 4px;
+            y: -flick.content-y * flick.height / flick.content-height + 8px;
+            width: 3px;
+            height: flick.height * flick.height / flick.content-height;
+            background: Theme.stroke;
+            visible: flick.content-height > flick.height;
+        }
+    }
+    if ProfilesPage.json-problem != "": Problem { text: ProfilesPage.json-problem; }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        padding-top: 4px;
+        Button { primary: true; text: I18n.t("Apply"); clicked => { ProfilesPage.json-apply(input.text); } }
+        Button { text: I18n.t("Cancel"); clicked => { ProfilesPage.json-open = false; } }
+    }
+}
+
+export component ProfilesPanel inherits Rectangle {
+    vertical-stretch: 1;
+    Scroll {
+        content-height: profiles-body.preferred-height;
+        profiles-body := VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            Heading { text: I18n.t("New profile"); }
+            Label { text: I18n.t("Save current effect and brightness as"); }
+            HorizontalLayout {
+                spacing: 8px;
+                name-field := NameInput {
+                    horizontal-stretch: 1;
+                    text <=> ProfilesPage.new-name;
+                    label: I18n.t("Save current effect and brightness as");
+                    invalid: ProfilesPage.new-problem != "";
+                    edited => {
+                        ProfilesPage.replace = "";
+                        ProfilesPage.new-problem = "";
+                    }
+                    accepted => { ProfilesPage.save-new(self.text); }
+                }
+                Button { primary: true; text: I18n.t("Save"); clicked => { ProfilesPage.save-new(name-field.text); } }
+            }
+            if ProfilesPage.new-problem != "": Problem { text: ProfilesPage.new-problem; }
+            Heading { text: I18n.t("Saved profiles"); }
+            if ProfilesPage.profiles.length == 0: Hint { text: I18n.t("No profiles saved yet."); }
+            if ProfilesPage.profiles.length > 0: VerticalLayout {
+                spacing: 8px;
+                accessible-role: list;
+                accessible-label: I18n.t("Saved profiles");
+                for name in ProfilesPage.profiles: ProfileRow {
+                    name: name;
+                    active: name == ProfilesPage.active-profile;
+                }
+            }
+            Heading { text: I18n.t("Effect as JSON"); }
+            Hint { text: I18n.t("Copy the current effect to share it or keep it in a file. Paste one to apply it."); }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                padding-top: 4px;
+                Button { text: I18n.t("Copy"); clicked => { ProfilesPage.copy-effect(); } }
+                Button { text: I18n.t("Paste or edit"); clicked => { ProfilesPage.paste-effect(); } }
+            }
+        }
+    }
+    if ProfilesPage.name-open: NameSheet { width: root.width; height: root.height; }
+    if ProfilesPage.json-open: JsonSheet { width: root.width; height: root.height; }
 }
