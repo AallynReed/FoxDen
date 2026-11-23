@@ -34,10 +34,6 @@ static FOUND: Mutex<Option<(Update, Info)>> = Mutex::new(None);
 static LATER: Mutex<Option<String>> = Mutex::new(None);
 static INSTALLING: Mutex<bool> = Mutex::new(false);
 
-fn guard<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 /// Whether the automatic install goes ahead now.
 pub fn due(auto: bool, put_off: bool, idle: bool, waited: Duration) -> bool {
     auto && !put_off && (idle || waited >= GRACE)
@@ -65,16 +61,16 @@ static WAITING: Mutex<bool> = Mutex::new(false);
 
 /// With automatic updates on, installs once FoxDen is in the tray or after the grace minute.
 async fn wait_and_install(app: &AppHandle, info: &Info) {
-    if !info.auto || std::mem::replace(&mut *guard(&WAITING), true) {
+    if !info.auto || std::mem::replace(&mut *lock(&WAITING), true) {
         return;
     }
     let found = Instant::now();
     loop {
-        let put_off = guard(&LATER).as_deref() == Some(info.version.as_str());
+        let put_off = lock(&LATER).as_deref() == Some(info.version.as_str());
         let idle = app
             .get_webview_window("main")
             .is_none_or(|w| !w.is_visible().unwrap_or(false));
-        if put_off || *guard(&INSTALLING) {
+        if put_off || *lock(&INSTALLING) {
             break;
         }
         if due(true, put_off, idle, found.elapsed()) {
@@ -88,7 +84,7 @@ async fn wait_and_install(app: &AppHandle, info: &Info) {
         }
         sleep(Duration::from_secs(1)).await;
     }
-    *guard(&WAITING) = false;
+    *lock(&WAITING) = false;
 }
 
 /// Test-only path for development builds: `FOXDEN_FAKE_UPDATE=<version>` shows the UI for a release that is not there.
@@ -123,7 +119,7 @@ async fn check(app: &AppHandle, shared: &Shared) -> Result<Option<Info>, String>
         notes: update.body.clone().unwrap_or_default(),
         auto: lock(shared).config.settings.auto_update,
     };
-    let known = guard(&FOUND)
+    let known = lock(&FOUND)
         .replace((update, info.clone()))
         .is_some_and(|(_, old)| old == info);
     if !known {
@@ -136,12 +132,12 @@ async fn install(app: &AppHandle) -> Result<(), String> {
     if cfg!(debug_assertions) {
         return Err(DEV.into());
     }
-    let update = guard(&FOUND)
+    let update = lock(&FOUND)
         .as_ref()
         .map(|(u, _)| u.clone())
         .ok_or("no update to install")?;
     {
-        let mut busy = guard(&INSTALLING);
+        let mut busy = lock(&INSTALLING);
         if *busy {
             return Err("already installing".into());
         }
@@ -157,7 +153,7 @@ async fn install(app: &AppHandle) -> Result<(), String> {
             || {},
         )
         .await;
-    *guard(&INSTALLING) = false;
+    *lock(&INSTALLING) = false;
     result.map_err(|e| e.to_string())?;
     app.restart();
 }
@@ -185,12 +181,12 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn later_update() {
-    *guard(&LATER) = guard(&FOUND).as_ref().map(|(_, info)| info.version.clone());
+    *lock(&LATER) = lock(&FOUND).as_ref().map(|(_, info)| info.version.clone());
 }
 
 #[tauri::command]
 pub fn get_update() -> Option<Info> {
-    guard(&FOUND).as_ref().map(|(_, info)| info.clone())
+    lock(&FOUND).as_ref().map(|(_, info)| info.clone())
 }
 
 async fn sleep(time: Duration) {

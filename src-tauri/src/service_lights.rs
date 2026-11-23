@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use foxden_client::{Client, HubFrame, PIPE};
 use foxden_core::{Backend, Color, Device};
 
+use crate::state::lock;
+
 pub struct ServiceLights {
     client: Client,
     devices: Vec<Device>,
@@ -66,10 +68,6 @@ const RESEND: Duration = Duration::from_secs(1);
 static HUB_ZONES: Mutex<Vec<foxden_hid::Zone>> = Mutex::new(Vec::new());
 /// Whether a service answered when the hubs were last opened; `None` before that.
 static SERVICE_UP: Mutex<Option<bool>> = Mutex::new(None);
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// The hubs' lighting through the service, or `None` when the app has to light them itself.
 pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {

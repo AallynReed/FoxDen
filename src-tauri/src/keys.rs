@@ -14,6 +14,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+use crate::state::lock;
+
 const KEEP: Duration = Duration::from_secs(5);
 const MOST: usize = 64;
 
@@ -30,7 +32,7 @@ static SEEN: Mutex<Seen> = Mutex::new(Seen {
 });
 
 fn seen() -> std::sync::MutexGuard<'static, Seen> {
-    SEEN.lock().unwrap_or_else(|e| e.into_inner())
+    lock(&SEEN)
 }
 
 /// Set while the hook runs: only then are presses kept.

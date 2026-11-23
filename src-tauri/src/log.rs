@@ -7,6 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::state::lock;
+
 const KEEP: usize = 1000;
 const WINDOW: &str = "logs";
 
@@ -31,7 +33,7 @@ static LOG: Mutex<VecDeque<Entry>> = Mutex::new(VecDeque::new());
 static APP: OnceLock<AppHandle> = OnceLock::new();
 
 fn guard() -> MutexGuard<'static, VecDeque<Entry>> {
-    LOG.lock().unwrap_or_else(|e| e.into_inner())
+    lock(&LOG)
 }
 
 pub fn attach(app: &AppHandle) {

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::mixer::Mixer;
+use crate::state::lock;
 
 const IDLE: Duration = Duration::from_secs(5);
 /// Endpoint notifications come in bursts; this lets one burst settle into one look.
@@ -196,20 +197,16 @@ struct Applied {
     input: Option<String>,
 }
 
-fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 /// Asks for a fresh look soon.
 pub fn nudge() {
-    if let Some(tx) = locked(&WAKE).as_ref() {
+    if let Some(tx) = lock(&WAKE).as_ref() {
         let _ = tx.send(());
     }
 }
 
 /// The SteelSeries headsets seen now, by "1038:22A1" key, with `None` when one did not answer.
 pub fn set_headsets(now: impl IntoIterator<Item = (String, Option<bool>)>) {
-    let mut map = locked(&HEADSETS);
+    let mut map = lock(&HEADSETS);
     let mut next = Links::new();
     for (key, on) in now {
         let Some(usb) = key.split_once(':').and_then(|(v, p)| {
@@ -237,7 +234,7 @@ pub fn set_batteries(polled: &[Battery]) {
         .iter()
         .filter_map(|b| battery_usb(b).map(|u| (u, b.connected)))
         .collect();
-    let mut map = locked(&BATTERIES);
+    let mut map = lock(&BATTERIES);
     if *map != next {
         *map = next;
         drop(map);
@@ -246,8 +243,8 @@ pub fn set_batteries(polled: &[Battery]) {
 }
 
 fn links() -> Links {
-    let mut out = locked(&BATTERIES).clone();
-    out.extend(locked(&HEADSETS).iter().map(|(k, v)| (*k, *v)));
+    let mut out = lock(&BATTERIES).clone();
+    out.extend(lock(&HEADSETS).iter().map(|(k, v)| (*k, *v)));
     out
 }
 
@@ -293,7 +290,7 @@ fn apply_default(last: &mut Option<String>, pick: Option<&Device>, capture: bool
 fn tick(app: &AppHandle) -> Option<View> {
     let mixer = app.try_state::<Mixer>()?;
     system::com_init();
-    let mut applied = locked(&APPLIED);
+    let mut applied = lock(&APPLIED);
     let cfg = mixer.priority();
     let links = links();
     let hide: Vec<String> = foxden_vcable::endpoints()
@@ -330,7 +327,7 @@ fn tick(app: &AppHandle) -> Option<View> {
         choices_out: entries(&outs),
         choices_in: entries(&ins),
     };
-    let mut last = locked(&VIEW);
+    let mut last = lock(&VIEW);
     if last.as_ref() != Some(&view) {
         *last = Some(view.clone());
         let _ = app.emit("audio-priority", &view);
@@ -341,7 +338,7 @@ fn tick(app: &AppHandle) -> Option<View> {
 /// Watches endpoints and wireless links and follows the priority.
 pub fn spawn(app: AppHandle) {
     let (tx, rx) = channel();
-    *locked(&WAKE) = Some(tx);
+    *lock(&WAKE) = Some(tx);
     thread::Builder::new()
         .name("audio-priority".into())
         .spawn(move || {
@@ -507,9 +504,9 @@ mod tests {
     fn headsets_that_miss_a_reading_keep_their_last_state() {
         set_headsets([("1038:22A1".to_string(), Some(false))]);
         set_headsets([("1038:22A1".to_string(), None)]);
-        assert_eq!(locked(&HEADSETS).get(&NOVA), Some(&false));
+        assert_eq!(lock(&HEADSETS).get(&NOVA), Some(&false));
         set_headsets([]);
-        assert!(locked(&HEADSETS).is_empty());
+        assert!(lock(&HEADSETS).is_empty());
     }
 
     #[test]
