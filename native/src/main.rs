@@ -160,6 +160,9 @@ fn main() {
     tray::create(&app);
     watch_show(app.clone());
     let at_sign_in = std::env::args().any(|arg| arg == autostart::TRAY_ARG);
+    if !cfg!(debug_assertions) {
+        let _ = autostart::set(settings.autostart);
+    }
     app.manage(state::spawn_worker(app.clone(), shared.clone()));
     app.manage(mixer::Mixer::start(shared.clone()));
     headset::spawn_dial(app.clone());
