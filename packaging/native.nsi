@@ -25,7 +25,8 @@ VIAddVersionKey "LegalCopyright" "GPL-2.0-or-later"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\FoxDen"
 !define MUI_ICON "..\src-tauri\icons\icon.ico"
 !define MUI_UNICON "..\src-tauri\icons\icon.ico"
-!define MUI_FINISHPAGE_RUN "$INSTDIR\foxden.exe"
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION Launch
 
 Var UpdateMode
 Var Passive
@@ -68,6 +69,14 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+; Only a folder named FoxDen, so locking its permissions never touches anything else.
+Function .onVerifyInstDir
+  ${GetFileName} "$INSTDIR" $0
+  ${If} $0 != "FoxDen"
+    Abort
+  ${EndIf}
+FunctionEnd
+
 Function SkipIfPassive
   ${If} $Passive = 1
     Abort
@@ -94,6 +103,7 @@ Section "FoxDen" Main
   SetShellVarContext all
   !insertmacro NSIS_HOOK_PREINSTALL
   SetOutPath "$INSTDIR"
+  !insertmacro LOCK_INSTDIR
   File "/oname=foxden.exe" "${APP}"
   File "/oname=foxden-service.exe" "${SERVICE}"
   File "/oname=PawnIO_setup.exe" "${PAWNIO}"
@@ -121,7 +131,7 @@ SectionEnd
 Section "Uninstall"
   SetShellVarContext all
   !insertmacro NSIS_HOOK_PREUNINSTALL
-  nsExec::Exec 'taskkill /F /T /IM foxden.exe'
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM foxden.exe'
   Delete "$INSTDIR\foxden.exe"
   Delete "$INSTDIR\foxden-service.exe"
   Delete "$INSTDIR\PawnIO_setup.exe"

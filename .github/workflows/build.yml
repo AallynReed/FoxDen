@@ -3,21 +3,25 @@ name: Build
 on:
   workflow_dispatch:
   workflow_call:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CACHE_PATHS: |
+    ~/.cargo/registry/index
+    ~/.cargo/registry/cache
+    target
+
 jobs:
-  installer:
+  test:
     runs-on: windows-latest
-    timeout-minutes: 90
-    env:
-      CARGO_INCREMENTAL: 0
-      CARGO_PROFILE_DEV_DEBUG: 0
-      CACHE_PATHS: |
-        ~/.cargo/registry/index
-        ~/.cargo/registry/cache
-        target
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -26,6 +30,48 @@ jobs:
 
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal --component clippy --no-self-update
+
+      - name: Rust version
+        id: rustc
+        run: |
+          "version=$((rustc --version).Split()[1])" >> $env:GITHUB_OUTPUT
+
+      - name: Restore cache
+        id: cache
+        if: github.ref_type == 'branch'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: test-${{ steps.rustc.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: test-${{ steps.rustc.outputs.version }}-
+
+      # Screen capture needs a desktop session, which the runner does not have.
+      - name: Test
+        run: cargo test --workspace --locked --exclude foxden-screen
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: Save cache
+        if: github.ref_type == 'branch' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.CACHE_PATHS }}
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+
+  installer:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --no-self-update
 
       - name: Rust version
         id: rustc
@@ -42,40 +88,42 @@ jobs:
           key: cargo-${{ steps.rustc.outputs.version }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ steps.rustc.outputs.version }}-
 
-      # Releases are tested and linted on the release PC before tagging.
-      - name: Test
-        if: github.ref_type != 'tag'
-        run: cargo test --workspace --locked
-
-      - name: Lint
-        if: github.ref_type != 'tag'
-        run: cargo clippy --workspace --all-targets
-
       - name: Download PawnIO
         run: |
           Invoke-WebRequest https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe -OutFile packaging/PawnIO_setup.exe
           if ((Get-FileHash packaging/PawnIO_setup.exe).Hash -ne '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032') { throw 'PawnIO_setup.exe hash mismatch' }
 
-      - name: Compile app
-        run: cargo build --release --locked -p foxden-native -p foxden-service
-
-      - name: Compile installer
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Install NSIS
         run: |
           $makensis = (Get-Command makensis -ErrorAction Ignore).Source
           if (-not $makensis) {
             choco install nsis --no-progress -y
             $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
           }
+          "MAKENSIS=$makensis" >> $env:GITHUB_ENV
+
+      - name: Install signer
+        run: npm install --prefix "$env:RUNNER_TEMP\signer" --no-fund --no-audit "@tauri-apps/cli@2.12.4"
+
+      - name: Compile app
+        run: cargo build --release --locked -p foxden-native -p foxden-service
+
+      - name: Compile installer
+        run: |
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages |
             Where-Object name -eq 'foxden-native' | Select-Object -ExpandProperty version
           New-Item -ItemType Directory -Force dist | Out-Null
           $setup = "$PWD\dist\FoxDen_${version}_x64-setup.exe"
-          & $makensis -V2 "/DVERSION=$version" "/DAPP=$PWD\target\release\foxden-native.exe" "/DSERVICE=$PWD\target\release\foxden-service.exe" "/DPAWNIO=$PWD\packaging\PawnIO_setup.exe" "/DOUT=$setup" packaging\native.nsi
+          & $env:MAKENSIS -V2 "/DVERSION=$version" "/DAPP=$PWD\target\release\foxden-native.exe" "/DSERVICE=$PWD\target\release\foxden-service.exe" "/DPAWNIO=$PWD\packaging\PawnIO_setup.exe" "/DOUT=$setup" packaging\native.nsi
           if ($LASTEXITCODE) { throw 'makensis failed' }
-          npx --yes "@tauri-apps/cli@2.12.4" signer sign $setup
+          "SETUP=$setup" >> $env:GITHUB_ENV
+
+      - name: Sign installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          & "$env:RUNNER_TEMP\signer\node_modules\.bin\tauri.cmd" signer sign $env:SETUP
           if ($LASTEXITCODE) { throw 'signing failed' }
 
       - name: Upload installer

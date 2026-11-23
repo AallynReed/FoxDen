@@ -2,8 +2,12 @@
 //! With `auto_update` on it installs by itself once the app is in the tray or a minute has passed.
 //! It reads the same latest.json as the Tauri build, so releases must publish a native installer there.
 
+use std::fs::{File, OpenOptions};
+use std::io::{ErrorKind, Read, Write};
+use std::os::windows::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde::Serialize;
@@ -20,6 +24,9 @@ const FIRST: Duration = Duration::from_secs(5);
 const EVERY: Duration = Duration::from_secs(60 * 60);
 const GRACE: Duration = Duration::from_secs(60);
 const DEV: &str = "development builds do not install updates";
+const MAX_INSTALLER: u64 = 200 << 20;
+const MAX_CHANGELOG: u64 = 1 << 20;
+const FILE_SHARE_READ: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Info {
@@ -211,7 +218,8 @@ async fn changelog() -> Value {
         if !reply.status().is_success() {
             return None;
         }
-        reply.json::<Value>().await.ok().filter(Value::is_array)
+        let data = read_capped(reply, MAX_CHANGELOG, |_, _| {}).await.ok()?;
+        serde_json::from_slice::<Value>(&data).ok().filter(Value::is_array)
     };
     match fetched.await {
         Some(v) => v,
@@ -232,16 +240,79 @@ fn verify(data: &[u8], release: &Release) -> Result<(), String> {
     let key = minisign_verify::PublicKey::decode(&text64(PUBKEY)?).map_err(bad)?;
     let signature = minisign_verify::Signature::decode(&text64(&release.signature)?).map_err(bad)?;
     key.verify(data, &signature, true).map_err(bad)?;
-    let signed = signature
-        .trusted_comment()
-        .split('\t')
-        .find_map(|f| f.strip_prefix("version:"));
-    match signed {
-        Some(v) if v.trim_start_matches('v') != release.version => {
-            Err(format!("the update was signed for {v}, not {}", release.version))
-        }
-        _ => Ok(()),
+    signed_for(signature.trusted_comment(), &release.version)
+}
+
+fn setup_name(version: &str) -> String {
+    format!("FoxDen_{version}_x64-setup.exe")
+}
+
+/// The signer names the signed file in the trusted comment, which ties the signature to one version.
+fn signed_for(trusted_comment: &str, version: &str) -> Result<(), String> {
+    let want = setup_name(version);
+    match trusted_comment.split('\t').find_map(|f| f.strip_prefix("file:")) {
+        Some(f) if f == want => Ok(()),
+        Some(f) => Err(format!("the update was signed as {f}, not {want}")),
+        None => Err("the update signature does not name its file".into()),
     }
+}
+
+async fn read_capped(
+    mut reply: reqwest::Response,
+    cap: u64,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<Vec<u8>, String> {
+    let total = reply.content_length();
+    if total.is_some_and(|t| t > cap) {
+        return Err("the download is too large".into());
+    }
+    let mut data = Vec::with_capacity(total.unwrap_or(0) as usize);
+    while let Some(chunk) = reply.chunk().await.map_err(|e| e.to_string())? {
+        if (data.len() + chunk.len()) as u64 > cap {
+            return Err("the download is too large".into());
+        }
+        data.extend_from_slice(&chunk);
+        progress(data.len() as u64, total);
+    }
+    Ok(data)
+}
+
+/// A new folder per attempt, so nothing left from an earlier one is reused.
+fn fresh_dir() -> Result<PathBuf, String> {
+    let base = std::env::temp_dir();
+    for n in 0..100u32 {
+        let t = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let dir = base.join(format!("FoxDen-update-{}-{t:x}-{n}", std::process::id()));
+        match std::fs::create_dir(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Err("no folder for the update could be made".into())
+}
+
+/// Writes the file and returns a read-only handle that keeps it from being changed or deleted.
+fn write_locked(file: &Path, data: &[u8]) -> Result<File, String> {
+    let mut out = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .share_mode(0)
+        .open(file)
+        .map_err(|e| e.to_string())?;
+    out.write_all(data).map_err(|e| e.to_string())?;
+    drop(out);
+    let mut held = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(file)
+        .map_err(|e| e.to_string())?;
+    let mut back = Vec::with_capacity(data.len());
+    held.read_to_end(&mut back).map_err(|e| e.to_string())?;
+    if back != data {
+        return Err("the update changed after it was written".into());
+    }
+    Ok(held)
 }
 
 async fn install(app: &AppHandle) -> Result<(), String> {
@@ -268,7 +339,7 @@ async fn install(app: &AppHandle) -> Result<(), String> {
 }
 
 async fn download_and_run(app: &AppHandle, release: &Release) -> Result<(), String> {
-    let mut reply = client(Duration::from_secs(600))?
+    let reply = client(Duration::from_secs(600))?
         .get(&release.url)
         .send()
         .await
@@ -276,31 +347,23 @@ async fn download_and_run(app: &AppHandle, release: &Release) -> Result<(), Stri
     if !reply.status().is_success() {
         return Err(format!("the download answered {}", reply.status().as_u16()));
     }
-    let total = reply.content_length();
-    let mut data = Vec::with_capacity(total.unwrap_or(0) as usize);
-    while let Some(chunk) = reply.chunk().await.map_err(|e| e.to_string())? {
-        data.extend_from_slice(&chunk);
-        let _ = app.emit(
-            "update-progress",
-            Progress {
-                done: data.len() as u64,
-                total,
-            },
-        );
-    }
+    let data = read_capped(reply, MAX_INSTALLER, |done, total| {
+        let _ = app.emit("update-progress", Progress { done, total });
+    })
+    .await?;
     verify(&data, release)?;
     if data.starts_with(b"PK") {
         return Err("the update is a zip archive, which this build cannot install".into());
     }
-    let dir = std::env::temp_dir().join(format!("FoxDen-{}-update", release.version));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join(format!("FoxDen_{}_x64-setup.exe", release.version));
-    std::fs::write(&file, &data).map_err(|e| e.to_string())?;
-    run_installer(&file)
+    let file = fresh_dir()?.join(setup_name(&release.version));
+    let held = write_locked(&file, &data)?;
+    let started = run_installer(&file);
+    drop(held);
+    started
 }
 
 /// Starts the installer in passive mode, as the Tauri updater does.
-fn run_installer(file: &std::path::Path) -> Result<(), String> {
+fn run_installer(file: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOW;
@@ -371,6 +434,39 @@ mod tests {
         assert!(!newer("0.16.5", "0.17.0"));
         assert!(newer("0.17.0", "0.17.0-beta"));
         assert!(!newer("0.17.0-beta", "0.17.0"));
+    }
+
+    #[test]
+    fn the_signature_must_name_the_versions_installer() {
+        let real = "timestamp:1795450659\tfile:FoxDen_0.18.2_x64-setup.exe";
+        assert!(signed_for(real, "0.18.2").is_ok());
+        assert!(signed_for(real, "0.18.3").is_err());
+        assert!(signed_for("timestamp:1795450659", "0.18.2").is_err());
+        assert!(signed_for("timestamp:1\tfile:FoxDen_0.18.2_x64-setup.exe.zip", "0.18.2").is_err());
+    }
+
+    #[test]
+    fn a_released_signature_names_its_file() {
+        let sig = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRQkRjNlgxQmlhdHVnd3RZaUdjeGsxL2FmUXBEYmYrcjllTkErN2huYlZtUDdqOUw1eUlEc0YwZ0pTa3FUcFFWSkJ6RTk3bXgyR0tQcytFYXdBYXlBbFdSYnZLbGJzNWdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NDUwNjU5CWZpbGU6Rm94RGVuXzAuMTguMl94NjQtc2V0dXAuZXhlCmVIekFGRWl5WU9kMnh5RUFRanRST002M3NBbDhBRUF6MGYxdkt4Vkduc1Y4bmV5eDVOcTRmYjZHVzdUQ29SSm1ENDdjajZiYkdKS0QvRlFVWHA3MUF3PT0K";
+        let signature = minisign_verify::Signature::decode(&text64(sig).unwrap()).unwrap();
+        assert!(signed_for(signature.trusted_comment(), "0.18.2").is_ok());
+    }
+
+    #[test]
+    fn the_written_installer_runs_but_cannot_be_changed() {
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let data = std::fs::read(Path::new(&system).join(r"System32\whoami.exe")).unwrap();
+        let dir = fresh_dir().unwrap();
+        let other = fresh_dir().unwrap();
+        assert_ne!(dir, other);
+        let _ = std::fs::remove_dir(&other);
+        let file = dir.join("whoami.exe");
+        let held = write_locked(&file, &data).unwrap();
+        assert!(OpenOptions::new().write(true).open(&file).is_err());
+        assert!(std::fs::remove_file(&file).is_err());
+        assert!(std::process::Command::new(&file).output().unwrap().status.success());
+        drop(held);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

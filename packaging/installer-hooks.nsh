@@ -3,15 +3,30 @@
 !include LogicLib.nsh
 
 ; Removes the app installed under its old name, FoxRGB. Its settings stay and are copied over on first start.
-!macro REMOVE_FOXRGB ROOT
-  ReadRegStr $0 ${ROOT} "Software\Microsoft\Windows\CurrentVersion\Uninstall\FoxRGB" "InstallLocation"
+!macro REMOVE_FOXRGB
+  ReadRegStr $0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\FoxRGB" "InstallLocation"
   StrCpy $1 $0 1
   ${If} $1 == '"'
     StrCpy $0 $0 -1 1
   ${EndIf}
-  ; Only a folder named FoxRGB is ever removed.
-  StrCpy $1 $0 "" -6
-  ${If} $1 == "FoxRGB"
+  ${If} $0 != ""
+    GetFullPathName $0 $0
+  ${EndIf}
+  ; Only a folder named FoxRGB under Program Files is ever removed.
+  StrCpy $3 0
+  StrLen $2 "$PROGRAMFILES64\"
+  StrCpy $1 $0 $2
+  ${If} $1 == "$PROGRAMFILES64\"
+    StrCpy $3 1
+  ${EndIf}
+  StrLen $2 "$PROGRAMFILES\"
+  StrCpy $1 $0 $2
+  ${If} $1 == "$PROGRAMFILES\"
+    StrCpy $3 1
+  ${EndIf}
+  StrCpy $1 $0 "" -7
+  ${If} $3 = 1
+  ${AndIf} $1 == "\FoxRGB"
   ${AndIf} ${FileExists} "$0\uninstall.exe"
     ; Its own uninstaller stops and removes its service and sign-in task.
     ExecWait '"$0\uninstall.exe" /S _?=$0'
@@ -21,15 +36,21 @@
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
-  !insertmacro REMOVE_FOXRGB HKLM
-  !insertmacro REMOVE_FOXRGB HKCU
-  nsExec::Exec '"$INSTDIR\foxden-service.exe" stop'
+  !insertmacro REMOVE_FOXRGB
+  nsExec::Exec '"$SYSDIR\sc.exe" stop foxden-service'
   ; The service hands its fans back before exiting; one that never exits is closed so its files can be replaced.
-  nsExec::Exec 'powershell -NoProfile -NonInteractive -Command "Wait-Process -Name foxden-service -Timeout 20 -ErrorAction SilentlyContinue"'
-  nsExec::Exec 'taskkill /F /IM foxden-service.exe'
+  nsExec::Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "Wait-Process -Name foxden-service -Timeout 20 -ErrorAction SilentlyContinue"'
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /IM foxden-service.exe'
   ; An app still exiting after starting the update would make the running-app check fail.
-  nsExec::Exec 'taskkill /F /T /IM foxden.exe'
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM foxden.exe'
   Sleep 1500
+!macroend
+
+; Only SYSTEM and administrators can change the install folder, wherever it is.
+!macro LOCK_INSTDIR
+  nsExec::Exec '"$SYSDIR\icacls.exe" "$INSTDIR" /setowner *S-1-5-32-544 /T /C /Q'
+  nsExec::Exec '"$SYSDIR\icacls.exe" "$INSTDIR" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F *S-1-5-32-545:(OI)(CI)RX /Q'
+  nsExec::Exec '"$SYSDIR\icacls.exe" "$INSTDIR\*" /reset /T /C /Q'
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -44,5 +65,5 @@
     nsExec::Exec '"$INSTDIR\foxden-service.exe" vcable remove'
   ${EndIf}
   nsExec::Exec '"$INSTDIR\foxden-service.exe" uninstall'
-  nsExec::Exec 'schtasks /Delete /TN FoxDen /F'
+  nsExec::Exec '"$SYSDIR\schtasks.exe" /Delete /TN FoxDen /F'
 !macroend
