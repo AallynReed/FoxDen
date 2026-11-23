@@ -474,6 +474,38 @@ mod tests {
     }
 
     #[test]
+    fn battery_effects_and_conditions_survive_a_profile_save() {
+        let dir = scratch("battery");
+        let effect = Effect::Battery {
+            device: "logitech-1".into(),
+            stops: vec![foxden_core::Stop {
+                temp: 25.0,
+                color: Color(255, 0, 0),
+            }],
+            charging: true,
+            charging_color: Color(0, 0, 255),
+        };
+        let mut layer = Layer::new(LayerEffect::Fill(effect.clone()));
+        layer.when = foxden_core::When::BatteryLow;
+        layer.low = 15.0;
+        let profile = Profile {
+            effect: effect.clone(),
+            layers: vec![layer.clone()],
+            overrides: BTreeMap::from([("hid:mouse".to_string(), effect.clone())]),
+            brightness: 1.0,
+        };
+        let config = Config {
+            effect,
+            layers: vec![layer],
+            profiles: BTreeMap::from([("Low".to_string(), profile)]),
+            ..Default::default()
+        };
+        save(&dir, &config).unwrap();
+        assert_eq!(load(&dir), config);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn older_effects_become_layers() {
         let dir = scratch("ripple");
         let ripple = r#"{"kind":"key_ripple","color":[1,2,3],"background":[4,5,6],"speed":1.5,"width":0.05,"fade":1.0}"#;

@@ -54,6 +54,40 @@ pub struct Inputs {
     pub keyboards: Vec<([f32; 4], bool)>,
     /// Temperatures in °C by sensor id.
     pub temperatures: BTreeMap<String, f32>,
+    pub batteries: Batteries,
+}
+
+/// One connected device's battery.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct BatteryLevel {
+    pub percent: f32,
+    pub charging: bool,
+}
+
+/// Battery levels by the device's stable key.
+pub type Batteries = BTreeMap<String, BatteryLevel>;
+
+/// The battery of `device`, or the lowest one when `device` is empty.
+pub fn battery_level(batteries: &Batteries, device: &str) -> Option<BatteryLevel> {
+    if device.is_empty() {
+        batteries
+            .values()
+            .filter(|b| b.percent.is_finite())
+            .min_by(|a, b| a.percent.total_cmp(&b.percent))
+            .copied()
+    } else {
+        batteries.get(device).copied()
+    }
+}
+
+/// True when `device`, or any device when it is empty, is at or below `threshold` percent and not charging.
+pub fn battery_low(batteries: &Batteries, device: &str, threshold: f32) -> bool {
+    let low = |b: &BatteryLevel| !b.charging && b.percent <= threshold;
+    if device.is_empty() {
+        batteries.values().any(low)
+    } else {
+        batteries.get(device).is_some_and(low)
+    }
 }
 
 /// Eases each reading toward `latest` with time constant `tau` seconds. New sensors start at their
@@ -101,5 +135,40 @@ mod tests {
         assert!((eased["cpu"] - 80.0).abs() < 1.0);
         ease_readings(&mut eased, &[("gpu".into(), f32::NAN)], 0.03, 0.3);
         assert!(eased.is_empty());
+    }
+
+    fn batteries(list: &[(&str, f32, bool)]) -> Batteries {
+        list.iter()
+            .map(|&(k, percent, charging)| (k.to_string(), BatteryLevel { percent, charging }))
+            .collect()
+    }
+
+    #[test]
+    fn lowest_battery_is_picked_when_no_device_is_named() {
+        let b = batteries(&[
+            ("mouse", 40.0, false),
+            ("pad", 12.0, true),
+            ("set", 80.0, false),
+        ]);
+        assert_eq!(battery_level(&b, "").unwrap().percent, 12.0);
+        assert_eq!(battery_level(&b, "set").unwrap().percent, 80.0);
+        assert_eq!(battery_level(&b, "gone"), None);
+        assert_eq!(battery_level(&Batteries::new(), ""), None);
+    }
+
+    #[test]
+    fn low_means_at_or_under_the_threshold_and_not_charging() {
+        let b = batteries(&[
+            ("mouse", 20.0, false),
+            ("pad", 5.0, true),
+            ("set", 60.0, false),
+        ]);
+        assert!(battery_low(&b, "mouse", 20.0));
+        assert!(!battery_low(&b, "mouse", 19.0));
+        assert!(!battery_low(&b, "pad", 20.0));
+        assert!(!battery_low(&b, "gone", 20.0));
+        assert!(battery_low(&b, "", 20.0));
+        assert!(!battery_low(&b, "", 10.0));
+        assert!(!battery_low(&Batteries::new(), "", 100.0));
     }
 }

@@ -142,6 +142,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             apps::list_apps,
+            battery::get_batteries,
             report::send_feedback,
             commands::get_snapshot,
             commands::set_effect,

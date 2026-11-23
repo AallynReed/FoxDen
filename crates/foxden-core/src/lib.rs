@@ -14,7 +14,10 @@ pub use color::{Color, from_hex, to_hex};
 pub use device::{Device, DeviceKind};
 pub use effect::{Control, Effect, EffectInfo, ParamInfo, Stop, stop_color};
 pub use engine::{Engine, Frame};
-pub use input::{AUDIO_BANDS, AudioFrame, Inputs, Press, ScreenFrame, ease_readings};
+pub use input::{
+    AUDIO_BANDS, AudioFrame, Batteries, BatteryLevel, Inputs, Press, ScreenFrame, battery_level,
+    battery_low, ease_readings,
+};
 pub use keys::{
     KeyInfo, KeyTable, Spot, clean_key_map, key_at, key_layout, key_spot, key_table, key_under,
     paint, presses_on, spots, zoned,

@@ -94,9 +94,16 @@ pub enum Effect {
         sensor: String,
         stops: Vec<Stop>,
     },
+    Battery {
+        /// A battery's key, or empty for the lowest one.
+        device: String,
+        stops: Vec<Stop>,
+        charging: bool,
+        charging_color: Color,
+    },
 }
 
-/// A colour shown at a temperature in °C.
+/// A colour shown at a point: °C for Temperature, percent for Battery.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Stop {
     pub temp: f32,
@@ -141,8 +148,13 @@ pub enum Control {
     KeyColours,
     /// The id of a temperature sensor.
     Sensor,
-    /// A list of `Stop`s.
-    Stops,
+    /// A battery's key, empty for the lowest.
+    Battery,
+    /// A list of `Stop`s from 0 to `max`.
+    Stops {
+        unit: &'static str,
+        max: f32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -168,6 +180,8 @@ const NAVY: Color = Color(0, 12, 40);
 const WHITE: Color = Color(255, 255, 255);
 const GREEN: Color = Color(0, 200, 80);
 const RED: Color = Color(255, 0, 0);
+const YELLOW: Color = Color(255, 210, 0);
+const BLUE: Color = Color(0, 120, 255);
 
 pub(crate) fn range(
     name: &'static str,
@@ -465,8 +479,39 @@ impl Effect {
                     ParamInfo {
                         name: "stops",
                         label: "Stages",
-                        control: Control::Stops,
+                        control: Control::Stops {
+                            unit: "°C",
+                            max: 150.0,
+                        },
                     },
+                ],
+            },
+            EffectInfo {
+                label: "Battery",
+                default: Effect::Battery {
+                    device: String::new(),
+                    stops: [(10.0, RED), (30.0, ORANGE), (60.0, YELLOW), (100.0, GREEN)]
+                        .map(|(temp, color)| Stop { temp, color })
+                        .to_vec(),
+                    charging: false,
+                    charging_color: BLUE,
+                },
+                params: vec![
+                    ParamInfo {
+                        name: "device",
+                        label: "Device",
+                        control: Control::Battery,
+                    },
+                    ParamInfo {
+                        name: "stops",
+                        label: "Stages",
+                        control: Control::Stops {
+                            unit: "%",
+                            max: 100.0,
+                        },
+                    },
+                    toggle("charging", "Show charging colour"),
+                    color("charging_color", "Charging colour"),
                 ],
             },
         ]
@@ -492,6 +537,16 @@ impl Effect {
                 ref sensor,
                 ref stops,
             } => stop_color(stops, inputs.temperatures.get(sensor).copied().unwrap_or(f32::NAN)),
+            Effect::Battery {
+                ref device,
+                ref stops,
+                charging,
+                charging_color,
+            } => match crate::battery_level(&inputs.batteries, device) {
+                Some(b) if charging && b.charging => charging_color,
+                Some(b) => stop_color(stops, b.percent),
+                None => stop_color(stops, f32::NAN),
+            },
             Effect::None => Color::BLACK,
             Effect::Static { color } => color,
             Effect::Breathing { color, speed } => color.scale(0.5 - 0.5 * (t * speed * 2.0).cos()),
@@ -677,6 +732,14 @@ mod tests {
             ],
             keyboards: Vec::new(),
             temperatures: [("cpu/package".to_string(), 70.0)].into(),
+            batteries: [(
+                "mouse".to_string(),
+                crate::BatteryLevel {
+                    percent: 45.0,
+                    charging: false,
+                },
+            )]
+            .into(),
         }
     }
 
@@ -746,10 +809,10 @@ mod tests {
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
                     Control::Choice { .. } => assert!(value.is_string()),
-                    Control::Keys | Control::KeyColours | Control::Stops => {
+                    Control::Keys | Control::KeyColours | Control::Stops { .. } => {
                         assert!(value.is_array())
                     }
-                    Control::Sensor => assert!(value.is_string()),
+                    Control::Sensor | Control::Battery => assert!(value.is_string()),
                 }
             }
         }
@@ -758,7 +821,7 @@ mod tests {
     #[test]
     fn catalog_labels_and_kinds_are_unique() {
         let catalog = Effect::catalog();
-        assert_eq!(catalog.len(), 18);
+        assert_eq!(catalog.len(), 19);
         for (i, a) in catalog.iter().enumerate() {
             for b in &catalog[i + 1..] {
                 assert_ne!(a.label, b.label);
@@ -809,6 +872,7 @@ mod tests {
             "audio_pulse",
             "screen_ambience",
             "temperature",
+            "battery",
         ];
         assert_eq!(kinds, expected);
     }
@@ -1294,6 +1358,69 @@ mod tests {
             Effect::Temperature {
                 sensor: "gpu0/temp".into(),
                 stops: stops(&[(30.0, Color(1, 2, 3)), (70.5, Color(4, 5, 6))]),
+            }
+        );
+        assert_eq!(serde_json::to_string(&e).unwrap(), json);
+    }
+
+    fn battery_inputs(list: &[(&str, f32, bool)]) -> Inputs {
+        Inputs {
+            batteries: list
+                .iter()
+                .map(|&(k, percent, charging)| {
+                    (k.to_string(), crate::BatteryLevel { percent, charging })
+                })
+                .collect(),
+            ..Inputs::default()
+        }
+    }
+
+    #[test]
+    fn battery_maps_its_level_to_the_stages() {
+        let (red, green) = (Color(255, 0, 0), Color(0, 200, 0));
+        let e = Effect::Battery {
+            device: "mouse".into(),
+            stops: stops(&[(100.0, green), (10.0, red)]),
+            charging: false,
+            charging_color: Color(0, 0, 255),
+        };
+        let at = |p| e.sample(0.5, 0.5, 0.0, &battery_inputs(&[("mouse", p, false)]));
+        assert_eq!(at(5.0), red);
+        assert_eq!(at(100.0), green);
+        assert_eq!(at(55.0), red.lerp(green, 0.5));
+        assert_eq!(e.sample(0.5, 0.5, 0.0, &Inputs::default()), red);
+    }
+
+    #[test]
+    fn battery_follows_the_lowest_and_shows_charging_only_when_asked() {
+        let (red, green, blue) = (Color(255, 0, 0), Color(0, 200, 0), Color(0, 0, 255));
+        let mut e = Effect::Battery {
+            device: String::new(),
+            stops: stops(&[(10.0, red), (100.0, green)]),
+            charging: false,
+            charging_color: blue,
+        };
+        let inputs = battery_inputs(&[("mouse", 100.0, false), ("pad", 10.0, true)]);
+        assert_eq!(e.sample(0.5, 0.5, 0.0, &inputs), red);
+        if let Effect::Battery { charging, .. } = &mut e {
+            *charging = true;
+        }
+        assert_eq!(e.sample(0.5, 0.5, 0.0, &inputs), blue);
+        let idle = battery_inputs(&[("mouse", 100.0, false)]);
+        assert_eq!(e.sample(0.5, 0.5, 0.0, &idle), green);
+    }
+
+    #[test]
+    fn battery_settings_round_trip_through_json() {
+        let json = r#"{"kind":"battery","device":"logitech-1","stops":[{"temp":15.0,"color":[1,2,3]},{"temp":90.0,"color":[4,5,6]}],"charging":true,"charging_color":[7,8,9]}"#;
+        let e: Effect = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            e,
+            Effect::Battery {
+                device: "logitech-1".into(),
+                stops: stops(&[(15.0, Color(1, 2, 3)), (90.0, Color(4, 5, 6))]),
+                charging: true,
+                charging_color: Color(7, 8, 9),
             }
         );
         assert_eq!(serde_json::to_string(&e).unwrap(), json);

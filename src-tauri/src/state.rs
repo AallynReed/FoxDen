@@ -861,6 +861,7 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                     .map(|(_, d, _, _)| (d.rect, d.number_pad()))
                     .collect();
                 inputs.presses = presses_on(&pressed, &inputs.keyboards);
+                inputs.batteries.clone_from(&state.engine.batteries);
                 let frames = state.engine.render(t, &inputs);
                 (frames, state.engine.take_failed())
             };

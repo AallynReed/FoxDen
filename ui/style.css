@@ -1015,7 +1015,8 @@ button.tile[aria-pressed="true"] {
   margin-left: auto;
 }
 
-.field.sensor .hint {
+.field.sensor .hint,
+.field.battery .hint {
   grid-column: 1 / -1;
 }
 

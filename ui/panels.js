@@ -913,8 +913,74 @@ function sensorField(param, id, target) {
   return row;
 }
 
-// Temperature stages: a temperature and a colour each, blended between neighbours.
+// Wireless devices' batteries by key, for effects and layers that follow one.
+const batteryLive = { list: [], asked: false };
+
+function watchBatteries() {
+  if (batteryLive.asked) return;
+  batteryLive.asked = true;
+  const take = (list) => {
+    if (!Array.isArray(list)) return;
+    batteryLive.list = list;
+    for (const field of document.querySelectorAll(".field.battery")) field.refresh();
+    scheduleRender();
+  };
+  listen("batteries", (e) => take(e.payload));
+  invoke("get_batteries").then(take, () => {});
+}
+
+// The first choice stands for the lowest or any battery; a chosen device that is gone stays listed.
+function fillBatteries(select, first, chosen) {
+  const options = [["", first], ...batteryLive.list.map((b) => [b.key, b.name])];
+  if (!options.some(([key]) => key === chosen)) options.push([chosen, chosen]);
+  const key = JSON.stringify(options);
+  if (select.dataset.key !== key) {
+    select.dataset.key = key;
+    select.replaceChildren(...options.map(([value, name]) => el("option", { value, textContent: name })));
+  }
+  if (!busy(select)) select.value = chosen;
+}
+
+function batteryNow(chosen) {
+  const read = batteryLive.list.filter((b) => b.percent != null);
+  return chosen ? read.find((b) => b.key === chosen) : read.sort((a, b) => a.percent - b.percent)[0];
+}
+
+function batteryField(param, id, target) {
+  watchBatteries();
+  const select = el("select", { id });
+  const status = el("p", { className: "hint", id: id + "-status", role: "status" });
+  const row = el("div", { className: "field battery" }, el("label", { htmlFor: id, textContent: param.label }), select, status);
+  let chosen = "";
+
+  row.refresh = () => {
+    fillBatteries(select, "Lowest battery", chosen);
+    const b = batteryNow(chosen);
+    let text;
+    if (state.snap && !state.snap.settings.battery_tray) text = "Turn on Batteries in Settings to read battery levels.";
+    else if (!b) text = chosen ? "No reading from this device. The lowest stage is shown." : "No battery readings yet. The lowest stage is shown.";
+    else if (chosen) text = b.charging ? "Now " + b.percent + "%, charging" : "Now " + b.percent + "%";
+    else text = b.charging ? "Lowest is " + b.name + " at " + b.percent + "%, charging" : "Lowest is " + b.name + " at " + b.percent + "%";
+    setText(status, text);
+  };
+  select.show = (value) => {
+    chosen = typeof value === "string" ? value : "";
+    row.refresh();
+  };
+  select.oninput = () => {
+    chosen = select.value;
+    queueEffect(param.name, chosen, target);
+    row.refresh();
+  };
+  select.dataset.param = param.name;
+  select.setAttribute("aria-describedby", status.id);
+  return row;
+}
+
+// Stages: a temperature or battery level and a colour each, blended between neighbours.
 function stopsField(param, id, target) {
+  const level = param.control.unit === "%";
+  const max = param.control.max || 150;
   const list = el("div", { className: "stages" });
   const problem = el("p", { className: "problem", id: id + "-problem", hidden: true });
   const add = el("button", { type: "button", id: id + "-add", textContent: "Add stage" });
@@ -931,14 +997,14 @@ function stopsField(param, id, target) {
     });
     const swatch = field.querySelector(".swatch");
     field.querySelector("label").className = "sr-only";
-    const temp = el("input", { type: "number", className: "exact", id: id + "-" + i + "-temp", min: 0, max: 150, step: 1 });
-    temp.setAttribute("aria-label", "Stage " + (i + 1) + " temperature in °C");
+    const temp = el("input", { type: "number", className: "exact", id: id + "-" + i + "-temp", min: 0, max, step: 1 });
+    temp.setAttribute("aria-label", level ? "Stage " + (i + 1) + " battery level in per cent" : "Stage " + (i + 1) + " temperature in °C");
     explain(temp, problem);
     revert(temp, () => (temp.value = stops[i].temp));
     temp.oninput = () => {
       const v = Number(temp.value);
-      const ok = temp.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= 150;
-      flag(temp, ok ? "" : "Enter a temperature from 0 to 150 °C.");
+      const ok = temp.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= max;
+      flag(temp, ok ? "" : level ? "Enter a level from 0 to 100%." : "Enter a temperature from 0 to 150 °C.");
       if (!ok) return;
       stops[i].temp = v;
       send();
@@ -958,7 +1024,7 @@ function stopsField(param, id, target) {
     };
     const controls = el("div", { className: "row" });
     swatch.replaceWith(controls);
-    controls.append(el("span", { className: "percent" }, temp, "°C"), swatch, remove);
+    controls.append(el("span", { className: "percent" }, temp, param.control.unit || "°C"), swatch, remove);
     return { field, temp, swatch, remove };
   }
 
@@ -981,7 +1047,7 @@ function stopsField(param, id, target) {
   add.onclick = () => {
     if (stops.length >= MAX_STAGES) return;
     const last = [...stops].sort((a, b) => a.temp - b.temp).pop() || { temp: 50, color: [255, 0, 0] };
-    stops.push({ temp: Math.min(last.temp + 10, 150), color: [...last.color] });
+    stops.push({ temp: Math.min(last.temp + 10, max), color: [...last.color] });
     send();
     build();
     rows[rows.length - 1].temp.focus();
@@ -1009,6 +1075,7 @@ function paramRow(param, target = "effect") {
   if (control.type === "key_colours") return paintField(param, id);
   if (control.type === "sensor") return sensorField(param, id, target);
   if (control.type === "stops") return stopsField(param, id, target);
+  if (control.type === "battery") return batteryField(param, id, target);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
   if (control.type === "range") {
@@ -1108,9 +1175,14 @@ function scopeWords(snap, layer) {
 
 const appName = (name) => name.trim().toLowerCase().replace(/\.exe$/, "");
 
-// Whether a layer tied to apps shows right now.
+// Whether a layer tied to apps or batteries shows right now.
 function live(layer) {
   const named = (n) => layer.apps.some((a) => appName(a) === n);
+  if (layer.when === "battery_low") {
+    watchBatteries();
+    const low = (b) => b.percent != null && !b.charging && b.percent <= layer.low;
+    return batteryLive.list.some((b) => (!layer.battery || b.key === layer.battery) && low(b));
+  }
   if (layer.when === "running") return state.apps.running.some(named);
   if (layer.when === "front") return !!state.apps.front && named(state.apps.front);
   return true;
@@ -1118,6 +1190,11 @@ function live(layer) {
 
 function whenWords(layer) {
   if (layer.when === "always") return "";
+  if (layer.when === "battery_low") {
+    const b = batteryLive.list.find((x) => x.key === layer.battery);
+    if (!layer.battery) return "while any battery is at " + layer.low + "% or less";
+    return "while " + (b ? b.name : layer.battery) + " is at " + layer.low + "% or less";
+  }
   if (!layer.apps.length) return "no app yet";
   const names = layer.apps[0] + (layer.apps.length > 1 ? " +" + (layer.apps.length - 1) : "");
   return layer.when === "front" ? names + " in front" : "while " + names + " is open";
@@ -1176,7 +1253,7 @@ function renderLayers(snap) {
   const add = $("layer-add");
   if (!add.options.length) add.replaceChildren(el("option", { value: "", textContent: "Add a layer" }), ...layerKinds(snap));
   const list = $("layer-list");
-  const key = JSON.stringify([snap.layers.map((l) => [l.enabled, l.effect.kind, l.scope, l.devices, l.blend, Math.round(l.opacity * 100), l.when, l.apps, live(l)]), edited(snap).kind, snap.effect.kind, Object.keys(snap.overrides), layerSel, snap.devices.length]);
+  const key = JSON.stringify([snap.layers.map((l) => [l.enabled, l.effect.kind, l.scope, l.devices, l.blend, Math.round(l.opacity * 100), l.when, l.apps, l.battery, l.low, live(l)]), edited(snap).kind, batteryLive.list.map((b) => b.name), snap.effect.kind, Object.keys(snap.overrides), layerSel, snap.devices.length]);
   if (list.dataset.key === key) return;
   list.dataset.key = key;
   const focused = list.contains(document.activeElement) ? document.activeElement.id : "";
@@ -1304,7 +1381,19 @@ function renderLayer(snap, layer) {
   for (const box of checks.querySelectorAll("input")) box.checked = layer.devices.includes(box.dataset.device);
 
   put($("layer-when"), layer.when);
-  $("layer-apps").hidden = layer.when === "always";
+  $("layer-apps").hidden = layer.when === "always" || layer.when === "battery_low";
+  $("layer-battery").hidden = layer.when !== "battery_low";
+  if (layer.when === "battery_low") {
+    watchBatteries();
+    fillBatteries($("layer-battery-device"), "Any device", layer.battery);
+    put($("layer-low"), layer.low);
+    const b = batteryNow(layer.battery);
+    let text;
+    if (state.snap && !state.snap.settings.battery_tray) text = "Turn on Batteries in Settings to read battery levels.";
+    else if (layer.battery && !b) text = "No reading from this device. The layer stays hidden.";
+    else text = layer.battery ? "Shows while this device is at " + layer.low + "% or less and not charging." : "Shows while any device is at " + layer.low + "% or less and not charging.";
+    setText($("layer-battery-hint"), text);
+  }
   const apps = $("layer-app-list");
   const appsKey = layerSel + JSON.stringify(layer.apps);
   if (apps.dataset.key !== appsKey) {
@@ -1362,7 +1451,7 @@ function addLayer(value) {
   const entry = entryFor(state.snap, value);
   if (!entry) return;
   const effect = JSON.parse(JSON.stringify(entry.default));
-  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") || ["key_lights", "key_colours"].includes(entry.default.kind) ? "keyboards" : "all", devices: [], when: "always", apps: [], effect }));
+  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") || ["key_lights", "key_colours"].includes(entry.default.kind) ? "keyboards" : "all", devices: [], when: "always", apps: [], battery: "", low: 20, effect }));
   layerSel = state.snap.layers.length;
   layerFocus = "layer-" + layerSel;
 }
@@ -1381,6 +1470,8 @@ function wireLayers() {
   pair($("layer-opacity"), $("layer-opacity-exact"), 1, (v) => queueLayers((layers) => (layers[layerSel].opacity = v / 100)), $("layer-problem"));
   $("layer-scope").oninput = () => queueLayers((layers) => (layers[layerSel].scope = $("layer-scope").value));
   $("layer-when").oninput = () => queueLayers((layers) => (layers[layerSel].when = $("layer-when").value));
+  $("layer-battery-device").oninput = () => queueLayers((layers) => (layers[layerSel].battery = $("layer-battery-device").value));
+  pair($("layer-low"), $("layer-low-exact"), 1, (v) => queueLayers((layers) => (layers[layerSel].low = v)), $("layer-problem"));
   // The list of open apps is read when the field is used, not kept up to date.
   $("layer-app").onfocus = async () => {
     const names = (await call("list_apps")) || [];
@@ -1861,10 +1952,12 @@ function paramProblem(control, value) {
   }
   if (control.type === "toggle") return typeof value === "boolean" ? "" : "true or false";
   if (control.type === "sensor") return typeof value === "string" ? "" : "a sensor id in quotes";
+  if (control.type === "battery") return typeof value === "string" ? "" : "a device key in quotes, or empty quotes for the lowest battery";
   if (control.type === "stops") {
     const stage = (v) => v && typeof v.temp === "number" && Number.isFinite(v.temp) && !paramProblem({ type: "color" }, v.color);
     const ok = Array.isArray(value) && value.length >= 1 && value.length <= MAX_STAGES && value.every(stage);
-    return ok ? "" : "a list of 1 to 8 stages, each with a temperature and a colour";
+    if (ok) return "";
+    return control.unit === "%" ? "a list of 1 to 8 stages, each with a battery level and a colour" : "a list of 1 to 8 stages, each with a temperature and a colour";
   }
   return (control.options || []).includes(value) ? "" : "one of " + (control.options || []).join(", ");
 }

@@ -2,12 +2,15 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use foxden_battery::Battery;
-use tauri::AppHandle;
+use foxden_core::{Batteries, BatteryLevel};
+use serde::Serialize;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -16,6 +19,17 @@ use crate::state::{Shared, lock};
 const EVERY: Duration = Duration::from_secs(60);
 const TICK: Duration = Duration::from_secs(2);
 const PREFIX: &str = "battery:";
+
+/// What the UI is told about each connected battery, lowest first.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Reading {
+    key: String,
+    name: String,
+    percent: Option<u8>,
+    charging: bool,
+}
+
+static READINGS: Mutex<Vec<Reading>> = Mutex::new(Vec::new());
 
 thread_local! {
     /// The battery icons, owned by the main thread.
@@ -68,11 +82,13 @@ pub fn spawn(app: AppHandle, shared: Shared) {
                 known.clear();
                 last = None;
                 sync(&app, &mut shown, HashMap::new());
+                publish(&app, &shared, &known);
             } else if replugged || last.is_none_or(|t| t.elapsed() >= EVERY) {
                 let now = Instant::now();
                 let polled = foxden_battery::poll();
                 crate::priority::set_batteries(&polled);
                 merge(&mut known, polled, now);
+                publish(&app, &shared, &known);
                 for line in log_changes(&mut logged, &known) {
                     crate::log::info("battery", line);
                 }
@@ -217,16 +233,70 @@ fn merge(known: &mut HashMap<String, (Battery, Instant)>, polled: Vec<Battery>, 
     });
 }
 
+/// The percentage, or one near the step of a device that only reports a few.
+fn rough_percent(b: &Battery) -> Option<u8> {
+    match (b.percent, b.level.as_str()) {
+        (Some(p), _) => Some(p),
+        (None, "Full") => Some(100),
+        (None, "Good") => Some(60),
+        (None, "Low") => Some(20),
+        (None, "Critical") => Some(5),
+        _ => None,
+    }
+}
+
+fn readings(known: &HashMap<String, (Battery, Instant)>) -> Vec<Reading> {
+    let mut out: Vec<Reading> = known
+        .values()
+        .map(|(b, _)| Reading {
+            key: b.key.clone(),
+            name: b.name.clone(),
+            percent: rough_percent(b),
+            charging: b.charging && !b.full,
+        })
+        .collect();
+    out.sort_by(|a, b| (a.percent, &a.name).cmp(&(b.percent, &b.name)));
+    out
+}
+
+fn levels(readings: &[Reading]) -> Batteries {
+    readings
+        .iter()
+        .filter_map(|r| {
+            let level = BatteryLevel {
+                percent: f32::from(r.percent?),
+                charging: r.charging,
+            };
+            Some((r.key.clone(), level))
+        })
+        .collect()
+}
+
+/// Hands the levels to the lighting engine and, when they changed, to the UI.
+fn publish(app: &AppHandle, shared: &Shared, known: &HashMap<String, (Battery, Instant)>) {
+    let now = readings(known);
+    lock(shared).engine.batteries = levels(&now);
+    let mut told = READINGS.lock().unwrap_or_else(|e| e.into_inner());
+    if *told != now {
+        let _ = app.emit("batteries", &now);
+        *told = now;
+    }
+}
+
+#[tauri::command]
+pub fn get_batteries() -> Vec<Reading> {
+    READINGS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 fn show(b: &Battery) -> Shown {
     // Devices with only a few steps show a word, with a bar near that step.
-    let (text, bar) = match (b.percent, b.level.as_str()) {
-        (Some(p), _) => (p.to_string(), Some(p)),
-        (None, "Full") => ("OK".into(), Some(100)),
-        (None, "Good") => ("OK".into(), Some(60)),
-        (None, "Low") => ("LOW".into(), Some(20)),
-        (None, "Critical") => ("LOW".into(), Some(5)),
-        (None, l) if !l.is_empty() => (l.chars().take(3).collect(), None),
-        _ => ("?".into(), None),
+    let bar = rough_percent(b);
+    let text = match (b.percent, b.level.as_str()) {
+        (Some(p), _) => p.to_string(),
+        (None, "Full" | "Good") => "OK".into(),
+        (None, "Low" | "Critical") => "LOW".into(),
+        (None, l) if !l.is_empty() => l.chars().take(3).collect(),
+        _ => "?".into(),
     };
     let tint = match bar {
         _ if b.charging && !b.full => Tint::Charging,
@@ -617,6 +687,46 @@ mod tests {
             Instant::now(),
         );
         assert!(known.is_empty());
+    }
+
+    #[test]
+    fn levels_reach_the_engine_with_charging_and_rough_steps() {
+        let t = Instant::now();
+        let known = HashMap::from([
+            ("m".to_string(), (device("m", Some(42)), t)),
+            (
+                "h".to_string(),
+                (
+                    Battery {
+                        level: "Low".into(),
+                        charging: true,
+                        ..device("h", None)
+                    },
+                    t,
+                ),
+            ),
+            ("x".to_string(), (device("x", None), t)),
+        ]);
+        let now = readings(&known);
+        assert_eq!(now.len(), 3);
+        let b = levels(&now);
+        assert_eq!(b.len(), 2);
+        assert_eq!(
+            b["m"],
+            BatteryLevel {
+                percent: 42.0,
+                charging: false
+            }
+        );
+        assert_eq!(
+            b["h"],
+            BatteryLevel {
+                percent: 20.0,
+                charging: true
+            }
+        );
+        assert_eq!(foxden_core::battery_level(&b, "").unwrap().percent, 20.0);
+        assert!(!foxden_core::battery_low(&b, "", 25.0));
     }
 
     #[test]

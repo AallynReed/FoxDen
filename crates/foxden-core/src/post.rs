@@ -1,6 +1,7 @@
 use crate::effect::{along, band, color, hash, range, smooth, toggle};
 use crate::{
-    Color, Control, Device, DeviceKind, Effect, Inputs, KeyTable, ParamInfo, Press, key_at,
+    Batteries, Color, Control, Device, DeviceKind, Effect, Inputs, KeyTable, ParamInfo, Press,
+    battery_low, key_at,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -150,7 +151,7 @@ pub enum Scope {
     Chosen,
 }
 
-/// When a layer shows: always, or only while one of its apps runs or is in front.
+/// When a layer shows: always, only while one of its apps runs or is in front, or while a battery is low.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum When {
@@ -158,6 +159,7 @@ pub enum When {
     Always,
     Running,
     Front,
+    BatteryLow,
 }
 
 /// The apps running now and the one in front, as `app_name` gives them.
@@ -199,7 +201,17 @@ pub struct Layer {
     /// Executable names, for `When::Running` and `When::Front`.
     #[serde(default)]
     pub apps: Vec<String>,
+    /// For `When::BatteryLow`: a battery's key, or empty for any.
+    #[serde(default)]
+    pub battery: String,
+    /// For `When::BatteryLow`: percent at or under which it counts as low.
+    #[serde(default = "low_default")]
+    pub low: f32,
     pub effect: LayerEffect,
+}
+
+fn low_default() -> f32 {
+    20.0
 }
 
 impl Layer {
@@ -212,18 +224,21 @@ impl Layer {
             devices: Vec::new(),
             when: When::Always,
             apps: Vec::new(),
+            battery: String::new(),
+            low: low_default(),
             effect,
         }
     }
 
-    /// Whether the layer is on and its apps let it show.
-    pub fn live(&self, apps: &Apps) -> bool {
+    /// Whether the layer is on and its apps or batteries let it show.
+    pub fn live(&self, apps: &Apps, batteries: &Batteries) -> bool {
         let named = |name: &str| self.apps.iter().any(|a| app_name(a) == name);
         self.enabled
             && match self.when {
                 When::Always => true,
                 When::Running => apps.running.iter().any(|r| named(r)),
                 When::Front => apps.front.as_deref().is_some_and(named),
+                When::BatteryLow => battery_low(batteries, &self.battery, self.low),
             }
     }
 
@@ -732,7 +747,7 @@ impl Post {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AudioFrame;
+    use crate::{AudioFrame, BatteryLevel};
 
     const BASE: Color = Color(10, 40, 90);
 
@@ -812,10 +827,10 @@ mod tests {
                     }
                     Control::Color => assert_eq!(value.as_array().unwrap().len(), 3),
                     Control::Toggle => assert!(value.is_boolean()),
-                    Control::Keys | Control::KeyColours | Control::Stops => {
+                    Control::Keys | Control::KeyColours | Control::Stops { .. } => {
                         assert!(value.is_array())
                     }
-                    Control::Sensor => assert!(value.is_string()),
+                    Control::Sensor | Control::Battery => assert!(value.is_string()),
                     Control::Choice { options } => {
                         assert!(
                             options.contains(&value.as_str().unwrap()),
@@ -1117,17 +1132,18 @@ mod tests {
             running: ["game".into(), "discord".into()].into(),
             front: Some("discord".into()),
         };
-        assert!(layer.live(&none));
+        let b = Batteries::new();
+        assert!(layer.live(&none, &b));
         layer.when = When::Running;
-        assert!(!layer.live(&game));
+        assert!(!layer.live(&game, &b));
         layer.apps = vec!["Game.EXE".into()];
-        assert!(layer.live(&game) && !layer.live(&none));
+        assert!(layer.live(&game, &b) && !layer.live(&none, &b));
         layer.when = When::Front;
-        assert!(!layer.live(&game));
+        assert!(!layer.live(&game, &b));
         layer.apps.push("discord".into());
-        assert!(layer.live(&game));
+        assert!(layer.live(&game, &b));
         layer.enabled = false;
-        assert!(!layer.live(&game));
+        assert!(!layer.live(&game, &b));
         assert_eq!(app_name(" Game.exe "), "game");
     }
 
@@ -1139,6 +1155,48 @@ mod tests {
             .retain(|k, _| k != "when" && k != "apps");
         let layer: Layer = serde_json::from_value(v).unwrap();
         assert_eq!((layer.when, layer.apps.len()), (When::Always, 0));
+        assert_eq!((layer.battery.as_str(), layer.low), ("", 20.0));
+    }
+
+    #[test]
+    fn layers_show_while_a_battery_is_low() {
+        let level = |percent, charging| BatteryLevel { percent, charging };
+        let mut b: Batteries = [
+            ("mouse".to_string(), level(15.0, false)),
+            ("pad".to_string(), level(50.0, false)),
+        ]
+        .into();
+        let none = Apps::default();
+        let mut layer = Layer::new(LayerEffect::Post(plain_ghost()));
+        layer.when = When::BatteryLow;
+        assert!(layer.live(&none, &b));
+        layer.battery = "pad".into();
+        assert!(!layer.live(&none, &b));
+        layer.low = 50.0;
+        assert!(layer.live(&none, &b));
+        b.get_mut("pad").unwrap().charging = true;
+        assert!(!layer.live(&none, &b));
+        layer.battery = "gone".into();
+        assert!(!layer.live(&none, &b));
+        layer.battery.clear();
+        layer.low = 10.0;
+        assert!(!layer.live(&none, &b));
+        assert!(!layer.live(&none, &Batteries::new()));
+    }
+
+    #[test]
+    fn battery_conditions_round_trip_through_json() {
+        let mut layer = Layer::new(LayerEffect::Post(plain_ghost()));
+        layer.when = When::BatteryLow;
+        layer.battery = "logitech-1".into();
+        layer.low = 35.0;
+        let v = serde_json::to_value(&layer).unwrap();
+        assert_eq!(
+            (v["when"].as_str(), v["low"].as_f64()),
+            (Some("battery_low"), Some(35.0))
+        );
+        let back: Layer = serde_json::from_value(v).unwrap();
+        assert_eq!(back, layer);
     }
 
     #[test]

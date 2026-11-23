@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::{Apps, Backend, Color, Device, Effect, Inputs, Layer, Spot, paint, spots};
+use crate::{Apps, Backend, Batteries, Color, Device, Effect, Inputs, Layer, Spot, paint, spots};
 use serde::Serialize;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -182,6 +182,8 @@ pub struct Engine {
     pub layers: Vec<Layer>,
     /// What layers tied to apps check against.
     pub apps: Apps,
+    /// What layers tied to batteries check against.
+    pub batteries: Batteries,
     pub brightness: f32,
     /// Every LED is black while set.
     pub paused: bool,
@@ -198,6 +200,7 @@ impl Engine {
             overrides: HashMap::new(),
             layers: Vec::new(),
             apps: Apps::default(),
+            batteries: Batteries::new(),
             brightness: 1.0,
             paused: false,
         };
@@ -361,7 +364,11 @@ impl Engine {
     /// Whether anything shown reads audio, the screen, and key presses.
     pub fn wants(&self) -> (bool, bool, bool) {
         let effects = || std::iter::once(&self.effect).chain(self.overrides.values());
-        let layers = || self.layers.iter().filter(|l| l.live(&self.apps));
+        let layers = || {
+            self.layers
+                .iter()
+                .filter(|l| l.live(&self.apps, &self.batteries))
+        };
         (
             effects().any(Effect::uses_audio) || layers().any(Layer::uses_audio),
             effects().any(Effect::uses_screen) || layers().any(Layer::uses_screen),
@@ -390,7 +397,7 @@ impl Engine {
                         .layers
                         .iter()
                         .zip(&tables)
-                        .filter(|(l, _)| l.covers(device) && l.live(&self.apps))
+                        .filter(|(l, _)| l.covers(device) && l.live(&self.apps, &self.batteries))
                         .collect();
                     device
                         .canvas_positions()
