@@ -1517,6 +1517,7 @@ function resetPosition(id) {
 function deviceRow(device) {
   const name = el("button", { type: "button", className: "name" });
   const status = el("span", { className: "meta" });
+  const resizable = el("span", { className: "tag", textContent: "LED count adjustable", hidden: true });
   const on = el("input", { type: "checkbox", className: "switch" });
   const meta = el("p", { className: "meta" });
   const level = el("input", { type: "range", min: 0, max: 1, step: 0.01, id: "device-level-" + ++rowCount });
@@ -1601,8 +1602,8 @@ function deviceRow(device) {
     problem,
     el("div", { className: "actions" }, reset),
   );
-  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, status, on), details);
-  row.parts = { name, status, on, level, meta, place, counts, details };
+  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, resizable, status, on), details);
+  row.parts = { name, status, resizable, on, level, meta, place, counts, details };
   return row;
 }
 
@@ -1616,11 +1617,12 @@ function renderDevices(snap) {
   }
   snap.devices.forEach((device, i) => {
     const row = list.children[i];
-    const { name, status, on, level, meta, place, counts, details } = row.parts;
+    const { name, status, resizable, on, level, meta, place, counts, details } = row.parts;
     const selected = device.id === preview.selected;
     const about = [BACKENDS[device.backend] || device.backend, KINDS[device.kind] || words(device.kind), plural(device.leds.length, "LED")];
     row.classList.toggle("selected", selected);
     details.hidden = !selected;
+    resizable.hidden = selected || !(device.zones || []).length;
     name.setAttribute("aria-expanded", selected);
     name.title = device.name;
     setText(name, device.name);
