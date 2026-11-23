@@ -24,14 +24,21 @@ export component AppWindow inherits Window {
     out property <length> canvas-width: stage.canvas-width;
     out property <length> canvas-height: stage.canvas-height;
 
-    HorizontalLayout {
-        Rectangle {
-            min-width: 320px;
-            max-width: 380px;
-            horizontal-stretch: 0.3;
-            background: Theme.panel;
-            VerticalLayout {
+    property <bool> wide: tab == 2 || tab == 3 || tab == 5;
+    property <length> side-width: clamp(root.width * 0.3, 320px, 380px);
+    property <length> status-height: 32px;
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.wide ? root.width : root.side-width;
+        height: root.wide ? root.height - root.status-height : root.height;
+        background: Theme.panel;
+        VerticalLayout {
+            HorizontalLayout {
+                alignment: start;
                 HorizontalLayout {
+                    width: root.side-width;
                     height: 44px;
                     Tab { name: I18n.t("Effects"); selected: root.tab == 0; activate => { root.tab = 0; }
                         icon: "M8 1.5l1.6 4.9 4.9 1.6-4.9 1.6L8 14.5 6.4 9.6 1.5 8l4.9-1.6z"; }
@@ -49,6 +56,7 @@ export component AppWindow inherits Window {
                         icon: "M6 8 A2 2 0 1 0 10 8 A2 2 0 1 0 6 8 M3.4 8 A4.6 4.6 0 1 0 12.6 8 A4.6 4.6 0 1 0 3.4 8";
                         icon2: "M8 .8v2.6M8 12.6v2.6M.8 8h2.6M12.6 8h2.6M2.9 2.9l1.8 1.8M11.3 11.3l1.8 1.8M2.9 13.1l1.8-1.8M11.3 4.7l1.8-1.8"; }
                 }
+            }
                 Rectangle { height: 1px; background: Theme.line; }
                 if root.tab == 0: EffectsPanel { }
                 if root.tab == 1: DevicesPanel { }
@@ -56,9 +64,19 @@ export component AppWindow inherits Window {
                 if root.tab == 3: AudioPanel { }
                 if root.tab == 4: ProfilesPanel { }
                 if root.tab == 5: SettingsPanel { }
-            }
         }
-        Rectangle { width: 1px; background: Theme.line; }
-        stage := Stage { }
+    }
+    if !root.wide: Rectangle {
+        x: root.side-width;
+        width: 1px;
+        height: root.height;
+        background: Theme.line;
+    }
+    stage := Stage {
+        wide: root.wide;
+        x: root.wide ? 0 : root.side-width + 1px;
+        y: root.wide ? root.height - root.status-height : 0;
+        width: root.wide ? root.width : root.width - root.side-width - 1px;
+        height: root.wide ? root.status-height : root.height;
     }
 }

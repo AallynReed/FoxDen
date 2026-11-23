@@ -56,6 +56,7 @@ component Sep inherits Rectangle {
 export component Stage inherits Rectangle {
     out property <length> canvas-width: stage-canvas.width;
     out property <length> canvas-height: stage-canvas.height;
+    in property <bool> wide;
     property <bool> grid-open;
     property <bool> alt;
     property <string> note-now: StagePage.note;
@@ -74,7 +75,8 @@ export component Stage inherits Rectangle {
 
     VerticalLayout {
         Bar {
-            height: 44px;
+            height: root.wide ? 0 : 44px;
+            visible: !root.wide;
             accessible-role: groupbox;
             accessible-label: I18n.t("Output");
             HorizontalLayout {
@@ -130,7 +132,8 @@ export component Stage inherits Rectangle {
             }
         }
         Bar {
-            height: 36px;
+            height: root.wide ? 0 : 36px;
+            visible: !root.wide;
             accessible-role: groupbox;
             accessible-label: I18n.t("Canvas");
             HorizontalLayout {
@@ -197,6 +200,8 @@ export component Stage inherits Rectangle {
         }
         stage-canvas := Rectangle {
             vertical-stretch: 1;
+            visible: !root.wide;
+            max-height: root.wide ? 0 : 100000px;
             accessible-role: groupbox;
             accessible-label: I18n.t("Device layout");
             accessible-description: I18n.t("Select a device to set its brightness, position and size, or drag it on the canvas. Arrow keys move the selected device by 1% of the canvas, Ctrl+arrow keys by 5%. With Shift they resize it instead. [ and ] select the previous or next device.");
