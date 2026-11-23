@@ -4,6 +4,7 @@ mod audio;
 mod devices;
 mod effects;
 mod fans;
+mod logs;
 mod profiles;
 mod settings;
 mod stage;

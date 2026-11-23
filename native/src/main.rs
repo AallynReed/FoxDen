@@ -51,6 +51,7 @@ mod canvas;
 mod log;
 mod tray;
 mod ui;
+mod updater;
 
 use std::sync::{Arc, Mutex};
 
@@ -140,7 +141,11 @@ fn main() {
         let _ = slint::invoke_from_event_loop(f);
     });
     app.set_assets(lang_file);
-    app.set_notify(|title, body| log::info("notify", format!("{title}: {body}")));
+    let handle = app.clone();
+    app.set_notify(move |title, body| {
+        let (title, body) = (title.to_string(), body.to_string());
+        let _ = handle.run_on_main_thread(move || tray::notify(&title, &body));
+    });
     log::attach(&app);
     ui::attach(&app);
 
@@ -162,6 +167,7 @@ fn main() {
     state::spawn_render(app.clone(), shared.clone());
     apps::spawn(app.clone(), shared.clone());
     battery::spawn(app.clone(), shared.clone());
+    updater::start(&app, shared.clone());
     state::spawn_saver(shared);
     fans::start(&app, settings.fans_module, fan_backup);
     if !settings.start_minimized && !at_sign_in {

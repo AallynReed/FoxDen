@@ -1,0 +1,134 @@
+import { Theme, I18n, Button } from "widgets.slint";
+import { Seg, Entry } from "settings.slint";
+
+export struct LogRow {
+    at: string,
+    level: string,
+    source: string,
+    text: string,
+}
+
+export global LogsPage {
+    in property <[LogRow]> rows;
+    in property <string> count;
+    in property <bool> empty;
+    in-out property <int> level;
+    in-out property <string> filter;
+    callback refilter();
+    callback copy();
+    callback clear();
+}
+
+export component LogsWindow inherits Window {
+    title: I18n.t("FoxDen logs");
+    icon: @image-url("../../src-tauri/icons/32x32.png");
+    preferred-width: 760px;
+    preferred-height: 480px;
+    min-width: 420px;
+    min-height: 260px;
+    background: Theme.bg;
+    default-font-family: "Segoe UI Variable Text";
+    default-font-size: 14px;
+
+    VerticalLayout {
+        Rectangle {
+            background: Theme.panel;
+            HorizontalLayout {
+                padding: 8px;
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 8px;
+                Seg {
+                    label: I18n.t("Show");
+                    options: [I18n.t("All"), I18n.t("Warnings"), I18n.t("Errors")];
+                    index: LogsPage.level;
+                    picked(i) => { LogsPage.level = i; LogsPage.refilter(); }
+                }
+                Entry {
+                    width: 220px;
+                    height: 28px;
+                    label: I18n.t("Filter");
+                    placeholder: I18n.t("Filter");
+                    value: LogsPage.filter;
+                    edited(t) => { LogsPage.filter = t; LogsPage.refilter(); }
+                }
+                Text {
+                    text: LogsPage.count;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    accessible-role: AccessibleRole.text;
+                }
+                Button { height: 28px; text: I18n.t("Copy"); clicked => { LogsPage.copy(); } }
+                Button { height: 28px; text: I18n.t("Clear"); clicked => { LogsPage.clear(); } }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        Rectangle {
+            vertical-stretch: 1;
+            if LogsPage.empty: Text {
+                x: 12px;
+                y: 16px;
+                text: I18n.t("Nothing logged yet.");
+                color: Theme.muted;
+                font-size: 12px;
+            }
+            list := Flickable {
+                interactive: false;
+                content-height: column.preferred-height;
+                accessible-role: AccessibleRole.list;
+                accessible-label: I18n.t("Log entries");
+                property <bool> at-end: self.content-y <= self.height - self.content-height + 24px;
+                changed content-height => {
+                    if self.at-end-before { self.content-y = min(0, self.height - self.content-height); }
+                }
+                property <bool> at-end-before: true;
+                changed content-y => { self.at-end-before = self.at-end; }
+                column := VerticalLayout {
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+                    for r in LogsPage.rows: Rectangle {
+                        background: ta.has-hover ? Theme.raised : transparent;
+                        accessible-role: list-item;
+                        accessible-label: r.at + " " + r.level + " " + r.source + ": " + r.text;
+                        ta := TouchArea { }
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-top: 1px;
+                            padding-bottom: 1px;
+                            spacing: 12px;
+                            Text { width: 64px; text: r.at; color: Theme.muted; font-family: Theme.mono; font-size: 12px; }
+                            Text {
+                                width: 40px;
+                                text: r.level;
+                                color: r.level == "ERR" ? Theme.danger : r.level == "WARN" ? Theme.accent : Theme.muted;
+                                font-family: Theme.mono;
+                                font-size: 12px;
+                            }
+                            Text { width: 80px; text: r.source; color: Theme.muted; font-family: Theme.mono; font-size: 12px; overflow: elide; }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: r.text;
+                                color: r.level == "ERR" ? Theme.danger : Theme.text;
+                                font-family: Theme.mono;
+                                font-size: 12px;
+                                wrap: char-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+            Rectangle {
+                x: parent.width - 4px;
+                y: -list.content-y * list.height / max(1px, list.content-height);
+                width: 3px;
+                height: min(list.height, list.height * list.height / max(1px, list.content-height));
+                background: Theme.stroke;
+                visible: list.content-height > list.height;
+            }
+        }
+    }
+}

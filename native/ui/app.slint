@@ -5,9 +5,12 @@ import { FansPage, FansPanel } from "fans.slint";
 import { AudioPage, AudioPanel } from "audio.slint";
 import { ProfilesPage, ProfilesPanel } from "profiles.slint";
 import { SettingsPage, SettingsPanel } from "settings.slint";
+import { SettingsSheets } from "settings.slint";
+import { LogsPage, LogsWindow } from "logs.slint";
 import { StagePage, Stage } from "stage.slint";
 
 export { Theme, I18n, EffectsPage, DevicesPage, FansPage, AudioPage, ProfilesPage, SettingsPage, StagePage }
+export { LogsPage, LogsWindow }
 
 export component AppWindow inherits Window {
     title: "FoxDen";
@@ -61,4 +64,5 @@ export component AppWindow inherits Window {
         Rectangle { width: 1px; background: Theme.line; }
         stage := Stage { }
     }
+    SettingsSheets { width: root.width; height: root.height; }
 }
