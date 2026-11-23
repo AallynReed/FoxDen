@@ -374,10 +374,10 @@ fn off_thread<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     done: impl FnOnce(&AppWindow, T) + Send + 'static,
 ) {
-    std::thread::spawn(move || {
+    std::thread::Builder::new().name("foxden-devices-job".into()).spawn(move || {
         let out = work();
         let _ = slint::invoke_from_event_loop(move || with_win(|w| done(w, out)));
-    });
+    }).expect("thread start");
 }
 
 pub fn bind(w: &AppWindow, app: &AppHandle) {

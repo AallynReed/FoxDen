@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::time::Duration;
 
-use foxden_fan::{Curve, FanConfig, FanRule, FanStatus, Kind, SensorStatus};
+use foxden_fan::{Curve, FanConfig, FanRule, FanStatus, Kind, MIN_MAX_DUTY, SensorStatus};
 use serde_json::Value;
 use slint::platform::Key;
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
@@ -21,6 +21,8 @@ const HISTORY: usize = 150;
 const SOURCES: [&str; 5] = ["CPU", "Mainboard", "Graphics card", "Drives", "Thermal zones"];
 const UNSAVED: &str =
     "The changes are in use, but the service could not save them. They will be gone when it starts again.";
+const OVERHEAT: &str = "a CPU or GPU is critically hot";
+const NOT_ALLOWED: &str = "Only the person signed in at this PC's screen, or an administrator, can change this. From another Windows session FoxDen can only read the fans.";
 
 #[derive(Default)]
 struct Live {
@@ -440,6 +442,9 @@ impl St {
     /// What is wrong with a fan right now, in words, or nothing.
     fn trouble(&self, fan: &FanStatus) -> String {
         if let Some(e) = &fan.error {
+            if e.starts_with(OVERHEAT) {
+                return tf(self, "Fail-safe: full speed, because {0}", &[OVERHEAT]);
+            }
             return tf(self, "Error: {0}", &[e]);
         }
         if !fan.failsafe {
@@ -628,7 +633,8 @@ fn commit(st: &mut St, key: &str, text: &str) {
             set_point(curve, i, temp, v / 100.0);
         });
     } else {
-        for (prefix, lo, what) in [("min:", 0.0, "Minimum duty"), ("max:", 0.0, "Maximum duty"), ("ramp:", 1.0, "Ramp")] {
+        let floor = MIN_MAX_DUTY * 100.0;
+        for (prefix, lo, what) in [("min:", 0.0, "Minimum duty"), ("max:", floor, "Maximum duty"), ("ramp:", 1.0, "Ramp")] {
             let Some(fan) = key.strip_prefix(prefix) else {
                 continue;
             };
@@ -639,11 +645,21 @@ fn commit(st: &mut St, key: &str, text: &str) {
                 let v = (v * 10.0).round() / 1000.0;
                 let rule = &mut st.draft.rules[r];
                 match prefix {
-                    "min:" => rule.min_duty = v,
-                    "max:" => rule.max_duty = v,
+                    "min:" => rule.min_duty = v.min(rule.max_duty),
+                    "max:" => {
+                        rule.max_duty = v;
+                        rule.min_duty = rule.min_duty.min(v);
+                    }
                     _ => rule.ramp = v,
                 }
             });
+            if prefix == "min:"
+                && let Some(typed) = parse(text).filter(|v| (0.0..=100.0).contains(v))
+                && typed / 100.0 > st.draft.rules[r].max_duty + 0.0005
+            {
+                let text = tf(st, "{0}: the minimum must not be above the maximum.", &[&st.fan_name(fan)]);
+                problem(st, "rule", fan.to_string(), text);
+            }
             return;
         }
     }
@@ -877,7 +893,11 @@ fn service(action: &'static str) {
                     take(st, state);
                 }
                 if let Err(e) = done {
-                    let text = tr(st, &sentence(&e));
+                    let text = if super::refused(&e) {
+                        tr(st, NOT_ALLOWED)
+                    } else {
+                        tr(st, &sentence(&e))
+                    };
                     problem(st, "service", String::new(), text);
                 }
                 st.pending = "";
@@ -991,13 +1011,30 @@ fn plain(st: &St, text: &str) -> String {
             "{0}: the minimum must not be above the maximum, and both must be from 0 to 100%.",
             &[&st.fan_name(f)],
         ))
-    } else { text
-        .strip_prefix("fan '")
-        .and_then(|m| m.rfind("' ramp must be ").map(|end| &m[..end])).map(|f| tf(st, "{0}: the ramp must be at least 1% per second.", &[&st.fan_name(f)])) };
+    } else if let Some(f) = fan_before(text, "' needs a maximum duty of at least ") {
+        Some(tf(st, "{0}: the maximum duty must be at least {1}%.", &[&st.fan_name(f), &trim(MIN_MAX_DUTY * 100.0)]))
+    } else if let Some(f) = fan_before(text, "' would never run above ") {
+        Some(tf(
+            st,
+            "{0}: the curve or the minimum must reach at least {1}%.",
+            &[&st.fan_name(f), &trim(MIN_MAX_DUTY * 100.0)],
+        ))
+    } else if let Some(f) = fan_before(text, "' ramp must be ") {
+        Some(tf(st, "{0}: the ramp must be at least 1% per second.", &[&st.fan_name(f)]))
+    } else if super::refused(text) {
+        Some(tr(st, NOT_ALLOWED))
+    } else {
+        None
+    };
     match said {
         Some(said) => tf(st, "Not applied. {0}", &[&said]),
         None => tf(st, "Not applied. {0}.", &[&sentence(text)]),
     }
+}
+
+fn fan_before<'a>(text: &'a str, rest: &str) -> Option<&'a str> {
+    let m = text.strip_prefix("fan '")?;
+    m.rfind(rest).map(|end| &m[..end])
 }
 
 /// Puts the service's objection beside the control it is about and goes there.
@@ -1024,6 +1061,8 @@ fn reject(st: &mut St, text: &str) {
     if let Some(fan) = fan {
         target = if rest.contains("ramp") {
             format!("ramp:{fan}")
+        } else if rest.contains("maximum duty") {
+            format!("max:{fan}")
         } else if rest.contains("duty") {
             format!("min:{fan}")
         } else {
@@ -1702,4 +1741,47 @@ fn render_curves(st: &mut St, w: &AppWindow, inner: f32) {
     g.set_sensors_problem(sensors_problem.into());
     g.set_hyst(trim(curve.hysteresis).into());
     g.set_hyst_problem(st.told("hysteresis", &here).into());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn st(max: f32, peak: f32) -> St {
+        St {
+            draft: FanConfig {
+                curves: vec![Curve { name: "c".into(), sensors: vec!["s".into()], points: vec![(40.0, peak)], hysteresis: 2.0 }],
+                rules: vec![FanRule { fan: "f".into(), curve: "c".into(), min_duty: 0.1, max_duty: max, ramp: 0.1 }],
+            },
+            ..St::default()
+        }
+    }
+
+    #[test]
+    fn the_maximum_duty_never_goes_below_the_floor_and_the_minimum_never_above_it() {
+        let mut s = st(0.8, 1.0);
+        commit(&mut s, "max:f", "0");
+        assert_eq!(s.draft.rules[0].max_duty, MIN_MAX_DUTY);
+        assert!(s.problem.as_ref().is_some_and(|p| p.text.contains("from 20 to 100")));
+        commit(&mut s, "min:f", "90");
+        assert_eq!(s.draft.rules[0].min_duty, MIN_MAX_DUTY);
+        assert!(s.problem.as_ref().is_some_and(|p| p.text.contains("minimum must not be above")));
+        commit(&mut s, "max:f", "60");
+        commit(&mut s, "min:f", "50");
+        commit(&mut s, "max:f", "30");
+        assert_eq!((s.draft.rules[0].min_duty, s.draft.rules[0].max_duty), (0.3, 0.3));
+    }
+
+    #[test]
+    fn the_services_duty_and_access_refusals_read_as_sentences() {
+        let s = st(0.1, 1.0);
+        let low_max = s.draft.validate().unwrap_err();
+        assert_eq!(plain(&s, &low_max), "Not applied. f: the maximum duty must be at least 20%.");
+        let s = st(1.0, 0.1);
+        let never = s.draft.validate().unwrap_err();
+        assert_eq!(plain(&s, &never), "Not applied. f: the curve or the minimum must reach at least 20%.");
+        let refused = "only the person signed in at this PC's screen, or an administrator, can change this; \
+            from another Windows session FoxDen can only read the fans";
+        assert_eq!(plain(&s, refused), format!("Not applied. {NOT_ALLOWED}"));
+    }
 }

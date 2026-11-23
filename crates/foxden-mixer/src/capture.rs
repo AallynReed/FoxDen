@@ -48,6 +48,10 @@ impl IAgileObject_Impl for Activated_Impl {}
 
 struct Event(HANDLE);
 
+// An event handle may be signalled and waited on from any thread.
+unsafe impl Send for Event {}
+unsafe impl Sync for Event {}
+
 impl Event {
     fn new() -> windows::core::Result<Event> {
         unsafe { CreateEventW(None, false, false, None) }.map(Event)

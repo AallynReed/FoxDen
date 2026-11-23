@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src-tauri/icons/icon.png" width="128" alt="FoxDen icon">
+<img src="native/icons/icon.png" width="128" alt="FoxDen icon">
 
 # FoxDen
 

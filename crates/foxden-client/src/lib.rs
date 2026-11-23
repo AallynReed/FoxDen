@@ -190,12 +190,12 @@ impl Client {
     pub fn new(pipe: &str, timeout: Duration) -> Client {
         let (jobs, queue) = mpsc::channel::<Job>();
         let name = pipe.to_string();
-        thread::spawn(move || {
+        thread::Builder::new().name("foxden-client".into()).spawn(move || {
             let mut conn = None;
             for job in queue {
                 let _ = job.reply.send(talk(&name, &mut conn, &job.line));
             }
-        });
+        }).expect("thread start");
         Client {
             pipe: pipe.to_string(),
             worker: Mutex::new(Worker { jobs, late: None }),
@@ -291,7 +291,7 @@ impl Client {
         let line = serde_json::to_string(&Request::Shutdown).map_err(|e| e.to_string())?;
         let (reply, answer) = mpsc::channel();
         let pipe = self.pipe.clone();
-        thread::spawn(move || reply.send(talk(&pipe, &mut None, &line)));
+        thread::Builder::new().name("foxden-client-stop".into()).spawn(move || reply.send(talk(&pipe, &mut None, &line))).expect("thread start");
         let line = answer
             .recv_timeout(self.timeout)
             .map_err(|_| SILENT.to_string())??;

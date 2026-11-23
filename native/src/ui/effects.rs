@@ -333,13 +333,13 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
         if stale {
             ed(|e| e.app_asked = Some(Instant::now()));
             let a2 = a.clone();
-            std::thread::spawn(move || {
+            std::thread::Builder::new().name("foxden-app-list".into()).spawn(move || {
                 let names = crate::apps::list_apps();
                 let _ = slint::invoke_from_event_loop(move || {
                     ed(|e| e.app_list = names);
                     redraw(&a2);
                 });
-            });
+            }).expect("thread start");
         }
         redraw(&a);
     });
@@ -915,13 +915,6 @@ fn set_edited(app: &AppHandle, effect: Value) {
         Err(e) => report(Err(e.to_string())),
     }
     redraw(app);
-}
-
-pub fn send_effect(app: &AppHandle, effect: Value) {
-    match serde_json::from_value(effect) {
-        Ok(effect) => report(commands::set_effect(app.clone(), shared(app), effect)),
-        Err(e) => report(Err(e.to_string())),
-    }
 }
 
 fn edit_layers(app: &AppHandle, change: impl FnOnce(&mut Vec<Value>)) {
@@ -1639,10 +1632,6 @@ fn from_hex(text: &str) -> Option<[u8; 3]> {
     };
     let v = u32::from_str_radix(&six, 16).ok()?;
     Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
-}
-
-pub fn parse_hex(text: &str) -> Option<[u8; 3]> {
-    from_hex(text).filter(|_| text.trim().trim_start_matches('#').len() == 6)
 }
 
 fn to_hsv([r, g, b]: [u8; 3]) -> [f32; 3] {

@@ -136,7 +136,7 @@ pub fn serve(host: &Arc<Host>, name: &str, first: File) {
     let conns: Arc<Mutex<Vec<Conn>>> = Arc::default();
     {
         let (host, conns) = (host.clone(), conns.clone());
-        thread::spawn(move || reap(&host, &conns));
+        thread::Builder::new().name("foxden-pipe-reap".into()).spawn(move || reap(&host, &conns)).expect("thread start");
     }
     let mut listener = first;
     while !host.stopping() {
@@ -167,7 +167,7 @@ pub fn serve(host: &Arc<Host>, name: &str, first: File) {
         }
         let idle: Idle = Arc::new(Mutex::new(Some(Instant::now())));
         let (host, mine) = (host.clone(), idle.clone());
-        let thread = thread::spawn(move || serve_client(&host, &pipe, &mine));
+        let thread = thread::Builder::new().name("foxden-pipe-client".into()).spawn(move || serve_client(&host, &pipe, &mine)).expect("thread start");
         list.push(Conn {
             thread,
             session,

@@ -1,51 +1,27 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(dead_code)]
 
-#[path = "../../src-tauri/src/apps.rs"]
 mod apps;
-#[path = "../../src-tauri/src/autostart.rs"]
 mod autostart;
-#[path = "../../src-tauri/src/battery.rs"]
 mod battery;
-#[path = "../../src-tauri/src/commands.rs"]
 mod commands;
-#[path = "../../src-tauri/src/config.rs"]
 mod config;
-#[path = "../../src-tauri/src/conflicts.rs"]
 mod conflicts;
-#[path = "../../src-tauri/src/detect.rs"]
 mod detect;
-#[path = "../../src-tauri/src/device_info.rs"]
 mod device_info;
-#[path = "../../src-tauri/src/fans.rs"]
 mod fans;
-#[path = "../../src-tauri/src/headset.rs"]
 mod headset;
-#[path = "../../src-tauri/src/i18n.rs"]
 mod i18n;
-#[path = "../../src-tauri/src/key_maps.rs"]
 mod key_maps;
-#[path = "../../src-tauri/src/keys.rs"]
 mod keys;
-#[path = "../../src-tauri/src/links.rs"]
 mod links;
-#[path = "../../src-tauri/src/mixer.rs"]
 mod mixer;
-#[path = "../../src-tauri/src/modules.rs"]
 mod modules;
-#[path = "../../src-tauri/src/priority.rs"]
 mod priority;
-#[path = "../../src-tauri/src/profiles.rs"]
 mod profiles;
-#[path = "../../src-tauri/src/report.rs"]
 mod report;
-#[path = "../../src-tauri/src/service_lights.rs"]
 mod service_lights;
-#[path = "../../src-tauri/src/share.rs"]
 mod share;
-#[path = "../../src-tauri/src/state.rs"]
 mod state;
-#[path = "../../src-tauri/src/volumes.rs"]
 mod volumes;
 mod canvas;
 mod changelog;
@@ -64,7 +40,7 @@ macro_rules! langs {
     ($($l:literal),*) => {
         fn lang_file(path: &str) -> Option<Vec<u8>> {
             match path {
-                $(concat!("lang/", $l, ".json") => Some(include_bytes!(concat!("../../ui/lang/", $l, ".json")).to_vec()),)*
+                $(concat!("lang/", $l, ".json") => Some(include_bytes!(concat!("../lang/", $l, ".json")).to_vec()),)*
                 _ => None,
             }
         }

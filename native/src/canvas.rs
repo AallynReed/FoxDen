@@ -1,4 +1,4 @@
-//! The device layout, drawn the way the web canvas draws it.
+//! The device layout canvas: placing, dragging and drawing devices.
 
 use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
@@ -53,7 +53,7 @@ impl Default for ViewOpts {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Mode {
     Move,
     Resize,
@@ -945,5 +945,134 @@ fn draw_leds(
             let (lx, ly) = at(i);
             p.stroke_rect(ink.plate, lx - lw / 2.0 + 1.5, ly - lh / 2.0 + 1.5, lw - 3.0, lh - 3.0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dev(id: &str, rect: [f32; 4]) -> Dev {
+        Dev {
+            id: id.into(),
+            name: id.to_uppercase(),
+            kind: "plate".into(),
+            rect,
+            grid: [1, 1],
+            leds: Vec::new(),
+            enabled: true,
+            brightness: 1.0,
+            own: false,
+        }
+    }
+
+    // 1000 x 500 drawable pixels inside the padding.
+    fn canvas(devices: Vec<Dev>) -> Canvas {
+        Canvas { devices, w: 1000.0 + PAD * 2.0, h: 500.0 + PAD * 2.0, ..Canvas::default() }
+    }
+
+    fn px(x: f32, y: f32) -> (f32, f32) {
+        (PAD + x * 1000.0, PAD + y * 500.0)
+    }
+
+    #[test]
+    fn the_selected_device_is_hit_first_and_its_corner_resizes() {
+        let mut c = canvas(vec![dev("a", [0.1, 0.1, 0.4, 0.4]), dev("b", [0.3, 0.3, 0.4, 0.4])]);
+        let (x, y) = px(0.35, 0.35);
+        assert_eq!(c.hit(x, y).map(|h| h.0), Some("b".into()));
+        c.selected = Some("a".into());
+        assert_eq!(c.hit(x, y).map(|h| h.0), Some("a".into()));
+        let (x, y) = px(0.5, 0.5);
+        assert!(matches!(c.hit(x + 5.0, y + 5.0), Some((id, Mode::Resize)) if id == "a"));
+        let (x, y) = px(0.9, 0.9);
+        assert_eq!(c.hit(x, y), None);
+    }
+
+    #[test]
+    fn a_drag_stays_inside_the_canvas_and_a_twitch_is_not_a_move() {
+        let mut c = canvas(vec![dev("a", [0.1, 0.1, 0.2, 0.2])]);
+        let (x, y) = px(0.2, 0.2);
+        c.down(x, y);
+        assert!(!c.moved(x + 2.0, y, true, false));
+        assert_eq!(c.up(), None);
+
+        c.down(x, y);
+        assert!(c.moved(x + 5000.0, y - 5000.0, true, false));
+        let (d, rect) = c.up().unwrap();
+        assert_eq!(d.id, "a");
+        assert_eq!(rect, [0.8, 0.0, 0.2, 0.2]);
+        // Done drags keep their rect until the backend has it.
+        assert_eq!(c.rect_of(&c.devices[0]), [0.8, 0.0, 0.2, 0.2]);
+        c.settle();
+        assert_eq!(c.rect_of(&c.devices[0]), [0.1, 0.1, 0.2, 0.2]);
+    }
+
+    #[test]
+    fn snapping_follows_the_grid_unless_alt_is_held() {
+        let mut c = canvas(vec![dev("a", [0.1, 0.1, 0.2, 0.2])]);
+        c.view.snap = true;
+        c.view.grid = 0.1;
+        let (x, y) = px(0.2, 0.2);
+        c.down(x, y);
+        c.moved(x + 0.033 * 1000.0, y + 0.071 * 500.0, true, false);
+        assert_eq!(c.up().unwrap().1, [0.1, 0.2, 0.2, 0.2]);
+        c.settle();
+        c.down(x, y);
+        c.moved(x + 0.033 * 1000.0, y, true, true);
+        assert_eq!(c.up().unwrap().1, [0.133, 0.1, 0.2, 0.2]);
+    }
+
+    #[test]
+    fn resizing_keeps_a_minimum_size_and_the_far_edges() {
+        let mut c = canvas(vec![dev("a", [0.5, 0.5, 0.2, 0.2])]);
+        c.selected = Some("a".into());
+        let (x, y) = px(0.7, 0.7);
+        c.down(x, y);
+        c.moved(x - 5000.0, y + 5000.0, true, false);
+        assert_eq!(c.up().unwrap().1, [0.5, 0.5, MIN_SIZE, 0.5]);
+    }
+
+    #[test]
+    fn arrow_keys_nudge_and_shift_resizes_within_bounds() {
+        let mut c = canvas(vec![dev("a", [0.0, 0.5, 0.2, 0.2])]);
+        assert_eq!(c.key("\u{F703}", false, false), None);
+        c.selected = Some("a".into());
+        assert_eq!(c.key("\u{F702}", false, false).unwrap().1, [0.0, 0.5, 0.2, 0.2]);
+        assert_eq!(c.key("\u{F703}", true, false).unwrap().1, [0.05, 0.5, 0.2, 0.2]);
+        assert_eq!(c.key("\u{F701}", false, true).unwrap().1, [0.0, 0.5, 0.2, 0.21]);
+        assert_eq!(c.key("x", false, false), None);
+    }
+
+    #[test]
+    fn selection_wraps_both_ways() {
+        let mut c = canvas(vec![dev("a", [0.0; 4]), dev("b", [0.0; 4])]);
+        assert_eq!(c.select_next(-1), Some("B".into()));
+        assert_eq!(c.select_next(1), Some("A".into()));
+        assert_eq!(c.select_next(1), Some("B".into()));
+        assert_eq!(canvas(Vec::new()).select_next(1), None);
+    }
+
+    #[test]
+    fn overlapping_devices_have_no_cached_layout() {
+        let apart = canvas(vec![dev("a", [0.0, 0.0, 0.2, 0.2]), dev("b", [0.5, 0.5, 0.2, 0.2])]);
+        assert!(apart.layout_key(100, 100, 1.0).is_some());
+        let over = canvas(vec![dev("a", [0.0, 0.0, 0.3, 0.3]), dev("b", [0.2, 0.2, 0.2, 0.2])]);
+        assert_eq!(over.layout_key(100, 100, 1.0), None);
+    }
+
+    #[test]
+    fn rings_of_leds_are_fans_and_long_shapes_are_strips() {
+        let ring: Vec<[f32; 2]> = (0..12)
+            .map(|i| i as f32 * TAU / 12.0)
+            .map(|a| [0.5 + 0.4 * a.cos(), 0.5 + 0.4 * a.sin()])
+            .collect();
+        let mut d = dev("a", [0.0; 4]);
+        d.leds = ring;
+        assert_eq!(shape_of(&d, 50.0, 50.0), "fan");
+        d.leds = (0..12).map(|i| [i as f32 / 11.0, 0.5]).collect();
+        assert_eq!(shape_of(&d, 400.0, 20.0), "strip");
+        assert_eq!(shape_of(&d, 60.0, 40.0), "plate");
+        d.kind = "motherboard".into();
+        assert_eq!(shape_of(&d, 60.0, 40.0), "board");
     }
 }

@@ -175,7 +175,7 @@ fn queue(app: &AppHandle, key: &str, job: impl FnOnce(&AppHandle) -> Done + Send
     START.call_once(|| {
         let a = app.clone();
         std::thread::Builder::new()
-            .name("audio-ui".into())
+            .name("foxden-audio-ui".into())
             .spawn(move || loop {
                 let job = {
                     let mut q = JOBS.lock().unwrap_or_else(|e| e.into_inner());
@@ -204,11 +204,11 @@ fn queue(app: &AppHandle, key: &str, job: impl FnOnce(&AppHandle) -> Done + Send
 /// Runs a slow command on its own thread, such as one that waits for an elevation prompt.
 fn aside(app: &AppHandle, job: impl FnOnce(&AppHandle) -> Done + Send + 'static) {
     let a = app.clone();
-    std::thread::spawn(move || {
+    std::thread::Builder::new().name("foxden-audio-job".into()).spawn(move || {
         let done = job(&a);
         let b = a.clone();
         let _ = slint::invoke_from_event_loop(move || with_win(|w| done(w, &b)));
-    });
+    }).expect("thread start");
 }
 
 fn json<T: serde::Serialize>(v: T) -> Value {
@@ -696,9 +696,9 @@ fn act(app: &AppHandle, what: &str, x: &str, y: &str) {
         }
         "vmic-install" => install_vmic(app),
         "vmic-donate" => {
-            std::thread::spawn(|| {
+            std::thread::Builder::new().name("foxden-link".into()).spawn(|| {
                 let _ = crate::links::open_link("vbaudio".into());
-            });
+            }).expect("thread start");
         }
         "vmic-remove" => remove_vmic(app),
         "rescan" => load_mixer(app, true),

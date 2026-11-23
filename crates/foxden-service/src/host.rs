@@ -777,7 +777,7 @@ fn list(
     dir: &Path,
     hardware: impl FnOnce() -> Vec<Box<dyn FanBackend>> + Send + 'static,
 ) -> Vec<Box<dyn FanBackend>> {
-    let listing = thread::spawn(hardware);
+    let listing = thread::Builder::new().name("foxden-list".into()).spawn(hardware).expect("thread start");
     let deadline = Instant::now() + LISTING;
     while !listing.is_finished() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(5));
@@ -845,14 +845,14 @@ pub fn start(
     );
 
     let h = host.clone();
-    let control = thread::spawn(move || h.supervise());
+    let control = thread::Builder::new().name("foxden-supervise".into()).spawn(move || h.supervise()).expect("thread start");
     let h = host.clone();
-    let watch = thread::spawn(move || h.watch());
+    let watch = thread::Builder::new().name("foxden-watch".into()).spawn(move || h.watch()).expect("thread start");
     let (h, name) = (host.clone(), pipe_name.to_string());
-    let pipe = thread::spawn(move || pipe::serve(&h, &name, first));
+    let pipe = thread::Builder::new().name("foxden-pipe".into()).spawn(move || pipe::serve(&h, &name, first)).expect("thread start");
     if matches!(mode, Mode::Service) {
         let dir = host.dir.clone();
-        thread::spawn(move || crate::vmic::reapply(|text| log(&dir, text)));
+        thread::Builder::new().name("foxden-vmic".into()).spawn(move || crate::vmic::reapply(|text| log(&dir, text))).expect("thread start");
     }
     Ok(Running {
         host,
@@ -907,8 +907,8 @@ impl Drop for Running {
 /// Every sensor and fan this machine offers: read-only sources, then the board and CPU through PawnIO.
 pub fn hardware() -> Vec<Box<dyn FanBackend>> {
     foxden_hid::port::share(&foxden_xpack::combined());
-    let usb = thread::spawn(foxden_xpack::fan_backends);
-    let laptop = thread::spawn(foxden_wmi::fans);
+    let usb = thread::Builder::new().name("foxden-list-usb".into()).spawn(foxden_xpack::fan_backends).expect("thread start");
+    let laptop = thread::Builder::new().name("foxden-list-wmi".into()).spawn(foxden_wmi::fans).expect("thread start");
     let mut backends = foxden_hwmon::backends();
     let amd_card = backends
         .iter_mut()

@@ -283,7 +283,11 @@ impl Parker {
         if self.journal == Journal::default() {
             let _ = fs::remove_file(&self.path);
         } else if let Ok(json) = serde_json::to_vec_pretty(&self.journal) {
-            let _ = fs::write(&self.path, json);
+            // Swapped in whole, so a crash mid-write never loses what is parked.
+            let tmp = self.path.with_extension("tmp");
+            if fs::write(&tmp, json).is_ok() {
+                let _ = fs::rename(&tmp, &self.path);
+            }
         }
     }
 
@@ -589,5 +593,67 @@ mod tests {
         p.save();
         assert!(!path.exists());
         let _ = fs::remove_dir_all(dir);
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("foxden-park-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("parked.json")
+    }
+
+    const GONE: &str = "{0.0.0.00000000}.{00000000-0000-0000-0000-00000000dead}";
+
+    #[test]
+    fn a_journal_cut_off_mid_write_loads_without_failing() {
+        let path = scratch("cut");
+        fs::write(&path, r#"{"sink":{"id":"x","was_mu"#).unwrap();
+        let p = Parker::new(path.clone());
+        assert!(!p.dirty());
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_journal_missing_fields_still_restores_what_it_names() {
+        let path = scratch("partial");
+        fs::write(&path, r#"{"routes":{"a.exe":{"before":"speakers"}}}"#).unwrap();
+        let p = Parker::new(path.clone());
+        assert!(p.dirty());
+        assert_eq!(p.journal.sink, None);
+        assert_eq!(p.journal.routes["a.exe"].before, "speakers");
+        assert_eq!(p.journal.routes["a.exe"].to, "");
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_parking_output_that_is_gone_is_dropped_and_routes_wait_for_their_app() {
+        let path = scratch("gone");
+        let journal = format!(
+            r#"{{"sink":{{"id":"{GONE}","was_muted":false}},"routes":{{"game.exe":{{"before":"","to":"{GONE}"}}}}}}"#
+        );
+        fs::write(&path, journal).unwrap();
+        let mut p = Parker::new(path.clone());
+        assert!(p.dirty());
+        let (caps, states) = p.tick_with(None, &[], &[], &[]);
+        assert!(caps.is_empty() && states.is_empty());
+        assert_eq!(p.journal.sink, None);
+        assert!(p.journal.routes.contains_key("game.exe"));
+        let saved: Journal = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved, p.journal);
+        assert!(!path.with_extension("tmp").exists());
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_journal_with_only_a_gone_output_is_cleared_after_one_pass() {
+        let path = scratch("only-sink");
+        fs::write(&path, format!(r#"{{"sink":{{"id":"{GONE}","was_muted":true}}}}"#)).unwrap();
+        let mut p = Parker::new(path.clone());
+        p.tick_with(None, &[], &[], &[]);
+        assert!(!p.dirty());
+        assert!(!path.exists());
+        // Nothing left to do: later passes return at once.
+        assert_eq!(p.tick_with(None, &[], &[], &[]), (Vec::new(), BTreeMap::new()));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }

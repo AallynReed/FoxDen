@@ -14,7 +14,7 @@ use foxden_fan::{Fan, FanBackend, Sensor};
 /// Takes about a second on a machine that has ACPI thermal zones.
 pub fn backends() -> Vec<Box<dyn FanBackend>> {
     // Thermal zones are watched for about a second before they are trusted.
-    let zones = std::thread::spawn(thermal::open);
+    let zones = std::thread::Builder::new().name("foxden-thermal-open".into()).spawn(thermal::open).expect("thread start");
     let mut backends = Vec::new();
     backends.extend(amd::open());
     backends.extend(disk::open());
@@ -115,7 +115,7 @@ fn polled<S: Sensor + 'static>(
     let sensors = found.iter().enumerate().map(handle).collect();
 
     let mut read: Vec<S> = found.into_iter().map(|(sensor, _)| sensor).collect();
-    std::thread::spawn(move || {
+    std::thread::Builder::new().name("foxden-hwmon-read".into()).spawn(move || {
         while let Err(RecvTimeoutError::Timeout) = gone.recv_timeout(pace.every) {
             for (slot, sensor) in read.iter_mut().enumerate() {
                 // A read that fails leaves the last one in place until it is too old to trust.
@@ -125,7 +125,7 @@ fn polled<S: Sensor + 'static>(
                 }
             }
         }
-    });
+    }).expect("thread start");
     Some(Box::new(Source { name, sensors }))
 }
 

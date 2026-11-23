@@ -129,7 +129,7 @@ fn detect_with(bios: Box<dyn Bios>) -> Option<Box<dyn FanBackend>> {
         })
         .collect();
     let numbers: Vec<usize> = found.iter().map(|&(fan, _)| fan).collect();
-    std::thread::spawn(move || {
+    std::thread::Builder::new().name("foxden-omen-read".into()).spawn(move || {
         while let Err(RecvTimeoutError::Timeout) = gone.recv_timeout(EVERY) {
             for (slot, &fan) in numbers.iter().enumerate() {
                 if let Some(rpm) = read(bios.as_ref(), how, fan) {
@@ -138,7 +138,7 @@ fn detect_with(bios: Box<dyn Bios>) -> Option<Box<dyn FanBackend>> {
                 }
             }
         }
-    });
+    }).expect("thread start");
     Some(Box::new(Omen { fans }))
 }
 

@@ -354,7 +354,7 @@ impl NetBackend {
         let stop = Arc::new(AtomicBool::new(false));
         let timer = light.keepalive.map(|every| {
             let (link, stop) = (link.clone(), stop.clone());
-            thread::spawn(move || {
+            thread::Builder::new().name("foxden-net-keepalive".into()).spawn(move || {
                 while !stop.load(Ordering::Relaxed) {
                     thread::sleep(Duration::from_millis(100));
                     let mut l = lock(&link);
@@ -364,7 +364,7 @@ impl NetBackend {
                         l.at = Instant::now();
                     }
                 }
-            })
+            }).expect("thread start")
         });
         NetBackend {
             device,

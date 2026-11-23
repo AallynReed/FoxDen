@@ -212,9 +212,9 @@ pub fn with_serials(wait: std::time::Duration) -> Vec<Info> {
     let (tx, rx) = std::sync::mpsc::channel();
     for (i, c) in list.iter().enumerate() {
         let (tx, path) = (tx.clone(), c.path.clone());
-        std::thread::spawn(move || {
+        std::thread::Builder::new().name("foxden-hid-serial".into()).spawn(move || {
             let _ = tx.send((i, serial(&path)));
-        });
+        }).expect("thread start");
     }
     drop(tx);
     let deadline = std::time::Instant::now() + wait;

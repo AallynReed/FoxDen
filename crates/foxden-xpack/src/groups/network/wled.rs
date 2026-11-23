@@ -268,7 +268,7 @@ pub fn probe(tx: Sender<Box<dyn Backend>>, deadline: Instant, t: super::Targets)
     for ip in t.ips {
         seen.push(ip);
         let tx = tx.clone();
-        std::thread::spawn(move || {
+        std::thread::Builder::new().name("foxden-wled".into()).spawn(move || {
             let found = SERVICES.iter().find_map(|service| {
                 let hit = Hit {
                     service: service.to_string(),
@@ -282,7 +282,7 @@ pub fn probe(tx: Sender<Box<dyn Backend>>, deadline: Instant, t: super::Targets)
             if let Some(b) = found {
                 let _ = tx.send(Box::new(b));
             }
-        });
+        }).expect("thread start");
     }
     if !t.discover {
         return;
@@ -296,11 +296,11 @@ pub fn probe(tx: Sender<Box<dyn Backend>>, deadline: Instant, t: super::Targets)
         }
         seen.push(ip);
         let tx = tx.clone();
-        std::thread::spawn(move || {
+        std::thread::Builder::new().name("foxden-wled".into()).spawn(move || {
             if let Some(b) = open(&hit, deadline) {
                 let _ = tx.send(Box::new(b));
             }
-        });
+        }).expect("thread start");
     }
 }
 

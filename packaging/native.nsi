@@ -23,8 +23,8 @@ VIAddVersionKey "FileDescription" "FoxDen setup"
 VIAddVersionKey "LegalCopyright" "GPL-2.0-or-later"
 
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\FoxDen"
-!define MUI_ICON "..\src-tauri\icons\icon.ico"
-!define MUI_UNICON "..\src-tauri\icons\icon.ico"
+!define MUI_ICON "..\native\icons\icon.ico"
+!define MUI_UNICON "..\native\icons\icon.ico"
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION Launch
 

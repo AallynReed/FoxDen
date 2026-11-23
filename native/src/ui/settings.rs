@@ -283,13 +283,13 @@ fn later<T: Send + 'static>(
     done: impl FnOnce(&AppHandle, T) + Send + 'static,
 ) {
     let app = app.clone();
-    std::thread::spawn(move || {
+    std::thread::Builder::new().name("foxden-settings-job".into()).spawn(move || {
         let out = work(&app);
         let _ = slint::invoke_from_event_loop(move || {
             done(&app, out);
             redraw(&app);
         });
-    });
+    }).expect("thread start");
 }
 
 /// The settings as the backend holds them now, which a save changes at once.

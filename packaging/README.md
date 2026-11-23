@@ -20,7 +20,7 @@ Releases are built on GitHub only. A setup program built on your own machine is 
   against its SHA-256) and builds the installer with its update signature. Start it by hand to
   test.
 - `.github/workflows/release.yml` runs on a tag such as `v0.2.0`. It checks the tag is on `main`
-  and matches the version in `Cargo.toml` and `src-tauri/tauri.conf.json`, builds with
+  and matches the workspace version in `Cargo.toml`, builds with
   `build.yml` and drafts a release with the installer, its signature, `latest.json` and
   `SHA256SUMS.txt`. Publish the draft by hand.
 
@@ -35,7 +35,7 @@ git tag -d v0.2.0
 
 The app checks `releases/latest/download/latest.json` a minute after start and every hour,
 and installs signed updates by itself. The signing key is the `TAURI_SIGNING_PRIVATE_KEY`
-secret; the public key is in `src-tauri/tauri.conf.json`. Losing the private key means no
+secret; the public key is `PUBKEY` in `native/src/updater.rs`. Losing the private key means no
 further update can reach installed copies.
 
 Updates run the installer with `/P /UPDATE`: it skips its pages and starts the app again when done.
@@ -50,5 +50,5 @@ makensis /DVERSION=0.18.0 /DAPP=target\release\foxden-native.exe /DSERVICE=targe
 
 ## Icons
 
-`src-tauri/icons/icon.svg` is the icon. `src-tauri/icons/make-icons.ps1` renders every icon file
+`native/icons/icon.svg` is the icon. `native/icons/make-icons.ps1` renders every icon file
 from it.

@@ -26,10 +26,9 @@ jobs:
             exit 1
           fi
           tag="${GITHUB_REF_NAME#v}"
-          app="$(jq -r .version src-tauri/tauri.conf.json)"
           crates="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)"
-          if [ "$tag" != "$app" ] || [ "$tag" != "$crates" ]; then
-            echo "::error::$GITHUB_REF_NAME does not match version $app"
+          if [ "$tag" != "$crates" ]; then
+            echo "::error::$GITHUB_REF_NAME does not match version $crates"
             exit 1
           fi
           if ! jq -e --arg v "$tag" 'any(.[]; .version == $v)' changelog.json > /dev/null; then

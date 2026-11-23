@@ -9,4 +9,4 @@ foxden-host-macros = { path = "../host-macros" }
 serde.workspace = true
 serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread"] }
-tray-icon = "0.25"
+tray-icon = "0.26"

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "src-tauri", "native", "native/host", "native/host-macros", "native/notify"]
+members = ["crates/*", "native", "native/host", "native/host-macros", "native/notify"]
 
 [workspace.package]
 version = "0.18.2"
@@ -11,6 +11,11 @@ license = "GPL-2.0-or-later"
 foxden-core = { path = "crates/foxden-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
 
 # Creating a context lists no devices once discovery is switched off, on Windows too.
 [patch.crates-io]

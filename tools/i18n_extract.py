@@ -1,14 +1,13 @@
-"""Collects the English UI text: HTML, the UI scripts and Rust messages that reach the UI.
-Writes ui/lang/en.json: every string or template ({0}, {1} for the parts filled in at run time)."""
+"""Collects the English UI text: the Slint files and Rust messages that reach the UI.
+Writes native/lang/en.json: every string or template ({0}, {1} for the parts filled in at run time)."""
 import json, re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-UI = ROOT / "ui"
-SKIP_JS = {"mock.js", "fans-mock.js", "audio-mock.js", "headset-mock.js", "i18n.js", "logs.js"}
+UI = ROOT / "native" / "ui"
 # Files whose short capitalised strings are labels shown in the UI: effects, settings, presets.
 LABELS = {"effect.rs", "post.rs", "proto.rs", "turtlebeach.rs", "profiles.rs", "presets.rs", "dsp.rs", "chain.rs", "razer.rs"}
-RUST = [ROOT / "src-tauri" / "src", *sorted((ROOT / "crates").glob("*/src"))]
+RUST = [ROOT / "native" / "src", *sorted((ROOT / "crates").glob("*/src"))]
 
 def wordy(s):
     s = s.strip()
@@ -30,55 +29,66 @@ def add(s, where):
     if wordy(s):
         found.setdefault(s, where)
 
-class Html(__import__("html.parser").parser.HTMLParser):
-    def __init__(self, name):
-        super().__init__(); self.name = name; self.skip = 0
-    def handle_starttag(self, tag, attrs):
-        if tag in ("script", "style"): self.skip += 1
-        for k, v in attrs:
-            if k in ("title", "aria-label", "placeholder", "alt", "data-hint") and v: add(v, self.name)
-    def handle_endtag(self, tag):
-        if tag in ("script", "style"): self.skip -= 1
-    def handle_data(self, d):
-        if not self.skip: add(d, self.name)
-
-for f in ("index.html", "logs.html"):
-    Html(f).feed((UI / f).read_text(encoding="utf-8"))
-
-LIT = re.compile(r'"(?:[^"\\]|\\.)*"' r"|'(?:[^'\\]|\\.)*'" r"|`(?:[^`\\]|\\.)*`")
+LIT = re.compile(r'"(?:[^"\\]|\\.)*"')
 
 def unq(lit):
-    body = lit[1:-1]
-    if lit[0] == "`":
-        body = re.sub(r"\$\{[^}]*\}", "\x02", body)
-    return body.replace('\\"', '"').replace("\\'", "'").replace("\\n", " ")
+    body = re.sub(r"\\\{[^}]*\}", "\x02", lit[1:-1])
+    return body.replace('\\"', '"').replace("\\n", " ")
 
 def number(chain):
     n = iter(range(99))
     return re.sub("\x02", lambda m: "{%d}" % next(n), chain)
 
-for f in sorted(UI.glob("*.js")):
-    if f.name in SKIP_JS: continue
-    for line in f.read_text(encoding="utf-8").splitlines():
-        if line.strip().startswith("//"): continue
-        lits = list(LIT.finditer(line))
-        i = 0
-        while i < len(lits):
-            chain = ("\x02" if re.search(r"[\w)\]]\s*\+\s*$", line[:lits[i].start()]) else "") + unq(lits[i].group())
-            j = i
-            while j + 1 < len(lits):
-                between = line[lits[j].end():lits[j + 1].start()]
-                if re.fullmatch(r"\s*\+\s*", between):
-                    chain += unq(lits[j + 1].group())
-                elif re.fullmatch(r"\s*\+\s*[^\"'`,;]+?\s*\+\s*", between):
-                    chain += "\x02" + unq(lits[j + 1].group())
-                else:
-                    break
-                j += 1
-            if re.match(r"\s*\+\s*[\w(]", line[lits[j].end():]):
-                chain += "\x02"
-            add(number(chain), f.name)
-            i = j + 1
+def top_level(expr, sep):
+    """Splits `expr` at `sep` outside strings and brackets."""
+    parts, depth, i, start = [], 0, 0, 0
+    while i < len(expr):
+        if m := LIT.match(expr, i):
+            i = m.end()
+            continue
+        c = expr[i]
+        depth += c in "([" and 1 or c in ")]" and -1 or 0
+        if depth == 0 and c == sep:
+            parts.append(expr[start:i]); start = i + 1
+        i += 1
+    return parts + [expr[start:]]
+
+def call_args(text, at):
+    """The text inside the brackets that open at `at`."""
+    depth, i = 0, at
+    while i < len(text):
+        if m := LIT.match(text, i):
+            i = m.end()
+            continue
+        depth += {"(": 1, ")": -1}.get(text[i], 0)
+        i += 1
+        if depth == 0:
+            return text[at + 1:i - 1]
+    return ""
+
+def template(expr):
+    """`"Stage " + (i + 1) + " level"` gives "Stage {0} level"; a choice gives each side."""
+    if "?" in "".join(top_level(expr, "+")) and len(top_level(expr, "+")) == 1:
+        for lit in LIT.findall(expr):
+            add(unq(lit), "slint")
+        return
+    chain = ""
+    for part in top_level(expr, "+"):
+        part = part.strip()
+        chain += unq(part) if LIT.fullmatch(part) else "\x02"
+    if chain.replace("\x02", "").strip():
+        add(number(chain), "slint")
+
+for f in sorted(UI.glob("*.slint")):
+    text = re.sub(r"//[^\n]*", "", f.read_text(encoding="utf-8"))
+    for m in re.finditer(r"\bI18n\.t\(", text):
+        template(call_args(text, m.end() - 1))
+    # Labels handed to widgets that translate them, such as `label: "Speed"`.
+    for m in LIT.finditer(text):
+        s = unq(m.group())
+        words = [w for w in re.findall(r"[A-Za-z]+", s) if w.islower() and len(w) >= 3]
+        if "\x02" not in s and s == s.strip() and (re.fullmatch(r"[A-Z][a-z]+", s) or (re.match(r"[A-Z]", s) and " " in s and words)):
+            add(s, f.name)
 
 TEST_MOD = re.compile(r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*([{;])")
 SKIP = re.compile(r'r(#*)"[\s\S]*?"\1|"(?:[^"\\]|\\.)*"|\'(?:\\.|[^\\\'])\'|//[^\n]*|/\*[\s\S]*?\*/')
@@ -98,31 +108,67 @@ def strip_test_mods(text):
         pos = i
     return "".join(out) + text[pos:]
 
-for d in RUST:
-    for f in sorted(d.rglob("*.rs")):
-        text = strip_test_mods(f.read_text(encoding="utf-8"))
-        for m in re.finditer(r'"((?:[^"\\]|\\.)*)"', text):
-            s = m.group(1)
-            if "{" in s:
-                n = iter(range(99))
-                s = s.replace("{{", "\x00").replace("}}", "\x01")
-                s = re.sub(r"\{[^{}]*\}", lambda _: "{%d}" % next(n), s).replace("\x00", "{").replace("\x01", "}")
-            s = s.replace('\\"', '"').replace("\\n", " ")
-            # Messages people read: a capital start, a space, and plain words, which product names lack.
-            plain = [w for w in re.findall(r"[A-Za-z]+", s) if w.islower() and len(w) >= 3]
-            label = f.name in LABELS and re.fullmatch(r"[A-Z][a-z]+( [A-Za-z]+){0,3}", s)
-            if label:
-                add(s, f.name)
-            elif re.match(r"[A-Z]", s) and " " in s and plain and not re.search(r"::|\\|[a-z]+_[a-z]+\b|\$|%[0-9a-z]", s):
-                add(s, f.name)
+def rust_strings():
+    """Each string literal outside tests and comments, with its file."""
+    for d in RUST:
+        for f in sorted(d.rglob("*.rs")):
+            if f.name == "tests.rs" or "tests" in f.parts:
+                continue
+            text, i = strip_test_mods(f.read_text(encoding="utf-8")), 0
+            while i < len(text):
+                m = SKIP.match(text, i)
+                if not m:
+                    i += 1
+                    continue
+                if m.group().startswith('"'):
+                    yield f, m.group()[1:-1]
+                i = m.end()
+
+strings = list(rust_strings())
+for f, s in strings:
+    if "{" in s:
+        n = iter(range(99))
+        s = s.replace("{{", "\x00").replace("}}", "\x01")
+        s = re.sub(r"\{[^{}]*\}", lambda _: "{%d}" % next(n), s).replace("\x00", "{").replace("\x01", "}")
+    s = s.replace('\\"', '"').replace("\\n", " ")
+    # Messages people read: a capital start, a space, and plain words, which product names lack.
+    plain = [w for w in re.findall(r"[A-Za-z]+", s) if w.islower() and len(w) >= 3]
+    label = f.name in LABELS and re.fullmatch(r"[A-Z][a-z]+( [A-Za-z]+){0,3}", s)
+    if label:
+        add(s, f.name)
+    elif re.match(r"[A-Z]|\{\d\}: [a-z]", s) and " " in s and plain and not re.search(r"::|\\|[a-z]+_[a-z]+\b|\$|%[0-9a-z]", s):
+        add(s, f.name)
+
+# Whatever the app passes to its translate calls, short lowercase words included.
+for f in sorted((ROOT / "native" / "src").rglob("*.rs")):
+    text = strip_test_mods(f.read_text(encoding="utf-8"))
+    for m in re.finditer(r'\b(?:tr|tf|tell)\(\s*[\w&.()]+\s*,\s*&?"((?:[^"\\]|\\.)*)"', text):
+        s = m.group(1).replace('\\"', '"')
+        n = iter(range(99))
+        s = re.sub(r"\{[^{}]*\}", lambda _: "{%d}" % next(n), s)
+        if s == s.strip() and re.search(r"[A-Za-z]{2}", s):
+            found.setdefault(s, f.name)
+
+# A string kept from the last run while its text is still in the code, such as a label in a table.
+corpus = "\n".join('"' + s + '"' for _, s in strings)
+corpus += "\n".join(f.read_text(encoding="utf-8") for f in UI.glob("*.slint"))
+old = ROOT / "native" / "lang" / "en.json"
+for s in json.loads(old.read_text(encoding="utf-8")) if old.exists() else []:
+    if s in found or re.fullmatch(r"[MmLlHhVvCcSsQqAaZz0-9 .,\-]+", s):
+        continue
+    pieces = [p.replace('"', '\\"') for p in re.split(r"\{\d\}", s) if p.strip()]
+    whole = '"' + s.replace('"', '\\"') + '"'
+    if (whole in corpus if "{0}" not in s else pieces and all(p in corpus for p in pieces)):
+        add(s, "kept")
 
 # Built at run time from ids or option tables the scan above can't see.
 RUNTIME = ["Left", "Right", "Custom {0}", "Preset {0}", "TalkThru", "Transparency", "Competition",
-           "Immersive", "Night", "Streaming", "Tournament", "Treble Boost"]
+           "Immersive", "Night", "Streaming", "Tournament", "Treble Boost",
+           "Lowest is {0} at {1}%, charging", "Now {0}%, charging"]
 for s in RUNTIME:
     add(s, "runtime")
 
-out = UI / "lang" / "en.json"
+out = ROOT / "native" / "lang" / "en.json"
 out.parent.mkdir(exist_ok=True)
 data = {k: k for k in sorted(found)}
 out.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")

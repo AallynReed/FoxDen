@@ -50,7 +50,7 @@ jobs:
         run: cargo test --workspace --locked --exclude foxden-screen
 
       - name: Lint
-        run: cargo clippy --workspace --all-targets --locked
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Save cache
         if: github.ref_type == 'branch' && steps.cache.outputs.cache-hit != 'true'

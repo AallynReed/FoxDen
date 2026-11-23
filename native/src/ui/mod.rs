@@ -260,8 +260,16 @@ pub fn fill<T: Clone + PartialEq + 'static>(
 pub fn report(r: Result<(), String>) {
     if let Err(e) = r {
         crate::log::warn("ui", e.clone());
+        let e = if refused(&e) { REFUSED.to_string() } else { e };
         with_win(|w| stage::show_error(w, &e));
     }
+}
+
+const REFUSED: &str = "Only the person signed in at this PC's screen, or an administrator, can change this.";
+
+/// The service's answer to a change asked from another Windows session.
+pub fn refused(e: &str) -> bool {
+    e.contains("only the person signed in at this PC")
 }
 
 pub fn shared(app: &AppHandle) -> tauri::State<'static, Shared> {

@@ -49,7 +49,7 @@ pub fn probe(config: &NetConfig) -> Vec<Box<dyn Backend>> {
             continue;
         }
         let tx = tx.clone();
-        std::thread::spawn(move || f(tx, deadline, t));
+        std::thread::Builder::new().name("foxden-net-probe".into()).spawn(move || f(tx, deadline, t)).expect("thread start");
     }
     drop(tx);
     let mut out: Vec<Box<dyn Backend>> = Vec::new();
