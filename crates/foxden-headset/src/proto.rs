@@ -31,6 +31,8 @@ pub enum Family {
     TurtleBeach,
     Inzone,
     Jbl,
+    /// Razer headsets; the framing depends on the model.
+    Razer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,6 +123,7 @@ pub fn any_model(vid: u16, pid: u16) -> Option<Model> {
         crate::poly::VID => crate::poly::model(pid),
         0x03F0 | 0x0951 => crate::hyperx::model(vid, pid),
         crate::turtlebeach::VID => crate::turtlebeach::model(pid),
+        crate::razer::VID => crate::razer::model(pid),
         _ => None,
     }
 }
@@ -261,6 +264,7 @@ impl Model {
             crate::turtlebeach::VID => "Turtle Beach",
             crate::sony::VID => "Sony",
             crate::jbl::VID => "JBL",
+            crate::razer::VID => "Razer",
             _ => "SteelSeries",
         }
     }
@@ -370,6 +374,7 @@ impl Model {
             Family::TurtleBeach => return crate::turtlebeach::controls(self),
             Family::Inzone => out = crate::sony::controls(self),
             Family::Jbl => out = crate::jbl::controls(self),
+            Family::Razer => out = crate::razer::controls(self),
         }
         out
     }
@@ -383,9 +388,9 @@ impl Model {
         if self.family == Family::TurtleBeach {
             return crate::turtlebeach::set(self, c, v);
         }
-        if matches!(self.family, Family::Inzone | Family::Jbl) {
+        if matches!(self.family, Family::Inzone | Family::Jbl | Family::Razer) {
             return Err(format!(
-                "{} takes settings through its own channel",
+                "{} takes its settings through its own driver",
                 self.name
             ));
         }
@@ -464,7 +469,8 @@ impl Model {
             | Family::HyperX
             | Family::TurtleBeach
             | Family::Inzone
-            | Family::Jbl => Save::None,
+            | Family::Jbl
+            | Family::Razer => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
             Family::Arctis1
@@ -582,7 +588,8 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
         | Family::HyperX
         | Family::TurtleBeach
         | Family::Inzone
-        | Family::Jbl => None,
+        | Family::Jbl
+        | Family::Razer => None,
         Family::Arctis1
         | Family::Arctis7
         | Family::Arctis7Plus

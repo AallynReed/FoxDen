@@ -207,6 +207,7 @@ pub const ORDER: &[fn(&mut Ctx)] = &[
 pub use eightbitdo::lock as eightbitdo_lock;
 pub use jbl::get_feature_byte as jbl_feature_byte;
 pub use sony_inzone::next_tid as inzone_tid;
+pub use razer_headset::last_reading as razer_headset_reading;
 
 pub fn logitech_diagnose(pid: u16) -> Vec<String> {
     logitech::diagnose(pid)

@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parent.parent
 UI = ROOT / "ui"
 SKIP_JS = {"mock.js", "fans-mock.js", "audio-mock.js", "headset-mock.js", "i18n.js", "logs.js"}
 # Files whose short capitalised strings are labels shown in the UI: effects, settings, presets.
-LABELS = {"effect.rs", "post.rs", "proto.rs", "turtlebeach.rs", "profiles.rs", "presets.rs", "dsp.rs", "chain.rs"}
+LABELS = {"effect.rs", "post.rs", "proto.rs", "turtlebeach.rs", "profiles.rs", "presets.rs", "dsp.rs", "chain.rs", "razer.rs"}
 RUST = [ROOT / "src-tauri" / "src", *sorted((ROOT / "crates").glob("*/src"))]
 
 def wordy(s):

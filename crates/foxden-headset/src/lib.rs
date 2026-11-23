@@ -11,6 +11,7 @@ pub mod proto;
 pub mod turtlebeach;
 mod jbl;
 mod sony;
+mod razer;
 
 use std::sync::Mutex;
 use std::thread;
@@ -33,13 +34,12 @@ pub struct Found {
 pub fn find() -> Vec<Found> {
     let mut out: Vec<Found> = Vec::new();
     for c in enumerate() {
-        if c.out_len == 0 {
-            continue;
-        }
         let Some(model) = proto::any_model(c.vid, c.pid) else {
             continue;
         };
         let fits = match model.family {
+            Family::Razer => razer::fits(&model, &c),
+            _ if c.out_len == 0 => false,
             Family::Bragi => Bragi::fits(&c),
             Family::Logitech => logitech::fits(&c, &model),
             Family::HyperX => hyperx::fits(&model, &c),
@@ -104,6 +104,9 @@ pub fn read(f: &Found) -> Option<Reading> {
         Family::Jbl => return jbl::read(&f.model, &f.coll),
         _ => {}
     }
+    if f.model.family == Family::Razer {
+        return razer::read(f, true);
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -143,6 +146,9 @@ pub fn status(f: &Found) -> Option<Status> {
         Family::Inzone => return sony::status(&f.coll),
         Family::Jbl => return jbl::status(&f.model, &f.coll),
         _ => {}
+    }
+    if f.model.family == Family::Razer {
+        return razer::read(f, false)?.status;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -204,6 +210,9 @@ pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
         Family::Inzone => return sony::set(&f.model, &f.coll, c, v),
         Family::Jbl => return jbl::set(&f.model, &f.coll, c, v),
         _ => {}
+    }
+    if f.model.family == Family::Razer {
+        return razer::set(f, c, v);
     }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }
