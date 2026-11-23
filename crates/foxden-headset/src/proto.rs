@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::arctis;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Family {
     /// Nova 7 on its first firmware: settings are write-only.
@@ -13,6 +15,10 @@ pub enum Family {
     NovaPro,
     /// Corsair headsets: every setting is a Bragi property.
     Bragi,
+    Arctis1,
+    Arctis7,
+    Arctis7Plus,
+    ArctisPro,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +73,11 @@ const MODELS: &[Model] = &[
 ];
 
 pub fn model(pid: u16) -> Option<Model> {
-    MODELS.iter().copied().find(|m| m.pid == pid)
+    MODELS
+        .iter()
+        .copied()
+        .find(|m| m.pid == pid)
+        .or_else(|| arctis::model(pid))
 }
 
 /// A headset FoxDen has settings for, SteelSeries or Corsair.
@@ -202,6 +212,9 @@ impl Model {
 
     /// Report id of every frame: 0 on the unnumbered Nova collections, 6 on the Nova Pro base station.
     fn id(&self) -> u8 {
+        if arctis::has(self.family) {
+            return arctis::id(self);
+        }
         if self.family == Family::NovaPro {
             0x06
         } else {
@@ -213,6 +226,7 @@ impl Model {
     pub fn collection(&self) -> (i32, Option<(u16, u16)>) {
         match self.family {
             Family::NovaPro => (4, None),
+            f if arctis::has(f) => arctis::collection(self),
             _ => (3, Some((0xFFC0, 0x0001))),
         }
     }
@@ -284,12 +298,15 @@ impl Model {
                     },
                 ),
             ]),
+            Family::Arctis1 | Family::Arctis7 | Family::Arctis7Plus | Family::ArctisPro => {
+                out = arctis::controls(self)
+            }
         }
         out
     }
 
     pub fn has_eq(&self) -> bool {
-        self.family == Family::NovaPro
+        matches!(self.family, Family::NovaPro | Family::Arctis7Plus)
     }
 
     /// The frames that set `c` to `v`, without the save. `Err` for a control this model lacks or a value out of range.
@@ -302,6 +319,9 @@ impl Model {
             .ok_or_else(|| format!("{} has no {} setting", self.name, c.id()))?;
         if !shape.accepts(v) {
             return Err(format!("{v} is out of range for {}", c.id()));
+        }
+        if let Some(frames) = arctis::set(self, c, v) {
+            return Ok(frames);
         }
         let byte = v as u8;
         let cmd = match (self.family, c) {
@@ -332,6 +352,9 @@ impl Model {
         if bands.len() != EQ_BANDS || bands.iter().any(|b| !(EQ_MIN..=EQ_MAX).contains(b)) {
             return Err("the EQ takes 10 bands of -10 to +10 dB".into());
         }
+        if self.family == Family::Arctis7Plus {
+            return Ok(arctis::eq(bands));
+        }
         let mut gains = vec![self.id(), 0x33];
         gains.extend(bands.iter().map(|b| (20 + b) as u8));
         Ok(vec![vec![self.id(), 0x2E, EQ_CUSTOM as u8], gains])
@@ -344,6 +367,9 @@ impl Model {
             Family::Nova5 | Family::Bragi => Save::None,
             Family::NovaPro if c.is_some() => Save::Now(vec![0x06, 0x09]),
             Family::NovaPro => Save::None,
+            Family::Arctis1 | Family::Arctis7 | Family::Arctis7Plus | Family::ArctisPro => {
+                arctis::save(self)
+            }
         }
     }
 
@@ -356,7 +382,7 @@ impl Model {
 
     /// Status request; the reply starts with the same bytes after the report id is dropped.
     pub fn status_request(&self) -> Vec<u8> {
-        vec![self.id(), 0xB0]
+        arctis::status_request(self).unwrap_or_else(|| vec![self.id(), 0xB0])
     }
 
     /// Requests whose replies carry current settings, in order.
@@ -374,7 +400,13 @@ impl Model {
 
     /// The first bytes a reply to `req` starts with.
     pub fn reply_head<'a>(&self, req: &'a [u8]) -> &'a [u8] {
-        if self.id() == 0 { &req[1..] } else { req }
+        if !arctis::echoes(self) {
+            &req[..0]
+        } else if self.id() == 0 {
+            &req[1..]
+        } else {
+            req
+        }
     }
 }
 
@@ -439,6 +471,9 @@ pub fn status(m: &Model, r: &[u8]) -> Option<Status> {
             })
         }
         Family::Bragi => None,
+        Family::Arctis1 | Family::Arctis7 | Family::Arctis7Plus | Family::ArctisPro => {
+            arctis::status(m, r)
+        }
         Family::NovaPro => {
             if r.len() < 16 || r[0] != 0x06 || r[1] != 0xB0 {
                 return None;

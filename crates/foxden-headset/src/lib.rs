@@ -1,6 +1,7 @@
 //! Settings of SteelSeries wireless headsets over their own HID protocol, and of Corsair headsets
 //! as Bragi properties.
 
+mod arctis;
 pub mod proto;
 
 use std::sync::Mutex;
