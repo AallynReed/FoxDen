@@ -3,11 +3,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::hid::{Coll, Dev};
+use crate::util::sum8;
 use crate::{Battery, Ctx, Kind};
-
-fn sum(b: &[u8]) -> u8 {
-    b.iter().fold(0u8, |a, &v| a.wrapping_add(v))
-}
 
 /// A read that fails well before its timeout is an I/O error (device gone), not silence.
 enum Read {
@@ -98,7 +95,7 @@ fn by_request(cmd: u8, packets: u8) -> [u8; 20] {
     f[0] = BY_REPORT;
     f[1] = cmd;
     f[2] = packets;
-    f[19] = sum(&f[..19]);
+    f[19] = sum8(&f[..19]);
     f
 }
 
@@ -107,7 +104,7 @@ fn by_is_reply(r: &[u8], cmd: u8) -> bool {
     if r.len() < 20 || r[0] != BY_REPORT || r[1] & 0x7F != cmd || r[4..19].iter().all(|&b| b == 0) {
         return false;
     }
-    r[19] == sum(&r[..19]) || (r[19] == 0 && r[2] == 1 && r[3] == 0)
+    r[19] == sum8(&r[..19]) || (r[19] == 0 && r[2] == 1 && r[3] == 0)
 }
 
 /// Level and charging (high nibble 1 of the state byte).
@@ -289,21 +286,21 @@ fn hero_data(counter: u8, index: u8, msg: &[u8; 56]) -> [u8; 20] {
     let mut f = hero_header(counter, index, T_DATA);
     let at = (index as usize - 1) * 14;
     f[5..19].copy_from_slice(&msg[at..at + 14]);
-    f[19] = sum(&f[1..19]);
+    f[19] = sum8(&f[1..19]);
     f
 }
 
 fn hero_trailer(counter: u8, msg: &[u8; 56]) -> [u8; 20] {
     let mut f = hero_header(counter, 5, T_HOST_END);
-    f[12] = 0xFF - sum(msg);
-    f[13] = sum(&f[1..13]);
+    f[12] = 0xFF - sum8(msg);
+    f[13] = sum8(&f[1..13]);
     f
 }
 
 fn hero_ack(r: &[u8]) -> [u8; 20] {
     let mut f = [0u8; 20];
     f[..5].copy_from_slice(&[HERO_ID, HERO_MAGIC, r[2], r[3], r[4] & 0x80]);
-    f[5] = sum(&f[1..5]);
+    f[5] = sum8(&f[1..5]);
     f
 }
 
@@ -312,7 +309,7 @@ fn hero_acks(r: &[u8], sent: &[u8]) -> bool {
         && r[2] == sent[2]
         && r[3] == sent[3]
         && r[4] & 0x80 == sent[4] & 0x80
-        && r[5] == sum(&r[1..5])
+        && r[5] == sum8(&r[1..5])
 }
 
 #[derive(Debug, PartialEq)]
@@ -367,7 +364,7 @@ impl Hero<'_> {
             match r[4] & 0x7F {
                 T_DATA => {
                     // A damaged frame gets no ACK, so the keyboard sends it again.
-                    if r[19] != sum(&r[1..19]) {
+                    if r[19] != sum8(&r[1..19]) {
                         continue;
                     }
                     self.dev.write(&hero_ack(&r));
@@ -508,7 +505,7 @@ fn sc_classify(r: &[u8]) -> ScReply {
         return ScReply::Again;
     }
     match r[1] {
-        0 if r[31] == sum(&r[4..31]) => ScReply::Info(r[4..31].to_vec()),
+        0 if r[31] == sum8(&r[4..31]) => ScReply::Info(r[4..31].to_vec()),
         0 => ScReply::Ignore,
         1 => ScReply::Busy,
         2 => ScReply::Offline,
@@ -622,7 +619,7 @@ mod tests {
 
         let mut r = [0u8; 20];
         r[..7].copy_from_slice(&[0x13, 0xCA, 0x00, 0x00, 0x00, 72, 0x10]);
-        r[19] = sum(&r[..19]);
+        r[19] = sum8(&r[..19]);
         assert!(by_is_reply(&r, BY_BATTERY));
         assert_eq!(by_battery(&r), Some((72, true)));
 
@@ -675,19 +672,26 @@ mod tests {
             &f[..10],
             &[0x09, 0x66, 0x05, 0x01, 0x8E, 0x09, 0x87, 0, 0, 0x01]
         );
-        assert_eq!(f[19], sum(&f[1..19]));
+        assert_eq!(f[19], sum8(&f[1..19]));
         let f = hero_data(6, 2, &msg);
         assert_eq!(&f[2..5], &[0x85, 0x82, 0x0E]);
 
         let t = hero_trailer(5, &msg);
         assert_eq!(&t[2..5], &[0x85, 0x05, 0x88]);
         assert_eq!(t[12], 0xFF - (0x09 + 0x87 + 0x01));
-        assert_eq!(t[13], sum(&t[1..13]));
+        assert_eq!(t[13], sum8(&t[1..13]));
 
         let ack = hero_ack(&t);
         assert_eq!(
             &ack[..6],
-            &[0x09, 0x66, 0x85, 0x05, 0x80, sum(&[0x66, 0x85, 0x05, 0x80])]
+            &[
+                0x09,
+                0x66,
+                0x85,
+                0x05,
+                0x80,
+                sum8(&[0x66, 0x85, 0x05, 0x80])
+            ]
         );
         assert!(hero_acks(&ack, &t));
         assert!(!hero_acks(&ack, &f));
@@ -711,7 +715,7 @@ mod tests {
         r[12] = 0; // charge state
         r[13] = 66;
         r[14] = 1;
-        r[31] = sum(&r[4..31]);
+        r[31] = sum8(&r[4..31]);
         let ScReply::Info(d) = sc_classify(&r) else {
             panic!()
         };
