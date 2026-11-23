@@ -52,7 +52,7 @@ pub(crate) fn clear() {
 }
 
 /// What a driver calls when it opens: the zone's count, noted as resizable.
-pub(crate) fn length(
+pub fn length(
     device: &str,
     index: usize,
     name: &str,
