@@ -84,7 +84,7 @@ pub fn fits(m: &Model, c: &Coll) -> bool {
 
 const OFF_PRESETS: [i32; 5] = [0, 10, 20, 30, 60];
 const OFF_PRESETS_30: [i32; 4] = [0, 10, 20, 30];
-pub const ALPHA2_PRESETS: [(i32, &str); 3] = [(0, "Preset 1"), (1, "Preset 2"), (2, "Preset 3")];
+pub const ALPHA2_PRESETS: [(i32, &str); 3] = [(0, "1"), (1, "2"), (2, "3")];
 
 pub fn controls(m: &Model) -> Vec<(Control, Shape)> {
     let off = |max: i32, presets: &[i32]| Shape::Minutes {
@@ -646,6 +646,61 @@ mod tests {
         .unwrap();
         assert_eq!((s.charging, s.battery), (true, Some(40)));
         assert_eq!(status_of(Proto::Alpha2, None, None, None), None);
+    }
+
+    #[test]
+    fn read_requests() {
+        let reqs: Vec<_> = setting_reads(Proto::Alpha)
+            .iter()
+            .map(|(c, _)| ask(Proto::Alpha, *c))
+            .collect();
+        assert_eq!(
+            reqs,
+            vec![
+                vec![0x21, 0xBB, 0x07],
+                vec![0x21, 0xBB, 0x09],
+                vec![0x21, 0xBB, 0x0A]
+            ]
+        );
+        assert_eq!(ask(Proto::Alpha, 0x05), vec![0x21, 0xBB, 0x05]);
+        let reqs: Vec<_> = setting_reads(Proto::CloudII)
+            .iter()
+            .map(|(c, _)| ask(Proto::CloudII, *c))
+            .collect();
+        assert_eq!(
+            reqs,
+            vec![vec![0x06, 0xFF, 0xBB, 0x06], vec![0x06, 0xFF, 0xBB, 0x07]]
+        );
+        assert_eq!(setting_reads(Proto::Kingston), &[(0x1A, Control::AutoOff)]);
+        let reqs: Vec<_> = setting_reads(Proto::Set66)
+            .iter()
+            .map(|(c, _)| ask(Proto::Set66, *c))
+            .collect();
+        assert_eq!(
+            reqs,
+            vec![vec![0x66, 0x84], vec![0x66, 0x85], vec![0x66, 0x86]]
+        );
+        assert!(setting_reads(Proto::Alpha2).is_empty());
+    }
+
+    #[test]
+    fn cloud_ii_and_kingston_status() {
+        let level = [0x0B, 0x00, 0xBB, 0x02, 0, 0, 0, 65];
+        let charge = [0x0B, 0x00, 0xBB, 0x03, 1, 0, 0, 0];
+        assert_eq!(answer(Proto::Kingston, 0x02, &level), Some(4));
+        let s = status_of(Proto::Kingston, None, Some(&charge), Some(&level)).unwrap();
+        assert_eq!((s.connected, s.charging, s.battery), (true, true, Some(65)));
+        let charge = [0x06, 0xFF, 0xBB, 0x03, 1, 0, 0, 0];
+        let level = [0x06, 0xFF, 0xBB, 0x02, 0, 0, 0, 90];
+        let s = status_of(Proto::CloudII, None, Some(&charge), Some(&level)).unwrap();
+        assert_eq!((s.charging, s.battery), (true, Some(90)));
+        let level = [0x06, 0xFF, 0xBB, 0x02, 0, 0, 0, 0xFF];
+        assert!(
+            !status_of(Proto::CloudII, None, None, Some(&level))
+                .unwrap()
+                .connected
+        );
+        assert_eq!(status_of(Proto::CloudII, None, None, None), None);
     }
 
     fn alpha2_reply(block: [u8; BLOCK]) -> Vec<u8> {
