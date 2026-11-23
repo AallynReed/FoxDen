@@ -204,6 +204,7 @@ pub fn open(app: &AppHandle) {
     let poll = Timer::default();
     let a = app.clone();
     poll.start(TimerMode::Repeated, Duration::from_millis(300), move || reload(&a));
+    win.window().set_size(slint::LogicalSize::new(760.0, 480.0));
     let _ = win.show();
     LOGS.with_borrow_mut(|slot| {
         *slot = Some(Open {

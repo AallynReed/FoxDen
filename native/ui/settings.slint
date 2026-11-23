@@ -764,53 +764,168 @@ component BackendsBox inherits Section {
 export component SettingsPanel inherits Scroll {
     private property <length> inner: self.width - 32px;
     private property <int> cols: inner >= 1232px ? 3 : inner >= 816px ? 2 : 1;
+    private property <length> col-width: (inner - (cols - 1) * 16px) / cols;
     private property <length> body;
     content-height: body;
-    if root.cols == 1: GridLayout {
+    if root.cols == 1: VerticalLayout {
         width: root.width;
         padding: 16px;
         spacing: 16px;
         init => { root.body = self.preferred-height; }
         changed preferred-height => { root.body = self.preferred-height; }
-        Row { ModulesBox { } }
-        Row { VmicBox { } }
-        Row { RenderingBox { } }
-        Row { DevicesBox { } }
-        Row { NetworkBox { } }
-        Row { StripsBox { } }
-        Row { ServerBox { } }
-        Row { LanguageBox { } }
-        Row { WindowBox { } }
-        Row { UpdatesBox { } }
-        Row { ConflictsBox { } }
-        Row { ReportsBox { } }
-        Row { BackendsBox { } }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ModulesBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            VmicBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            RenderingBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            DevicesBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            NetworkBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            StripsBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ServerBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            LanguageBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            WindowBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            UpdatesBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ConflictsBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ReportsBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            BackendsBox { width: root.col-width; }
+        }
     }
-    if root.cols == 2: GridLayout {
+    if root.cols == 2: VerticalLayout {
         width: root.width;
         padding: 16px;
         spacing: 16px;
         init => { root.body = self.preferred-height; }
         changed preferred-height => { root.body = self.preferred-height; }
-        Row { ModulesBox { } VmicBox { } }
-        Row { RenderingBox { } DevicesBox { } }
-        Row { NetworkBox { } StripsBox { } }
-        Row { ServerBox { } LanguageBox { } }
-        Row { WindowBox { } UpdatesBox { } }
-        Row { ConflictsBox { } ReportsBox { } }
-        Row { BackendsBox { } }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ModulesBox { width: root.col-width; }
+            VmicBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            RenderingBox { width: root.col-width; }
+            DevicesBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            NetworkBox { width: root.col-width; }
+            StripsBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ServerBox { width: root.col-width; }
+            LanguageBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            WindowBox { width: root.col-width; }
+            UpdatesBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ConflictsBox { width: root.col-width; }
+            ReportsBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            BackendsBox { width: root.col-width; }
+        }
     }
-    if root.cols == 3: GridLayout {
+    if root.cols == 3: VerticalLayout {
         width: root.width;
         padding: 16px;
         spacing: 16px;
         init => { root.body = self.preferred-height; }
         changed preferred-height => { root.body = self.preferred-height; }
-        Row { ModulesBox { } VmicBox { } RenderingBox { } }
-        Row { DevicesBox { } NetworkBox { } StripsBox { } }
-        Row { ServerBox { } LanguageBox { } WindowBox { } }
-        Row { UpdatesBox { } ConflictsBox { } ReportsBox { } }
-        Row { BackendsBox { } }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ModulesBox { width: root.col-width; }
+            VmicBox { width: root.col-width; }
+            RenderingBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            DevicesBox { width: root.col-width; }
+            NetworkBox { width: root.col-width; }
+            StripsBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            ServerBox { width: root.col-width; }
+            LanguageBox { width: root.col-width; }
+            WindowBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            UpdatesBox { width: root.col-width; }
+            ConflictsBox { width: root.col-width; }
+            ReportsBox { width: root.col-width; }
+        }
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: start;
+            BackendsBox { width: root.col-width; }
+        }
     }
 }
 
