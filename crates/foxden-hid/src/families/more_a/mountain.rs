@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use super::common::*;
-use super::klm::{Key, Klm, Op::*, SIXTY, k};
+use super::super::small::klm::{Key, Klm, Layout, Op::*, SIXTY, k};
 use crate::registry::{Detector, Info};
 use foxden_core::{Backend, Color, DeviceKind};
 use hidapi::HidApi;
@@ -317,7 +317,7 @@ const OVERLAY_60: [Key; 105] = [
 
 /// RGBController_Mountain60Keyboard::SetupZones.
 pub fn layout_60() -> Klm {
-    let mut kb = Klm::ansi(SIXTY, &VALUES_60);
+    let mut kb = Klm::new(Layout::AnsiQwerty, SIXTY, &VALUES_60, &[]);
     kb.change_keys(&OVERLAY_60);
     kb
 }

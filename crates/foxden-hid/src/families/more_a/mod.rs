@@ -6,7 +6,6 @@ mod annepro2;
 mod common;
 mod fnatic;
 mod gaizhonggai;
-mod klm;
 mod mountain;
 mod realtek;
 mod realtek_argb;
