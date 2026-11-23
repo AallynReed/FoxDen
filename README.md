@@ -17,7 +17,7 @@
 
 <!-- Tech stack -->
 ![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)
-![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
+![Slint](https://img.shields.io/badge/Slint-2379F4?style=for-the-badge&logo=slint&logoColor=white)
 
 <!-- Project meta -->
 ![License](https://img.shields.io/badge/License-GPL--2.0--or--later-8A2BE2?style=for-the-badge)
@@ -136,8 +136,7 @@ cargo run -p foxden
 
 ## Privacy
 
-FoxDen only connects to the places below. Its window's WebView2 runs with Edge's background
-services, SmartScreen and telemetry switched off.
+FoxDen only connects to the places below.
 
 - GitHub, a minute after start and then every hour, to check for a new release. Nothing
   is sent beyond the request itself.
