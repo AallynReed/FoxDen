@@ -35,8 +35,8 @@ static LATER: Mutex<Option<String>> = Mutex::new(None);
 static INSTALLING: Mutex<bool> = Mutex::new(false);
 
 /// Whether the automatic install goes ahead now.
-pub fn due(auto: bool, put_off: bool, idle: bool, waited: Duration) -> bool {
-    auto && !put_off && (idle || waited >= GRACE)
+fn due(idle: bool, waited: Duration) -> bool {
+    idle || waited >= GRACE
 }
 
 pub fn start(app: &AppHandle, shared: Shared) {
@@ -73,7 +73,7 @@ async fn wait_and_install(app: &AppHandle, info: &Info) {
         if put_off || *lock(&INSTALLING) {
             break;
         }
-        if due(true, put_off, idle, found.elapsed()) {
+        if due(idle, found.elapsed()) {
             if let Err(e) = install(app).await {
                 crate::log::warn(
                     "updates",
@@ -100,12 +100,8 @@ fn fake(app: &AppHandle) {
             notes: "A test release. Nothing will be installed.".into(),
             auto: false,
         };
-        announce(&app, &info);
+        let _ = app.emit("update", &info);
     });
-}
-
-fn announce(app: &AppHandle, info: &Info) {
-    let _ = app.emit("update", info);
 }
 
 /// Asks GitHub; a newer release is announced once per version.
@@ -123,7 +119,7 @@ async fn check(app: &AppHandle, shared: &Shared) -> Result<Option<Info>, String>
         .replace((update, info.clone()))
         .is_some_and(|(_, old)| old == info);
     if !known {
-        announce(app, &info);
+        let _ = app.emit("update", &info);
     }
     Ok(Some(info))
 }
@@ -199,12 +195,8 @@ mod tests {
 
     #[test]
     fn an_automatic_install_waits_for_the_tray_or_a_minute() {
-        let now = Duration::ZERO;
-        assert!(!due(true, false, false, now));
-        assert!(due(true, false, true, now));
-        assert!(due(true, false, false, GRACE));
-        assert!(!due(true, true, true, GRACE));
-        assert!(!due(false, false, true, GRACE));
+        assert!(!due(false, Duration::ZERO));
+        assert!(due(true, Duration::ZERO));
+        assert!(due(false, GRACE));
     }
-
 }
