@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-use foxden_core::{Backend, Color, DeviceKind};
+use foxden_core::{Backend, Color, DeviceKind, Hardware, HardwareMode, HardwareSetting};
 use hidapi::{HidApi, HidDevice};
 
 use super::{Driver, Lights, det, device, report, rows, write};
@@ -11,6 +11,8 @@ const RGB_PORT: usize = 4;
 const ARGB_DIRECT: u8 = 0xFE;
 const RGB_STATIC: u8 = 0x05;
 const RGB_OFF: u8 = 0x06;
+const PASSTHRU: u8 = 0xFF;
+const FOLLOW_BOARD: &str = "follow_board";
 /// Header sizes are not reported, up to 48; FoxDen starts each at 48.
 const LEDS: usize = 48;
 const FIRMWARE: [&str; 2] = ["A202011171238", "A202105291658"];
@@ -89,6 +91,19 @@ pub fn direct_mode() -> Vec<Report> {
     out
 }
 
+pub fn hardware() -> Hardware {
+    Hardware {
+        modes: vec![HardwareMode::new(FOLLOW_BOARD, "Follow motherboard")],
+    }
+}
+
+/// Every header, the RGB one too, in pass-through.
+pub fn follow_board() -> Vec<Report> {
+    (0..PORT_IDS.len())
+        .flat_map(|port| port_mode(port, PASSTHRU, 0, 0, false, Color::BLACK))
+        .collect()
+}
+
 /// SetPortLEDsDirect: note byte 3 is the port index, not its id.
 pub fn port_direct(port: usize, colors: &[Color]) -> Vec<Report> {
     let bytes: Vec<u8> = colors.iter().flat_map(|c| [c.0, c.1, c.2]).collect();
@@ -149,6 +164,18 @@ impl Driver for Argb {
             }
         }
         for r in frame(colors, &self.counts) {
+            write(&self.hid, &r)?;
+        }
+        Ok(())
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hardware())
+    }
+
+    fn set_hardware(&mut self, s: &HardwareSetting) -> Result<(), String> {
+        hardware().fit(s)?;
+        for r in follow_board() {
             write(&self.hid, &r)?;
         }
         Ok(())
@@ -267,5 +294,39 @@ mod tests {
         assert_eq!(f.len(), 3 + 1 + 3 + 2);
         assert_eq!(f[3][4], 10);
         assert_eq!(&f[8][3..10], &[0x05, 0x10, 0x00, 0xFF, 9, 8, 7]);
+    }
+
+    // SetPortMode with pass-through on every header
+    #[test]
+    fn follow_board_bytes() {
+        let f = follow_board();
+        assert_eq!(f.len(), 10);
+        for port in 0..4 {
+            assert_eq!(f[port * 2], report(&[0x80, 0x01, 0x02]));
+            assert_eq!(
+                &f[port * 2 + 1][..13],
+                &[
+                    0x00,
+                    0x80,
+                    0x0B,
+                    0x02,
+                    PORT_IDS[port],
+                    0xFF,
+                    0x10,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                ]
+            );
+        }
+        assert_eq!(f[8], report(&[0x80, 0x01, 0x04]));
+        assert_eq!(
+            &f[9][..11],
+            &[0x00, 0x80, 0x01, 0xFF, 0x10, 0, 0, 0, 0, 0, 0]
+        );
+        assert!(hardware().fit(&HardwareSetting::new(FOLLOW_BOARD)).is_ok());
     }
 }

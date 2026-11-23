@@ -10,7 +10,7 @@ mod polychrome;
 
 use crate::port::Port;
 use crate::registry::Detector;
-use foxden_core::{Backend, Color, Device};
+use foxden_core::{Backend, Color, Device, Hardware, HardwareSetting};
 use std::time::Duration;
 
 pub fn detectors() -> Vec<&'static Detector> {
@@ -67,6 +67,13 @@ pub trait Plan: Send {
         Vec::new()
     }
     fn frame(&mut self, colors: &[Color]) -> Vec<Op>;
+    fn hardware(&self) -> Option<Hardware> {
+        None
+    }
+    /// What starts one of the device's own effects.
+    fn hardware_ops(&mut self, _: &HardwareSetting) -> Result<Vec<Op>, String> {
+        Err("no hardware effects".into())
+    }
 }
 
 /// Skips unchanged frames and takes control on the first one.
@@ -149,6 +156,28 @@ impl<P: Plan> Backend for Driver<P> {
         }
         let ops = self.session.step(colors);
         run(&self.hid, &ops).inspect_err(|_| self.session.reset())
+    }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        (device_id == self.device.id)
+            .then(|| self.session.plan.hardware())
+            .flatten()
+    }
+
+    /// The next frame takes software control again from scratch.
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        if device_id != self.device.id {
+            return Err(format!("unknown device {device_id}"));
+        }
+        self.session.reset();
+        match setting {
+            Some(s) => run(&self.hid, &self.session.plan.hardware_ops(s)?),
+            None => Ok(()),
+        }
     }
 }
 

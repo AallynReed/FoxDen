@@ -54,6 +54,19 @@ pub struct HardwareSetting {
     pub random: bool,
 }
 
+impl HardwareSetting {
+    pub fn new(mode: &str) -> Self {
+        HardwareSetting {
+            mode: mode.into(),
+            speed: None,
+            brightness: None,
+            colors: Vec::new(),
+            direction: None,
+            random: false,
+        }
+    }
+}
+
 /// A setting fitted to its mode: values in range, every colour present.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Fitted {

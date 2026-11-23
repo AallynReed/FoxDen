@@ -20,7 +20,7 @@ mod klm;
 
 use std::time::{Duration, Instant};
 
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareSetting};
 use hidapi::HidDevice;
 
 use crate::registry::Detector;
@@ -69,6 +69,12 @@ pub(crate) use det;
 pub(super) trait Driver: Send {
     /// `first` is true until a frame has gone out, so the driver can take software control.
     fn frame(&mut self, colors: &[Color], first: bool) -> Result<(), String>;
+    fn hardware(&self) -> Option<Hardware> {
+        None
+    }
+    fn set_hardware(&mut self, _: &HardwareSetting) -> Result<(), String> {
+        Err("no hardware effects".into())
+    }
 }
 
 /// A single-device backend that skips unchanged frames and resends after `refresh`.
@@ -133,6 +139,26 @@ impl<D: Driver> Backend for Lights<D> {
                 Err(e)
             }
         }
+    }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        (device_id == self.device.id)
+            .then(|| self.driver.hardware())
+            .flatten()
+    }
+
+    /// The next frame takes software control again from scratch.
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        if device_id != self.device.id {
+            return Err(format!("unknown device {device_id}"));
+        }
+        self.ready = false;
+        self.sent = None;
+        setting.map_or(Ok(()), |s| self.driver.set_hardware(s))
     }
 }
 
@@ -296,5 +322,38 @@ mod tests {
         let r = report(&[0x41, 0x80]);
         assert_eq!(&r[..3], &[0x00, 0x41, 0x80]);
         assert!(r[3..].iter().all(|&b| b == 0));
+    }
+
+    struct Log(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl Driver for Log {
+        fn frame(&mut self, colors: &[Color], first: bool) -> Result<(), String> {
+            let entry = format!("frame {} {first}", colors[0].0);
+            self.0.lock().unwrap().push(entry);
+            Ok(())
+        }
+        fn set_hardware(&mut self, s: &HardwareSetting) -> Result<(), String> {
+            self.0.lock().unwrap().push(format!("hw {}", s.mode));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn leaving_a_hardware_mode_takes_control_again_with_the_same_frame() {
+        let log = std::sync::Arc::default();
+        let dev = device("d".into(), "D", DeviceKind::Strip, line(1), [1, 1]);
+        let mut lights = Lights::boxed("t", dev, None, Log(std::sync::Arc::clone(&log)));
+        let setting = HardwareSetting::new("m");
+        let red = [Color(9, 0, 0)];
+        lights.push("d", &red).unwrap();
+        lights.push("d", &red).unwrap();
+        lights.set_hardware("d", Some(&setting)).unwrap();
+        lights.set_hardware("d", None).unwrap();
+        lights.push("d", &red).unwrap();
+        assert!(lights.set_hardware("x", None).is_err());
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["frame 9 true", "hw m", "frame 9 true"]
+        );
     }
 }
