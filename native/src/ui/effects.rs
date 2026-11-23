@@ -82,6 +82,7 @@ struct Ed {
     note: String,
     code: String,
     copy_tick: i32,
+    code_reset: i32,
     focus_tick: i32,
     app_typed: String,
     app_list: Vec<String>,
@@ -127,6 +128,7 @@ impl Default for Ed {
             note: String::new(),
             code: String::new(),
             copy_tick: 0,
+            code_reset: 0,
             focus_tick: 0,
             app_typed: String::new(),
             app_list: Vec::new(),
@@ -639,7 +641,10 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
         });
         match result {
             Ok(m) => {
-                ed(|e| e.code.clear());
+                ed(|e| {
+                    e.code.clear();
+                    e.code_reset += 1;
+                });
                 use_map(&a, &m);
                 let n = m["map"].as_array().map_or(0, Vec::len);
                 let line = tr(&a, &format!("Added {}, {}.", s(&m["name"]), plural(n, "key")));
@@ -685,7 +690,7 @@ pub fn apply(w: &AppWindow, app: &AppHandle, view: &mut View) {
             render_layer(&g, app, view, e);
         }
         render_picker(&g, app, view, e);
-        g.set_recent(ModelRc::new(VecModel::from(recent_tiles(e, e.rgb))));
+        fill(g.get_recent(), recent_tiles(e, e.rgb), |m| g.set_recent(m));
         g.set_can_undo(e.hist.at > 0 && (e.hist.at as usize) < e.hist.steps.len());
         g.set_can_redo(((e.hist.at + 1) as usize) < e.hist.steps.len());
         g.set_focus_tick(e.focus_tick);
@@ -1176,6 +1181,8 @@ fn render_base(g: &EffectsPage, app: &AppHandle, v: &View, e: &mut Ed) {
     fill(g.get_effects(), picks, |m| g.set_effects(m));
     g.set_no_match(matches == 0);
     g.set_effect_kind(kind.clone().into());
+    let label = find_entry(v, false, &kind).map(|c| tr(app, c["label"].as_str().unwrap_or(""))).unwrap_or_default();
+    g.set_effect_label(label.into());
     if g.get_search().as_str() != e.search {
         g.set_search(e.search.clone().into());
     }
@@ -1242,7 +1249,7 @@ fn render_layer(g: &EffectsPage, app: &AppHandle, v: &View, e: &mut Ed) {
     // The second colour only matters when the colours fade to it.
     let colors = layer["effect"]["colors"].as_str();
     rows.retain(|p| match p.name.as_str() {
-        "second" => colors == Some("fade_to_second") || layer["effect"].get("colors").is_none(),
+        "second" => colors == Some("fade_to_second"),
         "color" => colors.is_none_or(|c| c == "single" || c == "fade_to_second"),
         _ => true,
     });
@@ -1423,7 +1430,7 @@ fn render_keys(g: &EffectsPage, app: &AppHandle, v: &View, e: &mut Ed, layer: &V
         g.set_brush(slint_color(e.brush));
         g.set_brush_hex(to_hex(e.brush).into());
         g.set_erasing(e.erase);
-        g.set_paint_recent(ModelRc::new(VecModel::from(recent_tiles(e, e.brush))));
+        fill(g.get_paint_recent(), recent_tiles(e, e.brush), |m| g.set_paint_recent(m));
         let names = saved_names(v);
         let first = if names.is_empty() { "No saved key maps" } else { "Use a saved key map" };
         let mut choices = vec![GroupOption { label: tr(app, first).into(), header: false }];
@@ -1434,6 +1441,7 @@ fn render_keys(g: &EffectsPage, app: &AppHandle, v: &View, e: &mut Ed, layer: &V
         g.set_map_name(e.paint_name.clone().into());
         g.set_share_code(e.code.clone().into());
         g.set_copy_tick(e.copy_tick);
+        g.set_code_reset(e.code_reset);
         g.set_paint_note(e.note.clone().into());
         let zoned: Vec<String> = v.snap["devices"]
             .as_array()

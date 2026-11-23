@@ -94,6 +94,7 @@ export global EffectsPage {
     in-out property <int> search-focus;
     in property <string> effect-kind;
     in property <int> effect-at: -1;
+    in property <string> effect-label;
     callback search-changed(string);
     callback search-key(string) -> string;
     callback pick-effect(string);
@@ -196,6 +197,7 @@ export global EffectsPage {
     in property <bool> can-delete-map;
     in property <string> share-code;
     in property <int> copy-tick;
+    in property <int> code-reset;
     in property <string> paint-note;
     callback use-map(int);
     callback map-named(string);
@@ -876,12 +878,20 @@ component PickRow inherits HorizontalLayout {
 }
 
 component Picker inherits Rectangle {
+    in property <string> pid;
     border-width: 1px;
     border-color: Theme.line;
     height: body.preferred-height;
     accessible-role: groupbox;
     Rectangle { x: 0; width: 3px; background: Theme.accent; }
-    body := VerticalLayout {
+    FocusScope {
+        focus-on-click: false;
+        focus-on-tab-navigation: false;
+        key-pressed(e) => {
+            if e.text == Key.Escape { EffectsPage.open-picker(root.pid); return accept; }
+            reject
+        }
+        body := VerticalLayout {
         padding: 10px;
         padding-left: 13px;
         spacing: 8px;
@@ -911,6 +921,7 @@ component Picker inherits Rectangle {
             tiles: EffectsPage.recent;
             picked(hex) => { EffectsPage.picker-tile(hex); }
         }
+        }
     }
 }
 
@@ -931,7 +942,7 @@ component ColourField inherits VerticalLayout {
             escape => { EffectsPage.open-picker(root.pid); }
         }
     }
-    if EffectsPage.picker == root.pid: Picker { }
+    if EffectsPage.picker == root.pid: Picker { pid: root.pid; }
 }
 
 component Stops inherits VerticalLayout {
@@ -985,7 +996,7 @@ component Stops inherits VerticalLayout {
                         clicked => { EffectsPage.remove-stage(i); }
                     }
                 }
-                if EffectsPage.picker == root.target + ":stop:" + i: Picker { }
+                if EffectsPage.picker == root.target + ":stop:" + i: Picker { pid: root.target + ":stop:" + i; }
             }
         }
     }
@@ -1256,6 +1267,8 @@ component PaintField inherits VerticalLayout {
             label: I18n.t("Key map share code");
             property <int> tick: EffectsPage.copy-tick;
             changed tick => { self.set(EffectsPage.share-code); self.take-focus(); self.copy-all(); }
+            property <int> reset: EffectsPage.code-reset;
+            changed reset => { self.set(""); }
             accepted(t) => { EffectsPage.add-code(t); }
         }
         SmallButton {
@@ -1458,6 +1471,9 @@ export component EffectsPanel inherits Scroll {
                     picks := FocusScope {
                         width: 0;
                         height: 0;
+                        accessible-role: list;
+                        accessible-label: I18n.t("Background");
+                        accessible-value: EffectsPage.effect-label;
                         key-pressed(e) => {
                             if e.text == Key.DownArrow || e.text == Key.RightArrow { EffectsPage.pick-step(1); return accept; }
                             if e.text == Key.UpArrow || e.text == Key.LeftArrow { EffectsPage.pick-step(-1); return accept; }
