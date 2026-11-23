@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use foxden_audio::AudioCapture;
 use foxden_core::{
-    Backend, DeviceKind, Effect, EffectInfo, Engine, Frame, Inputs, KeyInfo, Layer, Post, PostInfo,
-    ease_readings, key_layout, presses_on,
+    Backend, DeviceKind, Effect, EffectInfo, Engine, Frame, Hardware, HardwareSetting, Inputs,
+    KeyInfo, Layer, Post, PostInfo, ease_readings, key_layout, presses_on,
 };
 use foxden_openrgb::OpenRgbBackend;
 use foxden_screen::ScreenCapture;
@@ -67,6 +67,10 @@ pub struct DeviceView {
     brightness: f32,
     /// Zones whose LED count the user sets.
     zones: Vec<ZoneView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hardware: Option<Hardware>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hardware_setting: Option<HardwareSetting>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -193,6 +197,9 @@ impl AppState {
         for (id, device) in &config.devices {
             engine.set_device(id, device.enabled, device.brightness, device.rect);
         }
+        for (id, setting) in &config.hardware {
+            let _ = engine.set_hardware(id, Some(setting.clone()));
+        }
         // an empty group still takes its place in the order
         for label in GROUPS {
             engine.add(label, Vec::new());
@@ -224,6 +231,8 @@ impl AppState {
                 enabled,
                 brightness,
                 zones: self.zones.get(&device.id).cloned().unwrap_or_default(),
+                hardware: self.engine.hardware(&device.id).cloned(),
+                hardware_setting: self.engine.hardware_setting(&device.id).cloned(),
             })
             .collect();
         Snapshot {
@@ -1287,5 +1296,29 @@ mod tests {
         state.engine.brightness = 0.5;
         state.check_profile();
         assert_eq!(state.config.active_profile, None);
+    }
+
+    #[test]
+    fn a_saved_hardware_effect_is_read_back_and_shown() {
+        let text = r#"{"hardware":{"virtual:gpu":{"mode":"star","speed":3}}}"#;
+        let config: Config = serde_json::from_str(text).unwrap();
+        let mut state = AppState::new(config);
+        state.engine.add("hid", vec![Box::new(VirtualBackend)]);
+        let json = serde_json::to_value(state.snapshot()).unwrap();
+        let gpu = &json["devices"][1];
+        assert_eq!(gpu["id"], "virtual:gpu");
+        assert_eq!(
+            gpu["hardware_setting"],
+            json!({"mode": "star", "speed": 3, "random": false})
+        );
+        assert!(gpu.get("hardware").is_none());
+        let saved = serde_json::to_value(state.to_save()).unwrap();
+        assert_eq!(saved["hardware"]["virtual:gpu"]["mode"], "star");
+        assert!(
+            state
+                .engine
+                .set_hardware("virtual:gpu", Some(HardwareSetting::new("star")))
+                .is_err()
+        );
     }
 }

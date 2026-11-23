@@ -90,6 +90,10 @@ enum Request<'a> {
     ReleaseHubLights {
         generation: u64,
     },
+    SetHubHardware {
+        device: &'a str,
+        setting: Option<&'a foxden_core::HardwareSetting>,
+    },
     VirtualMic {
         action: &'a str,
     },
@@ -125,6 +129,9 @@ pub struct HubLights {
     /// Names this opening, so a late release cannot close a newer one.
     #[serde(default)]
     pub generation: u64,
+    /// Effects of their own, by device; empty from older services.
+    #[serde(default)]
+    pub hardware: BTreeMap<String, foxden_core::Hardware>,
 }
 
 /// What became of a frame: devices that failed, and whether the hubs were open at all.
@@ -231,6 +238,15 @@ impl Client {
     /// Hands the hubs of this opening back to their firmware.
     pub fn release_hub_lights(&self, generation: u64) -> Result<(), String> {
         self.ask::<IgnoredAny>(&Request::ReleaseHubLights { generation })
+            .map(drop)
+    }
+
+    pub fn set_hub_hardware(
+        &self,
+        device: &str,
+        setting: Option<&foxden_core::HardwareSetting>,
+    ) -> Result<(), String> {
+        self.ask::<IgnoredAny>(&Request::SetHubHardware { device, setting })
             .map(drop)
     }
 

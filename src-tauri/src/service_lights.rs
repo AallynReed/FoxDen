@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use foxden_client::{Client, HubFrame, PIPE};
-use foxden_core::{Backend, Color, Device};
+use foxden_core::{Backend, Color, Device, Hardware, HardwareSetting};
 
 use crate::state::lock;
 
@@ -57,6 +57,7 @@ pub struct ServiceHubs {
     lengths: BTreeMap<String, usize>,
     generation: u64,
     devices: Vec<Device>,
+    hardware: BTreeMap<String, Hardware>,
     frame: Vec<HubFrame>,
     sent: HashMap<String, (String, Instant)>,
     failed: HashMap<String, String>,
@@ -94,6 +95,7 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
         lengths: lengths.clone(),
         generation: found.generation,
         devices: found.devices,
+        hardware: found.hardware,
         frame: Vec::new(),
         sent: HashMap::new(),
         failed: HashMap::new(),
@@ -181,6 +183,20 @@ impl Backend for ServiceHubs {
             }
         }
         Ok(())
+    }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        self.hardware.get(device_id).cloned()
+    }
+
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        self.sent.remove(device_id);
+        self.frame.retain(|f| f.device != device_id);
+        self.client.set_hub_hardware(device_id, setting)
     }
 }
 

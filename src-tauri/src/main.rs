@@ -152,6 +152,8 @@ fn main() {
             commands::set_brightness,
             commands::set_paused,
             commands::set_device,
+            commands::get_hardware,
+            commands::set_hardware,
             commands::reset_layout,
             commands::save_profile,
             commands::load_profile,

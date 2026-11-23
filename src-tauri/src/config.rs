@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use foxden_core::{Effect, Layer, Post};
+use foxden_core::{Effect, HardwareSetting, Layer, Post};
 use foxden_fan::FanConfig;
 use foxden_net::NetConfig;
 use serde::de::DeserializeOwned;
@@ -162,6 +162,12 @@ pub struct Config {
     pub brightness: f32,
     pub settings: Settings,
     pub devices: BTreeMap<String, DeviceConfig>,
+    /// Devices running an effect of their own instead of FoxDen's.
+    #[serde(
+        deserialize_with = "lenient_map",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub hardware: BTreeMap<String, HardwareSetting>,
     pub profiles: BTreeMap<String, Profile>,
     pub active_profile: Option<String>,
     /// The user's fan config, kept while the Fans module is off.
@@ -188,6 +194,7 @@ impl Default for Config {
             brightness: 1.0,
             settings: Settings::default(),
             devices: BTreeMap::new(),
+            hardware: BTreeMap::new(),
             profiles: BTreeMap::new(),
             active_profile: None,
             fan_backup: None,

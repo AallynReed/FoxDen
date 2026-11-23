@@ -1,4 +1,4 @@
-use foxden_core::{Effect, Layer};
+use foxden_core::{Effect, Hardware, HardwareSetting, Layer};
 use tauri::{AppHandle, State};
 
 use crate::config::{DeviceConfig, Profile, Settings};
@@ -105,6 +105,37 @@ pub fn set_device(
                 rect,
             },
         );
+        Ok(())
+    })
+}
+
+/// The device's own effects and the one it runs, if any.
+#[tauri::command]
+pub fn get_hardware(
+    shared: State<'_, Shared>,
+    id: String,
+) -> (Option<Hardware>, Option<HardwareSetting>) {
+    let s = lock(&shared);
+    (
+        s.engine.hardware(&id).cloned(),
+        s.engine.hardware_setting(&id).cloned(),
+    )
+}
+
+/// Has a device run one of its own effects, or with `None` FoxDen's again.
+#[tauri::command]
+pub fn set_hardware(
+    app: AppHandle,
+    shared: State<'_, Shared>,
+    id: String,
+    setting: Option<HardwareSetting>,
+) -> Reply {
+    update(&app, &shared, |s| {
+        s.engine.set_hardware(&id, setting.clone())?;
+        match setting {
+            Some(setting) => s.config.hardware.insert(id, setting),
+            None => s.config.hardware.remove(&id),
+        };
         Ok(())
     })
 }
