@@ -60,7 +60,6 @@ fn poll_one(ctx: &mut Ctx, pid: u16, via: &str) {
         kind: Kind::Mouse,
         percent: Some(st.percent),
         charging: st.charging,
-        millivolts: st.millivolts,
         grace_secs: 1800,
         ..Default::default()
     };

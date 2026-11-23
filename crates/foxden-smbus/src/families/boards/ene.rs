@@ -28,21 +28,21 @@ const CONFIG_LED_COUNT_0107: usize = 0x03;
 const NUM_ZONES: usize = 8;
 const MAX_BLOCK: usize = 3;
 
-/// ENESMBusInterface_i2c_smbus::ENERegisterRead.
+/// Reads one 16-bit ENE register.
 fn reg_read(ctx: &Ctx, dev: u8, reg: u16) -> u8 {
     let bus = lock(&ctx.bus);
     let _ = bus.write_word_data(dev, 0x00, reg.swap_bytes());
     bus.read_byte_data(dev, 0x81).unwrap_or(0xFF)
 }
 
-/// ENESMBusInterface_i2c_smbus::ENERegisterWrite.
+/// Writes one 16-bit ENE register.
 fn reg_write(ctx: &Ctx, dev: u8, reg: u16, val: u8) {
     let bus = lock(&ctx.bus);
     let _ = bus.write_word_data(dev, 0x00, reg.swap_bytes());
     let _ = bus.write_byte_data(dev, 0x01, val);
 }
 
-/// ENESMBusInterface_i2c_smbus::ENERegisterWriteBlock, falling back to byte writes.
+/// Writes a block from a 16-bit ENE register, falling back to byte writes.
 fn reg_write_block(ctx: &Ctx, dev: u8, reg: u16, data: &[u8]) {
     let bus = lock(&ctx.bus);
     let _ = bus.write_word_data(dev, 0x00, reg.swap_bytes());
@@ -117,8 +117,8 @@ struct Chip {
     dev: u8,
     direct_reg: u16,
     led_count: usize,
-    /// LEDs the zones lay out: the per-zone counts summed.
-    leds: usize,
+    /// LED count of each zone, as the config table gives it.
+    zones: Vec<usize>,
 }
 
 /// Setup: version string and config table.
@@ -140,14 +140,14 @@ fn chip(ctx: &Ctx, dev: u8) -> Chip {
             || config[CONFIG_LED_COUNT].max(config[CONFIG_LED_COUNT_0107]) as usize,
             |i| config[i] as usize,
         ),
-        leds: (0..NUM_ZONES).map(|z| config[3 + z] as usize).sum(),
+        zones: (0..NUM_ZONES).map(|z| config[3 + z] as usize).collect(),
     }
 }
 
 impl Driver for Chip {
     fn write(&mut self, colors: &[Color], first: bool) -> Result<(), String> {
         if first {
-            // SetDirect(true)
+            // direct mode on
             reg_write(&self.ctx, self.dev, REG_DIRECT, 1);
             reg_write(&self.ctx, self.dev, REG_APPLY, APPLY_VAL);
         }
@@ -166,6 +166,62 @@ impl Driver for Chip {
     }
 }
 
+/// The zones cut to the LEDs a frame writes, with any LEDs past them as one more zone.
+fn rows(zones: &[usize], total: usize) -> Vec<usize> {
+    let mut left = total;
+    let mut rows: Vec<usize> = zones
+        .iter()
+        .map(|&n| {
+            let n = n.min(left);
+            left -= n;
+            n
+        })
+        .filter(|&n| n > 0)
+        .collect();
+    if left > 0 {
+        rows.push(left);
+    }
+    rows
+}
+
+/// One row per multi-LED zone (a column on memory), single-LED zones sharing one row, LEDs in
+/// hardware order.
+fn layout(id: &str, name: &str, kind: DeviceKind, rect: [f32; 4], rows: &[usize]) -> Device {
+    let mut lines: Vec<usize> = Vec::new();
+    let mut singles: Option<usize> = None;
+    let mut at: Vec<(usize, usize)> = Vec::new();
+    for &len in rows {
+        let line = match (len, singles) {
+            (1, Some(line)) => line,
+            _ => {
+                lines.push(0);
+                if len == 1 {
+                    singles = Some(lines.len() - 1);
+                }
+                lines.len() - 1
+            }
+        };
+        at.extend((lines[line]..lines[line] + len).map(|i| (i, line)));
+        lines[line] += len;
+    }
+    let memory = kind == DeviceKind::Memory;
+    let long = lines.iter().copied().max().unwrap_or(1) as u32;
+    let n = lines.len().max(1) as u32;
+    let (cols, height) = if memory { (n, long) } else { (long, n) };
+    let mut device = Device::grid(id, name, kind, rect, cols, height);
+    device.leds = at
+        .into_iter()
+        .map(|(i, line)| {
+            let (c, r) = if memory { (line, i) } else { (i, line) };
+            [
+                (c as f32 + 0.5) / cols as f32,
+                (r as f32 + 0.5) / height as f32,
+            ]
+        })
+        .collect();
+    device
+}
+
 fn backend(
     chip: Chip,
     id: String,
@@ -174,16 +230,10 @@ fn backend(
     rect: [f32; 4],
 ) -> Option<Box<dyn Backend>> {
     // 0xFF everywhere is a chip that did not answer its config reads.
-    if chip.leds == 0 || !(1..=120).contains(&chip.led_count) {
+    if chip.zones.iter().sum::<usize>() == 0 || !(1..=120).contains(&chip.led_count) {
         return None;
     }
-    let n = chip.leds as u32;
-    let (cols, rows) = if kind == DeviceKind::Memory {
-        (1, n)
-    } else {
-        (n, 1)
-    };
-    let device = Device::grid(&id, name, kind, rect, cols, rows);
+    let device = layout(&id, name, kind, rect, &rows(&chip.zones, chip.led_count));
     Some(Board::boxed("ene smbus", device, chip))
 }
 
@@ -362,7 +412,7 @@ mod tests {
         assert_eq!(h.take()[..want.len()], want[..]);
     }
 
-    // IF_DRAM_SMBUS: any other bus is left alone.
+    // Only DRAM buses: any other bus is left alone.
     #[test]
     fn dram_ignores_other_buses() {
         let mut st = State::default();
@@ -423,7 +473,7 @@ mod tests {
         (h, found.remove(0))
     }
 
-    // SetDirect(true) then SetAllColorsDirect: R,B,G in 3-byte blocks at the v2 direct register.
+    // Direct mode on, then all colours: R,B,G in 3-byte blocks at the v2 direct register.
     #[test]
     fn direct_frame() {
         let (h, mut b) = one_chip("AUMA0-E6K5-0104", false);
@@ -455,7 +505,7 @@ mod tests {
         assert_eq!(h.take(), want);
     }
 
-    // ENERegisterWriteBlock: a failed block write falls back to byte writes at 0x01.
+    // A failed block write falls back to byte writes at 0x01.
     #[test]
     fn block_write_fallback() {
         let (h, mut b) = one_chip("DIMM_LED-0103", true);
@@ -556,7 +606,117 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // ENERegisterRead: the register word goes out byte-swapped.
+    const X370_PRO: [u8; 16] = [3, 1, 5, 1, 1, 1, 1, 1, 0, 0, 0, 5, 5, 5, 5, 5];
+    const AUDA0: [u8; 16] = [1, 1, 8, 8, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0];
+
+    fn pairs(config: &[u8]) -> Vec<(u8, u8)> {
+        config
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (i as u8, v))
+            .collect()
+    }
+
+    fn x370_pro() -> (fake::Handle, Box<dyn Backend>) {
+        let mut st = State::default();
+        st.ene.insert(0x4E, Ene::new("LED-0116", &pairs(&X370_PRO)));
+        let h = fake::bus(fake::info(0x1022, 0x790B, 0x1043, 0x8723), st);
+        let mut found = board(&h.ctx, &dmi::Dmi::default());
+        h.take();
+        (h, found.remove(0))
+    }
+
+    fn auda0(config: &[u8]) -> (fake::Handle, Box<dyn Backend>) {
+        let mut st = State::default();
+        st.ene
+            .insert(0x70, Ene::new("AUDA0-E6K5-0101", &pairs(config)));
+        let h = fake::bus(fake::info(0x1022, 0x790B, 0, 0), st);
+        let mut found = dram(&h.ctx);
+        h.take();
+        (h, found.remove(0))
+    }
+
+    fn frame(addr: u8, base: u16, colors: &[Color]) -> Vec<String> {
+        let mut want = ene_w(addr, 0x8020, 1);
+        want.extend(ene_w(addr, 0x80A0, 1));
+        for (i, c) in colors.iter().enumerate() {
+            let reg = (base + 3 * i as u16).swap_bytes();
+            want.push(format!("wwd {addr:02x} 00 {reg:04x}"));
+            want.push(format!(
+                "wblk {addr:02x} 03 [{:02x}, {:02x}, {:02x}]",
+                c.0, c.2, c.1
+            ));
+        }
+        want
+    }
+
+    fn ramp(n: usize) -> Vec<Color> {
+        (0..n as u8).map(|i| Color(i, i + 1, i + 2)).collect()
+    }
+
+    // X370-PRO: five one-LED zones at 0x8000, in hardware order.
+    #[test]
+    fn x370_pro_frame() {
+        let (h, mut b) = x370_pro();
+        let d = b.devices().remove(0);
+        let old = Device::grid(&d.id, &d.name, d.kind, d.rect, 5, 1);
+        assert_eq!((d.grid, &d.leds), (old.grid, &old.leds));
+        let colors = ramp(5);
+        b.push(&d.id, &colors).unwrap();
+        assert_eq!(h.take(), frame(0x4E, 0x8000, &colors));
+    }
+
+    // AUDA0-E6K5-0101: one eight-LED zone at 0x8100.
+    #[test]
+    fn auda0_frame() {
+        let (h, mut b) = auda0(&AUDA0);
+        let d = b.devices().remove(0);
+        assert_eq!(d.grid, [1, 8]);
+        assert_eq!(d.leds.len(), 8);
+        let colors = ramp(8);
+        b.push(&d.id, &colors).unwrap();
+        assert_eq!(h.take(), frame(0x70, 0x8100, &colors));
+    }
+
+    // Zones are cut to the count byte, and LEDs past them get a zone of their own.
+    #[test]
+    fn zones_follow_the_written_count() {
+        assert_eq!(rows(&[3, 4, 0, 2], 5), [3, 2]);
+        assert_eq!(rows(&[3, 2, 0, 0], 8), [3, 2, 3]);
+        assert_eq!(rows(&[1, 1, 1, 1, 1, 0, 0, 0], 5), [1; 5]);
+
+        let mut config = AUDA0;
+        config[3] = 4;
+        config[4] = 6;
+        let (h, mut b) = auda0(&config);
+        let d = b.devices().remove(0);
+        assert_eq!(d.grid, [2, 4]);
+        assert_eq!(d.leds.len(), 8);
+        assert_eq!(d.leds[4], [0.75, 0.125]);
+        let colors = ramp(8);
+        b.push(&d.id, &colors).unwrap();
+        assert_eq!(h.take(), frame(0x70, 0x8100, &colors));
+
+        let d = layout("x", "X", DeviceKind::Motherboard, [0.0; 4], &[1, 3, 1]);
+        assert_eq!(d.grid, [3, 2]);
+        let want = [
+            [0.5, 0.25],
+            [0.5, 0.75],
+            [1.5, 0.75],
+            [2.5, 0.75],
+            [1.5, 0.25],
+        ];
+        let want: Vec<[f32; 2]> = want.iter().map(|&[c, r]| [c / 3.0, r]).collect();
+        assert_eq!(d.leds, want);
+
+        config[3] = 2;
+        config[4] = 0;
+        let (_, b) = auda0(&config);
+        let d = b.devices().remove(0);
+        assert_eq!((d.grid, d.leds.len()), ([2, 6], 8));
+    }
+
+    // A register read sends the register word byte-swapped.
     #[test]
     fn reads_swap_the_register_bytes() {
         assert_eq!(ene_r(0x70, 0x1C02)[0], "wwd 70 00 021c");

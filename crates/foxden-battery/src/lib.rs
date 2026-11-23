@@ -8,6 +8,7 @@ pub mod util;
 
 pub use ctx::Ctx;
 pub use drivers::corsair::Channel as Bragi;
+pub use drivers::eightbitdo_lock;
 
 /// Read-only HID++ answers of a Logitech receiver and its devices, for device reports.
 pub fn logitech_diagnose(pid: u16) -> Vec<String> {
@@ -47,7 +48,6 @@ pub struct Battery {
     pub asleep: bool,
     /// False when the receiver is there but the device is off.
     pub connected: bool,
-    pub millivolts: u32,
     /// Keep showing the last value this long if the device stops answering.
     pub grace_secs: u32,
     pub vid: u16,
@@ -67,7 +67,6 @@ impl Default for Battery {
             full: false,
             asleep: false,
             connected: true,
-            millivolts: 0,
             grace_secs: 0,
             vid: 0,
         }

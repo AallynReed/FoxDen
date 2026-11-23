@@ -15,6 +15,7 @@ mod darkproject;
 mod dreamcheeky;
 mod ducky;
 mod edifier;
+pub(crate) mod eightbitdo;
 mod ek;
 mod gamesir;
 mod hp_omen30l;

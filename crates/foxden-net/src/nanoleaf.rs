@@ -43,7 +43,7 @@ fn ext_control(v: Version) -> String {
     )
 }
 
-/// `UpdateLEDs`: one frame, every panel set at once.
+/// One frame, every panel set at once.
 fn frame(v: Version, panels: &[u16], colors: &[Color]) -> Vec<u8> {
     let colour = |i: usize| colors.get(i).copied().unwrap_or_default();
     match v {
@@ -166,7 +166,7 @@ pub fn pair(ip: &str, port: u16) -> Result<NanoleafPanel, String> {
 
 const SERVICE: &str = "_nanoleafapi._tcp.local.";
 
-/// `mdns_query_send(sock, MDNS_RECORDTYPE_PTR, service, ...)` from an ephemeral port, query id 0.
+/// An mDNS PTR query for the service, from an ephemeral port, query id 0.
 fn mdns_query() -> Vec<u8> {
     let mut q = vec![0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0];
     for label in SERVICE.trim_end_matches('.').split('.') {
@@ -185,7 +185,7 @@ fn answers(reply: &[u8]) -> bool {
     reply.len() > 12 && reply[2] & 0x80 != 0 && reply.windows(needle.len()).any(|w| w == needle)
 }
 
-/// NanoleafScanningThread: replies come from the panels themselves, on the default port.
+/// Replies come from the panels themselves, on the default port.
 pub fn discover() -> Vec<Found> {
     let Some(socket) = net::search_socket(0) else {
         return Vec::new();

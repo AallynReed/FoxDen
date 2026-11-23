@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use foxden_core::{Effect, Layer, Post};
+use foxden_core::{Effect, HardwareSetting, Layer, Post};
 use foxden_fan::FanConfig;
 use foxden_net::NetConfig;
 use serde::de::DeserializeOwned;
@@ -162,6 +162,12 @@ pub struct Config {
     pub brightness: f32,
     pub settings: Settings,
     pub devices: BTreeMap<String, DeviceConfig>,
+    /// Devices running an effect of their own instead of FoxDen's.
+    #[serde(
+        deserialize_with = "lenient_map",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub hardware: BTreeMap<String, HardwareSetting>,
     pub profiles: BTreeMap<String, Profile>,
     pub active_profile: Option<String>,
     /// The user's fan config, kept while the Fans module is off.
@@ -188,6 +194,7 @@ impl Default for Config {
             brightness: 1.0,
             settings: Settings::default(),
             devices: BTreeMap::new(),
+            hardware: BTreeMap::new(),
             profiles: BTreeMap::new(),
             active_profile: None,
             fan_backup: None,
@@ -466,6 +473,38 @@ mod tests {
         let config = Config {
             effect,
             profiles: BTreeMap::from([("Heat".to_string(), profile)]),
+            ..Default::default()
+        };
+        save(&dir, &config).unwrap();
+        assert_eq!(load(&dir), config);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn battery_effects_and_conditions_survive_a_profile_save() {
+        let dir = scratch("battery");
+        let effect = Effect::Battery {
+            device: "logitech-1".into(),
+            stops: vec![foxden_core::Stop {
+                temp: 25.0,
+                color: Color(255, 0, 0),
+            }],
+            charging: true,
+            charging_color: Color(0, 0, 255),
+        };
+        let mut layer = Layer::new(LayerEffect::Fill(effect.clone()));
+        layer.when = foxden_core::When::BatteryLow;
+        layer.low = 15.0;
+        let profile = Profile {
+            effect: effect.clone(),
+            layers: vec![layer.clone()],
+            overrides: BTreeMap::from([("hid:mouse".to_string(), effect.clone())]),
+            brightness: 1.0,
+        };
+        let config = Config {
+            effect,
+            layers: vec![layer],
+            profiles: BTreeMap::from([("Low".to_string(), profile)]),
             ..Default::default()
         };
         save(&dir, &config).unwrap();

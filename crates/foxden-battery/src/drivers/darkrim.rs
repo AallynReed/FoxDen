@@ -2,25 +2,11 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use crate::hid::Dev;
+use crate::util::crc16_ccitt;
 use crate::{Battery, Ctx, Kind};
 
 const VID: u16 = 0x3654;
 const PID: u16 = 0x6901;
-
-/// CRC-16/CCITT-FALSE.
-fn crc16(data: &[u8]) -> u16 {
-    data.iter().fold(0xFFFF, |mut crc: u16, &b| {
-        crc ^= (b as u16) << 8;
-        for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 {
-                (crc << 1) ^ 0x1021
-            } else {
-                crc << 1
-            };
-        }
-        crc
-    })
-}
 
 /// GET 0x0010 for TLV 01 (battery): `FE seq [cmd le] [type] [index] [count] [len le] [payload] [crc be]`, behind report id 0.
 fn request(seq: u8) -> Vec<u8> {
@@ -29,7 +15,7 @@ fn request(seq: u8) -> Vec<u8> {
     ];
     let mut r = vec![0x00];
     r.extend_from_slice(&frame);
-    r.extend_from_slice(&crc16(&frame).to_be_bytes());
+    r.extend_from_slice(&crc16_ccitt(0xFFFF, &frame).to_be_bytes());
     r
 }
 
@@ -48,7 +34,7 @@ fn parse_reply(r: &[u8], seq: u8) -> Option<(u8, bool)> {
         return None;
     }
     let end = 9 + len;
-    if crc16(&r[..end]) != u16::from_be_bytes([r[end], r[end + 1]]) {
+    if crc16_ccitt(0xFFFF, &r[..end]) != u16::from_be_bytes([r[end], r[end + 1]]) {
         return None;
     }
     let mut tlvs = &r[9..end];
@@ -115,7 +101,7 @@ mod tests {
         let mut r = vec![0xFE, seq, 0x10, 0x00, 0x02, 0x00, 0x00];
         r.extend_from_slice(&(tlvs.len() as u16).to_le_bytes());
         r.extend_from_slice(tlvs);
-        let crc = crc16(&r);
+        let crc = crc16_ccitt(0xFFFF, &r);
         r.extend_from_slice(&crc.to_be_bytes());
         r.resize(64, 0);
         r
@@ -123,10 +109,10 @@ mod tests {
 
     #[test]
     fn crc_matches_the_standard_check_value() {
-        assert_eq!(crc16(b"123456789"), 0x29B1);
+        assert_eq!(crc16_ccitt(0xFFFF, b"123456789"), 0x29B1);
         let r = request(3);
         assert_eq!(r[..3], [0x00, 0xFE, 0x03]);
-        assert_eq!(crc16(&r[1..12]).to_be_bytes(), [r[12], r[13]]);
+        assert_eq!(crc16_ccitt(0xFFFF, &r[1..12]).to_be_bytes(), [r[12], r[13]]);
     }
 
     #[test]

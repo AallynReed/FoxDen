@@ -12,6 +12,8 @@ pub struct Zone {
     pub leds: usize,
     pub min: usize,
     pub max: usize,
+    /// LEDs per fan; counts are whole multiples of it. 1 for a free count.
+    pub step: usize,
 }
 
 static LENGTHS: Mutex<BTreeMap<String, usize>> = Mutex::new(BTreeMap::new());
@@ -51,8 +53,16 @@ pub(crate) fn clear() {
     ZONES.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
+/// `n` to the nearest multiple of `step` within `min..=max`.
+pub fn round(n: usize, step: usize, min: usize, max: usize) -> usize {
+    let step = step.max(1);
+    let lo = min.div_ceil(step) * step;
+    let hi = (max.max(min) / step * step).max(lo);
+    ((n + step / 2) / step * step).clamp(lo, hi)
+}
+
 /// What a driver calls when it opens: the zone's count, noted as resizable.
-pub(crate) fn length(
+pub fn length(
     device: &str,
     index: usize,
     name: &str,
@@ -60,13 +70,28 @@ pub(crate) fn length(
     min: usize,
     max: usize,
 ) -> usize {
-    let leds = pick(
+    length_step(device, index, name, default, min, max, 1)
+}
+
+/// [`length`] for a zone of whole fans of `step` LEDs each.
+pub fn length_step(
+    device: &str,
+    index: usize,
+    name: &str,
+    default: usize,
+    min: usize,
+    max: usize,
+    step: usize,
+) -> usize {
+    let step = step.max(1);
+    let saved = pick(
         &LENGTHS.lock().unwrap_or_else(|e| e.into_inner()),
         &key(device, index),
         default,
         min,
         max,
     );
+    let leds = round(saved, step, min, max);
     let mut zones = ZONES.lock().unwrap_or_else(|e| e.into_inner());
     zones.retain(|z| !(z.device == device && z.index == index));
     zones.push(Zone {
@@ -76,8 +101,19 @@ pub(crate) fn length(
         leds,
         min,
         max: max.max(min),
+        step,
     });
     leds
+}
+
+/// A saved count from `1..=upto` was stored in fans: it becomes `by` LEDs per fan.
+pub(crate) fn fans_to_leds(device: &str, index: usize, upto: usize, by: usize) {
+    let mut lengths = LENGTHS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(n) = lengths.get_mut(&key(device, index))
+        && (1..=upto).contains(n)
+    {
+        *n *= by;
+    }
 }
 
 #[cfg(test)]
@@ -115,5 +151,33 @@ mod tests {
             .collect();
         assert_eq!(mine.len(), 2);
         assert_eq!((mine[0].index, mine[0].leds, mine[0].max), (1, 7, 90));
+        assert_eq!(mine[0].step, 1);
+    }
+
+    #[test]
+    fn stepped_counts_are_whole_fans() {
+        assert_eq!(
+            [0, 7, 8, 23, 24, 40, 64, 99].map(|n| round(n, 16, 0, 64)),
+            [0, 0, 16, 16, 32, 48, 64, 64]
+        );
+        assert_eq!(round(3, 16, 16, 64), 16);
+        assert_eq!(round(70, 20, 0, 80), 80);
+        assert_eq!(round(5, 1, 0, 90), 5);
+        set_one("hid:lengths-step", 0, 40);
+        assert_eq!(
+            length_step("hid:lengths-step", 0, "Channel 1", 64, 0, 64, 16),
+            48
+        );
+        set_one("hid:lengths-step", 1, 2);
+        fans_to_leds("hid:lengths-step", 1, 4, 16);
+        assert_eq!(
+            length_step("hid:lengths-step", 1, "Channel 2", 64, 0, 64, 16),
+            32
+        );
+        let z = resizable()
+            .into_iter()
+            .find(|z| z.device == "hid:lengths-step")
+            .unwrap();
+        assert_eq!((z.leds, z.step), (48, 16));
     }
 }

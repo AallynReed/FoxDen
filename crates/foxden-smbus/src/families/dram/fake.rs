@@ -121,7 +121,7 @@ impl Fake {
     }
 }
 
-/// A Raptor Lake SMBus, which passes the IF_DRAM_SMBUS check.
+/// A Raptor Lake SMBus, which passes the DRAM bus check.
 pub fn intel() -> BusInfo {
     BusInfo {
         name: "fake".into(),

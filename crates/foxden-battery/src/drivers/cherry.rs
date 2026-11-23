@@ -93,7 +93,6 @@ fn xtrfy(ctx: &mut Ctx) {
             let p = parse_xtrfy_power(&r);
             b.percent = p.percent;
             b.charging = p.charging;
-            b.millivolts = p.millivolts;
         }
         None if link.is_some() => b.asleep = true,
         None => return,

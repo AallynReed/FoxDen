@@ -272,13 +272,6 @@ impl Dev {
     pub fn release_number(&self) -> u16 {
         self.info.release
     }
-    pub fn bus_type(&self) -> hidapi::BusType {
-        match self.info.bus {
-            Bus::Usb => hidapi::BusType::Usb,
-            Bus::Bluetooth => hidapi::BusType::Bluetooth,
-            Bus::Other => hidapi::BusType::Unknown,
-        }
-    }
     pub fn open_device(&self, api: &hidapi::HidApi) -> hidapi::HidResult<hidapi::HidDevice> {
         api.open_path(&self.path)
     }

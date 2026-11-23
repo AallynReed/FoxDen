@@ -1,4 +1,4 @@
-//! Native USB HID lighting drivers. Experimental: none of this has run against hardware yet.
+//! Native USB HID lighting drivers.
 
 mod families;
 #[path = "families/generic/any/mod.rs"]
@@ -15,7 +15,10 @@ pub use families::{
 };
 use foxden_core::Backend;
 use hidapi::HidApi;
-pub use lengths::{Zone, key as length_key, resizable, set_lengths};
+pub use lengths::{
+    Zone, key as length_key, length as zone_length, length_step as zone_length_step, resizable,
+    set_lengths,
+};
 
 fn supported(vid: u16, pid: u16) -> bool {
     (vid, pid) == (msi::VID, msi::PID) || (vid == hidpp::VID && hidpp::PIDS.contains(&pid))
@@ -253,7 +256,6 @@ fn keep_hidpp(devices: &[(&str, bool)]) -> Vec<bool> {
         .collect()
 }
 
-/// Detects supported USB HID lighting devices and returns one backend per device.
 /// Opens that took longer than this are kept for the log.
 const SLOW: std::time::Duration = std::time::Duration::from_millis(250);
 static SLOW_OPENS: std::sync::Mutex<Vec<(String, u128)>> = std::sync::Mutex::new(Vec::new());
@@ -271,10 +273,6 @@ fn note_slow(what: &str, start: std::time::Instant) {
 /// What made the last probe slow: each open over a quarter second, with its time in ms.
 pub fn slow_opens() -> Vec<(String, u128)> {
     std::mem::take(&mut *SLOW_OPENS.lock().unwrap_or_else(|e| e.into_inner()))
-}
-
-pub fn probe() -> Vec<Box<dyn Backend>> {
-    probe_with(&[])
 }
 
 /// Which devices a probe opens.
@@ -297,12 +295,8 @@ impl Pick<'_> {
     }
 }
 
-/// Like `probe`, with `extra` detectors from other crates tried after the ported families'.
-pub fn probe_with(extra: &[&'static registry::Detector]) -> Vec<Box<dyn Backend>> {
-    probe_picked(extra, Pick::All)
-}
-
-/// Like `probe_with`, opening only what `pick` wants.
+/// Detects supported USB HID lighting devices and returns one backend per device, opening only
+/// what `pick` wants. `extra` detectors from other crates are tried after the ported families'.
 pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Box<dyn Backend>> {
     lengths::clear();
     SLOW_OPENS.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -427,7 +421,7 @@ pub fn probe_picked(extra: &[&'static registry::Detector], pick: Pick) -> Vec<Bo
         &infos,
         &mut taken,
         &detectors,
-        &[families::matchers(), generic_any::matchers()].concat(),
+        &matchers,
         |i| supported(i.vid, i.pid),
         |info, matcher| {
             let start = std::time::Instant::now();

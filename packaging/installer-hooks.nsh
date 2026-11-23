@@ -24,6 +24,9 @@
   !insertmacro REMOVE_FOXRGB HKLM
   !insertmacro REMOVE_FOXRGB HKCU
   nsExec::Exec '"$INSTDIR\foxden-service.exe" stop'
+  ; The service hands its fans back before exiting; one that never exits is closed so its files can be replaced.
+  nsExec::Exec 'powershell -NoProfile -NonInteractive -Command "Wait-Process -Name foxden-service -Timeout 20 -ErrorAction SilentlyContinue"'
+  nsExec::Exec 'taskkill /F /IM foxden-service.exe'
   ; An app still exiting after starting the update would make the running-app check fail.
   nsExec::Exec 'taskkill /F /T /IM foxden.exe'
   Sleep 1500

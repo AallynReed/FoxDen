@@ -1,4 +1,4 @@
-//! Every Corsair USB id with its name and what it can do. Generated; edit the generator, not this file.
+//! Every Corsair USB id with its name and what it can do. Edited by hand; keep it sorted by pid.
 
 use crate::Kind;
 
@@ -1551,3 +1551,11 @@ const LIST: &[Corsair] = &[
         100,
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sorted_by_pid() {
+        assert!(super::LIST.windows(2).all(|w| w[0].pid < w[1].pid));
+    }
+}

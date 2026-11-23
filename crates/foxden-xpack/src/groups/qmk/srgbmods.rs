@@ -1,13 +1,13 @@
 //! SRGBmods LED Controller v2 and Wifi LC bridges.
 
-use crate::hid::{Driver, Io, Proto, drain, on_i, open_io, rgb};
+use crate::hid::{Driver, Io, Proto, drain, on_i, open_io, rgb, set_rows, split};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_hid::registry::{Detector, Info};
 use hidapi::HidApi;
 
 const FAMILY: &str = "srgbmods";
 const VID: u16 = 0x16D0;
-/// LEDs given to each channel.
+/// Each channel's default length.
 const CHANNEL_LEDS: usize = 60;
 const FIRMWARE_VERSION: u8 = 0xCC;
 const COLORS: u8 = 0xAA;
@@ -40,6 +40,10 @@ impl Model {
             _ => 1,
         }
     }
+    /// Packet numbers and totals are one byte, so a channel spans at most 255 packets.
+    fn max_leds(self) -> usize {
+        255 * self.per_packet()
+    }
 
     /// requestFirmwareVersion: the 0xCC marker after the header's zero bytes.
     fn version_request(self) -> Vec<u8> {
@@ -70,7 +74,17 @@ impl Model {
     }
 }
 
-struct Lc(Model);
+struct Lc(Model, Vec<usize>);
+
+impl Lc {
+    fn all_packets(&self, colors: &[Color]) -> Vec<Vec<u8>> {
+        split(colors, &self.1)
+            .iter()
+            .enumerate()
+            .flat_map(|(ch, c)| self.0.packets(ch, c))
+            .collect()
+    }
+}
 
 impl Proto for Lc {
     fn start(&mut self, io: &mut dyn Io) -> Result<(), String> {
@@ -80,16 +94,13 @@ impl Proto for Lc {
         Ok(())
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for (ch, c) in colors.chunks(CHANNEL_LEDS).enumerate() {
-            for p in self.0.packets(ch, c) {
-                io.write(&p, self.0.report())?;
-            }
+        for p in self.all_packets(colors) {
+            io.write(&p, self.0.report())?;
         }
         Ok(())
     }
     fn stop(&mut self, io: &mut dyn Io) {
-        let black = vec![Color(0, 0, 0); CHANNEL_LEDS * self.0.channels()];
-        let _ = self.frame(io, &black);
+        let _ = self.frame(io, &[]);
     }
 }
 
@@ -99,15 +110,17 @@ fn open(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, Str
         0x113B => Model::Wled,
         _ => Model::Nanoleaf,
     };
-    let dev = Device::grid(
-        &info.device_id(FAMILY),
-        d.name,
-        DeviceKind::Strip,
-        [0.06, 0.12, 0.52, 0.06 * model.channels() as f32],
-        CHANNEL_LEDS as u32,
-        model.channels() as u32,
-    );
-    Ok(Driver::new(open_io(api, info)?, dev, FAMILY, Lc(model)).boxed())
+    let id = info.device_id(FAMILY);
+    let counts: Vec<usize> = (0..model.channels())
+        .map(|i| {
+            let name = format!("Channel {}", i + 1);
+            foxden_hid::zone_length(&id, i, &name, CHANNEL_LEDS, 0, model.max_leds())
+        })
+        .collect();
+    let rect = [0.06, 0.12, 0.52, 0.06 * model.channels() as f32];
+    let mut dev = Device::grid(&id, d.name, DeviceKind::Strip, rect, 1, 1);
+    set_rows(&mut dev, &counts);
+    Ok(Driver::new(open_io(api, info)?, dev, FAMILY, Lc(model, counts)).boxed())
 }
 
 pub static DETECTORS: &[Detector] = &[
@@ -130,6 +143,26 @@ mod tests {
         assert!(p[0].len() <= Model::V2.report());
         assert_eq!(p[1][..6], [0, 2, 0, 2, 0, 0xAA]);
         assert_eq!(p[1].len(), 6 + 31 * 3);
+    }
+
+    #[test]
+    fn channels_follow_their_lengths() {
+        assert_eq!(
+            (Model::V2.max_leds(), Model::Wled.max_leds()),
+            (43095, 5100)
+        );
+        let c: Vec<Color> = (0..100).map(|i| Color(i, 0, 0)).collect();
+        let p = Lc(Model::Wled, vec![25, 0, 60, 15]).all_packets(&c);
+        assert_eq!(p.len(), 2 + 3 + 1);
+        assert_eq!(p[0][..8], [0, 1, 0xFF, 2, 1, 0, 0, 0]);
+        assert_eq!(p[1][..5], [0, 2, 0xFF, 2, 1]);
+        assert_eq!(p[2][..8], [0, 1, 0xFF, 3, 3, 25, 0, 0]);
+        assert_eq!(p[5][..8], [0, 1, 0xFF, 1, 4, 85, 0, 0]);
+        assert_eq!(p[5].len(), 5 + 15 * 3);
+        let v2 = Lc(Model::V2, vec![200]).all_packets(&[]);
+        assert_eq!((v2.len(), v2[0][3], v2[1].len()), (2, 2, 6 + 31 * 3));
+        let full = Lc(Model::Wled, vec![CHANNEL_LEDS; 4]).all_packets(&[]);
+        assert_eq!(full.len(), 4 * 3);
     }
 
     #[test]

@@ -80,7 +80,7 @@ const DRAM_DETECTORS: &[(&str, DramDetect, u16, u8)] = &[
     ),
 ];
 
-/// BackgroundDetectI2CDRAMDevices for one bus: read SPD once, then run each matching row.
+/// DRAM detection for one bus: read SPD once, then run each matching row.
 fn detect_dram(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     if !common::is_dram_smbus(lock(bus).info()) {
         return Vec::new();
@@ -108,7 +108,7 @@ mod tests {
     use super::fake::*;
     use super::*;
 
-    // BackgroundDetectI2CDRAMDevices skips buses that IF_DRAM_SMBUS rejects
+    // DRAM detection skips buses that fail the DRAM bus check
     #[test]
     fn other_buses_are_not_scanned() {
         let mut sim = Sim::default();
@@ -124,7 +124,7 @@ mod tests {
         assert!(take().is_empty());
     }
 
-    // IF_DRAM_SMBUS accepts the AMD FCH and the listed Intel controllers only
+    // The DRAM bus check accepts the AMD FCH and the listed Intel controllers only
     #[test]
     fn dram_smbus_ids() {
         let id = |v, d| crate::i2c::BusInfo {

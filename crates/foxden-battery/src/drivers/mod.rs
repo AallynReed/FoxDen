@@ -204,6 +204,8 @@ pub const ORDER: &[fn(&mut Ctx)] = &[
     xinput::poll_x_input,
 ];
 
+pub use eightbitdo::lock as eightbitdo_lock;
+
 pub fn logitech_diagnose(pid: u16) -> Vec<String> {
     logitech::diagnose(pid)
 }

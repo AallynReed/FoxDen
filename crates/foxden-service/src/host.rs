@@ -11,7 +11,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use foxden_core::conflicts::{Closed, Scope};
-use foxden_core::{Backend, Color};
+use foxden_core::{Backend, Color, HardwareSetting};
 use foxden_fan::{Controller, FanBackend, FanConfig, Probe, Status};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -204,6 +204,12 @@ enum Request {
     ReleaseHubLights {
         #[serde(default)]
         generation: Option<u64>,
+    },
+    /// Starts a hub's own effect, or with no setting hands it back to the frames.
+    SetHubHardware {
+        device: String,
+        #[serde(default)]
+        setting: Option<HardwareSetting>,
     },
     #[cfg(test)]
     Panic,
@@ -415,6 +421,20 @@ impl Host {
                 let open = locked(&self.hubs).open.is_some();
                 json!({"ok": true, "open": open, "failed": self.set_hub_lights(frames)})
             }
+            Ok(Request::SetHubHardware { device, setting }) => {
+                let mut hubs = locked(&self.hubs);
+                let hub = hubs
+                    .open
+                    .as_mut()
+                    .and_then(|(found, _)| found.iter_mut().find(|h| h.ids.contains(&device)));
+                match hub {
+                    Some(hub) => match hub.backend.set_hardware(&device, setting.as_ref()) {
+                        Ok(()) => json!({"ok": true}),
+                        Err(e) => fail(format!("{device}: {e}")),
+                    },
+                    None => fail(format!("{device}: unknown device")),
+                }
+            }
             Ok(Request::ReleaseHubLights { generation }) => {
                 let mut hubs = locked(&self.hubs);
                 if generation.is_none_or(|g| g == hubs.generation) {
@@ -455,10 +475,20 @@ impl Host {
             .filter(|z| found.iter().any(|h| h.ids.contains(&z.device)))
             .map(|z| {
                 json!({"device": z.device, "index": z.index, "name": z.name,
-                    "leds": z.leds, "min": z.min, "max": z.max})
+                    "leds": z.leds, "min": z.min, "max": z.max, "step": z.step})
             })
             .collect();
-        json!({"ok": true, "devices": devices, "zones": zones, "generation": generation})
+        let hardware: BTreeMap<String, _> = found
+            .iter()
+            .flat_map(|h| h.ids.iter().map(move |id| (id, h.backend.hardware(id))))
+            .filter_map(|(id, hw)| Some((id.clone(), hw?)))
+            .collect();
+        let mut reply =
+            json!({"ok": true, "devices": devices, "zones": zones, "generation": generation});
+        if !hardware.is_empty() {
+            reply["hardware"] = json!(hardware);
+        }
+        reply
     }
 
     /// Pushes one frame to every hub, the hubs side by side so a slow one holds up only itself.
@@ -1500,6 +1530,15 @@ pub(crate) mod tests {
             locked(&self.pushes).push((device_id.into(), colors.to_vec()));
             Ok(())
         }
+        fn hardware(&self, _: &str) -> Option<foxden_core::Hardware> {
+            let mode = foxden_core::HardwareMode::new("spin", "Spin");
+            Some(foxden_core::Hardware { modes: vec![mode] })
+        }
+        fn set_hardware(&mut self, id: &str, s: Option<&HardwareSetting>) -> Result<(), String> {
+            let mode = s.map_or("none", |s| s.mode.as_str());
+            locked(&self.pushes).push((format!("{id} {mode}"), Vec::new()));
+            Ok(())
+        }
     }
 
     fn zone(device: &str, leds: usize) -> foxden_hid::Zone {
@@ -1510,6 +1549,7 @@ pub(crate) mod tests {
             leds,
             min: 0,
             max: 34,
+            step: 1,
         }
     }
 
@@ -1557,7 +1597,7 @@ pub(crate) mod tests {
         assert_eq!(r["devices"].as_array().unwrap().len(), 2);
         assert_eq!(
             r["zones"],
-            json!([{"device": "hid:a", "index": 1, "name": "Fan 1", "leds": 12, "min": 0, "max": 34}])
+            json!([{"device": "hid:a", "index": 1, "name": "Fan 1", "leds": 12, "min": 0, "max": 34, "step": 1}])
         );
         // Only a change to the hubs' own zones opens them again.
         ask(json!({"hid:a#1": 12, "other#0": 9}));
@@ -1761,5 +1801,32 @@ pub(crate) mod tests {
                 "{writes:?}"
             );
         }
+    }
+
+    #[test]
+    fn hub_hardware_effects_go_to_the_hub_that_has_the_device() {
+        static PUSHES: LazyLock<Pushes> = LazyLock::new(Arc::default);
+        fn opener(_: &BTreeMap<String, usize>) -> (Vec<Box<dyn Backend>>, Vec<foxden_hid::Zone>) {
+            let lit = Lit {
+                id: "hid:hw",
+                pushes: PUSHES.clone(),
+            };
+            (vec![Box::new(lit)], Vec::new())
+        }
+        let mut host = host("hub-hardware");
+        host.hub_opener = opener;
+        let set = |setting: Value| {
+            let req = json!({"cmd": "set_hub_hardware", "device": "hid:hw", "setting": setting});
+            reply(&host, &req.to_string())
+        };
+        assert_eq!(set(json!({"mode": "spin"}))["ok"], false);
+        let r = reply(&host, r#"{"cmd":"hub_lights"}"#);
+        assert_eq!(r["hardware"]["hid:hw"]["modes"][0]["id"], "spin");
+        assert_eq!(set(json!({"mode": "spin"}))["ok"], true);
+        assert_eq!(set(Value::Null)["ok"], true);
+        let bare = json!({"cmd": "set_hub_hardware", "device": "hid:hw"});
+        assert_eq!(reply(&host, &bare.to_string())["ok"], true);
+        let names: Vec<String> = locked(&PUSHES).iter().map(|p| p.0.clone()).collect();
+        assert_eq!(names, ["hid:hw spin", "hid:hw none", "hid:hw none"]);
     }
 }

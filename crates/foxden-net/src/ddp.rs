@@ -22,7 +22,7 @@ fn packet(sequence: u8, offset: u32, data: &[u8]) -> Vec<u8> {
     p
 }
 
-/// `UpdateLEDs`: each device's pixels in chunks of 1440 bytes, offsets counted per device.
+/// Each device's pixels in chunks of 1440 bytes, offsets counted per device.
 fn packets(devices: &[DdpDevice], colors: &[Color], sequence: u8) -> Vec<(usize, Vec<u8>)> {
     let mut out = Vec::new();
     let mut at = 0;

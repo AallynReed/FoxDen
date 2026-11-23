@@ -207,7 +207,7 @@ impl Backend for Illumination {
     }
 }
 
-/// DetectNVIDIAIllumGPUs for one GPU: its table row, then the zones getInfo reports.
+/// Detection for one GPU: its table row, then the zones the zone info call reports.
 fn found(index: usize, ids: [u16; 4], call: Call) -> Option<Box<dyn Backend>> {
     let &(.., rgbw_as_rgb, name) = DEVICES.iter().find(|d| [d.0, d.1, d.2, d.3] == ids)?;
     let mut backend = Illumination {
@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(VERSION, 72012);
     }
 
-    // DetectNVIDIAIllumGPUs: the four ids pick the row, getInfo counts the zones.
+    // The four ids pick the row, the zone info call counts the zones.
     #[test]
     fn detect() {
         let log = Arc::new(Mutex::new(Vec::new()));

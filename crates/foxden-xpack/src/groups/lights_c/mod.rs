@@ -14,10 +14,7 @@ mod steelseries;
 mod thermaltake;
 mod xiaohua;
 
-use foxden_core::Backend;
-use foxden_fan::FanBackend;
 use foxden_hid::registry::Detector;
-use hidapi::HidApi;
 
 pub fn detectors() -> Vec<&'static Detector> {
     [
@@ -37,20 +34,4 @@ pub fn detectors() -> Vec<&'static Detector> {
     .into_iter()
     .flatten()
     .collect()
-}
-
-pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
-    Vec::new()
-}
-
-pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
-    Vec::new()
-}
-
-pub fn probe_other() -> Vec<Box<dyn Backend>> {
-    Vec::new()
-}
-
-pub fn fan_backends(_api: &HidApi) -> Vec<Box<dyn FanBackend>> {
-    Vec::new()
 }

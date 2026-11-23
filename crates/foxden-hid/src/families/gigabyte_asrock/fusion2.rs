@@ -2,7 +2,7 @@
 
 use super::{Driver, Op, Plan};
 use crate::registry::{Detector, Info};
-use foxden_core::{Backend, Color, Device, DeviceKind};
+use foxden_core::{Backend, Color, Device, DeviceKind, Hardware, HardwareMode, HardwareSetting};
 use hidapi::{HidApi, HidDevice};
 
 const NAME: &str = "Gigabyte RGB Fusion 2 USB";
@@ -33,6 +33,7 @@ const REPORT_ID: u8 = 0xCC;
 const LEN: usize = 64;
 const EFFECT_STATIC: u8 = 1;
 const BRIGHTNESS_MAX: u8 = 255;
+const STATIC: &str = "static";
 /// Addressable headers report no size; 32 keeps the same LED-count register value.
 const DEFAULT_ARGB_LEDS: u16 = 32;
 
@@ -344,6 +345,28 @@ pub fn static_effect(led: u8, pid: u16, brightness: u8, c: Color) -> (Vec<u8>, u
     (p, zone0)
 }
 
+pub fn hardware() -> Hardware {
+    let mode = HardwareMode {
+        brightness: Some([0, BRIGHTNESS_MAX]),
+        colors: 1,
+        ..HardwareMode::new(STATIC, "Static")
+    };
+    Hardware { modes: vec![mode] }
+}
+
+/// SetStripBuiltinEffectState(-1, true), SetLEDEffect(EFFECT_STATIC) on every zone, ApplyEffect.
+pub fn static_mode(pid: u16, zones: &[Zone], brightness: u8, c: Color) -> Vec<Op> {
+    let mut ops = vec![Op::Feature(cc(0x32, 0, 0)), Op::Sleep(50)];
+    let mut mask = 0;
+    for zone in zones.iter().filter(|z| pid == 0xA100 || z.idx < 11) {
+        let (p, bit) = static_effect(zone.idx, pid, brightness, c);
+        mask |= bit;
+        ops.push(Op::Feature(p));
+    }
+    ops.push(Op::Feature(apply(mask)));
+    ops
+}
+
 /// ApplyEffect without fast apply.
 pub fn apply(mask: u32) -> Vec<u8> {
     let mut p = vec![0u8; LEN];
@@ -497,6 +520,20 @@ impl Plan for Board {
         ops.push(Op::Feature(apply(self.mask)));
         self.mask = 0;
         ops
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        Some(hardware())
+    }
+
+    fn hardware_ops(&mut self, s: &HardwareSetting) -> Result<Vec<Op>, String> {
+        let (_, f) = hardware().fit(s)?;
+        Ok(static_mode(
+            self.pid,
+            &self.zones,
+            f.brightness,
+            f.colors[0],
+        ))
     }
 }
 
@@ -792,5 +829,40 @@ mod tests {
             .map(|z| z.name)
             .collect();
         assert_eq!(names, ["Header 1", "Header 2", "Header 3", "Header 4"]);
+    }
+
+    // SetMode(Static): built-in strip effects back on, each zone static at the brightness, then back to Direct.
+    #[test]
+    fn static_mode_and_back_to_direct() {
+        let report = parse_report(&report_bytes(), None).unwrap();
+        let board = Board::new(0x8297, report);
+        let leds = board.led_count();
+        let mut s = Session::new(board, leds);
+        let colors = vec![Color(9, 8, 7); leds];
+        let first = s.step(&colors);
+        let mut setting = HardwareSetting::new(STATIC);
+        setting.brightness = Some(0x40);
+        setting.colors = vec![Color(1, 2, 3)];
+        let ops = s.plan.hardware_ops(&setting).unwrap();
+        assert_eq!(ops.len(), 2 + 8 + 1);
+        assert_eq!(ops[0], Op::Feature(cc(0x32, 0, 0)));
+        assert_eq!(ops[1], Op::Sleep(50));
+        let mut hdr = vec![0u8; 64];
+        hdr[..18].copy_from_slice(&[
+            0xCC, 0x25, 0x20, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x01, 0x40, 0x00, 3, 2, 1, 0,
+        ]);
+        assert_eq!(ops[2], Op::Feature(hdr));
+        let mut led1 = vec![0u8; 64];
+        led1[..18].copy_from_slice(&[
+            0xCC, 0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x01, 0x40, 0x00, 3, 2, 1, 0,
+        ]);
+        assert_eq!(ops[4], Op::Feature(led1));
+        assert_eq!(ops[10], Op::Feature(apply(0x60 | 0x1F | 0x80)));
+        assert!(s.plan.hardware_ops(&HardwareSetting::new("wave")).is_err());
+        s.reset();
+        // the header sizes were already set by the first claim
+        let mut want = first;
+        want.retain(|op| !matches!(op, Op::Feature(p) if p[1] == 0x34));
+        assert_eq!(s.step(&colors), want);
     }
 }

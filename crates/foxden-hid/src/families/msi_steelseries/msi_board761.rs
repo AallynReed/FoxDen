@@ -7,6 +7,8 @@ use hidapi::HidDevice;
 
 /// LEDs given to each JAF/JARGB header in place of user-sized zones.
 const HEADER_LEDS: usize = 40;
+/// One frame holds (727 - 7) / 3 LEDs.
+const HEADER_MAX: usize = 240;
 const SETUP_SIZE: usize = 290;
 const FRAME_SIZE: usize = 727;
 
@@ -62,7 +64,7 @@ fn sized(id: &str) -> [usize; 4] {
             0 => "JAF".to_string(),
             _ => format!("JARGB {i}"),
         };
-        crate::lengths::length(id, i, &name, HEADER_LEDS, 0, HEADER_LEDS)
+        crate::lengths::length(id, i, &name, HEADER_LEDS, 0, HEADER_MAX)
     })
 }
 
@@ -178,8 +180,11 @@ pub fn open(hid: HidDevice, info: &Info, det: &Detector) -> Result<Box<dyn Backe
         "MSI {}",
         board_product().ok_or("cannot read the board name")?
     );
-    let pipe1 = pipe1_for(&board).ok_or_else(|| format!("{board} has no 761-byte config"))?;
-    get_feature(&hid, 0x50, SETUP_SIZE)?;
+    let known = pipe1_for(&board);
+    let read = get_feature(&hid, 0x50, SETUP_SIZE)?;
+    let pipe1 = known
+        .or((read.len() == SETUP_SIZE).then_some(0))
+        .ok_or_else(|| format!("{board} has no 761-byte config"))?;
     let mut probe = vec![0u8; 761];
     probe[0] = 0x51;
     hid.send_feature_report(&probe).map_err(|e| e.to_string())?;
@@ -397,6 +402,28 @@ mod tests {
             bytes(&ops[2])[..10],
             [0x51, 0x09, 0x04, 0x01, 0, 0, 40, 7, 8, 9]
         );
+    }
+
+    #[test]
+    fn a_header_takes_240() {
+        crate::lengths::set_one("hid:msi-761-long", 2, 240);
+        crate::lengths::set_one("hid:msi-761-long", 3, 999);
+        let counts = sized("hid:msi-761-long");
+        assert_eq!(counts, [40, 40, 240, 240]);
+        let s = sized_setup(0, &counts);
+        assert_eq!((s[16], s[32], s[48], s[64]), (40, 240, 240, 40));
+        let mut g = Gen761 {
+            pipe1: 0,
+            counts,
+            started: true,
+        };
+        let colors: Vec<Color> = (0..560).map(|i| Color(i as u8, 0, 1)).collect();
+        let ops = g.frame(&colors);
+        let r2 = bytes(&ops[2]);
+        assert_eq!(r2.len(), 727);
+        assert_eq!(r2[..10], [0x51, 0x09, 0x04, 0x01, 0, 0, 240, 80, 0, 1]);
+        assert_eq!(r2[7 + 239 * 3..], [(80 + 239) as u8, 0, 1]);
+        assert_eq!(bytes(&ops[3])[6..10], [240, (320 % 256) as u8, 0, 1]);
     }
 
     #[test]

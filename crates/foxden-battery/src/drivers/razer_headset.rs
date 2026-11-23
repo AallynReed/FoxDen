@@ -5,6 +5,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::hid::{Coll, Dev};
+use crate::util::{crc16_ccitt, xor8};
 use crate::{Battery, Ctx, Kind};
 
 const VID: u16 = 0x1532;
@@ -46,10 +47,6 @@ fn add(ctx: &mut Ctx, pid: u16, mut b: Battery) {
     ctx.add(b, VID, pid);
 }
 
-fn xor(b: &[u8]) -> u8 {
-    b.iter().fold(0, |a, v| a ^ v)
-}
-
 fn read_for<T>(dev: &Dev, wait: Duration, mut pick: impl FnMut(&[u8]) -> Option<T>) -> Option<T> {
     let end = Instant::now() + wait;
     loop {
@@ -70,7 +67,7 @@ fn v3_packet(dir: u8, class: u8) -> [u8; 64] {
     b[6] = 0x04;
     b[9] = dir;
     b[10] = class;
-    b[62] = xor(&b[..62]);
+    b[62] = xor8(&b[..62]);
     b
 }
 
@@ -192,7 +189,7 @@ fn v3x_request(txid: u8, cmd: u8) -> [u8; 64] {
     r[6] = 0x02;
     r[7] = 0x07;
     r[8] = cmd;
-    r[62] = xor(&r[3..=60]);
+    r[62] = xor8(&r[3..=60]);
     r
 }
 
@@ -269,7 +266,7 @@ fn hs_request(cmd: u8, seq: u8) -> [u8; 64] {
     b[6] = 0x04;
     b[9] = 0x80;
     b[10] = cmd;
-    b[62] = xor(&b[..62]);
+    b[62] = xor8(&b[..62]);
     b
 }
 
@@ -279,7 +276,7 @@ fn hs_reply(cmd: u8, seq: u8, r: &[u8]) -> Option<u8> {
         && r[2] == seq
         && r[10] == cmd
         && r[12] >= 1
-        && xor(&r[1..62]) == r[62];
+        && xor8(&r[1..62]) == r[62];
     ok.then(|| r[13])
 }
 
@@ -387,7 +384,6 @@ fn poll_v2_pro_2020(ctx: &mut Ctx) {
                 s.percent,
                 s.charging,
             );
-            b.millivolts = s.millivolts;
             b.connected = s.millivolts != 0;
             add(ctx, PID, b);
             return;
@@ -464,26 +460,12 @@ fn poll_v2_pro_2023(ctx: &mut Ctx) {
 // Barracuda X: Airoha RACE through a USB bridge. 0550 frames `02 80 len crc payload` out and `02 len stream` in;
 // 0552 has a different bridge with `01 80 len payload` both ways and no CRC or acknowledgement.
 
-fn crc16(data: &[u8]) -> u16 {
-    data.iter().fold(0u16, |mut crc, &b| {
-        crc ^= (b as u16) << 8;
-        for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 {
-                (crc << 1) ^ 0x1021
-            } else {
-                crc << 1
-            };
-        }
-        crc
-    })
-}
-
 fn bridge_report(payload: &[u8]) -> [u8; 64] {
     let mut f = [0u8; 64];
     f[..3].copy_from_slice(&[0x02, 0x80, payload.len() as u8]);
     let n = payload.len().min(59);
     f[5..5 + n].copy_from_slice(&payload[..n]);
-    let crc = crc16(&f).to_le_bytes();
+    let crc = crc16_ccitt(0, &f).to_le_bytes();
     f[3..5].copy_from_slice(&crc);
     f
 }
@@ -736,7 +718,7 @@ mod tests {
         let mut r = q;
         r[12] = 0x01;
         r[13] = 0x5A;
-        r[62] = xor(&r[1..62]);
+        r[62] = xor8(&r[1..62]);
         assert_eq!(hs_reply(LEVEL, 0x63, &r), Some(90));
         assert_eq!(hs_reply(LEVEL, 0x64, &r), None);
         r[62] ^= 0xFF;
@@ -786,7 +768,7 @@ mod tests {
         let mut z = f;
         z[3] = 0;
         z[4] = 0;
-        assert_eq!(u16::from_le_bytes([f[3], f[4]]), crc16(&z));
+        assert_eq!(u16::from_le_bytes([f[3], f[4]]), crc16_ccitt(0, &z));
 
         let frame = [
             0x50, 0x49, 0x08, 0x81, 0, 0, 0, 0, 0x04, 0x00, 0x21, 0x01, 0x01, 0x37,

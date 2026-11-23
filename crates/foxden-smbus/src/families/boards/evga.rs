@@ -64,7 +64,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_with(&Ctx::real(bus), &dmi::read())
 }
 
-/// DetectAcx30SMBusControllers.
+/// Finds the EVGA ACX 3.0 controller.
 fn detect_with(ctx: &Ctx, dmi: &dmi::Dmi) -> Vec<Box<dyn Backend>> {
     let info = ctx.info();
     if !mobo_bus(&info) || info.pci_subsystem_vendor != EVGA_SUB_VEN {

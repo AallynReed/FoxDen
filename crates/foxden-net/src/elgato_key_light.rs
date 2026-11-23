@@ -18,7 +18,7 @@ fn kelvin(hue: u32) -> u32 {
     }
 }
 
-/// `GetRequest`, NUL-terminated as it is written.
+/// The light state request, NUL-terminated as it is written.
 fn request(c: Color) -> Vec<u8> {
     let hsv = rgb2hsv(c);
     let body = format!(

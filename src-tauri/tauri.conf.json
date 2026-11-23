@@ -40,7 +40,6 @@
     "shortDescription": "Lighting and fan control for Windows",
     "windows": {
       "nsis": {
-        "installMode": "currentUser",
         "installerIcon": "icons/icon.ico"
       }
     }

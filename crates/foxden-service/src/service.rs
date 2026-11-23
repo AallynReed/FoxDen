@@ -162,10 +162,12 @@ pub fn start() -> Result<(), String> {
 }
 
 pub fn stop() -> Result<(), String> {
-    open(ServiceAccess::STOP)?
-        .stop()
-        .map(|_| ())
-        .map_err(describe)
+    let service = open(ServiceAccess::QUERY_STATUS | ServiceAccess::STOP)?;
+    stop_and_wait(
+        || Ok(service.query_status().map_err(describe)?.current_state),
+        || service.stop().map(|_| ()).map_err(describe),
+        Duration::from_secs(20),
+    )
 }
 
 define_windows_service!(ffi_service_main, service_main);

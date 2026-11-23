@@ -5,7 +5,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use foxden_client::{Client, HubFrame, PIPE};
-use foxden_core::{Backend, Color, Device};
+use foxden_core::{Backend, Color, Device, Hardware, HardwareSetting};
+
+use crate::state::lock;
 
 pub struct ServiceLights {
     client: Client,
@@ -55,6 +57,7 @@ pub struct ServiceHubs {
     lengths: BTreeMap<String, usize>,
     generation: u64,
     devices: Vec<Device>,
+    hardware: BTreeMap<String, Hardware>,
     frame: Vec<HubFrame>,
     sent: HashMap<String, (String, Instant)>,
     failed: HashMap<String, String>,
@@ -66,10 +69,6 @@ const RESEND: Duration = Duration::from_secs(1);
 static HUB_ZONES: Mutex<Vec<foxden_hid::Zone>> = Mutex::new(Vec::new());
 /// Whether a service answered when the hubs were last opened; `None` before that.
 static SERVICE_UP: Mutex<Option<bool>> = Mutex::new(None);
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// The hubs' lighting through the service, or `None` when the app has to light them itself.
 pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
@@ -88,6 +87,7 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
             leds: z.leds,
             min: z.min,
             max: z.max,
+            step: z.step.max(1),
         })
         .collect();
     Some(ServiceHubs {
@@ -95,6 +95,7 @@ pub fn hubs(lengths: &BTreeMap<String, usize>) -> Option<ServiceHubs> {
         lengths: lengths.clone(),
         generation: found.generation,
         devices: found.devices,
+        hardware: found.hardware,
         frame: Vec::new(),
         sent: HashMap::new(),
         failed: HashMap::new(),
@@ -182,6 +183,20 @@ impl Backend for ServiceHubs {
             }
         }
         Ok(())
+    }
+
+    fn hardware(&self, device_id: &str) -> Option<Hardware> {
+        self.hardware.get(device_id).cloned()
+    }
+
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&HardwareSetting>,
+    ) -> Result<(), String> {
+        self.sent.remove(device_id);
+        self.frame.retain(|f| f.device != device_id);
+        self.client.set_hub_hardware(device_id, setting)
     }
 }
 

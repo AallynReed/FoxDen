@@ -89,7 +89,7 @@ pub fn spawn(app: AppHandle, shared: Shared) {
                 .engine
                 .layers
                 .iter()
-                .filter(|l| l.when != When::Always)
+                .filter(|l| matches!(l.when, When::Running | When::Front))
                 .flat_map(|l| l.apps.iter().map(|a| app_name(a)))
                 .collect();
             let apps = if watched.is_empty() {

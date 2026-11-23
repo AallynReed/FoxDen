@@ -41,7 +41,20 @@
     grid("hid:046d:c547", "Logitech G515 Lightspeed TKL", "keyboard", "hid", [0.06, 0.4, 0.4, 0.13], 17, 6),
     ring("hid:fan", "Case fan", [0.62, 0.62, 0.07, 0.12], 16),
     grid("hid:zones", "Laptop keyboard", "keyboard", "hid", [0.48, 0.4, 0.18, 0.1], 4, 1),
+    grid("hid:hub", "Lian Li Uni Hub - SL", "other", "hid", [0.62, 0.84, 0.3, 0.06], 64, 2),
+    grid("hid:cm-rgb", "Cooler Master RGB", "strip", "hid", [0.7, 0.5, 0.2, 0.04], 4, 1),
   ];
+
+  // Effects a device runs on its own, as its driver lists them.
+  const own = {
+    "hid:cm-rgb": {
+      modes: [
+        { id: "breathing", name: "Breathing", speed: [0, 255], brightness: [0, 255], colors: 1, random: false },
+        { id: "color_cycle", name: "Colour cycle", speed: [0, 255], colors: 0, random: false },
+        { id: "star", name: "Star", speed: [0, 255], brightness: [0, 255], colors: 2, random: false },
+      ],
+    },
+  };
 
   const ORANGE = [255, 106, 0];
   const VIOLET = [150, 60, 255];
@@ -145,7 +158,26 @@
         ],
       },
       { name: "sensor", label: "Sensor", control: { type: "sensor" } },
-      { name: "stops", label: "Stages", control: { type: "stops" } },
+      { name: "stops", label: "Stages", control: { type: "stops", unit: "°C", max: 150 } },
+    ),
+    entry(
+      "Battery",
+      {
+        kind: "battery",
+        device: "",
+        stops: [
+          { temp: 10, color: [255, 0, 0] },
+          { temp: 30, color: ORANGE },
+          { temp: 60, color: [255, 210, 0] },
+          { temp: 100, color: [0, 200, 80] },
+        ],
+        charging: false,
+        charging_color: [0, 120, 255],
+      },
+      { name: "device", label: "Device", control: { type: "battery" } },
+      { name: "stops", label: "Stages", control: { type: "stops", unit: "%", max: 100 } },
+      toggle("charging", "Show charging colour"),
+      colour("charging_color", "Charging colour"),
     ),
   ];
 
@@ -180,7 +212,17 @@
   // Same as key_layout in crates/foxden-core/src/keys.rs: vk, x, row, width.
   const keyLayout = [[27, 0.5, 0, 1.0], [112, 2.5, 0, 1.0], [113, 3.5, 0, 1.0], [114, 4.5, 0, 1.0], [115, 5.5, 0, 1.0], [116, 7.25, 0, 1.0], [117, 8.25, 0, 1.0], [118, 9.25, 0, 1.0], [119, 10.25, 0, 1.0], [120, 11.75, 0, 1.0], [121, 12.75, 0, 1.0], [122, 13.75, 0, 1.0], [123, 14.75, 0, 1.0], [44, 15.75, 0, 1.0], [145, 16.75, 0, 1.0], [19, 17.75, 0, 1.0], [192, 0.5, 1, 1.0], [49, 1.5, 1, 1.0], [50, 2.5, 1, 1.0], [51, 3.5, 1, 1.0], [52, 4.5, 1, 1.0], [53, 5.5, 1, 1.0], [54, 6.5, 1, 1.0], [55, 7.5, 1, 1.0], [56, 8.5, 1, 1.0], [57, 9.5, 1, 1.0], [48, 10.5, 1, 1.0], [189, 11.5, 1, 1.0], [187, 12.5, 1, 1.0], [8, 14.0, 1, 2.0], [45, 15.75, 1, 1.0], [36, 16.75, 1, 1.0], [33, 17.75, 1, 1.0], [144, 19.25, 1, 1.0], [111, 20.25, 1, 1.0], [106, 21.25, 1, 1.0], [109, 22.25, 1, 1.0], [9, 0.75, 2, 1.5], [81, 2.0, 2, 1.0], [87, 3.0, 2, 1.0], [69, 4.0, 2, 1.0], [82, 5.0, 2, 1.0], [84, 6.0, 2, 1.0], [89, 7.0, 2, 1.0], [85, 8.0, 2, 1.0], [73, 9.0, 2, 1.0], [79, 10.0, 2, 1.0], [80, 11.0, 2, 1.0], [219, 12.0, 2, 1.0], [221, 13.0, 2, 1.0], [220, 14.25, 2, 1.5], [46, 15.75, 2, 1.0], [35, 16.75, 2, 1.0], [34, 17.75, 2, 1.0], [103, 19.25, 2, 1.0], [104, 20.25, 2, 1.0], [105, 21.25, 2, 1.0], [107, 22.25, 2, 1.0], [20, 0.875, 3, 1.75], [65, 2.25, 3, 1.0], [83, 3.25, 3, 1.0], [68, 4.25, 3, 1.0], [70, 5.25, 3, 1.0], [71, 6.25, 3, 1.0], [72, 7.25, 3, 1.0], [74, 8.25, 3, 1.0], [75, 9.25, 3, 1.0], [76, 10.25, 3, 1.0], [186, 11.25, 3, 1.0], [222, 12.25, 3, 1.0], [13, 13.875, 3, 2.25], [100, 19.25, 3, 1.0], [101, 20.25, 3, 1.0], [102, 21.25, 3, 1.0], [160, 1.125, 4, 2.25], [90, 2.75, 4, 1.0], [88, 3.75, 4, 1.0], [67, 4.75, 4, 1.0], [86, 5.75, 4, 1.0], [66, 6.75, 4, 1.0], [78, 7.75, 4, 1.0], [77, 8.75, 4, 1.0], [188, 9.75, 4, 1.0], [190, 10.75, 4, 1.0], [191, 11.75, 4, 1.0], [161, 13.625, 4, 2.75], [38, 16.75, 4, 1.0], [97, 19.25, 4, 1.0], [98, 20.25, 4, 1.0], [99, 21.25, 4, 1.0], [162, 0.625, 5, 1.25], [91, 1.875, 5, 1.25], [164, 3.125, 5, 1.25], [32, 6.875, 5, 6.25], [165, 10.625, 5, 1.25], [92, 11.875, 5, 1.25], [93, 13.125, 5, 1.25], [163, 14.375, 5, 1.25], [37, 15.75, 5, 1.0], [40, 16.75, 5, 1.0], [39, 17.75, 5, 1.0], [96, 19.75, 5, 2.0], [110, 21.25, 5, 1.0]].map(([vk, x, row, w]) => ({ vk, x, row, w }));
 
-  const layer = (effect, more) => ({ enabled: true, opacity: 1, blend: "normal", scope: "all", devices: [], when: "always", apps: [], effect: copy(effect), ...more });
+  const layer = (effect, more) => ({ enabled: true, opacity: 1, blend: "normal", scope: "all", devices: [], when: "always", apps: [], battery: "", low: 20, effect: copy(effect), ...more });
+  // Lowest first, as get_batteries gives them.
+  const batteries = [
+    { key: "mock-headset", name: "Wireless headset", percent: 15, charging: false },
+    { key: "mock-pad", name: "Controller", percent: 40, charging: true },
+    { key: "mock-mouse", name: "Wireless mouse", percent: 64, charging: false },
+  ];
+  const batteryOf = (key) => {
+    const read = batteries.filter((b) => b.percent != null && state.settings.battery_tray);
+    return key ? read.find((b) => b.key === key) : read.sort((a, b) => a.percent - b.percent)[0];
+  };
   // Pretend osu! is open and in front, and Discord open behind it.
   const apps = { running: ["osu!", "discord"], front: "osu!" };
   const appName = (n) => n.trim().toLowerCase().replace(/\.exe$/, "");
@@ -188,6 +230,7 @@
   const state = {
     // Per device: enabled, brightness and, once moved, rect.
     tweaks: {},
+    ownEffects: { "hid:cm-rgb": { mode: "breathing", speed: 60, brightness: 200, colors: [[255, 106, 0]], random: false } },
     effect: copy(catalog[1].default),
     layers: [layer(postCatalog[0].default, { scope: "keyboards" })],
     overrides: {},
@@ -375,6 +418,11 @@
         const read = state.settings.fans_module && window.__foxMock.reading;
         return stopColour(e.stops, read ? read(e.sensor) : null);
       }
+      case "battery": {
+        const b = batteryOf(e.device);
+        if (b && b.charging && e.charging) return e.charging_color;
+        return stopColour(e.stops, b ? b.percent : null);
+      }
       default:
         return [0, 0, 0];
     }
@@ -543,6 +591,8 @@
     const named = (n) => l.apps.some((a) => appName(a) === n);
     if (l.when === "running" && !apps.running.some(named)) return false;
     if (l.when === "front" && !named(apps.front)) return false;
+    const low = (b) => state.settings.battery_tray && b.percent != null && !b.charging && b.percent <= l.low;
+    if (l.when === "battery_low" && !batteries.some((b) => (!l.battery || b.key === l.battery) && low(b))) return false;
     if (l.scope === "keyboards") return d.kind === "keyboard";
     if (l.scope === "chosen") return l.devices.includes(d.id);
     return true;
@@ -570,7 +620,10 @@
   }
 
   // Addressable headers whose length the user sets, as Aura USB reports them.
-  const resizable = { "hid:board": [["Header 1", 24, 0, 120], ["Header 2", 60, 0, 120]] };
+  const resizable = {
+    "hid:board": [["Header 1", 24, 0, 120], ["Header 2", 60, 0, 120]],
+    "hid:hub": [["Channel 1", 64, 0, 64, 16], ["Channel 2", 32, 0, 64, 16]],
+  };
 
   function rows(d, counts) {
     const leds = counts.flatMap((n, r) => Array.from({ length: n }, (_, i) => [(i + 0.5) / n, (r + 0.5) / counts.length]));
@@ -578,9 +631,10 @@
   }
 
   function sized(d) {
-    const zones = (resizable[d.id] || []).map(([name, leds, min, max], i) => {
+    const zones = (resizable[d.id] || []).map(([name, leds, min, max, step = 1], i) => {
       const key = d.id + "#" + i;
-      return { key, name, leds: clamp(state.settings.zone_leds[key] ?? leds, min, max), min, max };
+      const n = Math.round(clamp(state.settings.zone_leds[key] ?? leds, min, max) / step) * step;
+      return { key, name, leds: n, min, max, step };
     });
     return zones.length ? { ...rows(d, zones.map((z) => z.leds)), zones } : { ...d, zones };
   }
@@ -600,7 +654,8 @@
     const on = { openrgb: openrgb(), hid: state.settings.native_drivers };
     return [...hardware, ...strips()]
       .filter((d) => on[d.backend] && (state.keyboard || d.id !== "hid:046d:c547"))
-      .map((d) => ({ ...sized(d), enabled: true, brightness: 1, ...state.tweaks[d.id] }));
+      .map((d) => ({ ...sized(d), enabled: true, brightness: 1, ...state.tweaks[d.id] }))
+      .map((d) => (own[d.id] ? { ...d, hardware: own[d.id], ...(state.ownEffects[d.id] ? { hardware_setting: state.ownEffects[d.id] } : {}) } : d));
   }
 
   function detected() {
@@ -683,6 +738,9 @@
       checkProfile();
     },
     key_event() {},
+    get_batteries() {
+      return state.settings.battery_tray ? batteries : [];
+    },
     list_apps() {
       return ["Code.exe", "Discord.exe", "explorer.exe", "osu!.exe", "steam.exe"];
     },
@@ -707,6 +765,14 @@
       if (!devices().some((d) => d.id === id)) throw `unknown device ${id}`;
       if (rect.some((v) => !Number.isFinite(v)) || rect[2] <= 0 || rect[3] <= 0) throw "invalid device rectangle";
       state.tweaks[id] = { enabled, brightness: clamp(brightness, 0, 1), rect };
+    },
+    get_hardware({ id }) {
+      return [own[id] || null, state.ownEffects[id] || null];
+    },
+    set_hardware({ id, setting }) {
+      if (setting && !(own[id] && own[id].modes.some((m) => m.id === setting.mode))) throw `unknown hardware mode ${setting.mode}`;
+      if (setting) state.ownEffects[id] = setting;
+      else delete state.ownEffects[id];
     },
     reset_layout() {
       for (const tweak of Object.values(state.tweaks)) delete tweak.rect;

@@ -5,8 +5,8 @@ use crate::registry::{Detector, Matcher};
 use foxden_core::Backend;
 
 mod asus;
+mod common;
 mod coolermaster_corsair;
-mod generic;
 mod gigabyte_asrock;
 mod logitech;
 mod mixed_a;
@@ -19,6 +19,8 @@ mod msi_steelseries;
 mod razer;
 mod small;
 mod streamdeck;
+
+pub(crate) use msi_steelseries::{D99, Op};
 
 /// Every detector of every ported family.
 pub fn detectors() -> Vec<&'static Detector> {
@@ -36,7 +38,6 @@ pub fn detectors() -> Vec<&'static Detector> {
         more_c::detectors(),
         more_d::detectors(),
         asus::detectors(),
-        generic::detectors(),
         streamdeck::detectors(),
     ]
     .concat()
@@ -54,7 +55,9 @@ pub use more_d::{LedProtocol, LedStrip, led_strips, other_ids, serial_ports, win
 
 /// Vendor-wide `HID_PID_ANY` lines of the ported families.
 pub fn matchers() -> Vec<&'static Matcher> {
-    more_c::matchers()
+    let mut all = more_c::matchers();
+    all.extend(small::eightbitdo::MATCHERS.iter());
+    all
 }
 
 #[cfg(test)]
@@ -76,7 +79,6 @@ mod tests {
             super::more_c::detectors(),
             super::more_d::detectors(),
             super::asus::detectors(),
-            super::generic::detectors(),
             super::streamdeck::detectors(),
         ];
         for (i, a) in families.iter().enumerate() {

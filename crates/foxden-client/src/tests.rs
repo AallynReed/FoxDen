@@ -585,7 +585,7 @@ fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
             let reply = match request["cmd"].as_str() {
                 Some("hub_lights") => json!({"ok": true, "devices": [], "generation": 7,
                     "zones": [{"device": "hid:hub", "index": 1, "name": "Fan 1",
-                    "leds": request["lengths"]["hid:hub#1"], "min": 0, "max": 34}]}),
+                    "leds": request["lengths"]["hid:hub#1"], "min": 0, "max": 34, "step": 16}]}),
                 Some("set_hub_lights") => {
                     json!({"ok": true, "failed": {"hid:gone": "unknown device"}})
                 }
@@ -598,7 +598,10 @@ fn hub_lights_send_the_zone_lengths_and_frames_in_batches() {
     let client = Client::new(&pipe, QUICK);
     let lengths = BTreeMap::from([("hid:hub#1".to_string(), 12)]);
     let hubs = client.hub_lights(&lengths).unwrap();
-    assert_eq!((hubs.zones[0].leds, hubs.generation), (12, 7));
+    assert_eq!(
+        (hubs.zones[0].leds, hubs.zones[0].step, hubs.generation),
+        (12, 16, 7)
+    );
     let frame = |device: &str| HubFrame {
         device: device.into(),
         colors: "ff0000".into(),
@@ -636,4 +639,39 @@ fn hub_frames_are_split_to_fit_a_line() {
     let sizes: Vec<usize> = batches(&frames, 180).iter().map(|b| b.len()).collect();
     assert_eq!(sizes, [2, 1, 1]);
     assert!(batches(&[], 180).is_empty());
+}
+
+#[test]
+fn hub_hardware_effects_are_listed_and_set_and_an_older_service_says_no() {
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let log = asked.clone();
+    let pipe = serve("hub-hardware", move |mut peer| {
+        while let Some(line) = peer.read() {
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let reply = match request["cmd"].as_str() {
+                Some("hub_lights") => json!({"ok": true, "devices": [], "zones": [],
+                    "hardware": {"hid:hub": {"modes": [{"id": "spin", "name": "Spin"}]}}}),
+                _ => json!({"ok": true}),
+            };
+            log.lock().unwrap().push(request);
+            peer.write(&reply.to_string());
+        }
+    });
+    let client = Client::new(&pipe, QUICK);
+    let hubs = client.hub_lights(&BTreeMap::new()).unwrap();
+    assert_eq!(hubs.hardware["hid:hub"].modes[0].id, "spin");
+    let spin = foxden_core::HardwareSetting::new("spin");
+    client.set_hub_hardware("hid:hub", Some(&spin)).unwrap();
+    client.set_hub_hardware("hid:hub", None).unwrap();
+    let asked = asked.lock().unwrap();
+    assert_eq!(
+        asked[1],
+        json!({"cmd": "set_hub_hardware", "device": "hid:hub", "setting": {"mode": "spin", "random": false}})
+    );
+    assert_eq!(
+        asked[2],
+        json!({"cmd": "set_hub_hardware", "device": "hid:hub", "setting": null})
+    );
+    let (old, _) = fake("old-hub-hardware");
+    assert!(old.set_hub_hardware("hid:hub", None).is_err());
 }

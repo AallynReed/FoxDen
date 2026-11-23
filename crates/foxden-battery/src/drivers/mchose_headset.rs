@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::hid::Dev;
+use crate::util::xor8;
 use crate::{Battery, Ctx, Kind};
 
 const VID: u16 = 0x3837;
@@ -43,7 +44,7 @@ fn parse(r: &[u8]) -> Option<Reply> {
     if len < 3 || 6 + len >= f.len() {
         return None;
     }
-    let check = if f[2] == 1 { xor(&f[2..6 + len]) } else { 0 };
+    let check = if f[2] == 1 { xor8(&f[2..6 + len]) } else { 0 };
     if f[6 + len] != check {
         return None;
     }
@@ -53,10 +54,6 @@ fn parse(r: &[u8]) -> Option<Reply> {
     }
     let pct = body[1] & 0x7F;
     (pct <= 100).then_some(Reply::Level(pct, body[1] & 0x80 != 0))
-}
-
-fn xor(b: &[u8]) -> u8 {
-    b.iter().fold(0, |a, x| a ^ x)
 }
 
 fn query(dev: &Dev) -> Option<Reply> {
@@ -140,7 +137,7 @@ mod tests {
             0x01,
             45,
         ];
-        let c = xor(&r[3..10]);
+        let c = xor8(&r[3..10]);
         r.push(c);
         r.resize(63, 0);
         assert_eq!(parse(&r), Some(Reply::Level(45, false)));

@@ -23,7 +23,7 @@ pub fn detect_large(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     })
 }
 
-/// SetupZones: (register, index) per LED, with its place on the card.
+/// (register, index) per LED, with its place on the card.
 fn leds(large: bool) -> Vec<(u8, u8, [f32; 2])> {
     let mut v = Vec::new();
     for i in 0..4u8 {
@@ -106,7 +106,7 @@ mod tests {
     use super::super::fake::{Fake, ids, push, run, s, take};
     use super::*;
 
-    // SetupZones: 4 + 20 + 17 LEDs on the small card, 4 + 20 + 19 + 1 on the large one.
+    // 4 + 20 + 17 LEDs on the small card, 4 + 20 + 19 + 1 on the large one.
     #[test]
     fn layouts() {
         let small = Fake::new(

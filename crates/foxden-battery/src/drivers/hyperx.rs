@@ -508,7 +508,6 @@ pub fn poll_hyper_x(ctx: &mut Ctx) {
                     percent: r.percent,
                     charging: r.charging,
                     connected: r.connected,
-                    millivolts: r.millivolts,
                     ..Battery::default()
                 };
                 ctx.add(b, f.vid, pid);

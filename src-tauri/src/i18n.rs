@@ -5,13 +5,15 @@ use std::sync::Mutex;
 
 use tauri::AppHandle;
 
+use crate::state::lock;
+
 /// Language of the loaded table, and the table itself.
 static TABLE: Mutex<Option<(String, HashMap<String, String>)>> = Mutex::new(None);
 /// The Language setting, kept here so translating never waits on the app state.
 static CHOICE: Mutex<String> = Mutex::new(String::new());
 
 pub fn set_choice(choice: &str) {
-    *CHOICE.lock().unwrap_or_else(|e| e.into_inner()) = choice.to_string();
+    *lock(&CHOICE) = choice.to_string();
 }
 
 /// The language FoxDen shows: the setting, or the Windows display language for "auto".
@@ -49,12 +51,12 @@ fn windows_language() -> String {
 
 /// `text` in the chosen language, or as it is when there is no translation.
 pub fn tr(app: &AppHandle, text: &str) -> String {
-    let choice = CHOICE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let choice = lock(&CHOICE).clone();
     let lang = language(&choice);
     if lang == "en" {
         return text.to_string();
     }
-    let mut table = TABLE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut table = lock(&TABLE);
     if table.as_ref().is_none_or(|(l, _)| *l != lang) {
         let loaded = app
             .asset_resolver()

@@ -560,7 +560,6 @@ fn poll_link(
             level: r.level.into(),
             charging: r.charging,
             full: r.full,
-            millivolts: r.millivolts,
             grace_secs,
             ..Battery::default()
         };

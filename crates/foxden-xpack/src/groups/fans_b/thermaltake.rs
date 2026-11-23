@@ -2,7 +2,7 @@
 
 use super::util::{Cached, ask, device_key, due, fan_id, u16le};
 use crate::fan::{Channel, FanHub, backend_on};
-use crate::hid::{Driver, Io, Proto, open_io};
+use crate::hid::{Driver, Io, Proto, open_io, set_rows, split};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_fan::FanBackend;
 use foxden_hid::registry::{Detector, Info};
@@ -217,7 +217,17 @@ pub fn key(info: &Info) -> String {
 struct Lights {
     len: usize,
     mode: u8,
-    per: usize,
+    counts: [usize; CHANNELS],
+}
+
+impl Lights {
+    fn packets(&self, colors: &[Color]) -> Vec<Vec<u8>> {
+        split(colors, &self.counts)
+            .iter()
+            .enumerate()
+            .map(|(ch, c)| led_packet(ch, self.mode, c))
+            .collect()
+    }
 }
 
 impl Proto for Lights {
@@ -227,8 +237,7 @@ impl Proto for Lights {
         Ok(())
     }
     fn frame(&mut self, io: &mut dyn Io, colors: &[Color]) -> Result<(), String> {
-        for ch in 0..CHANNELS {
-            let p = led_packet(ch, self.mode, &colors[ch * self.per..(ch + 1) * self.per]);
+        for p in self.packets(colors) {
             io.write(&p, self.len)?;
             let _ = io.read(self.len, 10);
         }
@@ -239,6 +248,11 @@ impl Proto for Lights {
     }
 }
 
+/// The most GRB LEDs a report of `len` bytes holds after its five-byte header.
+fn max_leds(len: usize) -> usize {
+    (len - 5) / 3
+}
+
 fn open_lights(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backend>, String> {
     let io = open_io(api, info)?;
     let (mode, per) = if info.pid == 0x1FA4 {
@@ -246,16 +260,22 @@ fn open_lights(api: &HidApi, info: &Info, d: &Detector) -> Result<Box<dyn Backen
     } else {
         (MODE_DIRECT, LEDBOX_LEDS)
     };
-    let dev = Device::grid(
-        &info.device_id("thermaltake-xpack"),
+    let len = report_len(info.pid);
+    let id = info.device_id("thermaltake-xpack");
+    let counts = std::array::from_fn(|i| {
+        let name = format!("Channel {}", i + 1);
+        foxden_hid::zone_length(&id, i, &name, per, 0, max_leds(len))
+    });
+    let mut dev = Device::grid(
+        &id,
         d.name,
         DeviceKind::Other,
         [0.34, 0.12, 0.24, 0.24],
-        per as u32,
-        CHANNELS as u32,
+        1,
+        1,
     );
-    let len = report_len(info.pid);
-    Ok(Driver::new(io, dev, "thermaltake", Lights { len, mode, per }).boxed())
+    set_rows(&mut dev, &counts);
+    Ok(Driver::new(io, dev, "thermaltake", Lights { len, mode, counts }).boxed())
 }
 
 const fn det(name: &'static str, pid: u16, interface: i32) -> Detector {
@@ -328,7 +348,7 @@ mod tests {
         let lights = Lights {
             len: SHORT,
             mode: MODE_PER_LED,
-            per: PLUS_LEDS,
+            counts: [PLUS_LEDS; CHANNELS],
         };
         let mut lit = Driver::new(Box::new(port.clone()), dev, "t", lights);
         lit.push("t", &[Color(1, 2, 3); 100]).unwrap();
@@ -347,5 +367,24 @@ mod tests {
         assert_eq!(p, vec![0x00, 0x32, 0x52, 0x02, 0x24, 2, 1, 3, 5, 4, 6]);
         const { assert!(5 + 3 * PLUS_LEDS <= SHORT) };
         const { assert!(5 + 3 * LEDBOX_LEDS <= LONG) };
+    }
+
+    #[test]
+    fn channels_follow_their_lengths() {
+        assert_eq!((max_leds(SHORT), max_leds(LONG)), (20, 62));
+        let lights = Lights {
+            len: LONG,
+            mode: MODE_DIRECT,
+            counts: [62, 0, 3, LEDBOX_LEDS, 1],
+        };
+        let c: Vec<Color> = (0..120).map(|i| Color(i, 0, 0)).collect();
+        let p = lights.packets(&c);
+        assert_eq!(p.len(), CHANNELS);
+        assert_eq!(p[0].len(), 5 + 62 * 3);
+        assert!(p[0].len() <= LONG);
+        assert_eq!(p[1], vec![0x00, 0x32, 0x52, 0x02, 0x24]);
+        assert_eq!(p[2], led_packet(2, MODE_DIRECT, &c[62..65]));
+        assert_eq!(p[3].len(), 5 + 54 * 3);
+        assert_eq!(p[4][3..], [5, 0x24, 0, 119, 0]);
     }
 }

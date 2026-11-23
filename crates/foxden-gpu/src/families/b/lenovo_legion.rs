@@ -7,7 +7,7 @@ use foxden_smbus::i2c::SharedBus;
 
 use super::common::{Card, Driver, Gpu, Io, c, detect_each, device_id, row, sleep};
 
-/// Lenovo_Legion_GPU.js LenovoGPUIDs.
+/// Supported Lenovo Legion cards.
 #[rustfmt::skip]
 pub const LENOVO_LEGION: &[Card] = &[
     c("Lenovo Legion GeForce RTX 5070 Ti", 0x10DE, 0x2C05, 0x17AA, 0xC773, 0x49),
@@ -107,7 +107,7 @@ mod tests {
     use super::super::fake::{Fake, ids, push, run, take};
     use super::*;
 
-    // Lenovo_Legion_GPU.js BuildColorSequence and BuildLogoSequence.
+    // Colour and logo sequences.
     #[test]
     fn colour_update_sequence() {
         let card = "Lenovo Legion GeForce RTX 5080";

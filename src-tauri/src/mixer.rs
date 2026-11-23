@@ -495,7 +495,7 @@ impl Vmic {
                 }
             }
         }
-        *view.lock().unwrap_or_else(|e| e.into_inner()) = VmicView {
+        *lock(view) = VmicView {
             installed: status.driver,
             ours: status.ours,
             ready: status.ready(),
@@ -620,7 +620,7 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
             }
         }
     }
-    *parked.lock().unwrap_or_else(|e| e.into_inner()) = out;
+    *lock(parked) = out;
 }
 
 fn sounding() -> Vec<(String, String)> {
@@ -808,15 +808,11 @@ impl Mixer {
     }
 
     fn guard(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.inner)
     }
 
     fn send(&self, job: Job) -> bool {
-        self.jobs
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .send(job)
-            .is_ok()
+        lock(&self.jobs).send(job).is_ok()
     }
 
     fn ask<T>(&self, job: impl FnOnce(SyncSender<T>) -> Job) -> Result<T, String> {
@@ -876,7 +872,7 @@ impl Mixer {
     }
 
     fn controls(&self) -> MutexGuard<'_, MixState> {
-        self.controls.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.controls)
     }
 
     pub fn running(&self) -> bool {
@@ -1250,11 +1246,7 @@ impl Mixer {
         if !self.guard().running {
             return None;
         }
-        self.parked
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .sink
-            .clone()
+        lock(&self.parked).sink.clone()
     }
 
     pub fn priority(&self) -> crate::priority::PriorityConfig {
@@ -1276,15 +1268,11 @@ impl Mixer {
 
     fn view(&self) -> View {
         let inner = self.guard();
-        let parked = self
-            .parked
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let parked = lock(&self.parked).clone();
         let devices = inner.devices.clone().unwrap_or_default();
         View {
             curves: inner.config.channels.iter().map(curve).collect(),
-            vmic: self.vmic.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+            vmic: lock(&self.vmic).clone(),
             config: inner.config.clone(),
             profiles: profiles::builtins()
                 .into_iter()

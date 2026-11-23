@@ -142,6 +142,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             apps::list_apps,
+            battery::get_batteries,
             report::send_feedback,
             commands::get_snapshot,
             commands::set_effect,
@@ -151,6 +152,8 @@ fn main() {
             commands::set_brightness,
             commands::set_paused,
             commands::set_device,
+            commands::get_hardware,
+            commands::set_hardware,
             commands::reset_layout,
             commands::save_profile,
             commands::load_profile,

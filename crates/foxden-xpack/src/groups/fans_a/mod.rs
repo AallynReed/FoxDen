@@ -14,7 +14,6 @@ mod ryujin;
 mod util;
 mod waterforce;
 
-use foxden_core::Backend;
 use foxden_fan::FanBackend;
 use foxden_hid::registry::Detector;
 use hidapi::HidApi;
@@ -40,14 +39,6 @@ pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
     v.extend(msi_coreliquid::ids());
     v.extend(aquacomputer::ids());
     v
-}
-
-pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
-    Vec::new()
-}
-
-pub fn probe_other() -> Vec<Box<dyn Backend>> {
-    Vec::new()
 }
 
 pub fn fan_backends(api: &HidApi) -> Vec<Box<dyn FanBackend>> {

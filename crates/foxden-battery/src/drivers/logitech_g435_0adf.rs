@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::hid::Dev;
-use crate::util::interpolate;
+use crate::util::{crc16_ccitt, interpolate};
 use crate::{Battery, Ctx, Kind};
 
 const VID: u16 = 0x046D;
@@ -15,21 +15,6 @@ const SESSION_INIT: [u8; 19] = [
     0x00, 0x00, 0x00,
 ];
 
-/// CRC-16/XMODEM.
-fn crc16(data: &[u8]) -> u16 {
-    data.iter().fold(0u16, |mut crc, &b| {
-        crc ^= (b as u16) << 8;
-        for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 {
-                (crc << 1) ^ 0x1021
-            } else {
-                crc << 1
-            };
-        }
-        crc
-    })
-}
-
 /// `cmd, body length, crc lo, crc hi, body`, zero-padded to 64; the crc covers the frame with its field zeroed.
 fn frame(cmd: u8, body: &[u8]) -> [u8; 64] {
     let mut f = [0u8; 64];
@@ -37,7 +22,7 @@ fn frame(cmd: u8, body: &[u8]) -> [u8; 64] {
     f[1] = body.len() as u8;
     let n = body.len().min(60);
     f[4..4 + n].copy_from_slice(&body[..n]);
-    let crc = crc16(&f).to_le_bytes();
+    let crc = crc16_ccitt(0, &f).to_le_bytes();
     f[2..4].copy_from_slice(&crc);
     f
 }
@@ -146,7 +131,6 @@ pub fn poll_logitech_g435(ctx: &mut Ctx) {
         via: "2.4 GHz receiver".into(),
         kind: Kind::Headset,
         percent: mv.map(|mv| interpolate(mv as i32, CURVE)),
-        millivolts: mv.unwrap_or(0) as u32,
         connected: mv.is_some(),
         ..Battery::default()
     };
@@ -159,7 +143,7 @@ mod tests {
 
     #[test]
     fn crc_is_xmodem() {
-        assert_eq!(crc16(b"123456789"), 0x31C3);
+        assert_eq!(crc16_ccitt(0, b"123456789"), 0x31C3);
     }
 
     #[test]
@@ -170,7 +154,7 @@ mod tests {
         let mut zeroed = f;
         zeroed[2] = 0;
         zeroed[3] = 0;
-        assert_eq!(u16::from_le_bytes([f[2], f[3]]), crc16(&zeroed));
+        assert_eq!(u16::from_le_bytes([f[2], f[3]]), crc16_ccitt(0, &zeroed));
         assert_eq!(
             pa(OTA, 5, 1, &[0x00, 0x31]),
             [0x50, 0x41, 0x06, 0x05, 0x01, 0x00, 0x31]

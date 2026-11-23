@@ -11,7 +11,7 @@ use crate::{Driver, Light, local, parse, rgb2hsv, text};
 
 const ACCESSORY_INFO: &[u8] =
     b"GET /elgato/accessory-info HTTP/1.1\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n\0";
-/// `GetBrightness` falls back to 100, which is also Direct mode's brightness.
+/// Brightness falls back to 100, which is also Direct mode's brightness.
 const BRIGHTNESS: u32 = 100;
 const SETTLE: Duration = Duration::from_millis(150);
 

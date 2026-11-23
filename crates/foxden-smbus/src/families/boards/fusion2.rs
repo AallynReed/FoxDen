@@ -44,7 +44,7 @@ const BOARDS: [&str; 21] = [
     "Z370 AORUS Ultra Gaming-CF",
 ];
 
-/// GetGigabyteFusion2SMBusLayout: the IT8295 slot behind each zone.
+/// The IT8295 slot behind each zone, per board.
 fn divisions(board: &str) -> Vec<u8> {
     match board {
         "Z370 AORUS Ultra Gaming-CF" => vec![0, 1, 2, 3, 4, 7, 8],
@@ -102,7 +102,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     detect_with(&Ctx::real(bus), &dmi::read())
 }
 
-/// DetectGigabyteRGBFusion2SMBusControllers with the default SupportedDevices list.
+/// Finds the RGB Fusion 2 controller on boards in the default supported list.
 fn detect_with(ctx: &Ctx, dmi: &dmi::Dmi) -> Vec<Box<dyn Backend>> {
     if dmi.manufacturer != VENDOR_NAME || !BOARDS.contains(&dmi.mainboard.as_str()) {
         return Vec::new();
@@ -150,7 +150,7 @@ mod tests {
         fake::bus(info, st)
     }
 
-    // DetectGigabyteRGBFusion2SMBusControllers: DMI list, subvendor and "dmdc" gates, then a quick write.
+    // Detection: DMI list, subvendor and "dmdc" gates, then a quick write.
     #[test]
     fn detection_gates() {
         let h = bus("PawnIO SMBus");
@@ -212,7 +212,7 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // GetGigabyteFusion2SMBusLayout: the Z370 Ultra Gaming maps zones to slots 0-4, 7, 8.
+    // The Z370 Ultra Gaming maps zones to slots 0-4, 7, 8.
     #[test]
     fn z370_layout() {
         let h = bus("PawnIO SMBus");

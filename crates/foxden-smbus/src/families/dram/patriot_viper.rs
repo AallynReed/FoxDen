@@ -123,7 +123,7 @@ mod tests {
         assert!(found.is_empty());
     }
 
-    // SetDirect, then SetLEDColor(led, r, g, b) -> ViperRegisterWrite(0x3B + led, r, b, g)
+    // Direct mode, then each LED's colour as a register write (0x3B + led, r, b, g)
     #[test]
     fn direct_frame() {
         let (_, mut found) = scan_two(true);

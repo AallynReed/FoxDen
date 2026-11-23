@@ -2,6 +2,7 @@
 
 use super::usb::{self, Shared, Usb, UsbDriver, UsbProto, pause};
 use crate::fan::{Channel, FanHub, backend, percent, with_device};
+use crate::hid::{set_rows, split};
 use foxden_core::{Backend, Color, Device, DeviceKind};
 use foxden_fan::FanBackend;
 use foxden_hid::Pick;
@@ -147,7 +148,23 @@ fn answers(m: &Model, s: &Shared) -> bool {
         .is_ok_and(|u| u.ctrl_in(fan_read(m.map, 0), 2).is_ok())
 }
 
-struct V1Lights;
+pub const FAN_LEDS: usize = 16;
+
+/// Fans per channel from a zone length, rounded to whole fans, one to four.
+pub fn fans_of(leds: usize) -> usize {
+    ((leds + FAN_LEDS / 2) / FAN_LEDS).clamp(1, CHANNEL_LEDS / FAN_LEDS)
+}
+
+/// The fan-count byte: channel in the high nibble, fans minus one in the low.
+pub fn fan_count(ch: usize, fans: usize) -> u8 {
+    0x10 * ch as u8 + (fans as u8 - 1)
+}
+
+fn channels(colors: &[Color], fans: &[usize; CHANNELS]) -> Vec<Vec<Color>> {
+    split(colors, &fans.map(|f| f * FAN_LEDS))
+}
+
+struct V1Lights([usize; CHANNELS]);
 
 impl V1Lights {
     fn send(usb: &Usb, index: u16, data: &[u8]) -> Result<(), String> {
@@ -174,11 +191,11 @@ impl UsbProto for V1Lights {
     fn frame(&mut self, usb: &Usb, colors: &[Color]) -> Result<(), String> {
         Self::send(usb, v1::COMMAND, &[v1::START])?;
         Self::commit(usb)?;
-        for ch in 0..CHANNELS as u8 {
-            Self::send(usb, v1::COMMAND, &[v1::FAN_COUNT, 0x10 * ch + 3])?;
+        for (ch, &fans) in self.0.iter().enumerate() {
+            Self::send(usb, v1::COMMAND, &[v1::FAN_COUNT, fan_count(ch, fans)])?;
             Self::commit(usb)?;
         }
-        for (ch, c) in colors.chunks(CHANNEL_LEDS).enumerate().take(CHANNELS) {
+        for (ch, c) in channels(colors, &self.0).iter().enumerate() {
             Self::send(usb, v1::ACTION[ch], &rbg(c))?;
             pause(1);
             Self::send(usb, v1::CH_COMMIT[ch], &[1])?;
@@ -186,11 +203,11 @@ impl UsbProto for V1Lights {
         Ok(())
     }
     fn stop(&mut self, usb: &Usb) {
-        let _ = self.frame(usb, &[Color(0, 0, 0); CHANNELS * CHANNEL_LEDS]);
+        let _ = self.frame(usb, &[]);
     }
 }
 
-struct V2Lights;
+struct V2Lights([usize; CHANNELS]);
 
 impl V2Lights {
     fn commit_packet() -> Vec<u8> {
@@ -202,8 +219,8 @@ impl V2Lights {
 
 impl UsbProto for V2Lights {
     fn start(&mut self, usb: &Usb) -> Result<(), String> {
-        for ch in 0..CHANNELS as u8 {
-            usb.ctrl_out(v2::COMMAND, &cmd16(v2::FAN_COUNT, 0x10 * ch + 3, 0))?;
+        for (ch, &fans) in self.0.iter().enumerate() {
+            usb.ctrl_out(v2::COMMAND, &cmd16(v2::FAN_COUNT, fan_count(ch, fans), 0))?;
             pause(1);
         }
         usb.ctrl_out(v2::COMMAND, &cmd16(v2::START, 0, 0))?;
@@ -212,7 +229,7 @@ impl UsbProto for V2Lights {
     }
     fn frame(&mut self, usb: &Usb, colors: &[Color]) -> Result<(), String> {
         let commit = Self::commit_packet();
-        for (ch, c) in colors.chunks(CHANNEL_LEDS).enumerate().take(CHANNELS) {
+        for (ch, c) in channels(colors, &self.0).iter().enumerate() {
             usb.ctrl_out(v2::ACTION[ch], &rbg(c))?;
             pause(5);
             usb.ctrl_out(v2::CH_COMMIT[ch], &commit)?;
@@ -221,19 +238,29 @@ impl UsbProto for V2Lights {
         Ok(())
     }
     fn stop(&mut self, usb: &Usb) {
-        let _ = self.frame(usb, &[Color(0, 0, 0); CHANNELS * CHANNEL_LEDS]);
+        let _ = self.frame(usb, &[]);
     }
 }
 
-fn layout(id: String, name: &str) -> Device {
-    Device::grid(
-        &id,
-        name,
-        DeviceKind::Other,
-        RECT,
-        CHANNEL_LEDS as u32,
-        CHANNELS as u32,
-    )
+fn fans_per_channel(id: &str) -> [usize; CHANNELS] {
+    std::array::from_fn(|i| {
+        let name = format!("Channel {}", i + 1);
+        fans_of(foxden_hid::zone_length_step(
+            id,
+            i,
+            &name,
+            CHANNEL_LEDS,
+            FAN_LEDS,
+            CHANNEL_LEDS,
+            FAN_LEDS,
+        ))
+    })
+}
+
+fn layout(id: String, name: &str, fans: &[usize; CHANNELS]) -> Device {
+    let mut dev = Device::grid(&id, name, DeviceKind::Other, RECT, 1, 1);
+    set_rows(&mut dev, &fans.map(|f| f * FAN_LEDS));
+    dev
 }
 
 /// The HID interface of the SL and AL hubs.
@@ -301,11 +328,12 @@ pub fn lights(pick: Pick) -> Vec<Box<dyn Backend>> {
                 }
                 continue;
             }
-            let dev = layout(id, m.name);
+            let fans = fans_per_channel(&id);
+            let dev = layout(id, m.name, &fans);
             out.push(port::guard(
                 match m.map {
-                    Map::V1 => UsbDriver::boxed(s, dev, "lian li uni fan", V1Lights),
-                    Map::V2 => UsbDriver::boxed(s, dev, "lian li uni fan sl 1.2", V2Lights),
+                    Map::V1 => UsbDriver::boxed(s, dev, "lian li uni fan", V1Lights(fans)),
+                    Map::V2 => UsbDriver::boxed(s, dev, "lian li uni fan sl 1.2", V2Lights(fans)),
                 },
                 device,
             ));
@@ -502,7 +530,7 @@ pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
 mod tests {
     use super::*;
 
-    // Lian_Li_Uni_Fans_SL_1.2.js: setFanPercent / setFanRPM.
+    // SL 1.2: fan percent and fan rpm.
     #[test]
     fn rpm_targets() {
         assert_eq!(rpm_bytes(1.0, 0), 1900u16.to_le_bytes());
@@ -557,6 +585,35 @@ mod tests {
         assert!(same_hub(0xA100, "", (0xA100, "S1")));
         assert!(!same_hub(0xA100, "S1", (0xA100, "S2")));
         assert!(!same_hub(0xA100, "S1", (0xA101, "S1")));
+    }
+
+    #[test]
+    fn fan_counts_follow_the_zone_length() {
+        assert_eq!([16, 23, 24, 40, 48, 64].map(fans_of), [1, 1, 2, 3, 3, 4]);
+        assert_eq!(fan_count(0, 4), 0x03);
+        assert_eq!(fan_count(2, 1), 0x20);
+        assert_eq!(fan_count(3, 3), 0x32);
+        let c: Vec<Color> = (0..112).map(|i| Color(i, 0, 0)).collect();
+        let parts = channels(&c, &[1, 4, 2, 0]);
+        assert_eq!(
+            parts.iter().map(Vec::len).collect::<Vec<_>>(),
+            [16, 64, 32, 0]
+        );
+        assert_eq!(rbg(&parts[2])[..3], [80, 0, 0]);
+        assert!(rbg(&parts[2])[32 * 3..].iter().all(|&b| b == 0));
+        let d = layout("x".into(), "X", &[1, 4, 2, 3]);
+        assert_eq!((d.leds.len(), d.grid), (160, [64, 4]));
+        assert_eq!(layout("x".into(), "X", &[4; 4]).leds.len(), 256);
+        assert_eq!(fans_per_channel("fan:unihub-step-test"), [4; 4]);
+        let zones: Vec<_> = foxden_hid::resizable()
+            .into_iter()
+            .filter(|z| z.device == "fan:unihub-step-test")
+            .collect();
+        assert!(
+            zones
+                .iter()
+                .all(|z| (z.leds, z.min, z.max, z.step) == (64, 16, 64, 16))
+        );
     }
 
     // getChannelColors: "Inline", "RBG".

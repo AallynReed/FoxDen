@@ -75,12 +75,12 @@ static LAST: Mutex<Option<Report>> = Mutex::new(None);
 
 /// The last pass that found anything.
 pub fn last() -> Option<Report> {
-    LAST.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    lock(&LAST).clone()
 }
 
 /// Keeps this pass; true when it is news: something was closed, or what is left has changed.
 pub fn remember(report: Option<Report>) -> bool {
-    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let mut last = lock(&LAST);
     let news = is_news(last.as_ref(), report.as_ref());
     if report.is_some() {
         *last = report;

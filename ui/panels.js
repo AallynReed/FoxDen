@@ -1,6 +1,8 @@
 const BACKENDS = { openrgb: "OpenRGB", hid: "Native HID", board: "Boards, memory and cards", net: "Network lights", audio: "Audio capture", screen: "Screen capture" };
 const KINDS = { gpu: "Graphics card", strip: "Light strip" };
 const BUSES = { usb: "USB", network: "Network" };
+// Names of the effects devices run on their own, by mode id; others show the name the driver gives.
+const HARDWARE_MODES = { breathing: "Breathing", color_cycle: "Colour cycle", star: "Star", follow_board: "Follow motherboard", static: "Static" };
 // How a detected device could be driven: the name of the route and the setting that switches it on.
 const ROUTES = { native: ["Native driver", "set-native"], openrgb: ["OpenRGB", "set-openrgb"] };
 const STATES = { active: ["on", "Active"], available: ["off", "Available"], unsupported: ["none", "No lighting control"], battery: ["on", "Battery and settings"] };
@@ -63,6 +65,17 @@ function el(tag, props, ...children) {
 function setText(node, text) {
   if (node.textContent !== text) node.textContent = text;
 }
+
+function svg(tag, attrs, ...children) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const name in attrs) node.setAttribute(name, attrs[name]);
+  node.append(...children);
+  return node;
+}
+
+const icon = (d, cls) => svg("svg", { viewBox: "0 0 16 16", width: 16, height: 16, "aria-hidden": "true", class: cls ? "aud-icon " + cls : "aud-icon" }, svg("path", { d }));
+
+const errText = (e) => (typeof e === "string" ? e : (e && e.message) || String(e));
 
 // A state is shown as a shape with its name beside it.
 function setState(node, mark, text) {
@@ -913,8 +926,74 @@ function sensorField(param, id, target) {
   return row;
 }
 
-// Temperature stages: a temperature and a colour each, blended between neighbours.
+// Wireless devices' batteries by key, for effects and layers that follow one.
+const batteryLive = { list: [], asked: false };
+
+function watchBatteries() {
+  if (batteryLive.asked) return;
+  batteryLive.asked = true;
+  const take = (list) => {
+    if (!Array.isArray(list)) return;
+    batteryLive.list = list;
+    for (const field of document.querySelectorAll(".field.battery")) field.refresh();
+    scheduleRender();
+  };
+  listen("batteries", (e) => take(e.payload));
+  invoke("get_batteries").then(take, () => {});
+}
+
+// The first choice stands for the lowest or any battery; a chosen device that is gone stays listed.
+function fillBatteries(select, first, chosen) {
+  const options = [["", first], ...batteryLive.list.map((b) => [b.key, b.name])];
+  if (!options.some(([key]) => key === chosen)) options.push([chosen, chosen]);
+  const key = JSON.stringify(options);
+  if (select.dataset.key !== key) {
+    select.dataset.key = key;
+    select.replaceChildren(...options.map(([value, name]) => el("option", { value, textContent: name })));
+  }
+  if (!busy(select)) select.value = chosen;
+}
+
+function batteryNow(chosen) {
+  const read = batteryLive.list.filter((b) => b.percent != null);
+  return chosen ? read.find((b) => b.key === chosen) : read.sort((a, b) => a.percent - b.percent)[0];
+}
+
+function batteryField(param, id, target) {
+  watchBatteries();
+  const select = el("select", { id });
+  const status = el("p", { className: "hint", id: id + "-status", role: "status" });
+  const row = el("div", { className: "field battery" }, el("label", { htmlFor: id, textContent: param.label }), select, status);
+  let chosen = "";
+
+  row.refresh = () => {
+    fillBatteries(select, "Lowest battery", chosen);
+    const b = batteryNow(chosen);
+    let text;
+    if (state.snap && !state.snap.settings.battery_tray) text = "Turn on Batteries in Settings to read battery levels.";
+    else if (!b) text = chosen ? "No reading from this device. The lowest stage is shown." : "No battery readings yet. The lowest stage is shown.";
+    else if (chosen) text = b.charging ? "Now " + b.percent + "%, charging" : "Now " + b.percent + "%";
+    else text = b.charging ? "Lowest is " + b.name + " at " + b.percent + "%, charging" : "Lowest is " + b.name + " at " + b.percent + "%";
+    setText(status, text);
+  };
+  select.show = (value) => {
+    chosen = typeof value === "string" ? value : "";
+    row.refresh();
+  };
+  select.oninput = () => {
+    chosen = select.value;
+    queueEffect(param.name, chosen, target);
+    row.refresh();
+  };
+  select.dataset.param = param.name;
+  select.setAttribute("aria-describedby", status.id);
+  return row;
+}
+
+// Stages: a temperature or battery level and a colour each, blended between neighbours.
 function stopsField(param, id, target) {
+  const level = param.control.unit === "%";
+  const max = param.control.max || 150;
   const list = el("div", { className: "stages" });
   const problem = el("p", { className: "problem", id: id + "-problem", hidden: true });
   const add = el("button", { type: "button", id: id + "-add", textContent: "Add stage" });
@@ -931,14 +1010,14 @@ function stopsField(param, id, target) {
     });
     const swatch = field.querySelector(".swatch");
     field.querySelector("label").className = "sr-only";
-    const temp = el("input", { type: "number", className: "exact", id: id + "-" + i + "-temp", min: 0, max: 150, step: 1 });
-    temp.setAttribute("aria-label", "Stage " + (i + 1) + " temperature in °C");
+    const temp = el("input", { type: "number", className: "exact", id: id + "-" + i + "-temp", min: 0, max, step: 1 });
+    temp.setAttribute("aria-label", level ? "Stage " + (i + 1) + " battery level in per cent" : "Stage " + (i + 1) + " temperature in °C");
     explain(temp, problem);
     revert(temp, () => (temp.value = stops[i].temp));
     temp.oninput = () => {
       const v = Number(temp.value);
-      const ok = temp.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= 150;
-      flag(temp, ok ? "" : "Enter a temperature from 0 to 150 °C.");
+      const ok = temp.value.trim() !== "" && Number.isFinite(v) && v >= 0 && v <= max;
+      flag(temp, ok ? "" : level ? "Enter a level from 0 to 100%." : "Enter a temperature from 0 to 150 °C.");
       if (!ok) return;
       stops[i].temp = v;
       send();
@@ -958,7 +1037,7 @@ function stopsField(param, id, target) {
     };
     const controls = el("div", { className: "row" });
     swatch.replaceWith(controls);
-    controls.append(el("span", { className: "percent" }, temp, "°C"), swatch, remove);
+    controls.append(el("span", { className: "percent" }, temp, param.control.unit || "°C"), swatch, remove);
     return { field, temp, swatch, remove };
   }
 
@@ -981,7 +1060,7 @@ function stopsField(param, id, target) {
   add.onclick = () => {
     if (stops.length >= MAX_STAGES) return;
     const last = [...stops].sort((a, b) => a.temp - b.temp).pop() || { temp: 50, color: [255, 0, 0] };
-    stops.push({ temp: Math.min(last.temp + 10, 150), color: [...last.color] });
+    stops.push({ temp: Math.min(last.temp + 10, max), color: [...last.color] });
     send();
     build();
     rows[rows.length - 1].temp.focus();
@@ -1009,6 +1088,7 @@ function paramRow(param, target = "effect") {
   if (control.type === "key_colours") return paintField(param, id);
   if (control.type === "sensor") return sensorField(param, id, target);
   if (control.type === "stops") return stopsField(param, id, target);
+  if (control.type === "battery") return batteryField(param, id, target);
   const row = el("div", { className: "field" }, el("label", { htmlFor: id, textContent: param.label }));
   let input;
   if (control.type === "range") {
@@ -1108,9 +1188,14 @@ function scopeWords(snap, layer) {
 
 const appName = (name) => name.trim().toLowerCase().replace(/\.exe$/, "");
 
-// Whether a layer tied to apps shows right now.
+// Whether a layer tied to apps or batteries shows right now.
 function live(layer) {
   const named = (n) => layer.apps.some((a) => appName(a) === n);
+  if (layer.when === "battery_low") {
+    watchBatteries();
+    const low = (b) => b.percent != null && !b.charging && b.percent <= layer.low;
+    return batteryLive.list.some((b) => (!layer.battery || b.key === layer.battery) && low(b));
+  }
   if (layer.when === "running") return state.apps.running.some(named);
   if (layer.when === "front") return !!state.apps.front && named(state.apps.front);
   return true;
@@ -1118,41 +1203,28 @@ function live(layer) {
 
 function whenWords(layer) {
   if (layer.when === "always") return "";
+  if (layer.when === "battery_low") {
+    const b = batteryLive.list.find((x) => x.key === layer.battery);
+    if (!layer.battery) return "while any battery is at " + layer.low + "% or less";
+    return "while " + (b ? b.name : layer.battery) + " is at " + layer.low + "% or less";
+  }
   if (!layer.apps.length) return "no app yet";
   const names = layer.apps[0] + (layer.apps.length > 1 ? " +" + (layer.apps.length - 1) : "");
   return layer.when === "front" ? names + " in front" : "while " + names + " is open";
 }
 
 function sendIcon() {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("aria-hidden", "true");
-  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  shape.setAttribute("d", "M8 11V2M4.5 5.5L8 2l3.5 3.5M2 10v4h12v-4");
-  shape.setAttribute("fill", "none");
-  shape.setAttribute("stroke", "currentColor");
-  shape.setAttribute("stroke-width", "1.5");
-  svg.append(shape);
-  return svg;
+  const d = "M8 11V2M4.5 5.5L8 2l3.5 3.5M2 10v4h12v-4";
+  return svg("svg", { viewBox: "0 0 16 16", "aria-hidden": "true" }, svg("path", { d, fill: "none", stroke: "currentColor", "stroke-width": "1.5" }));
 }
 
 function eyeIcon(open) {
   const path = open
     ? "M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5zm7 2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
     : "M2 2l12 12M6.5 3.2A7 7 0 0 1 8 3c4.5 0 7 5 7 5a12 12 0 0 1-2 2.6M10 12.6A7 7 0 0 1 8 13c-4.5 0-7-5-7-5a12 12 0 0 1 2.4-3";
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 16 16");
-  svg.setAttribute("aria-hidden", "true");
-  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  shape.setAttribute("d", path);
-  shape.setAttribute("fill", open ? "currentColor" : "none");
-  shape.setAttribute("fill-rule", "evenodd");
-  if (!open) {
-    shape.setAttribute("stroke", "currentColor");
-    shape.setAttribute("stroke-width", "1.5");
-  }
-  svg.append(shape);
-  return svg;
+  const attrs = { d: path, fill: open ? "currentColor" : "none", "fill-rule": "evenodd" };
+  if (!open) Object.assign(attrs, { stroke: "currentColor", "stroke-width": "1.5" });
+  return svg("svg", { viewBox: "0 0 16 16", "aria-hidden": "true" }, svg("path", attrs));
 }
 
 // Moves layer `from` to `to` (array indices, 0 at the bottom) and keeps it selected.
@@ -1176,7 +1248,7 @@ function renderLayers(snap) {
   const add = $("layer-add");
   if (!add.options.length) add.replaceChildren(el("option", { value: "", textContent: "Add a layer" }), ...layerKinds(snap));
   const list = $("layer-list");
-  const key = JSON.stringify([snap.layers.map((l) => [l.enabled, l.effect.kind, l.scope, l.devices, l.blend, Math.round(l.opacity * 100), l.when, l.apps, live(l)]), edited(snap).kind, snap.effect.kind, Object.keys(snap.overrides), layerSel, snap.devices.length]);
+  const key = JSON.stringify([snap.layers.map((l) => [l.enabled, l.effect.kind, l.scope, l.devices, l.blend, Math.round(l.opacity * 100), l.when, l.apps, l.battery, l.low, live(l)]), edited(snap).kind, batteryLive.list.map((b) => b.name), snap.effect.kind, Object.keys(snap.overrides), layerSel, snap.devices.length]);
   if (list.dataset.key === key) return;
   list.dataset.key = key;
   const focused = list.contains(document.activeElement) ? document.activeElement.id : "";
@@ -1304,7 +1376,19 @@ function renderLayer(snap, layer) {
   for (const box of checks.querySelectorAll("input")) box.checked = layer.devices.includes(box.dataset.device);
 
   put($("layer-when"), layer.when);
-  $("layer-apps").hidden = layer.when === "always";
+  $("layer-apps").hidden = layer.when === "always" || layer.when === "battery_low";
+  $("layer-battery").hidden = layer.when !== "battery_low";
+  if (layer.when === "battery_low") {
+    watchBatteries();
+    fillBatteries($("layer-battery-device"), "Any device", layer.battery);
+    put($("layer-low"), layer.low);
+    const b = batteryNow(layer.battery);
+    let text;
+    if (state.snap && !state.snap.settings.battery_tray) text = "Turn on Batteries in Settings to read battery levels.";
+    else if (layer.battery && !b) text = "No reading from this device. The layer stays hidden.";
+    else text = layer.battery ? "Shows while this device is at " + layer.low + "% or less and not charging." : "Shows while any device is at " + layer.low + "% or less and not charging.";
+    setText($("layer-battery-hint"), text);
+  }
   const apps = $("layer-app-list");
   const appsKey = layerSel + JSON.stringify(layer.apps);
   if (apps.dataset.key !== appsKey) {
@@ -1362,7 +1446,7 @@ function addLayer(value) {
   const entry = entryFor(state.snap, value);
   if (!entry) return;
   const effect = JSON.parse(JSON.stringify(entry.default));
-  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") || ["key_lights", "key_colours"].includes(entry.default.kind) ? "keyboards" : "all", devices: [], when: "always", apps: [], effect }));
+  queueLayers((layers) => layers.push({ enabled: true, opacity: 1, blend: "normal", scope: entry.default.kind.startsWith("press_") || ["key_lights", "key_colours"].includes(entry.default.kind) ? "keyboards" : "all", devices: [], when: "always", apps: [], battery: "", low: 20, effect }));
   layerSel = state.snap.layers.length;
   layerFocus = "layer-" + layerSel;
 }
@@ -1381,6 +1465,8 @@ function wireLayers() {
   pair($("layer-opacity"), $("layer-opacity-exact"), 1, (v) => queueLayers((layers) => (layers[layerSel].opacity = v / 100)), $("layer-problem"));
   $("layer-scope").oninput = () => queueLayers((layers) => (layers[layerSel].scope = $("layer-scope").value));
   $("layer-when").oninput = () => queueLayers((layers) => (layers[layerSel].when = $("layer-when").value));
+  $("layer-battery-device").oninput = () => queueLayers((layers) => (layers[layerSel].battery = $("layer-battery-device").value));
+  pair($("layer-low"), $("layer-low-exact"), 1, (v) => queueLayers((layers) => (layers[layerSel].low = v)), $("layer-problem"));
   // The list of open apps is read when the field is used, not kept up to date.
   $("layer-app").onfocus = async () => {
     const names = (await call("list_apps")) || [];
@@ -1420,6 +1506,70 @@ function wireLayers() {
   $("device-reset").onclick = () => call("set_override", { id: editDevice, effect: null });
 }
 
+// The values a hardware mode runs with when the setting leaves them out, as the app fills them in.
+function hardwareValues(mode, setting) {
+  const s = setting && setting.mode === mode.id ? setting : { mode: mode.id };
+  const fit = (range, v, d) => (range ? clamp(v ?? d(range), range[0], range[1]) : undefined);
+  const colors = Array.from({ length: mode.colors || 0 }, (_, i) => (s.colors && s.colors[i]) || [255, 255, 255]);
+  const directions = mode.directions || [];
+  return {
+    mode: mode.id,
+    speed: fit(mode.speed, s.speed, (r) => r[0] + Math.floor((r[1] - r[0]) / 2)),
+    brightness: fit(mode.brightness, s.brightness, (r) => r[1]),
+    colors,
+    direction: directions.includes(s.direction) ? s.direction : directions[0],
+    random: Boolean(mode.random && s.random),
+  };
+}
+
+// Speed, brightness, colours, direction and random for one hardware mode. `change` takes the new setting.
+function hardwareFields(mode, id, problem, change) {
+  let now = hardwareValues(mode, null);
+  const edit = (part) => {
+    now = { ...now, ...part };
+    change(now);
+  };
+  const fields = [];
+  const show = [];
+  const sub = (part) => id + "-" + part;
+  for (const [key, label] of [["speed", "Speed"], ["brightness", "Brightness"]]) {
+    const range = mode[key];
+    if (!range) continue;
+    const slider = el("input", { type: "range", min: range[0], max: range[1], step: 1, id: sub(key) });
+    const box = el("input", { type: "number", className: "exact" });
+    box.setAttribute("aria-label", label);
+    pair(slider, box, 1, (v) => edit({ [key]: v }), problem);
+    fields.push(el("div", { className: "field range" }, el("label", { htmlFor: slider.id, textContent: label }), slider, box));
+    show.push((v) => put(slider, v[key]));
+  }
+  for (let i = 0; i < (mode.colors || 0); i++) {
+    const label = mode.colors > 1 ? "Colour " + (i + 1) : "Colour";
+    const field = colourField({ label }, sub("colour-" + i), (rgb) => edit({ colors: now.colors.map((c, n) => (n === i ? rgb : c)) }));
+    const button = field.querySelector(".swatch");
+    fields.push(field);
+    show.push((v) => put(button, v.colors[i]));
+  }
+  if ((mode.directions || []).length) {
+    const pick = el("select", { id: sub("direction") }, ...mode.directions.map((d) => el("option", { value: d, textContent: words(d) })));
+    pick.oninput = () => edit({ direction: pick.value });
+    fields.push(el("div", { className: "field" }, el("label", { htmlFor: pick.id, textContent: "Direction" }), pick));
+    show.push((v) => put(pick, v.direction));
+  }
+  if (mode.random) {
+    const random = el("input", { type: "checkbox", className: "switch", id: sub("random") });
+    random.onchange = () => edit({ random: random.checked });
+    fields.push(el("div", { className: "field" }, el("label", { htmlFor: random.id, textContent: "Random colours" }), random));
+    show.push((v) => put(random, v.random));
+  }
+  const node = el("div", { className: "hw" }, ...fields);
+  node.hidden = !fields.length;
+  node.show = (setting) => {
+    now = hardwareValues(mode, setting);
+    show.forEach((f) => f(now));
+  };
+  return node;
+}
+
 // Only reset_layout knows the defaults, so reset everything and put the other devices back.
 function resetPosition(id) {
   const others = state.snap.devices.filter((d) => d.id !== id);
@@ -1433,6 +1583,7 @@ function resetPosition(id) {
 function deviceRow(device) {
   const name = el("button", { type: "button", className: "name" });
   const status = el("span", { className: "meta" });
+  const resizable = el("span", { className: "tag", textContent: "LED count adjustable", hidden: true });
   const on = el("input", { type: "checkbox", className: "switch" });
   const meta = el("p", { className: "meta" });
   const level = el("input", { type: "range", min: 0, max: 1, step: 0.01, id: "device-level-" + ++rowCount });
@@ -1472,12 +1623,16 @@ function deviceRow(device) {
   });
   const place = fields.map((field) => field.lastChild);
   const sizes = (device.zones || []).map((zone) => {
-    const input = el("input", { type: "number", className: "exact", min: zone.min, max: zone.max, step: 1 });
+    // A zone of whole fans is set in fans and saved in LEDs.
+    const per = perFan(zone);
+    const [min, max] = [Math.ceil(zone.min / per), Math.floor(zone.max / per)];
+    const input = el("input", { type: "number", className: "exact", min, max, step: 1 });
     const typed = () => {
       const n = input.value === "" ? NaN : Number(input.value);
-      const ok = Number.isInteger(n) && n >= zone.min && n <= zone.max;
-      flag(input, ok ? "" : `${zone.name} takes ${zone.min} to ${zone.max} LEDs.`);
-      return ok ? n : null;
+      const ok = Number.isInteger(n) && n >= min && n <= max;
+      const why = per > 1 ? `${zone.name} takes ${min} to ${max} fans.` : `${zone.name} takes ${min} to ${max} LEDs.`;
+      flag(input, ok ? "" : why);
+      return ok ? n * per : null;
     };
     input.oninput = typed;
     input.onchange = () => {
@@ -1488,10 +1643,39 @@ function deviceRow(device) {
       call("set_settings", { settings });
     };
     explain(input, problem);
-    revert(input, () => (input.value = zone.leds));
-    return el("label", { textContent: zone.name }, input);
+    revert(input, () => (input.value = zone.leds / per));
+    const label = el("label", { textContent: zone.name }, input);
+    if (per > 1) label.append(el("span", { textContent: `fans × ${per} LEDs per fan` }));
+    return label;
   });
-  const counts = sizes.map((field) => field.lastChild);
+  const counts = sizes.map((field) => field.querySelector("input"));
+  const modes = (device.hardware && device.hardware.modes) || [];
+  const lighting = el("select", { id: "device-lighting-" + rowCount }, el("option", { value: "", textContent: "FoxDen effects" }), ...modes.map((m) => el("option", { value: m.id, textContent: HARDWARE_MODES[m.id] || m.name })));
+  const own = el("div");
+  const sendHardware = throttled((setting) => call("set_hardware", { id: device.id, setting }));
+  // The app's echo of a choice made here is not taken as news for a moment.
+  const setHardware = (setting) => {
+    own.at = performance.now();
+    if (setting) own.last = setting;
+    sendHardware(setting);
+  };
+  // Rebuilt when another mode is picked; follows the app otherwise.
+  const showMode = (setting) => {
+    const mode = setting && modes.find((m) => m.id === setting.mode);
+    if (setting) own.last = setting;
+    if ((own.mode || null) !== (mode || null)) {
+      own.mode = mode;
+      own.replaceChildren(...(mode ? [hardwareFields(mode, lighting.id, problem, setHardware)] : []));
+    }
+    if (mode) own.firstChild.show(setting);
+  };
+  lighting.oninput = () => {
+    const mode = modes.find((m) => m.id === lighting.value);
+    // Another mode keeps the colours and speed picked so far.
+    const setting = mode ? hardwareValues(mode, { ...own.last, mode: mode.id }) : null;
+    showMode(setting);
+    setHardware(setting);
+  };
 
   name.onclick = () => selectDevice(preview.selected === device.id ? null : device.id);
   on.onchange = () => send({ enabled: on.checked });
@@ -1511,32 +1695,40 @@ function deviceRow(device) {
       level,
       el("span", { className: "percent" }, box, "%"),
     ),
+    ...(modes.length ? [el("div", { className: "field" }, el("label", { htmlFor: lighting.id, textContent: "Lighting" }), lighting), own] : []),
     el("p", { className: "meta", textContent: "Position and size, in % of the canvas" }),
     el("div", { className: "place" }, ...fields),
     ...(sizes.length ? [el("p", { className: "meta", textContent: "LEDs" }), el("div", { className: "place" }, ...sizes)] : []),
     problem,
     el("div", { className: "actions" }, reset),
   );
-  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, status, on), details);
-  row.parts = { name, status, on, level, meta, place, counts, details };
+  const row = el("li", { className: "device" }, el("div", { className: "device-head" }, name, resizable, status, on), details);
+  row.parts = { name, status, resizable, on, level, meta, place, counts, details, lighting, own, showMode };
   return row;
+}
+
+// LEDs per fan of a zone set in whole fans, 1 for a free count.
+function perFan(zone) {
+  return Math.max(1, zone.step || 1);
 }
 
 function renderDevices(snap) {
   const list = $("device-list");
-  const zoneKey = (d) => (d.zones || []).map((z) => [z.key, z.min, z.max].join(",")).join(";");
-  const key = snap.devices.map((d) => d.id + ":" + zoneKey(d)).join("|");
+  const zoneKey = (d) => (d.zones || []).map((z) => [z.key, z.min, z.max, perFan(z)].join(",")).join(";");
+  const modeKey = (d) => ((d.hardware && d.hardware.modes) || []).map((m) => m.id).join(",");
+  const key = snap.devices.map((d) => d.id + ":" + zoneKey(d) + ":" + modeKey(d)).join("|");
   if (list.dataset.key !== key) {
     list.dataset.key = key;
     list.replaceChildren(...snap.devices.map(deviceRow));
   }
   snap.devices.forEach((device, i) => {
     const row = list.children[i];
-    const { name, status, on, level, meta, place, counts, details } = row.parts;
+    const { name, status, resizable, on, level, meta, place, counts, details, lighting, own, showMode } = row.parts;
     const selected = device.id === preview.selected;
     const about = [BACKENDS[device.backend] || device.backend, KINDS[device.kind] || words(device.kind), plural(device.leds.length, "LED")];
     row.classList.toggle("selected", selected);
     details.hidden = !selected;
+    resizable.hidden = selected || !(device.zones || []).length;
     name.setAttribute("aria-expanded", selected);
     name.title = device.name;
     setText(name, device.name);
@@ -1544,9 +1736,14 @@ function renderDevices(snap) {
     setText(meta, about.join(" · "));
     put(on, device.enabled);
     put(level, device.brightness);
+    const setting = ownEffect({ ...device, enabled: true }) ? device.hardware_setting : null;
+    if (!(performance.now() - own.at < 400)) {
+      put(lighting, setting ? setting.mode : "");
+      showMode(setting);
+    }
     const rect = rectOf(device);
     place.forEach((input, n) => put(input, (rect[n] * 100).toFixed(1)));
-    counts.forEach((input, n) => put(input, device.zones[n].leds));
+    counts.forEach((input, n) => put(input, device.zones[n].leds / perFan(device.zones[n])));
   });
   $("devices-empty").hidden = snap.devices.length > 0;
 
@@ -1861,10 +2058,12 @@ function paramProblem(control, value) {
   }
   if (control.type === "toggle") return typeof value === "boolean" ? "" : "true or false";
   if (control.type === "sensor") return typeof value === "string" ? "" : "a sensor id in quotes";
+  if (control.type === "battery") return typeof value === "string" ? "" : "a device key in quotes, or empty quotes for the lowest battery";
   if (control.type === "stops") {
     const stage = (v) => v && typeof v.temp === "number" && Number.isFinite(v.temp) && !paramProblem({ type: "color" }, v.color);
     const ok = Array.isArray(value) && value.length >= 1 && value.length <= MAX_STAGES && value.every(stage);
-    return ok ? "" : "a list of 1 to 8 stages, each with a temperature and a colour";
+    if (ok) return "";
+    return control.unit === "%" ? "a list of 1 to 8 stages, each with a battery level and a colour" : "a list of 1 to 8 stages, each with a temperature and a colour";
   }
   return (control.options || []).includes(value) ? "" : "one of " + (control.options || []).join(", ");
 }

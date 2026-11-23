@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use foxden_audio::AudioCapture;
 use foxden_core::{
-    Backend, DeviceKind, Effect, EffectInfo, Engine, Frame, Inputs, KeyInfo, Layer, Post, PostInfo,
-    ease_readings, key_layout, presses_on,
+    Backend, DeviceKind, Effect, EffectInfo, Engine, Frame, Hardware, HardwareSetting, Inputs,
+    KeyInfo, Layer, Post, PostInfo, ease_readings, key_layout, presses_on,
 };
 use foxden_openrgb::OpenRgbBackend;
 use foxden_screen::ScreenCapture;
@@ -67,6 +67,10 @@ pub struct DeviceView {
     brightness: f32,
     /// Zones whose LED count the user sets.
     zones: Vec<ZoneView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hardware: Option<Hardware>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hardware_setting: Option<HardwareSetting>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -76,6 +80,7 @@ pub struct ZoneView {
     leds: usize,
     min: usize,
     max: usize,
+    step: usize,
 }
 
 impl From<foxden_hid::Zone> for ZoneView {
@@ -86,6 +91,7 @@ impl From<foxden_hid::Zone> for ZoneView {
             leds: z.leds,
             min: z.min,
             max: z.max,
+            step: z.step,
         }
     }
 }
@@ -176,8 +182,9 @@ pub struct AppState {
 
 pub type Shared = Arc<Mutex<AppState>>;
 
-pub fn lock(shared: &Shared) -> MutexGuard<'_, AppState> {
-    shared.lock().unwrap_or_else(|e| e.into_inner())
+/// Locks a mutex, recovering it if a panicking thread poisoned it.
+pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl AppState {
@@ -189,6 +196,9 @@ impl AppState {
         engine.brightness = config.brightness;
         for (id, device) in &config.devices {
             engine.set_device(id, device.enabled, device.brightness, device.rect);
+        }
+        for (id, setting) in &config.hardware {
+            let _ = engine.set_hardware(id, Some(setting.clone()));
         }
         // an empty group still takes its place in the order
         for label in GROUPS {
@@ -220,10 +230,9 @@ impl AppState {
                 leds: device.leds.clone(),
                 enabled,
                 brightness,
-                zones: match backend {
-                    "hid" => self.zones.get(&device.id).cloned().unwrap_or_default(),
-                    _ => Vec::new(),
-                },
+                zones: self.zones.get(&device.id).cloned().unwrap_or_default(),
+                hardware: self.engine.hardware(&device.id).cloned(),
+                hardware_setting: self.engine.hardware_setting(&device.id).cloned(),
             })
             .collect();
         Snapshot {
@@ -368,7 +377,7 @@ static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
 
 /// Writes what changed since the last snapshot to the log.
 fn note_changes(snapshot: &Snapshot) {
-    let mut guard = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = lock(&SEEN);
     let seen = guard.get_or_insert_with(Seen::default);
     let now: HashMap<String, String> = snapshot
         .devices
@@ -655,10 +664,10 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
 fn group_zones(zones: Vec<foxden_hid::Zone>) -> HashMap<String, Vec<ZoneView>> {
     let mut by_device: HashMap<String, Vec<ZoneView>> = HashMap::new();
     for z in zones {
-        by_device
-            .entry(z.device.clone())
-            .or_default()
-            .push(z.into());
+        let list = by_device.entry(z.device.clone()).or_default();
+        let z = ZoneView::from(z);
+        list.retain(|seen| seen.key != z.key);
+        list.push(z);
     }
     by_device
 }
@@ -861,6 +870,7 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
                     .map(|(_, d, _, _)| (d.rect, d.number_pad()))
                     .collect();
                 inputs.presses = presses_on(&pressed, &inputs.keyboards);
+                inputs.batteries.clone_from(&state.engine.batteries);
                 let frames = state.engine.render(t, &inputs);
                 (frames, state.engine.take_failed())
             };
@@ -1054,6 +1064,7 @@ mod tests {
             leds: 30,
             min: 0,
             max: 120,
+            step: 1,
         }]);
         let json = serde_json::to_value(state.snapshot()).unwrap();
         let gpu = json["devices"]
@@ -1064,7 +1075,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             gpu["zones"],
-            json!([{ "key": "virtual:gpu#1", "name": "Header 1", "leds": 30, "min": 0, "max": 120 }])
+            json!([{ "key": "virtual:gpu#1", "name": "Header 1", "leds": 30, "min": 0, "max": 120, "step": 1 }])
         );
         assert_eq!(gpu["backend"], "hid");
         assert_eq!(gpu["kind"], "gpu");
@@ -1091,6 +1102,34 @@ mod tests {
             json!({ "name": "net", "active": false, "devices": 0, "error": null })
         );
         assert_eq!(backends.len(), 4);
+    }
+
+    #[test]
+    fn zones_reach_every_group_once() {
+        let mut state = AppState::new(Config::default());
+        state.engine.add("board", vec![Box::new(VirtualBackend)]);
+        let zone = |leds| foxden_hid::Zone {
+            device: "virtual:gpu".into(),
+            index: 0,
+            name: "Header 1".into(),
+            leds,
+            min: 0,
+            max: 120,
+            step: 1,
+        };
+        state.zones = group_zones(vec![zone(10), zone(20)]);
+        let json = serde_json::to_value(state.snapshot()).unwrap();
+        let gpu = json["devices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["id"] == "virtual:gpu")
+            .unwrap();
+        assert_eq!(gpu["backend"], "board");
+        assert_eq!(
+            gpu["zones"],
+            json!([{ "key": "virtual:gpu#0", "name": "Header 1", "leds": 20, "min": 0, "max": 120, "step": 1 }])
+        );
     }
 
     #[test]
@@ -1257,5 +1296,29 @@ mod tests {
         state.engine.brightness = 0.5;
         state.check_profile();
         assert_eq!(state.config.active_profile, None);
+    }
+
+    #[test]
+    fn a_saved_hardware_effect_is_read_back_and_shown() {
+        let text = r#"{"hardware":{"virtual:gpu":{"mode":"star","speed":3}}}"#;
+        let config: Config = serde_json::from_str(text).unwrap();
+        let mut state = AppState::new(config);
+        state.engine.add("hid", vec![Box::new(VirtualBackend)]);
+        let json = serde_json::to_value(state.snapshot()).unwrap();
+        let gpu = &json["devices"][1];
+        assert_eq!(gpu["id"], "virtual:gpu");
+        assert_eq!(
+            gpu["hardware_setting"],
+            json!({"mode": "star", "speed": 3, "random": false})
+        );
+        assert!(gpu.get("hardware").is_none());
+        let saved = serde_json::to_value(state.to_save()).unwrap();
+        assert_eq!(saved["hardware"]["virtual:gpu"]["mode"], "star");
+        assert!(
+            state
+                .engine
+                .set_hardware("virtual:gpu", Some(HardwareSetting::new("star")))
+                .is_err()
+        );
     }
 }

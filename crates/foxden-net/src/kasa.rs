@@ -97,7 +97,7 @@ fn exchange(ip: &str, port: u16, request: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&unxor(&buf[4..got])).to_string())
 }
 
-/// `Initialize`: colour smart bulbs only; KL4xx models are strips.
+/// Colour smart bulbs only; KL4xx models are strips.
 fn kind_of(sysinfo: &Value) -> Option<(Kind, String)> {
     let info = &sysinfo["system"]["get_sysinfo"];
     let kind = info["type"]

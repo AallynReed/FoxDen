@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+pub use super::super::common::rect;
 use std::time::{Duration, Instant};
 
 use crate::registry::{Detector, Info, Open};
@@ -157,17 +158,6 @@ pub fn opened(api: &HidApi, info: &Info) -> Result<Box<dyn Io>, String> {
     Ok(Box::new(info.open(api)?))
 }
 
-pub fn rect(kind: DeviceKind) -> [f32; 4] {
-    match kind {
-        DeviceKind::Keyboard => [0.06, 0.58, 0.54, 0.32],
-        DeviceKind::Mouse => [0.70, 0.62, 0.06, 0.22],
-        DeviceKind::Strip => [0.06, 0.45, 0.60, 0.04],
-        DeviceKind::Motherboard => [0.06, 0.10, 0.52, 0.15],
-        DeviceKind::Gpu => [0.06, 0.30, 0.40, 0.05],
-        DeviceKind::Memory => [0.68, 0.10, 0.03, 0.36],
-        DeviceKind::Other => [0.82, 0.30, 0.12, 0.12],
-    }
-}
 
 /// A device with LEDs at the given 0..1 positions.
 pub fn placed(

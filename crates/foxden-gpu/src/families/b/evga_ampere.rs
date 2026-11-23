@@ -20,7 +20,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
         let addr = card.addr;
         // ReadFWVersion: a full 6 byte read or no device.
         io.read_block(addr, REG_FIRMWARE, 6)?;
-        // GetDeviceModes, then initCard.
+        // Read the zone modes, then set the card up.
         let (modes, counts) = match io.read_block(addr, REG_MODE, 10) {
             Some(p) => ([p[1], p[2], p[3], p[4]], [p[5], p[6], p[7], p[8]]),
             None => ([0; 4], [0; 4]),
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(take(), s(&["rblk 2d b1 6"]));
     }
 
-    // ReadFWVersion, GetDeviceModes, initCard, then GetZoneConfig for a static card.
+    // Firmware version, zone modes, card set-up, then the zone config for a static card.
     #[test]
     fn detect_zones() {
         let bus = card()
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(log, s(&["wblk 2d c4 04 ff 07 08 09"]));
     }
 
-    // GetDeviceModes: a short read leaves every zone at zero LEDs.
+    // A short zone mode read leaves every zone at zero LEDs.
     #[test]
     fn no_zones_no_device() {
         let bus = card().shared();

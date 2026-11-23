@@ -48,7 +48,7 @@ async function call(name, args) {
     const out = await invoke(name, args);
     return out === undefined ? null : out;
   } catch (e) {
-    showError(typeof e === "string" ? e : (e && e.message) || String(e));
+    showError(errText(e));
     scheduleRender();
     return undefined;
   }

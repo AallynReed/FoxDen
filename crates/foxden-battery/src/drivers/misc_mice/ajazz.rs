@@ -1,9 +1,10 @@
 use std::thread::sleep;
 use std::time::Duration;
 
-use super::{mouse, sum, via};
+use super::{mouse, via};
 use crate::Ctx;
 use crate::hid::Dev;
+use crate::util::sum8;
 
 // --- AJ179 family: receiver vendor 249A, cable vendor 248A, interface 2 ---
 
@@ -12,7 +13,7 @@ const AJ179_CABLE: u16 = 0x248A;
 
 /// Device info reply to command 10: [1] status, [4..8] model, [12] charging, [13] percent, [14] linked.
 fn aj179_reply(r: &[u8]) -> bool {
-    r.len() >= 32 && r[0] == 0x10 && r[1] == 0x00 && sum(&r[4..31]) == r[31]
+    r.len() >= 32 && r[0] == 0x10 && r[1] == 0x00 && sum8(&r[4..31]) == r[31]
 }
 
 /// "M179" style model id as "Ajazz AJ179".
@@ -180,7 +181,7 @@ mod tests {
         r[12] = 1;
         r[13] = 55;
         r[14] = 1;
-        r[31] = sum(&r[4..31]);
+        r[31] = sum8(&r[4..31]);
         assert!(aj179_reply(&r));
         assert_eq!(aj179_name(&r), "Ajazz AJ179");
         r[31] ^= 1;

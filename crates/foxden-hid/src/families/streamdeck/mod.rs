@@ -29,14 +29,6 @@ fn key_image(c: Color) -> Vec<u8> {
     jpeg::solid(KEY_PX, KEY_PX, c.0, c.1, c.2)
 }
 
-/// `ElgatoStreamDeckController::SetBrightness`; it is defined but never sent.
-#[allow(dead_code)]
-fn brightness_report(percent: u8) -> [u8; 32] {
-    let mut b = [0u8; 32];
-    b[..3].copy_from_slice(&[0x03, 0x08, percent]);
-    b
-}
-
 /// Keys whose colour differs from what was last sent.
 fn changed(sent: &[Option<Color>], colors: &[Color]) -> Vec<(usize, Color)> {
     (0..KEYS)
@@ -159,13 +151,6 @@ mod tests {
             let b = image_report(3, &img);
             assert_eq!(&b[8..8 + img.len()], &img[..]);
         }
-    }
-
-    #[test]
-    fn brightness_feature_report() {
-        let mut want = [0u8; 32];
-        want[..3].copy_from_slice(&[0x03, 0x08, 70]);
-        assert_eq!(brightness_report(70), want);
     }
 
     #[test]

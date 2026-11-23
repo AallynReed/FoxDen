@@ -5,7 +5,7 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, MutexGuard, OnceLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -15,7 +15,7 @@ use tauri::plugin::Builder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
 
 use crate::config;
-use crate::state::{Job, Jobs, Kinds, Shared, lock as lock_state};
+use crate::state::{Job, Jobs, Kinds, Shared, lock};
 
 pub use foxden_client::FanState;
 
@@ -52,10 +52,6 @@ enum Pending {
     /// Keep the user's config, then hand every fan back to its firmware.
     Blank,
     Restore(FanConfig),
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Starts the worker that polls the service and emits "fans".
@@ -146,7 +142,7 @@ fn blank() -> bool {
 fn keep_backup(config: Option<FanConfig>) {
     if let Some(app) = APP.get() {
         let shared = app.state::<Shared>();
-        let mut state = lock_state(&shared);
+        let mut state = lock(&shared);
         state.config.fan_backup = config;
         state.changed = Some(Instant::now());
     }

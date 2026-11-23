@@ -366,7 +366,7 @@ mod tests {
         (bus, found)
     }
 
-    // DetectKingstonFuryDDR4Controllers: signature and model test on each Kingston slot
+    // DDR4 detection: signature and model test on each Kingston slot
     #[test]
     fn ddr4_detection() {
         let (_, found) = two_ddr4();
@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(take(), [one.clone(), one.clone(), one].concat());
     }
 
-    // DetectKingstonFuryDDR5Controllers: SPD variant/model at 0x243/0x244 skips the signature
+    // DDR5 detection: SPD variant/model at 0x243/0x244 skips the signature
     #[test]
     fn ddr5_spd_identified() {
         let mut manuf = vec![0u8; 0x1A];
@@ -527,7 +527,7 @@ mod tests {
         assert_eq!(take(), want);
     }
 
-    // GetMode reading Direct already skips SendPreamble
+    // A module already in Direct skips the preamble
     #[test]
     fn already_direct_skips_preamble() {
         let (bus, _) = two_ddr4();
