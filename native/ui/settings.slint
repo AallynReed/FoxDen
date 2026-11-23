@@ -935,13 +935,14 @@ component Sheet inherits Rectangle {
     in property <length> wide: 440px;
     callback close();
     width: min(wide, root.parent-width - 32px);
+    height: body.preferred-height;
     in property <length> parent-width;
     background: Theme.panel;
     border-width: 1px;
     border-color: Theme.stroke;
     accessible-role: groupbox;
     accessible-label: title;
-    VerticalLayout {
+    body := VerticalLayout {
         padding: 16px;
         spacing: 8px;
         if root.title != "": Heading { text: root.title; }
