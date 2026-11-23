@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use foxden_core::{Backend, Color, DeviceKind};
+use foxden_core::{Backend, Color, DeviceKind, Hardware, HardwareMode, HardwareSetting};
 use hidapi::HidApi;
 
 use super::{Op, Protocol, any, device, open_with, rows, span};
@@ -41,6 +41,45 @@ fn riing_rgb(port: u8, mode: u8, speed: u8, colors: &[Color]) -> Vec<u8> {
     let data = grb(colors);
     b[5..5 + data.len()].copy_from_slice(&data);
     b
+}
+
+/// Mode id, name, mode byte, colours, speed; colours fill every LED.
+const EFFECTS: [(&str, &str, u8, usize, bool); 7] = [
+    ("static", "Static", 0x19, 1, false),
+    ("rainbow", "Rainbow", 0x00, 0, true),
+    ("color_cycle", "Colour cycle", 0x04, 0, true),
+    ("ripple", "Ripple", 0x08, 1, true),
+    ("flashing", "Flashing", 0x0C, 1, true),
+    ("breathing", "Breathing", 0x10, 1, true),
+    ("wave", "Wave", 0x14, 1, true),
+];
+
+fn riing_hardware() -> Hardware {
+    let modes = EFFECTS.map(|(id, name, _, colors, speed)| HardwareMode {
+        speed: speed.then_some([0, 3]),
+        colors,
+        ..HardwareMode::new(id, name)
+    });
+    Hardware {
+        modes: modes.to_vec(),
+    }
+}
+
+/// Init, then each port in the effect; the device counts speed down, 3 being the slowest.
+fn riing_effect(counts: &[usize], s: &HardwareSetting) -> Result<Vec<Op>, String> {
+    let (_, f) = riing_hardware().fit(s)?;
+    let &(_, _, mode, _, timed) = EFFECTS
+        .iter()
+        .find(|e| e.0 == s.mode)
+        .ok_or("unknown mode")?;
+    let speed = if timed { 3 - f.speed } else { 0 };
+    let c = f.colors.first().copied().unwrap_or(Color::BLACK);
+    let mut ops = vec![Op::Write(init(65)), Op::Read(65, 100)];
+    for (ch, &n) in counts.iter().enumerate() {
+        ops.push(Op::Write(riing_rgb(ch as u8 + 1, mode, speed, &vec![c; n])));
+        ops.push(Op::Read(65, 100));
+    }
+    Ok(ops)
 }
 
 /// `ThermaltakeRiingQuadController::SetChannelLEDs` in direct mode.
@@ -139,6 +178,17 @@ impl Protocol for Riing {
 
     fn keepalive(&self) -> Option<Duration> {
         matches!(self.kind, Kind::Quad).then_some(Duration::from_secs(3))
+    }
+
+    fn hardware(&self) -> Option<Hardware> {
+        matches!(self.kind, Kind::Riing).then(riing_hardware)
+    }
+
+    fn hardware_ops(&mut self, s: &HardwareSetting) -> Result<Vec<Op>, String> {
+        match self.kind {
+            Kind::Riing => riing_effect(&self.counts, s),
+            _ => Err("no hardware effects".into()),
+        }
     }
 }
 
@@ -353,5 +403,46 @@ mod tests {
         );
         assert!(trio_channel(0, &[]).is_empty());
         assert_eq!(full(Kind::Trio).frame(&ramp(270)).len(), 15);
+    }
+
+    #[test]
+    fn riing_effects() {
+        let mut r = full(Kind::Riing);
+        r.counts = [2, 0, 1, 1, 1];
+        let mut s = HardwareSetting::new("breathing");
+        s.speed = Some(3);
+        s.colors = vec![Color(1, 2, 3)];
+        let ops = r.hardware_ops(&s).unwrap();
+        assert_eq!(ops.len(), 12);
+        assert_eq!(ops[..2], r.setup(&[]));
+        assert_eq!(
+            bytes(&ops[2]),
+            buf(65, &[0x00, 0x32, 0x52, 0x01, 0x10, 2, 1, 3, 2, 1, 3]).as_slice()
+        );
+        assert_eq!(ops[3], Op::Read(65, 100));
+        assert_eq!(
+            bytes(&ops[4]),
+            buf(65, &[0x00, 0x32, 0x52, 0x02, 0x10]).as_slice()
+        );
+        s.speed = Some(0);
+        assert_eq!(bytes(&r.hardware_ops(&s).unwrap()[2])[4], 0x13);
+        let mut st = HardwareSetting::new("static");
+        st.speed = Some(2);
+        st.colors = vec![Color(9, 8, 7)];
+        assert_eq!(
+            bytes(&r.hardware_ops(&st).unwrap()[2])[4..8],
+            [0x19, 8, 9, 7]
+        );
+        let flow = r.hardware_ops(&HardwareSetting::new("rainbow")).unwrap();
+        assert_eq!(bytes(&flow[2])[4..8], [0x02, 0, 0, 0]);
+        let modes: Vec<u8> = EFFECTS.iter().map(|e| e.2).collect();
+        assert_eq!(modes, [0x19, 0x00, 0x04, 0x08, 0x0C, 0x10, 0x14]);
+        assert!(r.hardware_ops(&HardwareSetting::new("direct")).is_err());
+        assert!(full(Kind::Quad).hardware().is_none());
+        assert!(full(Kind::Trio).hardware_ops(&st).is_err());
+        assert_eq!(
+            r.frame(&ramp(5))[0],
+            Op::Write(riing_rgb(1, 0x18, 0, &ramp(2)))
+        );
     }
 }
