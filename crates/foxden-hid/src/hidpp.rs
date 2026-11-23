@@ -10,7 +10,7 @@ pub const G502_RECEIVER: u16 = 0xC539;
 pub const G515_RECEIVER: u16 = 0xC547;
 pub const G502_WIRED: u16 = 0xC08D;
 pub const G515_WIRED: u16 = 0xC355;
-/// G915 X LIGHTSPEED on its cable; over the air it pairs with the G515's receiver.
+/// G915 X LIGHTSPEED on its cable; over the air it keeps this id.
 pub const G915X_LS_WIRED: u16 = 0xC356;
 /// G915 X, the cable-only model.
 pub const G915X_WIRED: u16 = 0xC359;
@@ -451,7 +451,7 @@ fn feature(hid: &HidDevice, device: u8, id: u16) -> Result<Option<u8>, String> {
 pub fn receiver_of(pid: u16) -> u16 {
     match pid {
         G502_WIRED => G502_RECEIVER,
-        G515_WIRED | G915X_LS_WIRED => G515_RECEIVER,
+        G515_WIRED => G515_RECEIVER,
         other => other,
     }
 }
@@ -491,6 +491,7 @@ impl Target {
     /// One id per model, so a layout stays the same across ports and restarts.
     pub fn id(&self) -> String {
         let model = match &self.paired {
+            Some(p) if is_g915x(&p.name) => G915X_LS_WIRED,
             _ if self.known => receiver_of(self.pid),
             _ if self.index == WIRED_INDEX => self.pid,
             Some(p) if p.wpid != 0 => p.wpid,
@@ -515,6 +516,10 @@ impl Target {
             _ => format!("device {:04x}", self.pid),
         }
     }
+}
+
+fn is_g915x(name: &str) -> bool {
+    name.starts_with("G915 X")
 }
 
 /// What a receiver says about one pairing slot.
@@ -628,13 +633,19 @@ pub fn targets(pid: u16, product: &str, slots: Option<Vec<(u8, Paired)>>) -> Vec
         product: product.to_string(),
     };
     let original = matches!(pid, G502_RECEIVER | G515_RECEIVER);
+    // The original model on its receiver: the first device of its type that is no other known model.
+    let kind = if pid == G515_RECEIVER { PAIRED_KEYBOARD } else { PAIRED_MOUSE };
+    let theirs = |p: &Paired| p.kind == kind && !is_g915x(&p.name);
     match slots {
         _ if cable(pid) => vec![target(WIRED_INDEX, None, true)],
-        Some(slots) if !slots.is_empty() => slots
-            .into_iter()
-            .enumerate()
-            .map(|(i, (n, paired))| target(n, Some(paired), original && i == 0))
-            .collect(),
+        Some(slots) if !slots.is_empty() => {
+            let first = slots.iter().position(|(_, p)| theirs(p));
+            slots
+                .into_iter()
+                .enumerate()
+                .map(|(i, (n, paired))| target(n, Some(paired), original && first == Some(i)))
+                .collect()
+        }
         // the original receivers keep their device at slot 1 even when the table cannot be read
         _ if original => vec![target(1, None, true)],
         Some(_) => Vec::new(),
@@ -1248,8 +1259,30 @@ mod tests {
     }
 
     #[test]
-    fn g915x_pids_reuse_the_g515_receiver() {
-        assert_eq!(receiver_of(G915X_LS_WIRED), G515_RECEIVER);
+    fn g915x_and_g515_never_share_an_id() {
+        let kb = |name: &str| Paired {
+            wpid: 0,
+            kind: 1,
+            name: name.into(),
+        };
+        let ids: Vec<(String, bool)> = targets(
+            G515_RECEIVER,
+            "USB Receiver",
+            Some(vec![(1, kb("G915 X LS")), (2, kb("G515 LS TKL"))]),
+        )
+        .iter()
+        .map(|t| (t.id(), t.known))
+        .collect();
+        assert_eq!(
+            ids,
+            [
+                ("hid:logitech-c356".to_string(), false),
+                ("hid:logitech-c547".to_string(), true)
+            ]
+        );
+        let cabled = |pid| targets(pid, "", None)[0].id();
+        assert_eq!(cabled(G915X_LS_WIRED), "hid:logitech-c356");
+        assert_eq!(cabled(G515_WIRED), "hid:logitech-c547");
         assert_eq!(receiver_of(G915X_WIRED), G915X_WIRED);
         assert!(cable(G915X_WIRED) && cable(G915X_LS_WIRED) && !cable(G515_RECEIVER));
         assert_eq!(identify(G915X_LS_WIRED, None), (true, "G915 X LS".into()));
