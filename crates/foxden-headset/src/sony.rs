@@ -1,5 +1,4 @@
-//! Sony INZONE dongles: vendor commands in HID report 02, answered by events with the same
-//! transaction id. Every write reads the setting first and changes only its own byte.
+//! Sony INZONE dongles: tunnelled vendor commands; each write changes one byte of a fresh read.
 
 use std::time::Duration;
 
@@ -10,6 +9,8 @@ use crate::proto::{Control, Family, Model, Shape, Status};
 
 pub const VID: u16 = 0x054C;
 const WAIT: Duration = Duration::from_millis(1500);
+/// Short enough not to hold up the dial loop while the Buds sit in their case.
+const STATUS_WAIT: Duration = Duration::from_millis(600);
 const TO_HEADSET: u8 = 0x41;
 
 const BATTERY: u8 = 0x04;
@@ -192,8 +193,7 @@ fn value(m: &Model, c: Control, param: &[u8]) -> Option<i32> {
     shape(m, c)?.accepts(v).then_some(v)
 }
 
-/// The parameter that sets `c` to `v`, from the one just read. Refuses a reading that does not
-/// look like this setting, so nothing is written to a model that lacks it.
+/// `current` with `c` set to `v`; refuses a reading that is not this setting.
 fn patch(m: &Model, c: Control, v: i32, current: &[u8]) -> Result<Vec<u8>, String> {
     let s = shape(m, c).ok_or_else(|| format!("{} has no {} setting", m.name, c.id()))?;
     if !s.accepts(v) {
@@ -201,7 +201,7 @@ fn patch(m: &Model, c: Control, v: i32, current: &[u8]) -> Result<Vec<u8>, Strin
     }
     let (_, at, len) = slot(c).ok_or_else(|| format!("{} has no {} setting", m.name, c.id()))?;
     if value(m, c, current).is_none() {
-        return Err("the headset's reply was not understood; nothing was changed".into());
+        return Err("the headset's reply did not look like this setting".into());
     }
     let mut out = current[..len].to_vec();
     out[at] = v as u8;
@@ -213,45 +213,59 @@ fn mix(balance: u8) -> Option<(u8, u8)> {
     (balance <= 100).then(|| (((100 - balance) * 2).min(100), (balance * 2).min(100)))
 }
 
+/// The status a balance reply gives; silence or FF means the headset is off.
+fn link_status(balance: Option<&[u8]>) -> Status {
+    match balance.and_then(|p| p.first()) {
+        Some(&b) if b != 0xFF => Status {
+            connected: true,
+            chatmix: mix(b),
+            ..Status::default()
+        },
+        _ => Status::default(),
+    }
+}
+
+/// Percent and charging from `[charging, percent]`, or the lower bud of the Buds' six bytes.
+fn battery(p: &[u8]) -> Option<(u8, bool)> {
+    let pct = |i: usize| p.get(i).copied().filter(|v| *v <= 100);
+    if p.len() >= 6 {
+        return [pct(1), pct(3)]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|v| (v, false));
+    }
+    Some((pct(1)?, p[0] != 0))
+}
+
 /// `None` when the dongle did not take the command, `Some(None)` when nothing answered it.
-fn ask(d: &Dev, id: u8, kind: u8, param: &[u8]) -> Option<Option<Vec<u8>>> {
+fn ask(d: &Dev, id: u8, kind: u8, param: &[u8], wait: Duration) -> Option<Option<Vec<u8>>> {
     let tid = foxden_battery::inzone_tid();
     d.flush();
     if !d.write(&command(id, kind, tid, param)) {
         return None;
     }
-    Some(d.read_until(WAIT, |r| answer(r, id, kind, tid)))
+    Some(d.read_until(wait, |r| answer(r, id, kind, tid)))
 }
 
-fn link(d: &Dev) -> Option<Status> {
-    let Some(p) = ask(d, BALANCE, GET, &[])? else {
-        return Some(Status::default());
-    };
-    match p.first() {
-        Some(&b) if b != 0xFF => Some(Status {
-            connected: true,
-            chatmix: mix(b),
-            ..Status::default()
-        }),
-        _ => Some(Status::default()),
-    }
+fn link(d: &Dev, wait: Duration) -> Option<Status> {
+    Some(link_status(ask(d, BALANCE, GET, &[], wait)?.as_deref()))
 }
 
 pub fn status(f: &Coll) -> Option<Status> {
-    link(&Dev::open(f)?)
+    link(&Dev::open(f)?, STATUS_WAIT)
 }
 
 pub fn read(m: &Model, f: &Coll) -> Option<Reading> {
     let d = Dev::open(f)?;
-    let mut status = link(&d)?;
+    let mut status = link(&d, WAIT)?;
     let mut values = Vec::new();
     if status.connected {
-        if let Some(Some(p)) = ask(&d, BATTERY, GET, &[])
-            && p.len() >= 2
-            && p[1] <= 100
+        if let Some(Some(p)) = ask(&d, BATTERY, GET, &[], WAIT)
+            && let Some((pct, charging)) = battery(&p)
         {
-            status.battery = Some(p[1]);
-            status.charging = p[0] != 0;
+            status.battery = Some(pct);
+            status.charging = charging;
         }
         let mut ids: Vec<u8> = Vec::new();
         for (c, _) in controls(m) {
@@ -262,7 +276,7 @@ pub fn read(m: &Model, f: &Coll) -> Option<Reading> {
             }
         }
         for id in ids {
-            if let Some(Some(p)) = ask(&d, id, GET, &[]) {
+            if let Some(Some(p)) = ask(&d, id, GET, &[], WAIT) {
                 for (c, _) in controls(m) {
                     if slot(c).is_some_and(|s| s.0 == id)
                         && let Some(v) = value(m, c, &p)
@@ -284,11 +298,11 @@ pub fn set(m: &Model, f: &Coll, c: Control, v: i32) -> Result<(), String> {
         .filter(|_| shape(m, c).is_some())
         .ok_or_else(|| format!("{} has no {} setting", m.name, c.id()))?;
     let d = Dev::open(f).ok_or("the headset's receiver could not be opened")?;
-    let current = ask(&d, id, GET, &[])
+    let current = ask(&d, id, GET, &[], WAIT)
         .ok_or("the headset's receiver did not take the request")?
         .ok_or("the headset did not answer; it may be switched off")?;
     let param = patch(m, c, v, &current)?;
-    match ask(&d, id, SET, &param) {
+    match ask(&d, id, SET, &param, WAIT) {
         Some(Some(_)) => Ok(()),
         Some(None) => Err("the headset did not confirm the setting".into()),
         None => Err("the headset's receiver did not take the setting".into()),
@@ -404,5 +418,21 @@ mod tests {
         assert_eq!(mix(100), Some((0, 100)));
         assert_eq!(mix(80), Some((40, 100)));
         assert_eq!(mix(0xFF), None);
+    }
+
+    #[test]
+    fn status_replies() {
+        let on = link_status(Some(&[50]));
+        assert!(on.connected && on.chatmix == Some((100, 100)));
+        assert_eq!(link_status(Some(&[0xFF])), Status::default());
+        assert_eq!(link_status(Some(&[])), Status::default());
+        assert_eq!(link_status(None), Status::default());
+        assert_eq!(link_status(Some(&[101])).chatmix, None);
+        assert_eq!(battery(&[1, 64]), Some((64, true)));
+        assert_eq!(battery(&[0, 0xFF]), None);
+        assert_eq!(battery(&[0, 76, 0, 0xFF, 0xFF, 34]), Some((76, false)));
+        assert_eq!(battery(&[0, 80, 0, 55, 0xFF, 34]), Some((55, false)));
+        assert_eq!(battery(&[0, 0xFF, 0, 0xFF, 0xFF, 34]), None);
+        assert_eq!(battery(&[0]), None);
     }
 }

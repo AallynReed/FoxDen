@@ -1,5 +1,4 @@
-//! JBL Quantum wireless headsets: two-byte feature reports `[id, value]` on the dongle's vendor
-//! collection. Each setting is written to one id and read back from the id below it.
+//! JBL Quantum wireless headsets: two-byte feature reports `[id, value]` on the dongle.
 
 use foxden_battery::hid::{Coll, Dev};
 
@@ -99,7 +98,7 @@ pub fn controls(m: &Model) -> Vec<(Control, Shape)> {
     out
 }
 
-/// The ids `c` is written to and read from. These are the only ids FoxDen ever writes here.
+/// Write and read-back ids of `c`; the only ids ever written.
 fn ids(c: Control) -> Option<(u8, u8)> {
     match c {
         Control::Sidetone => Some((0x5D, 0x5C)),
@@ -115,8 +114,7 @@ fn shape(m: &Model, c: Control) -> Option<Shape> {
         .map(|(_, s)| s)
 }
 
-/// The report that sets `c` to `v`, given what its read-back id answered. A model without the
-/// setting answers for a nearby id instead, so that refuses too.
+/// The report setting `c` to `v`; refuses unless the read-back id answered in range.
 fn frame(m: &Model, c: Control, v: i32, now: Option<u8>) -> Result<[u8; 2], String> {
     let s = shape(m, c).ok_or_else(|| format!("{} has no {} setting", m.name, c.id()))?;
     let (set, _) = ids(c).ok_or_else(|| format!("{} has no {} setting", m.name, c.id()))?;
@@ -124,7 +122,7 @@ fn frame(m: &Model, c: Control, v: i32, now: Option<u8>) -> Result<[u8; 2], Stri
         return Err(format!("{v} is out of range for {}", c.id()));
     }
     if !now.is_some_and(|b| s.accepts(b as i32)) {
-        return Err("the headset's reply was not understood; nothing was changed".into());
+        return Err("the headset's reply did not look like this setting".into());
     }
     Ok([set, v as u8])
 }
@@ -144,16 +142,30 @@ fn byte(f: &Coll, d: &Dev, id: u8) -> Option<u8> {
     })
 }
 
-fn link(m: &Model, f: &Coll, d: &Dev) -> Option<Status> {
-    if byte(f, d, LINK)? != 1 {
-        return Some(Status::default());
+/// The status from the link byte and, on models whose dial is known, the dial byte.
+fn link_status(link: u8, dial: Option<u8>) -> Status {
+    if link != 1 {
+        return Status::default();
     }
-    let dial = kit(m.pid).is_some_and(|k| k.dial);
-    Some(Status {
+    Status {
         connected: true,
-        chatmix: dial.then(|| byte(f, d, DIAL).and_then(mix)).flatten(),
+        chatmix: dial.and_then(mix),
         ..Status::default()
-    })
+    }
+}
+
+fn link(m: &Model, f: &Coll, d: &Dev) -> Option<Status> {
+    let on = byte(f, d, LINK)?;
+    let dial = kit(m.pid).is_some_and(|k| k.dial) && on == 1;
+    Some(link_status(on, dial.then(|| byte(f, d, DIAL)).flatten()))
+}
+
+fn percent(b: Option<u8>) -> Option<u8> {
+    b.filter(|p| *p <= 100)
+}
+
+fn setting(s: &Shape, b: Option<u8>) -> Option<i32> {
+    b.map(i32::from).filter(|v| s.accepts(*v))
 }
 
 pub fn status(m: &Model, f: &Coll) -> Option<Status> {
@@ -165,12 +177,10 @@ pub fn read(m: &Model, f: &Coll) -> Option<Reading> {
     let mut status = link(m, f, &d)?;
     let mut values = Vec::new();
     if status.connected {
-        status.battery = byte(f, &d, BATTERY).filter(|p| *p <= 100);
+        status.battery = percent(byte(f, &d, BATTERY));
         for (c, s) in controls(m) {
-            if let Some(v) = ids(c).and_then(|(_, get)| byte(f, &d, get))
-                && s.accepts(v as i32)
-            {
-                values.push((c, v as i32));
+            if let Some(v) = setting(&s, ids(c).and_then(|(_, get)| byte(f, &d, get))) {
+                values.push((c, v));
             }
         }
     }
@@ -243,6 +253,25 @@ mod tests {
         assert!(model(0x2125).is_none());
         assert!(model(0x208A).is_none());
         assert!(kit(0x205C).is_some_and(|k| !k.dial));
+    }
+
+    #[test]
+    fn replies() {
+        let on = link_status(1, Some(8));
+        assert!(on.connected && on.chatmix == Some((100, 100)));
+        assert_eq!(link_status(0, Some(8)), Status::default());
+        assert_eq!(link_status(2, None), Status::default());
+        assert_eq!(link_status(1, Some(17)).chatmix, None);
+        assert!(link_status(1, None).connected);
+        let m = q810();
+        let side = shape(&m, Control::Sidetone).unwrap();
+        let anc = shape(&m, Control::Anc).unwrap();
+        assert_eq!(setting(&side, Some(3)), Some(3));
+        assert_eq!(setting(&side, Some(4)), None);
+        assert_eq!(setting(&anc, Some(2)), Some(2));
+        assert_eq!(setting(&anc, None), None);
+        assert_eq!(percent(Some(95)), Some(95));
+        assert_eq!(percent(Some(101)), None);
     }
 
     #[test]
