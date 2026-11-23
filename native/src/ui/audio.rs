@@ -572,6 +572,8 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
     g.on_pick(move |what, x, v| pick(&a, &what, &x, &v));
     st(|s| s.lang.clear());
     redraw(w, app);
+    load_mixer(app, false);
+    load_priority(app);
 }
 
 pub fn event(w: &AppWindow, app: &AppHandle, view: &mut View, name: &str) {
