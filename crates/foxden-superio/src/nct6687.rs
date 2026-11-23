@@ -102,11 +102,6 @@ impl Chip {
         self.read(0x160 + header as u16)
     }
 
-    /// Whether FoxDen has a header in manual mode.
-    pub fn is_manual(&self, header: u8) -> bool {
-        self.read(MODE) & (1 << header) != 0
-    }
-
     /// Takes a header into manual mode at `duty` (0 to 255).
     pub fn set(&self, header: u8, duty: u8) {
         self.write(REQUEST, CFG_REQUEST);

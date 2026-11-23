@@ -211,10 +211,6 @@ impl Equalizer {
         }
     }
 
-    pub fn is_flat(&self) -> bool {
-        self.stages.is_empty()
-    }
-
     /// Filters interleaved samples in place.
     pub fn process(&mut self, samples: &mut [f32]) {
         if self.stages.is_empty() {
