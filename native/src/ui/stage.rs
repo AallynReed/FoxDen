@@ -225,6 +225,11 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
     FPS.with_borrow_mut(|t| *t = Some(timer));
 }
 
+/// Stops the fps timer once the window is gone; `bind` starts it again.
+pub fn stop() {
+    let _ = FPS.try_with(|t| t.take());
+}
+
 fn canvas_key(app: &AppHandle, key: &str, ctrl: bool, shift: bool) -> bool {
     if let Some((d, rect)) = with_view(|v| v.canvas.key(key, ctrl, shift)) {
         send_device(app, &d, d.enabled, d.brightness, rect);

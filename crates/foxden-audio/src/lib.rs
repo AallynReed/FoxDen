@@ -36,6 +36,8 @@ struct Shared {
     ring: Mutex<Ring>,
     frame: Mutex<AudioFrame>,
     failed: AtomicBool,
+    /// A frame was read since the last analysis, so analysis never outpaces rendering.
+    asked: AtomicBool,
 }
 
 /// Newest mono samples, always `RING_LEN` long.
@@ -56,6 +58,7 @@ impl AudioCapture {
             }),
             frame: Mutex::default(),
             failed: AtomicBool::new(false),
+            asked: AtomicBool::new(true),
         });
         let (stop, stopped) = mpsc::channel();
         let (ready, opened) = mpsc::channel();
@@ -76,6 +79,7 @@ impl AudioCapture {
 
     /// Latest analysis. Cheap; called once per rendered frame.
     pub fn frame(&self) -> AudioFrame {
+        self.shared.asked.store(true, Ordering::Relaxed);
         *self.shared.frame.lock().unwrap()
     }
 }
@@ -101,10 +105,12 @@ fn run(shared: &Arc<Shared>, stopped: &Receiver<()>, ready: &Sender<Result<(), S
     let _ = ready.send(Ok(()));
 
     let mut meter = Meter::new();
+    let mut analyser = Analyser::new(0);
     let mut window = Vec::new();
     let mut last = Instant::now();
     let mut heard = last;
     let mut checked = last;
+    let mut zeroed = false;
     while stopped.recv_timeout(TICK) == Err(RecvTimeoutError::Timeout) {
         let now = Instant::now();
         if shared.failed.swap(false, Ordering::Relaxed) {
@@ -124,19 +130,30 @@ fn run(shared: &Arc<Shared>, stopped: &Receiver<()>, ready: &Sender<Result<(), S
             }
         }
 
+        let asked = shared.asked.swap(false, Ordering::Relaxed);
         let rate = {
             let mut ring = shared.ring.lock().unwrap();
             if std::mem::take(&mut ring.fresh) {
                 heard = now;
-            } else if now - heard > STALE {
+                zeroed = false;
+            } else if now - heard > STALE && !zeroed {
                 // loopback delivers nothing while nothing plays
                 ring.samples.iter_mut().for_each(|s| *s = 0.0);
+                zeroed = true;
             }
-            window.clear();
-            window.extend(ring.samples.range(RING_LEN - window_len(ring.rate)..));
+            if asked {
+                window.clear();
+                window.extend(ring.samples.range(RING_LEN - window_len(ring.rate)..));
+            }
             ring.rate
         };
-        let frame = meter.update(&spectrum(&window, rate), (now - last).as_secs_f32());
+        if !asked {
+            continue;
+        }
+        let frame = meter.update(
+            &analyser.spectrum(&window, rate),
+            (now - last).as_secs_f32(),
+        );
         last = now;
         *shared.frame.lock().unwrap() = frame;
     }
@@ -219,30 +236,67 @@ fn window_len(rate: u32) -> usize {
 
 /// Amplitude per band of the newest samples; a full-scale sine reads about 1 in its band.
 pub fn spectrum(samples: &[f32], rate: u32) -> [f32; AUDIO_BANDS] {
-    let n = window_len(rate);
-    let newest = &samples[samples.len().saturating_sub(n)..];
-    let mut re = vec![0.0; n];
-    let mut im = vec![0.0; n];
-    for (i, sample) in newest.iter().enumerate() {
-        re[i] = sample * (0.5 - 0.5 * (2.0 * PI * i as f32 / n as f32).cos());
-    }
-    fft(&mut re, &mut im);
-
-    let bin_hz = rate as f32 / n as f32;
-    let edges = band_edges();
-    std::array::from_fn(|band| {
-        let start = (edges[band] / bin_hz).ceil() as usize;
-        let end = ((edges[band + 1] / bin_hz).ceil() as usize)
-            .max(start.saturating_add(1))
-            .min(n / 2);
-        let power: f32 = (start..end).map(|k| re[k] * re[k] + im[k] * im[k]).sum();
-        // 4 / n undoes the Hann window's gain, 1.5 is its noise bandwidth in bins
-        (power / 1.5).sqrt() * 4.0 / n as f32
-    })
+    Analyser::new(window_len(rate)).spectrum(samples, rate)
 }
 
-/// In-place radix-2 FFT. The length must be a power of two.
-fn fft(re: &mut [f32], im: &mut [f32]) {
+/// The window, twiddles and buffers for one window length, kept between frames.
+struct Analyser {
+    n: usize,
+    hann: Vec<f32>,
+    /// Sine and cosine of -2πk/n.
+    twiddle: Vec<(f32, f32)>,
+    re: Vec<f32>,
+    im: Vec<f32>,
+}
+
+impl Analyser {
+    fn new(n: usize) -> Self {
+        Self {
+            n,
+            hann: (0..n)
+                .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f32 / n as f32).cos())
+                .collect(),
+            twiddle: (0..n / 2)
+                .map(|k| (-2.0 * PI * k as f32 / n as f32).sin_cos())
+                .collect(),
+            re: vec![0.0; n],
+            im: vec![0.0; n],
+        }
+    }
+
+    fn spectrum(&mut self, samples: &[f32], rate: u32) -> [f32; AUDIO_BANDS] {
+        let n = window_len(rate);
+        if self.n != n {
+            *self = Self::new(n);
+        }
+        let newest = &samples[samples.len().saturating_sub(n)..];
+        if newest.iter().all(|s| *s == 0.0) {
+            return [0.0; AUDIO_BANDS];
+        }
+        self.re.fill(0.0);
+        self.im.fill(0.0);
+        for ((re, sample), w) in self.re.iter_mut().zip(newest).zip(&self.hann) {
+            *re = sample * w;
+        }
+        fft(&mut self.re, &mut self.im, &self.twiddle);
+
+        let (re, im) = (&self.re, &self.im);
+        let bin_hz = rate as f32 / n as f32;
+        let edges = band_edges();
+        std::array::from_fn(|band| {
+            let start = (edges[band] / bin_hz).ceil() as usize;
+            let end = ((edges[band + 1] / bin_hz).ceil() as usize)
+                .max(start.saturating_add(1))
+                .min(n / 2);
+            let power: f32 = (start..end).map(|k| re[k] * re[k] + im[k] * im[k]).sum();
+            // 4 / n undoes the Hann window's gain, 1.5 is its noise bandwidth in bins
+            (power / 1.5).sqrt() * 4.0 / n as f32
+        })
+    }
+}
+
+/// In-place radix-2 FFT. The length must be a power of two, with `twiddle` made for it.
+fn fft(re: &mut [f32], im: &mut [f32], twiddle: &[(f32, f32)]) {
     let n = re.len();
     let mut j = 0;
     for i in 1..n {
@@ -259,9 +313,9 @@ fn fft(re: &mut [f32], im: &mut [f32]) {
     }
     let mut len = 2;
     while len <= n {
-        let step = -2.0 * PI / len as f32;
+        let stride = n / len;
         for k in 0..len / 2 {
-            let (sin, cos) = (step * k as f32).sin_cos();
+            let (sin, cos) = twiddle[k * stride];
             for a in (k..n).step_by(len) {
                 let b = a + len / 2;
                 let (tr, ti) = (re[b] * cos - im[b] * sin, re[b] * sin + im[b] * cos);

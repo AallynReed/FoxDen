@@ -329,12 +329,27 @@ impl Parker {
         &mut self,
         plan: Option<&Plan>,
     ) -> (Vec<(Channel, u32)>, BTreeMap<String, AppState>) {
+        if plan.is_none_or(|p| p.apps.is_empty()) && !self.dirty() {
+            return (Vec::new(), BTreeMap::new());
+        }
+        let sessions = system::sessions().unwrap_or_default();
+        let endpoints = system::endpoints().unwrap_or_default();
+        self.tick_with(plan, &sessions, &system::processes(), &endpoints)
+    }
+
+    /// [`Parker::tick`] on a snapshot the caller already took.
+    pub fn tick_with(
+        &mut self,
+        plan: Option<&Plan>,
+        sessions: &[Session],
+        procs: &[Process],
+        endpoints: &[Endpoint],
+    ) -> (Vec<(Channel, u32)>, BTreeMap<String, AppState>) {
         let active = plan.filter(|p| !p.apps.is_empty());
         if active.is_none() && !self.dirty() {
             return (Vec::new(), BTreeMap::new());
         }
-        let sessions = system::sessions().unwrap_or_default();
-        let procs = system::processes();
+        let mut moved = false;
         let exe: HashMap<u32, String> = procs.iter().map(|p| (p.pid, lower(&p.exe))).collect();
         let live: HashMap<String, u32> = sessions
             .iter()
@@ -363,6 +378,7 @@ impl Parker {
                 continue;
             };
             let before = self.journal.routes[&name].before.clone();
+            moved = true;
             if self.outputs().and_then(|o| o.set(pid, &before)).is_ok() {
                 self.journal.routes.remove(&name);
                 self.save();
@@ -405,6 +421,7 @@ impl Parker {
                 },
             );
             self.save();
+            moved = true;
             match self.outputs().and_then(|o| o.set(pid, &plan.sink.id)) {
                 Ok(()) => {
                     self.moved.insert(name.clone(), Instant::now());
@@ -416,9 +433,9 @@ impl Parker {
         }
 
         // Sessions again: routing can have moved them.
-        let sessions = system::sessions().unwrap_or_default();
-        let endpoints = system::endpoints().unwrap_or_default();
-        let (caps, mut states) = captures(plan, &sessions, &procs, &endpoints);
+        let again = moved.then(|| system::sessions().unwrap_or_default());
+        let sessions = again.as_deref().unwrap_or(sessions);
+        let (caps, mut states) = captures(plan, sessions, procs, endpoints);
         self.moved.retain(|_, at| at.elapsed() < MOVING);
         for (name, state) in states.iter_mut() {
             if self.moved.contains_key(name)

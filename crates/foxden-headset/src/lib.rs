@@ -169,9 +169,31 @@ pub fn status(f: &Found) -> Option<Status> {
         return r?.status;
     }
     wait_ready(&f.key);
-    let dev = Dev::open(&f.coll)?;
+    let mut open = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    let at = match open.iter().position(|d| d.coll.path == f.coll.path) {
+        Some(at) => at,
+        None => {
+            open.push(Dev::open(&f.coll)?);
+            open.len() - 1
+        }
+    };
     let _turn = foxden_core::hid_turn::take();
-    exchange(&dev, &f.model, &f.model.status_request()).and_then(|r| proto::status(&f.model, &r))
+    let status = exchange(&open[at], &f.model, &f.model.status_request())
+        .and_then(|r| proto::status(&f.model, &r));
+    if status.is_none() {
+        open.remove(at);
+    }
+    status
+}
+
+/// Handles [`status`] keeps open between polls; one is dropped when it stops answering.
+static KEPT: Mutex<Vec<Dev>> = Mutex::new(Vec::new());
+
+/// Closes kept handles of receivers no longer plugged in.
+pub fn keep_only(found: &[Found]) {
+    KEPT.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|d| found.iter().any(|f| f.coll.path == d.coll.path));
 }
 
 /// Last status of headsets that take a round trip or more per look, and when it was read.

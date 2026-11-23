@@ -81,7 +81,7 @@ pub fn windowed() -> Vec<String> {
 }
 
 pub fn spawn(app: AppHandle, shared: Shared) {
-    thread::spawn(move || {
+    crate::state::spawn_named("foxden-apps", move || {
         let mut told = Seen::default();
         loop {
             thread::sleep(EVERY);

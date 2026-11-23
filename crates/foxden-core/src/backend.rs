@@ -10,6 +10,10 @@ pub trait Backend: Send {
     fn flush(&mut self) -> Result<(), String> {
         Ok(())
     }
+    /// The device falls back to its own lighting unless unchanged colours are sent again now and then.
+    fn keepalive(&self, _device_id: &str) -> bool {
+        true
+    }
     /// Effects the device can run on its own.
     fn hardware(&self, _device_id: &str) -> Option<Hardware> {
         None
@@ -92,5 +96,9 @@ impl Backend for VirtualBackend {
 
     fn push(&mut self, _device_id: &str, _colors: &[Color]) -> Result<(), String> {
         Ok(())
+    }
+
+    fn keepalive(&self, _device_id: &str) -> bool {
+        false
     }
 }

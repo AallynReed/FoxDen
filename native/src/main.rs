@@ -105,7 +105,7 @@ fn watch_show(app: AppHandle) {
     if event == 0 {
         return;
     }
-    std::thread::spawn(move || {
+    state::spawn_named("foxden-show", move || {
         loop {
             unsafe { WaitForSingleObject(event as _, INFINITE) };
             tray::show_window(&app);

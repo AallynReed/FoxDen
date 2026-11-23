@@ -66,18 +66,22 @@ pub fn spawn(app: AppHandle, shared: Shared) {
             crate::tray::show_window(app);
         }
     });
-    thread::spawn(move || {
+    crate::state::spawn_named("foxden-battery", move || {
         let mut known: HashMap<String, (Battery, Instant)> = HashMap::new();
         let mut steps: HashMap<String, Step> = HashMap::new();
         let mut logged: HashMap<String, String> = HashMap::new();
         let mut shown: HashMap<String, Shown> = HashMap::new();
         let mut last: Option<Instant> = None;
+        let mut plugs = crate::state::Plugs::new();
         let mut plugged = foxden_battery::hid::fingerprint();
+        plugs.moved();
         loop {
             let on = lock(&shared).config.settings.battery_tray;
             // A cable plugged in or pulled out shows up as a changed HID list: look again right away.
-            let now_plugged = foxden_battery::hid::fingerprint();
-            let replugged = std::mem::replace(&mut plugged, now_plugged) != plugged;
+            let replugged = plugs.moved() && {
+                let now = foxden_battery::hid::fingerprint();
+                std::mem::replace(&mut plugged, now) != now
+            };
             if !on {
                 known.clear();
                 last = None;

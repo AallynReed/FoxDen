@@ -77,6 +77,10 @@ pub fn create(app: &AppHandle) {
 
     let handle = app.clone();
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+        // Hovering sends a stream of moves; only clicks are acted on.
+        if !matches!(event, TrayIconEvent::Click { .. } | TrayIconEvent::DoubleClick { .. }) {
+            return;
+        }
         let app = handle.clone();
         let _ = slint::invoke_from_event_loop(move || {
             if let TrayIconEvent::Click {

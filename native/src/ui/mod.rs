@@ -14,6 +14,7 @@ mod stage;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -27,6 +28,8 @@ slint::include_modules!();
 
 /// Backend events waiting for the UI thread; the newest of each kind wins.
 static PENDING: Mutex<Option<HashMap<String, Value>>> = Mutex::new(None);
+/// A window exists; without one, events wait in `PENDING` until it opens.
+static OPEN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
 pub struct View {
@@ -54,7 +57,7 @@ pub fn attach(app: &AppHandle) {
         let mut pending = PENDING.lock().unwrap();
         let first = pending.is_none();
         pending.get_or_insert_with(HashMap::new).insert(event.to_string(), value);
-        if first {
+        if first && OPEN.load(Ordering::SeqCst) {
             let app = handle.clone();
             let _ = slint::invoke_from_event_loop(move || drain(&app));
         }
@@ -134,9 +137,13 @@ pub fn show(app: &AppHandle) {
         settings::prompt_update(app);
         return;
     }
+    // Open before draining, so an event that lands in between still wakes the loop.
+    OPEN.store(true, Ordering::SeqCst);
+    drain(app);
     let win = match build(app) {
         Ok(win) => win,
         Err(e) => {
+            OPEN.store(false, Ordering::SeqCst);
             crate::log::warn("app", format!("the window could not open: {e}"));
             return;
         }
@@ -162,7 +169,7 @@ pub fn show(app: &AppHandle) {
     UI.with_borrow_mut(|slot| *slot = Some(Ui { win, _poll: poll }));
     app.set_shown(true, false);
     let handle = app.clone();
-    std::thread::spawn(move || {
+    crate::state::spawn_named("foxden-fans-first", move || {
         if let Ok(state) = crate::fans::get_fans() {
             let _ = handle.emit("fans", &state);
         }
@@ -190,7 +197,10 @@ fn build(app: &AppHandle) -> Result<AppWindow, slint::PlatformError> {
         a.set_shown(false, false);
         if to_tray {
             Timer::single_shot(Duration::ZERO, || {
+                OPEN.store(false, Ordering::SeqCst);
                 UI.with_borrow_mut(|slot| slot.take());
+                stage::stop();
+                fans::stop();
             });
         } else {
             crate::quit(&a);

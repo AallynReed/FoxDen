@@ -28,10 +28,7 @@ fn vcable() -> Vec<foxden_vcable::Endpoint> {
         if c.as_ref()
             .is_none_or(|(at, _)| at.elapsed() >= VCABLE_EVERY)
         {
-            *c = Some((
-                Instant::now(),
-                foxden_vcable::endpoints().unwrap_or_default(),
-            ));
+            *c = Some((Instant::now(), crate::mixer::vcable_endpoints()));
         }
         c.as_ref().map(|(_, e)| e.clone()).unwrap_or_default()
     })
@@ -42,7 +39,7 @@ fn worker() -> Result<Sender<Job>, String> {
     let tx = TX.get_or_init(|| {
         let (tx, rx) = channel::<Job>();
         let _ = thread::Builder::new()
-            .name("audio-volumes".into())
+            .name("foxden-volumes".into())
             .spawn(move || {
                 system::com_init();
                 let mut v = Volumes::default();

@@ -286,6 +286,22 @@ fn apply_default(last: &mut Option<String>, pick: Option<&Device>, capture: bool
     }
 }
 
+/// Endpoints of one flow, read again only after a device change or half a minute.
+fn devices(capture: bool) -> Vec<Device> {
+    type Cache = [Option<((Option<u64>, std::time::Instant), Vec<Device>)>; 2];
+    static CACHE: Mutex<Cache> = Mutex::new([None, None]);
+    let mark = system::changes();
+    let mut c = lock(&CACHE);
+    let slot = &mut c[usize::from(capture)];
+    if !crate::mixer::fresh(slot.as_ref().map(|s| s.0), mark) {
+        match system::devices(capture) {
+            Ok(list) => *slot = Some(((mark, std::time::Instant::now()), list)),
+            Err(_) => return Vec::new(),
+        }
+    }
+    slot.as_ref().map(|s| s.1.clone()).unwrap_or_default()
+}
+
 /// One look: which devices are there, then the mixer and Windows' defaults follow.
 fn tick(app: &AppHandle) -> Option<View> {
     let mixer = app.try_state::<Mixer>()?;
@@ -293,13 +309,12 @@ fn tick(app: &AppHandle) -> Option<View> {
     let mut applied = lock(&APPLIED);
     let cfg = mixer.priority();
     let links = links();
-    let hide: Vec<String> = foxden_vcable::endpoints()
-        .unwrap_or_default()
+    let hide: Vec<String> = crate::mixer::vcable_endpoints()
         .into_iter()
         .map(|e| e.id)
         .collect();
     let list = |capture| {
-        let mut d = system::devices(capture).unwrap_or_default();
+        let mut d = devices(capture);
         d.retain(|x| !hide.contains(&x.id));
         d
     };
@@ -340,12 +355,15 @@ pub fn spawn(app: AppHandle) {
     let (tx, rx) = channel();
     *lock(&WAKE) = Some(tx);
     thread::Builder::new()
-        .name("audio-priority".into())
+        .name("foxden-priority".into())
         .spawn(move || {
             system::com_init();
-            let _watch = system::watch(nudge)
-                .map_err(|e| crate::log::warn("audio", format!("device changes not watched: {e}")))
-                .ok();
+            let _watch = system::watch(|| {
+                system::bump();
+                nudge();
+            })
+            .map_err(|e| crate::log::warn("audio", format!("device changes not watched: {e}")))
+            .ok();
             loop {
                 tick(&app);
                 match rx.recv_timeout(IDLE) {

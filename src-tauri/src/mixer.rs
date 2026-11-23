@@ -13,7 +13,7 @@ use foxden_mixer::park::{self, AppState, Parker, Plan, RunningApp};
 use foxden_mixer::router::{
     Controls, DeviceList, DeviceRoute, MixState, Router, VirtualMic, list_devices,
 };
-use foxden_mixer::system;
+use foxden_mixer::system::{self, Process, Session};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -28,7 +28,11 @@ const JOURNAL: &str = "audio-parked.json";
 const VMIC_RETRY: Duration = Duration::from_secs(5);
 const GATE_DB: f32 = -50.0;
 const FOLLOW_RETRY: Duration = Duration::from_secs(10);
-const AUTO_EVERY: Duration = Duration::from_secs(2);
+const AUTO_EVERY: Duration = Duration::from_secs(3);
+const HEARD_FOR: Duration = Duration::from_secs(2);
+const CACHE_FOR: Duration = Duration::from_secs(30);
+const VMIC_PAGE: Duration = Duration::from_secs(5);
+const PAGE_OPEN: Duration = Duration::from_secs(3);
 const STOP_WAIT: Duration = Duration::from_secs(8);
 const MONITOR_VOLUME: f32 = 0.5;
 const GAME_SIDES: [Channel; 3] = [Channel::Game, Channel::Media, Channel::Aux];
@@ -511,12 +515,69 @@ fn hidden() -> Vec<foxden_vcable::Endpoint> {
     foxden_vcable::endpoints().unwrap_or_default()
 }
 
+/// Read at this change count and time; fresh only while Windows reports changes.
+pub fn fresh(at: Option<(Option<u64>, Instant)>, mark: Option<u64>) -> bool {
+    at.is_some_and(|(m, t)| mark.is_some() && m == mark && t.elapsed() < CACHE_FOR)
+}
+
+/// [`hidden`], read again only after a device change or half a minute. COM must be initialised.
+pub fn vcable_endpoints() -> Vec<foxden_vcable::Endpoint> {
+    type Cache = Option<((Option<u64>, Instant), Vec<foxden_vcable::Endpoint>)>;
+    static CACHE: Mutex<Cache> = Mutex::new(None);
+    let mark = system::changes();
+    let mut c = lock(&CACHE);
+    if !fresh(c.as_ref().map(|c| c.0), mark) {
+        match foxden_vcable::endpoints() {
+            Ok(list) => *c = Some(((mark, Instant::now()), list)),
+            Err(_) => return Vec::new(),
+        }
+    }
+    c.as_ref().map(|c| c.1.clone()).unwrap_or_default()
+}
+
+/// Active outputs, cached like [`vcable_endpoints`]. Audio thread only.
+#[derive(Default)]
+struct Outputs {
+    at: Option<(Option<u64>, Instant)>,
+    list: Vec<system::Endpoint>,
+}
+
+impl Outputs {
+    fn get(&mut self) -> &[system::Endpoint] {
+        let mark = system::changes();
+        if !fresh(self.at, mark) {
+            match system::endpoints() {
+                Ok(list) => (self.at, self.list) = (Some((mark, Instant::now())), list),
+                Err(_) => (self.at, self.list) = (None, Vec::new()),
+            }
+        }
+        &self.list
+    }
+}
+
+/// One look at sessions and processes, taken when first needed and shared within a tick.
+#[derive(Default)]
+struct Look {
+    taken: Option<(Vec<Session>, Vec<Process>)>,
+}
+
+impl Look {
+    fn get(&mut self) -> (&[Session], &[Process]) {
+        let (s, p) = self
+            .taken
+            .get_or_insert_with(|| (system::sessions().unwrap_or_default(), system::processes()));
+        (s, p)
+    }
+}
+
 enum Job {
     Vmic(Option<(String, bool)>),
     Devices(SyncSender<Result<DeviceList, String>>),
     Apps(SyncSender<Vec<RunningApp>>),
-    /// Executable name and path of each app playing sound now.
-    Sounding(SyncSender<Vec<(String, String)>>),
+    /// Executable name and process id of each app playing sound now.
+    Sounding(SyncSender<Vec<(String, u32)>>),
+    /// Reads the virtual mic's state again.
+    Look(SyncSender<()>),
     Start(Spec, SyncSender<Result<(), String>>),
     /// New app assignments or parking output while playing.
     Plan(Spec),
@@ -560,6 +621,8 @@ pub struct Mixer {
     controls: Controls,
     parked: Arc<Mutex<Parked>>,
     vmic: Arc<Mutex<VmicView>>,
+    /// When the audio page last asked for anything.
+    page: Arc<Mutex<Option<Instant>>>,
     jobs: Arc<Mutex<Sender<Job>>>,
     shared: Shared,
 }
@@ -569,20 +632,33 @@ struct Playing {
     spec: Spec,
 }
 
+/// Puts back what the parker still holds, when there is no plan.
+fn unpark(parker: &mut Parker, look: &mut Look, outputs: &mut Outputs) {
+    if parker.dirty() {
+        let (sessions, procs) = look.get();
+        parker.tick_with(None, sessions, procs, outputs.get());
+    }
+}
+
 /// Parks the spec's apps and starts or stops their captures. Runs on the audio thread.
-fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<Parked>) {
+fn park_apps(
+    parker: &mut Parker,
+    playing: Option<&mut Playing>,
+    parked: &Mutex<Parked>,
+    look: &mut Look,
+    outputs: &mut Outputs,
+) {
     let mut out = Parked::default();
     match playing {
-        None => {
-            parker.tick(None);
-        }
+        None => unpark(parker, look, outputs),
         Some(p) if p.spec.apps.is_empty() => {
-            parker.tick(None);
+            unpark(parker, look, outputs);
             p.router.set_apps(&[]);
         }
         Some(p) => {
-            let hide = hidden();
-            let mut endpoints = system::endpoints().unwrap_or_default();
+            let hide = vcable_endpoints();
+            let all = outputs.get().to_vec();
+            let mut endpoints = all.clone();
             endpoints.retain(|e| !hide.iter().any(|h| h.id == e.id));
             let avoid: Vec<&str> = p
                 .spec
@@ -599,12 +675,11 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
                         sink,
                         apps: p.spec.apps.clone(),
                     };
-                    let (caps, mut states) = parker.tick(Some(&plan));
+                    let (sessions, procs) = look.get();
+                    let (caps, mut states) = parker.tick_with(Some(&plan), sessions, procs, &all);
                     p.router.set_apps(&caps);
-                    let exe: BTreeMap<u32, String> = system::processes()
-                        .into_iter()
-                        .map(|x| (x.pid, park::lower(&x.exe)))
-                        .collect();
+                    let exe: BTreeMap<u32, String> =
+                        procs.iter().map(|x| (x.pid, park::lower(&x.exe))).collect();
                     for (pid, message) in p.router.app_errors() {
                         if let Some(name) = exe.get(&pid) {
                             states.insert(name.clone(), AppState::Error { message });
@@ -613,7 +688,7 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
                     out.states = states;
                 }
                 Err(e) => {
-                    parker.tick(None);
+                    unpark(parker, look, outputs);
                     p.router.set_apps(&[]);
                     out.error = Some(e);
                 }
@@ -623,11 +698,11 @@ fn park_apps(parker: &mut Parker, playing: Option<&mut Playing>, parked: &Mutex<
     *lock(parked) = out;
 }
 
-fn sounding() -> Vec<(String, String)> {
-    let procs = system::processes();
+fn sounding(look: &mut Look) -> Vec<(String, u32)> {
+    let (sessions, procs) = look.get();
     let own = std::process::id();
-    let mut out: Vec<(String, String)> = Vec::new();
-    for s in system::sessions().unwrap_or_default() {
+    let mut out: Vec<(String, u32)> = Vec::new();
+    for s in sessions {
         if !s.active || s.pid == own {
             continue;
         }
@@ -635,7 +710,7 @@ fn sounding() -> Vec<(String, String)> {
             continue;
         };
         if !out.iter().any(|(e, _)| e.eq_ignore_ascii_case(&p.exe)) {
-            out.push((p.exe.clone(), system::exe_path(s.pid).unwrap_or_default()));
+            out.push((p.exe.clone(), s.pid));
         }
     }
     out
@@ -655,13 +730,17 @@ fn audio_thread(
     controls: Controls,
     parked: Arc<Mutex<Parked>>,
     vmic_view: Arc<Mutex<VmicView>>,
+    page: Arc<Mutex<Option<Instant>>>,
     journal: std::path::PathBuf,
 ) {
     system::com_init();
     let mut parker = Parker::new(journal);
     let mut playing: Option<Playing> = None;
     let mut vmic = Vmic::default();
+    let mut outputs = Outputs::default();
+    let mut heard: Option<(Instant, Vec<(String, u32)>)> = None;
     let mut last_vmic = Instant::now();
+    let mut vmic_mark = system::changes();
     let mut last_park = Instant::now();
     loop {
         match rx.recv_timeout(TICK) {
@@ -670,6 +749,11 @@ fn audio_thread(
                 vmic.failed = None;
                 vmic.tick(&controls, &vmic_view);
                 last_vmic = Instant::now();
+            }
+            Ok(Job::Look(reply)) => {
+                vmic.tick(&controls, &vmic_view);
+                last_vmic = Instant::now();
+                let _ = reply.send(());
             }
             Ok(Job::Devices(reply)) => {
                 let hide = hidden();
@@ -687,7 +771,11 @@ fn audio_thread(
                 let _ = reply.send(park::running_apps(&sessions, &system::processes()));
             }
             Ok(Job::Sounding(reply)) => {
-                let _ = reply.send(sounding());
+                let list = match &heard {
+                    Some((at, list)) if at.elapsed() < HEARD_FOR => list.clone(),
+                    _ => sounding(&mut Look::default()),
+                };
+                let _ = reply.send(list);
             }
             Ok(Job::Start(spec, reply)) => {
                 playing = None;
@@ -695,18 +783,21 @@ fn audio_thread(
                 let out = Router::start(&spec.output, &spec.routes, controls.clone())
                     .map(|router| playing = Some(Playing { router, spec }));
                 // Right away either way: a new output may be the old parking output, still muted.
-                park_apps(&mut parker, playing.as_mut(), &parked);
+                let look = &mut Look::default();
+                park_apps(&mut parker, playing.as_mut(), &parked, look, &mut outputs);
                 let _ = reply.send(out);
             }
             Ok(Job::Plan(spec)) => {
                 if let Some(p) = playing.as_mut() {
                     p.spec = spec;
-                    park_apps(&mut parker, Some(p), &parked);
+                    let look = &mut Look::default();
+                    park_apps(&mut parker, Some(p), &parked, look, &mut outputs);
                 }
             }
             Ok(Job::Stop(reply)) => {
                 playing = None;
-                park_apps(&mut parker, None, &parked);
+                let look = &mut Look::default();
+                park_apps(&mut parker, None, &parked, look, &mut outputs);
                 last_park = Instant::now();
                 if let Some(r) = reply {
                     let _ = r.send(());
@@ -715,7 +806,8 @@ fn audio_thread(
             Ok(Job::Shutdown(reply)) => {
                 playing = None;
                 vmic = Vmic::default();
-                park_apps(&mut parker, None, &parked);
+                let look = &mut Look::default();
+                park_apps(&mut parker, None, &parked, look, &mut outputs);
                 let _ = reply.send(());
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -724,13 +816,36 @@ fn audio_thread(
         // By the clock, so a steady stream of requests never holds off parking.
         if last_park.elapsed() >= TICK {
             if playing.is_some() || parker.dirty() {
-                park_apps(&mut parker, playing.as_mut(), &parked);
+                let mut look = Look::default();
+                park_apps(
+                    &mut parker,
+                    playing.as_mut(),
+                    &parked,
+                    &mut look,
+                    &mut outputs,
+                );
+                if look.taken.is_some() {
+                    heard = Some((Instant::now(), sounding(&mut look)));
+                }
             }
             last_park = Instant::now();
         }
-        if last_vmic.elapsed() >= TICK {
+        // VB-CABLE is looked at only while the virtual mic is wanted or the audio page is open.
+        let open = lock(&page).is_some_and(|t| t.elapsed() < PAGE_OPEN);
+        let mark = system::changes();
+        let since = last_vmic.elapsed();
+        let due = match mark {
+            None => since >= TICK,
+            Some(_) => {
+                mark != vmic_mark
+                    || since >= if open { VMIC_PAGE } else { CACHE_FOR }
+                    || vmic.failed.is_some() && since >= VMIC_RETRY
+            }
+        };
+        if due && (open || vmic.want.is_some() || vmic.playing.is_some()) {
             vmic.tick(&controls, &vmic_view);
             last_vmic = Instant::now();
+            vmic_mark = mark;
         }
     }
 }
@@ -744,11 +859,12 @@ impl Mixer {
         let vmic: Arc<Mutex<VmicView>> = Arc::default();
         let (tx, rx) = channel();
         let _ = tx.send(Job::Vmic(config.vmic()));
-        let (c, p, v) = (controls.clone(), parked.clone(), vmic.clone());
+        let page: Arc<Mutex<Option<Instant>>> = Arc::default();
+        let (c, p, v, pg) = (controls.clone(), parked.clone(), vmic.clone(), page.clone());
         let journal = crate::config::dir().join(JOURNAL);
         thread::Builder::new()
-            .name("audio-mixer".into())
-            .spawn(move || audio_thread(rx, c, p, v, journal))
+            .name("foxden-mixer".into())
+            .spawn(move || audio_thread(rx, c, p, v, pg, journal))
             .expect("audio mixer thread");
         let resume = config.running;
         let mixer = Mixer {
@@ -765,15 +881,16 @@ impl Mixer {
             controls,
             parked,
             vmic,
+            page,
             jobs: Arc::new(Mutex::new(tx)),
             shared,
         };
         if resume {
             let m = mixer.clone();
-            thread::spawn(move || m.resume());
+            crate::state::spawn_named("foxden-mixer-resume", move || m.resume());
         }
         let m = mixer.clone();
-        thread::spawn(move || {
+        crate::state::spawn_named("foxden-auto-assign", move || {
             loop {
                 thread::sleep(AUTO_EVERY);
                 m.auto_assign();
@@ -1213,11 +1330,12 @@ impl Mixer {
             let cfg = &mut inner.config;
             let placed = cfg.apps_anywhere();
             let mut added = false;
-            for (exe, path) in now {
+            for (exe, pid) in now {
                 let key = park::lower(&exe);
                 if placed.contains(&key) || cfg.no_auto.contains(&key) {
                     continue;
                 }
+                let path = system::exe_path(pid).unwrap_or_default();
                 let Some(channel) = foxden_mixer::presets::preset(&exe, &path) else {
                     continue;
                 };
@@ -1266,7 +1384,16 @@ impl Mixer {
         state.changed = Some(Instant::now());
     }
 
+    /// Notes that the audio page is open; true when it was not a moment ago.
+    fn mark_page(&self) -> bool {
+        let mut at = lock(&self.page);
+        let was = at.is_some_and(|t| t.elapsed() < PAGE_OPEN);
+        *at = Some(Instant::now());
+        !was
+    }
+
     fn view(&self) -> View {
+        self.mark_page();
         let inner = self.guard();
         let parked = lock(&self.parked).clone();
         let devices = inner.devices.clone().unwrap_or_default();
@@ -1349,6 +1476,9 @@ pub struct View {
 /// Lists the audio devices the first time, or again with `rescan`, and the apps with sound.
 #[tauri::command(async)]
 pub fn get_mixer(mixer: State<'_, Mixer>, rescan: bool) -> Result<View, String> {
+    if mixer.mark_page() {
+        let _ = mixer.ask(Job::Look);
+    }
     if let Err(e) = mixer.devices(rescan) {
         mixer.guard().error = Some(e);
     }
@@ -1370,6 +1500,7 @@ pub fn virtual_mic_install(mixer: State<'_, Mixer>) -> Result<View, String> {
         return Err("VB-CABLE is not installed yet. Install it from VB-Audio's page, then press Check again.".into());
     }
     let text = vmic_action("rename")?;
+    system::bump();
     crate::log::info("audio", format!("virtual mic: {text}"));
     mixer.apply(Change::VirtualMic { on: true })?;
     Ok(mixer.view())
@@ -1380,6 +1511,7 @@ pub fn virtual_mic_install(mixer: State<'_, Mixer>) -> Result<View, String> {
 pub fn virtual_mic_remove(mixer: State<'_, Mixer>) -> Result<View, String> {
     mixer.apply(Change::VirtualMic { on: false })?;
     let text = vmic_action("remove")?;
+    system::bump();
     crate::log::info("audio", format!("virtual mic: {text}"));
     Ok(mixer.view())
 }
@@ -1408,6 +1540,7 @@ pub struct Levels {
 /// Peak level and gain reduction of each channel since the last call, in [`Channel::ALL`] order.
 #[tauri::command]
 pub fn get_mixer_levels(mixer: State<'_, Mixer>) -> Levels {
+    mixer.mark_page();
     let mut c = mixer.controls();
     let peaks = Channel::ALL.map(|ch| c.peak(ch));
     let mut reduction = [Reduction::default(); 6];

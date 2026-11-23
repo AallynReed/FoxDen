@@ -2,6 +2,8 @@
 //! the calling thread, which must have called [`com_init`].
 
 use std::ffi::c_void;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::CloseHandle;
@@ -194,6 +196,47 @@ impl Drop for Watch {
     fn drop(&mut self) {
         let _ = unsafe { self.en.UnregisterEndpointNotificationCallback(&self.client) };
     }
+}
+
+static CHANGES: AtomicU64 = AtomicU64::new(0);
+static PLUG: OnceLock<bool> = OnceLock::new();
+
+/// Bumps the device-change counter.
+pub fn bump() {
+    CHANGES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Counts device interfaces coming and going plus [`bump`]s; `None` when Windows reports nothing.
+pub fn changes() -> Option<u64> {
+    PLUG.get_or_init(register_plug)
+        .then(|| CHANGES.load(Ordering::Relaxed))
+}
+
+fn register_plug() -> bool {
+    use windows::Win32::Devices::DeviceAndDriverInstallation::{
+        CM_NOTIFY_ACTION, CM_NOTIFY_EVENT_DATA, CM_NOTIFY_FILTER,
+        CM_NOTIFY_FILTER_FLAG_ALL_INTERFACE_CLASSES, CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE,
+        CM_Register_Notification, CR_SUCCESS, HCMNOTIFICATION,
+    };
+    unsafe extern "system" fn on(
+        _: HCMNOTIFICATION,
+        _: *const c_void,
+        _: CM_NOTIFY_ACTION,
+        _: *const CM_NOTIFY_EVENT_DATA,
+        _: u32,
+    ) -> u32 {
+        bump();
+        0
+    }
+    let filter = CM_NOTIFY_FILTER {
+        cbSize: size_of::<CM_NOTIFY_FILTER>() as u32,
+        Flags: CM_NOTIFY_FILTER_FLAG_ALL_INTERFACE_CLASSES,
+        FilterType: CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE,
+        ..Default::default()
+    };
+    let mut handle = HCMNOTIFICATION(std::ptr::null_mut());
+    // Kept for the life of the process.
+    (unsafe { CM_Register_Notification(&filter, None, Some(on), &mut handle) }) == CR_SUCCESS
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -399,6 +442,11 @@ impl AppOutputs {
 #[cfg(test)]
 mod tests {
     use super::usb_ids;
+
+    #[test]
+    fn device_changes_are_reported() {
+        assert!(super::changes().is_some());
+    }
 
     #[test]
     fn usb_ids_come_from_the_parent_instance() {

@@ -374,13 +374,9 @@ fn set_default_for(id: &str, roles: &[ERole]) -> Result<()> {
     Ok(())
 }
 
-/// Where VB-Audio's files sit: `vbcable` next to the program, or the fetched copy in a dev build.
+/// Where VB-Audio's files sit: `vbcable` next to the program.
 pub fn files_dir(exe_dir: &Path) -> PathBuf {
-    let next = exe_dir.join("vbcable");
-    if cfg!(debug_assertions) && !next.join(SETUP).exists() {
-        return Path::new(env!("CARGO_MANIFEST_DIR")).join(r"..\..\packaging\vbcable");
-    }
-    next
+    exe_dir.join("vbcable")
 }
 
 const KEY: windows::core::PCWSTR = w!(r"SOFTWARE\FoxDen");

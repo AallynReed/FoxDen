@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -92,74 +93,105 @@ fn spawn_pusher(
     link: Arc<Link>,
     failed: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || {
-        // Last colours sent per device: identical frames are skipped, but resent at least every
-        // `RESEND` so devices that fall back to their own lighting without a steady signal stay put.
-        let mut sent: Vec<Option<(Vec<Color>, Instant)>> = vec![None; devices.len()];
-        let mut held = vec![false; devices.len()];
-        loop {
-            let (batch, switches) = {
+    let name = format!("foxden-push-{}", backend.name());
+    thread::Builder::new()
+        .name(name)
+        .spawn(move || {
+            let run = catch_unwind(AssertUnwindSafe(|| {
+                push_loop(backend.as_mut(), &devices, &link, &failed)
+            }));
+            // A panicking driver is reported like a failed one, so nobody waits on it forever.
+            if let Err(cause) = run {
+                let why = cause
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| cause.downcast_ref::<String>().cloned())
+                    .unwrap_or_default();
                 let mut mail = link.mail();
-                mail.busy = false;
-                link.wake.notify_all();
-                while !mail.closed
-                    && mail.switches.is_empty()
-                    && mail.batch.iter().all(Option::is_none)
-                {
-                    mail = link.wake.wait(mail).unwrap_or_else(|e| e.into_inner());
-                }
-                if mail.closed {
-                    return;
-                }
-                mail.busy = true;
-                (
-                    std::mem::take(&mut mail.batch),
-                    std::mem::take(&mut mail.switches),
-                )
-            };
-            for (i, setting) in switches {
-                let Some((id, name)) = devices.get(i) else {
-                    continue;
-                };
-                sent[i] = None;
-                held[i] = setting.is_some();
-                if let Err(e) = backend.set_hardware(id, setting.as_ref()) {
-                    held[i] = false;
-                    link.mail().refused.push((i, format!("{name}: {e}")));
-                }
-            }
-            let now = Instant::now();
-            let mut any = false;
-            let pushed = devices
-                .iter()
-                .zip(batch)
-                .zip(sent.iter_mut())
-                .zip(&held)
-                .filter(|(_, held)| !**held)
-                .filter_map(|(((device, colors), last), _)| Some((device, colors?, last)))
-                .filter(|(_, colors, last)| {
-                    last.as_ref()
-                        .is_none_or(|(c, at)| c != colors || now.duration_since(*at) >= RESEND)
-                })
-                .try_for_each(|((id, name), colors, last)| {
-                    any = true;
-                    backend
-                        .push(id, &colors)
-                        .map_err(|e| format!("{name}: {e}"))?;
-                    *last = Some((colors, now));
-                    Ok(())
-                })
-                .and_then(|()| if any { backend.flush() } else { Ok(()) });
-            if let Err(e) = pushed {
-                let mut mail = link.mail();
-                mail.error = Some(e);
+                mail.error = Some(format!("{}: the driver crashed: {why}", backend.name()));
                 mail.busy = false;
                 failed.store(true, Ordering::Relaxed);
                 link.wake.notify_all();
+            }
+        })
+        .expect("pusher thread")
+}
+
+fn push_loop(
+    backend: &mut dyn Backend,
+    devices: &[(String, String)],
+    link: &Link,
+    failed: &AtomicBool,
+) {
+    // Identical frames are skipped, but resent every `RESEND` to devices that need a keepalive.
+    let mut sent: Vec<Option<(Vec<Color>, Instant)>> = vec![None; devices.len()];
+    let mut held = vec![false; devices.len()];
+    let keep: Vec<bool> = devices
+        .iter()
+        .map(|(id, _)| backend.keepalive(id))
+        .collect();
+    loop {
+        let (batch, switches) = {
+            let mut mail = link.mail();
+            mail.busy = false;
+            link.wake.notify_all();
+            while !mail.closed && mail.switches.is_empty() && mail.batch.iter().all(Option::is_none)
+            {
+                mail = link.wake.wait(mail).unwrap_or_else(|e| e.into_inner());
+            }
+            if mail.closed {
                 return;
             }
+            mail.busy = true;
+            (
+                std::mem::take(&mut mail.batch),
+                std::mem::take(&mut mail.switches),
+            )
+        };
+        for (i, setting) in switches {
+            let Some((id, name)) = devices.get(i) else {
+                continue;
+            };
+            sent[i] = None;
+            held[i] = setting.is_some();
+            if let Err(e) = backend.set_hardware(id, setting.as_ref()) {
+                held[i] = false;
+                link.mail().refused.push((i, format!("{name}: {e}")));
+            }
         }
-    })
+        let now = Instant::now();
+        let mut any = false;
+        let pushed = devices
+            .iter()
+            .zip(batch)
+            .zip(sent.iter_mut())
+            .zip(held.iter().zip(&keep))
+            .filter(|(_, (held, _))| !**held)
+            .filter_map(|(((device, colors), last), (_, keep))| {
+                Some((device, colors?, last, *keep))
+            })
+            .filter(|(_, colors, last, keep)| {
+                last.as_ref()
+                    .is_none_or(|(c, at)| c != colors || *keep && now.duration_since(*at) >= RESEND)
+            })
+            .try_for_each(|((id, name), colors, last, _)| {
+                any = true;
+                backend
+                    .push(id, &colors)
+                    .map_err(|e| format!("{name}: {e}"))?;
+                *last = Some((colors, now));
+                Ok(())
+            })
+            .and_then(|()| if any { backend.flush() } else { Ok(()) });
+        if let Err(e) = pushed {
+            let mut mail = link.mail();
+            mail.error = Some(e);
+            mail.busy = false;
+            failed.store(true, Ordering::Relaxed);
+            link.wake.notify_all();
+            return;
+        }
+    }
 }
 
 struct Slot {
@@ -832,6 +864,29 @@ mod tests {
         engine.flush(SOON);
         assert!(all_black(frames.iter().find(|f| f.device == "a").unwrap()));
         assert_eq!(*pushes.lock().unwrap(), ["a", "flush", "b", "c", "flush"]);
+    }
+
+    #[test]
+    fn a_panicking_backend_is_reported_not_waited_on() {
+        struct Bomb;
+        impl Backend for Bomb {
+            fn name(&self) -> &str {
+                "bomb"
+            }
+            fn devices(&self) -> Vec<Device> {
+                vec![Device::grid("x", "X", DeviceKind::Strip, [0.0; 4], 2, 1)]
+            }
+            fn push(&mut self, _: &str, _: &[Color]) -> Result<(), String> {
+                panic!("boom")
+            }
+        }
+        let mut engine = Engine::new(vec![Box::new(Bomb)]);
+        engine.render(1.0, &Inputs::default());
+        let start = Instant::now();
+        engine.flush(Duration::from_secs(5));
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(engine.take_failed());
+        assert!(engine.status()[0].2.as_deref().unwrap().contains("boom"));
     }
 
     #[test]

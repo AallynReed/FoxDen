@@ -124,7 +124,7 @@ fn save_later(f: Found) {
     lock(&PENDING)
         .get_or_insert_with(HashMap::new)
         .insert(f.key.clone(), stamp);
-    thread::spawn(move || {
+    crate::state::spawn_named("foxden-headset-save", move || {
         thread::sleep(SETTLE);
         let last = lock(&PENDING).as_ref().and_then(|p| p.get(&f.key).copied());
         if last != Some(stamp) {
@@ -223,23 +223,26 @@ pub struct Dial {
 
 static DIAL: Mutex<Option<Dial>> = Mutex::new(None);
 
-/// How often the dial is read, and how often headsets are looked for.
+/// How often the dial is read while mixing, the status otherwise, and how often headsets are looked for.
 const DIAL_EVERY: Duration = Duration::from_millis(250);
+const STATUS_EVERY: Duration = Duration::from_secs(5);
 const FIND_EVERY: Duration = Duration::from_secs(5);
 
 /// Follows the ChatMix dial of a connected headset. While one is on, it drives the mixer's chat mix.
 pub fn spawn_dial(app: AppHandle) {
-    thread::spawn(move || {
+    crate::state::spawn_named("foxden-headset", move || {
         let mut found: Vec<Found> = Vec::new();
         let mut mixes: Vec<ChatMix> = Vec::new();
         let mut plugged: Option<u64> = None;
+        let mut plugs = crate::state::Plugs::new();
         let mut checked: Option<Instant> = None;
         loop {
             // Listing every HID device is costly; it is only redone when something is plugged in or out.
-            if checked.is_none_or(|t| t.elapsed() >= FIND_EVERY) {
+            if checked.is_none_or(|t| t.elapsed() >= FIND_EVERY) && plugs.moved() {
                 let now = foxden_battery::hid::fingerprint();
                 if plugged != Some(now) {
                     found = foxden_headset::find();
+                    foxden_headset::keep_only(&found);
                     mixes.retain(|m| found.iter().any(|f| f.key == m.key) && m.enable());
                     plugged = Some(now);
                 }
@@ -286,11 +289,27 @@ pub fn spawn_dial(app: AppHandle) {
                 }
                 let _ = app.emit("chatmix", now);
             }
-            thread::sleep(if found.is_empty() {
+            let wait = if found.is_empty() {
                 FIND_EVERY
-            } else {
+            } else if mixing {
                 DIAL_EVERY
-            });
+            } else {
+                STATUS_EVERY
+            };
+            // In steps, so the dial is followed soon after the mixer starts.
+            if found.is_empty() {
+                thread::sleep(wait);
+            }
+            let until = Instant::now() + wait;
+            while !found.is_empty() && Instant::now() < until {
+                thread::sleep(DIAL_EVERY);
+                let now_mixing = app
+                    .try_state::<crate::mixer::Mixer>()
+                    .is_some_and(|m| m.running());
+                if now_mixing && !mixing {
+                    break;
+                }
+            }
         }
     });
 }

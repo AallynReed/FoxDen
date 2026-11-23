@@ -93,6 +93,15 @@ fn update(f: impl FnOnce(&mut St) + 'static) {
     });
 }
 
+/// Stops the sampling timer once the window is gone; `bind` starts it again.
+pub fn stop() {
+    let _ = ST.try_with(|s| {
+        if let Ok(mut st) = s.try_borrow_mut() {
+            st.timer = None;
+        }
+    });
+}
+
 pub fn bind(w: &AppWindow, app: &AppHandle) {
     let timer = Timer::default();
     timer.start(TimerMode::Repeated, Duration::from_secs(2), || {
@@ -851,7 +860,7 @@ fn service(action: &'static str) {
         st.pending = action;
         st.problem = None;
     });
-    std::thread::spawn(move || {
+    crate::state::spawn_named("foxden-fan-service", move || {
         let done = if action == "start" {
             crate::fans::start_service()
         } else {
@@ -917,7 +926,7 @@ fn send(st: &mut St) {
     st.pending = "apply";
     st.problem = None;
     let config = sent.clone();
-    std::thread::spawn(move || {
+    crate::state::spawn_named("foxden-fan-apply", move || {
         let done = crate::fans::set_fan_config(config);
         let state = done
             .is_ok()

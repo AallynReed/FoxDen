@@ -24,6 +24,9 @@ use crate::tray;
 const STARTUP: Duration = Duration::from_secs(35);
 /// A full hardware pass even when the device list looks unchanged.
 const FULL_SCAN: Duration = Duration::from_secs(60);
+const SWEEP_EVERY: Duration = Duration::from_secs(30);
+/// A look even without a change notice, in case one was missed.
+const PLUG_FALLBACK: Duration = Duration::from_secs(60);
 /// Frames a second while nothing on screen moves.
 const IDLE_FPS: u32 = 4;
 const SAVE_DELAY: Duration = Duration::from_millis(500);
@@ -423,10 +426,39 @@ fn note_changes(snapshot: &Snapshot) {
     }));
 }
 
+/// Starts a thread with a name, so debuggers and profilers can tell FoxDen's threads apart.
+pub fn spawn_named(name: &str, work: impl FnOnce() + Send + 'static) {
+    thread::Builder::new()
+        .name(name.into())
+        .spawn(work)
+        .expect("thread start");
+}
+
+/// Whether devices may have come or gone since the last look; always true without notifications.
+pub struct Plugs(Option<(Option<u64>, Instant)>);
+
+impl Plugs {
+    pub fn new() -> Self {
+        Plugs(None)
+    }
+
+    pub fn moved(&mut self) -> bool {
+        let now = foxden_mixer::system::changes();
+        let moved = now.is_none()
+            || self
+                .0
+                .is_none_or(|(seen, at)| seen != now || at.elapsed() >= PLUG_FALLBACK);
+        if moved {
+            self.0 = Some((now, Instant::now()));
+        }
+        moved
+    }
+}
+
 /// Starts the one thread that connects backends and looks for hardware, so neither holds up a command.
 pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
     let (jobs, inbox) = mpsc::channel();
-    thread::spawn(move || {
+    spawn_named("foxden-devices", move || {
         let mut watch = Watch::default();
         crate::conflicts::forget_removed(&shared);
         let first = lock(&shared).config.settings.clone();
@@ -449,6 +481,9 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         let started = Instant::now();
         let mut board_tries = 0;
         let mut plugged: Option<u64> = None;
+        let mut plugs = Plugs::new();
+        let mut print_now = 0;
+        let mut swept: Option<Instant> = None;
         let mut scanned: Option<Instant> = None;
         let mut was_failing = false;
         loop {
@@ -468,12 +503,15 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                     state.failing("hid"),
                 )
             };
-            if settings.close_conflicts && (asked || settings.auto_detect) {
+            let sweep = asked || swept.is_none_or(|t| t.elapsed() >= SWEEP_EVERY);
+            if settings.close_conflicts && (asked || settings.auto_detect) && sweep {
                 close_conflicts(&app, &settings);
+                swept = Some(Instant::now());
             }
-            // Listing every device costs real CPU; a cheap check of the device list decides whether
-            // anything could have changed since the last full pass.
-            let print_now = foxden_battery::hid::fingerprint();
+            // Fingerprinted after a change notice; a full pass only when the fingerprint moved.
+            if plugs.moved() {
+                print_now = foxden_battery::hid::fingerprint();
+            }
             let due = asked
                 || plugged != Some(print_now)
                 || failing != was_failing
@@ -574,6 +612,43 @@ fn close_conflicts(app: &AppHandle, settings: &Settings) {
     }
 }
 
+/// A backend whose devices keep their colours without being sent them again.
+struct Steady(Box<dyn Backend>);
+
+impl Steady {
+    fn wrap(b: Box<dyn Backend>) -> Box<dyn Backend> {
+        Box::new(Steady(b))
+    }
+}
+
+impl Backend for Steady {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn devices(&self) -> Vec<foxden_core::Device> {
+        self.0.devices()
+    }
+    fn push(&mut self, device_id: &str, colors: &[foxden_core::Color]) -> Result<(), String> {
+        self.0.push(device_id, colors)
+    }
+    fn flush(&mut self) -> Result<(), String> {
+        self.0.flush()
+    }
+    fn keepalive(&self, _device_id: &str) -> bool {
+        false
+    }
+    fn hardware(&self, device_id: &str) -> Option<foxden_core::Hardware> {
+        self.0.hardware(device_id)
+    }
+    fn set_hardware(
+        &mut self,
+        device_id: &str,
+        setting: Option<&foxden_core::HardwareSetting>,
+    ) -> Result<(), String> {
+        self.0.set_hardware(device_id, setting)
+    }
+}
+
 /// Connects one group and logs how long it took.
 fn timed(
     label: &str,
@@ -609,13 +684,13 @@ fn connect(label: &str, settings: &Settings) -> (Vec<Box<dyn Backend>>, Option<S
             // Memory needs PawnIO and administrator rights, or the installed service that has them.
             match foxden_smbus::probe() {
                 Ok(more) => {
-                    backends.extend(more);
+                    backends.extend(more.into_iter().map(Steady::wrap));
                     backends.extend(foxden_superio::lights());
                     backends.extend(foxden_wmi::lights());
                 }
                 Err(_) => {
                     if let Some(service) = crate::service_lights::probe() {
-                        backends.push(Box::new(service));
+                        backends.push(Steady::wrap(Box::new(service)));
                     }
                 }
             }
@@ -799,7 +874,7 @@ impl<T> Input<T> {
 }
 
 pub fn spawn_render(app: AppHandle, shared: Shared) {
-    thread::spawn(move || {
+    spawn_named("foxden-render", move || {
         let start = Instant::now();
         let mut next = start;
         let mut eased_at = start;
@@ -909,7 +984,7 @@ pub fn spawn_render(app: AppHandle, shared: Shared) {
 
 /// Writes the config once changes have settled for a moment.
 pub fn spawn_saver(shared: Shared) {
-    thread::spawn(move || {
+    spawn_named("foxden-saver", move || {
         loop {
             thread::sleep(SAVE_DELAY / 2);
             let config = {
