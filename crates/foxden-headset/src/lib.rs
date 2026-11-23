@@ -1,11 +1,12 @@
 //! Settings of SteelSeries wireless headsets over their own HID protocol, of Corsair headsets
-//! as Bragi properties, and of Logitech headsets over HID++.
+//! as Bragi properties, and of other brands' headsets through their own modules.
 
 mod logitech;
 mod arctis;
 mod epos;
 mod jabra;
 mod poly;
+pub mod hyperx;
 pub mod proto;
 
 use std::sync::Mutex;
@@ -39,6 +40,8 @@ pub fn find() -> Vec<Found> {
             Bragi::fits(&c)
         } else if model.family == Family::Logitech {
             logitech::fits(&c, &model)
+        } else if model.family == Family::HyperX {
+            hyperx::fits(&model, &c)
         } else {
             match model.collection() {
                 (_, Some((page, usage))) => c.page == page && c.usage == usage,
@@ -87,6 +90,9 @@ pub fn read(f: &Found) -> Option<Reading> {
     if f.model.family == Family::Logitech {
         return logitech::read(f, true);
     }
+    if f.model.family == Family::HyperX {
+        return hyperx::read(f, true);
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -115,6 +121,9 @@ pub fn status(f: &Found) -> Option<Status> {
     }
     if f.model.family == Family::Logitech {
         return logitech::read(f, false)?.status;
+    }
+    if f.model.family == Family::HyperX {
+        return hyperx::read(f, false)?.status;
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -165,6 +174,9 @@ pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
     }
     if f.model.family == Family::Logitech {
         return logitech::set(f, c, v);
+    }
+    if f.model.family == Family::HyperX {
+        return hyperx::set(f, c, v);
     }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }
