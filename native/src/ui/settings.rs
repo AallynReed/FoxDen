@@ -1009,7 +1009,7 @@ pub fn show_whats_new(app: &AppHandle) {
     slint::Timer::single_shot(Duration::ZERO, move || {
         let current = env!("CARGO_PKG_VERSION");
         let seen = s(&snap_settings(&app)["seen_version"]).to_string();
-        if seen == current || !with_win_visible() {
+        if seen == current || !with_win_visible() || super::approval::busy() {
             return;
         }
         edit_settings(&app, |s| s["seen_version"] = json!(current));
@@ -1048,6 +1048,10 @@ fn with_win_visible() -> bool {
 pub fn prompt_update(app: &AppHandle) {
     let app = app.clone();
     slint::Timer::single_shot(Duration::ZERO, move || {
+        // A sheet opened now would take the focus from a fan change waiting for approval.
+        if super::approval::busy() {
+            return;
+        }
         let Some(version) = local(|l| l.update.as_ref().map(|u| s(&u["version"]).to_string())) else {
             return;
         };

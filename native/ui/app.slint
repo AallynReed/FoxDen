@@ -7,10 +7,11 @@ import { ProfilesPage, ProfilesPanel } from "profiles.slint";
 import { SettingsPage, SettingsPanel } from "settings.slint";
 import { SettingsSheets } from "settings.slint";
 import { LogsPage, LogsWindow } from "logs.slint";
+import { FanApproval, ApprovalSheet } from "approval.slint";
 import { StagePage, Stage } from "stage.slint";
 
 export { Theme, I18n, EffectsPage, DevicesPage, FansPage, AudioPage, ProfilesPage, SettingsPage, StagePage }
-export { LogsPage, LogsWindow }
+export { LogsPage, LogsWindow, FanApproval }
 
 export component AppWindow inherits Window {
     title: "FoxDen";
@@ -83,4 +84,5 @@ export component AppWindow inherits Window {
         height: root.wide ? root.status-height : root.height;
     }
     SettingsSheets { width: root.width; height: root.height; }
+    ApprovalSheet { width: root.width; height: root.height; }
 }

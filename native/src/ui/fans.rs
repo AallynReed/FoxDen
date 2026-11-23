@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
+use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use foxden_fan::{Curve, FanConfig, FanRule, FanStatus, Kind, MIN_MAX_DUTY, SensorStatus};
@@ -943,11 +944,41 @@ fn send(st: &mut St) {
         return;
     }
     let sent = tidy(&st.draft);
+    apply_config(st, sent, None);
+}
+
+/// A config the person approved on screen, applied like Apply. The draft it replaces stays for Undo.
+pub fn apply_proposed(config: FanConfig, reply: Sender<Result<(), String>>) {
+    update(move |st| {
+        if !st.pending.is_empty() {
+            let _ = reply.send(Err(crate::fan_proposal::TAB_BUSY.into()));
+            return;
+        }
+        let new = tidy(&config);
+        let before = tidy(&st.draft);
+        if before != new {
+            st.past.push(before);
+            if st.past.len() > 100 {
+                st.past.remove(0);
+            }
+        }
+        st.draft = new.clone();
+        st.clamp_chosen();
+        st.asking = false;
+        apply_config(st, new, Some(reply));
+    });
+}
+
+/// Sends `sent` to the service, then shows how that went.
+fn apply_config(st: &mut St, sent: FanConfig, reply: Option<Sender<Result<(), String>>>) {
     st.pending = "apply";
     st.problem = None;
     let config = sent.clone();
     crate::state::spawn_named("foxden-fan-apply", move || {
         let done = crate::fans::set_fan_config(config);
+        if let Some(reply) = reply {
+            let _ = reply.send(done.clone());
+        }
         let state = done
             .is_ok()
             .then(crate::fans::get_fans)

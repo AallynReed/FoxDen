@@ -756,7 +756,7 @@ component ReportsBox inherits Section {
 component AiBox inherits Section {
     title: I18n.t("AI assistants");
     Switch { label: I18n.t("Let AI assistants control FoxDen"); on: SettingsPage.ai-access; toggled(v) => { SettingsPage.set-flag("ai_access", v); } }
-    Hint { text: I18n.t("Apps like Claude Desktop can change lighting, profiles and audio, and read sensors. Fan curves stay off limits."); }
+    Hint { text: I18n.t("Apps like Claude Desktop can change lighting, profiles and audio, and read sensors. Fan curve changes need your approval on screen."); }
     HorizontalLayout {
         spacing: 8px;
         alignment: start;
@@ -978,7 +978,7 @@ component ChangeView inherits VerticalLayout {
     }
 }
 
-component Sheet inherits Rectangle {
+export component Sheet inherits Rectangle {
     in property <string> title;
     in property <length> wide: 440px;
     callback close();

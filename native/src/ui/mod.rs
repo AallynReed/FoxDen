@@ -1,5 +1,6 @@
 //! The window: one module per tab, plus the device canvas stage.
 
+pub mod approval;
 mod audio;
 mod clipboard;
 mod devices;
@@ -105,6 +106,11 @@ fn apply_all(w: &AppWindow, app: &AppHandle, view: &mut View) {
     stage::apply(w, app, view);
 }
 
+/// Applies fan curves the person approved, through the Fans tab.
+pub fn apply_proposed_fans(config: foxden_fan::FanConfig, reply: std::sync::mpsc::Sender<Result<(), String>>) {
+    fans::apply_proposed(config, reply);
+}
+
 pub fn with_win(f: impl FnOnce(&AppWindow)) {
     UI.with_borrow(|ui| {
         if let Some(ui) = ui {
@@ -190,9 +196,11 @@ fn build(app: &AppHandle) -> Result<AppWindow, slint::PlatformError> {
     profiles::bind(&w, app);
     settings::bind(&w, app);
     stage::bind(&w, app);
+    approval::bind(&w);
 
     let a = app.clone();
     w.window().on_close_requested(move || {
+        approval::window_closing();
         let to_tray = VIEW.with_borrow(|v| v.snap["settings"]["close_to_tray"].as_bool().unwrap_or(true));
         a.set_shown(false, false);
         if to_tray {

@@ -8,6 +8,7 @@ mod config;
 mod conflicts;
 mod detect;
 mod device_info;
+mod fan_proposal;
 mod fans;
 mod headset;
 mod i18n;

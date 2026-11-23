@@ -21,11 +21,14 @@ fn main() {
         if line.trim().is_empty() {
             continue;
         }
-        if let Some(reply) = server.handle(&line) {
-            let sent = writeln!(stdout, "{reply}").and_then(|_| stdout.flush());
-            if sent.is_err() {
-                break;
-            }
+        let mut out = |msg: serde_json::Value| writeln!(stdout, "{msg}").and_then(|_| stdout.flush()).is_ok();
+        let reply = server.handle(&line, &mut |msg| {
+            out(msg);
+        });
+        if let Some(reply) = reply
+            && !out(reply)
+        {
+            break;
         }
     }
 }

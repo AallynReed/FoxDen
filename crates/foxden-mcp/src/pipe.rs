@@ -7,7 +7,7 @@ use std::os::windows::io::AsRawHandle;
 use std::ptr::null_mut;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LocalFree};
@@ -30,6 +30,12 @@ const CLOSED: &str = "FoxDen closed the connection.";
 const STRANGER: &str = "The FoxDen pipe belongs to another account, so it was not used.";
 
 const TIMEOUT: Duration = Duration::from_secs(20);
+/// A fan proposal waits up to three minutes for the person at the PC, then for the service.
+// Under the common 60 s client limit; the request stays on screen after this.
+const APPROVAL: Duration = Duration::from_secs(50);
+const PENDING: &str = "Still waiting: the person at this PC hasn't answered yet. The request stays on screen for up to 3 minutes. Call get_fan_config later and read last_proposal for the outcome.";
+/// How often a waiting call tells the client it is still going.
+const TICK: Duration = Duration::from_secs(10);
 const MAX_REPLY: u64 = 4 * 1024 * 1024;
 const ERROR_PIPE_BUSY: i32 = 231;
 /// Lets the server see who is calling without being able to act as the caller.
@@ -58,7 +64,7 @@ impl AppPipe {
 }
 
 impl Relay for AppPipe {
-    fn call(&mut self, tool: &str, args: &Value) -> Result<String, String> {
+    fn call(&mut self, tool: &str, args: &Value, client: &str, waiting: &mut dyn FnMut()) -> Result<String, String> {
         let name = self.name.clone()?;
         let pipe = match open(&name) {
             Ok(pipe) => pipe,
@@ -66,8 +72,12 @@ impl Relay for AppPipe {
             Err(Gone) => return Err(NOT_RUNNING.into()),
             Err(Other(e)) => return Err(e),
         };
-        let line = json!({"tool": tool, "args": args}).to_string();
-        let reply = exchange(pipe, line)?;
+        let line = request(tool, args, client);
+        let timeout = if tool == "propose_fan_curves" { APPROVAL } else { TIMEOUT };
+        let reply = match exchange(pipe, line, timeout, waiting) {
+            Err(e) if tool == "propose_fan_curves" && e == SILENT => return Ok(PENDING.into()),
+            r => r?,
+        };
         let reply: Value = serde_json::from_str(&reply)
             .map_err(|_| "FoxDen sent a reply that makes no sense.".to_string())?;
         match (reply.get("ok"), reply["error"].as_str()) {
@@ -77,6 +87,11 @@ impl Relay for AppPipe {
             (None, None) => Err("FoxDen sent a reply that makes no sense.".into()),
         }
     }
+}
+
+/// One request line; the app shows `client` when it asks the person at the PC.
+fn request(tool: &str, args: &Value, client: &str) -> String {
+    json!({"tool": tool, "args": args, "client": client}).to_string()
 }
 
 enum Failure {
@@ -105,7 +120,7 @@ fn open(name: &str) -> Result<File, Failure> {
 }
 
 /// Writes the request and waits a bounded time for the line that answers it.
-fn exchange(pipe: File, line: String) -> Result<String, String> {
+fn exchange(pipe: File, line: String, timeout: Duration, waiting: &mut dyn FnMut()) -> Result<String, String> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("foxden-mcp-call".into())
@@ -113,7 +128,15 @@ fn exchange(pipe: File, line: String) -> Result<String, String> {
             let _ = tx.send(talk(&pipe, &line));
         })
         .map_err(|e| e.to_string())?;
-    rx.recv_timeout(TIMEOUT).map_err(|_| SILENT.to_string())?
+    let deadline = Instant::now() + timeout;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left.min(TICK)) {
+            Ok(reply) => return reply,
+            Err(mpsc::RecvTimeoutError::Timeout) if !left.is_zero() => waiting(),
+            Err(_) => return Err(SILENT.to_string()),
+        }
+    }
 }
 
 fn talk(pipe: &File, line: &str) -> Result<String, String> {
@@ -198,6 +221,12 @@ fn owned_by_me(pipe: &File) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_request_names_the_client() {
+        let line: Value = serde_json::from_str(&request("propose_fan_curves", &json!({"reason": "r"}), "Zed")).unwrap();
+        assert_eq!(line, json!({"tool": "propose_fan_curves", "args": {"reason": "r"}, "client": "Zed"}));
+    }
 
     #[test]
     fn the_account_id_reads_as_a_sid() {

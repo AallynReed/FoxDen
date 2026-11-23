@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -30,6 +30,7 @@ use windows_sys::Win32::System::Pipes::{
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+use crate::fan_proposal::{self, DESK, Hooks};
 use crate::mixer::Mixer;
 use crate::state::{Shared, lock};
 use crate::{battery, commands, fans, log, mixer};
@@ -49,6 +50,7 @@ pub fn set_enabled(app: &AppHandle, on: bool) {
         return;
     }
     if let Some(server) = slot.take() {
+        DESK.cancel();
         server.stop();
         log::info("ai", "AI assistant access is off");
         return;
@@ -294,6 +296,8 @@ struct Request {
     tool: String,
     #[serde(default)]
     args: Value,
+    #[serde(default)]
+    client: String,
 }
 
 type Reply = Result<Value, String>;
@@ -305,7 +309,7 @@ pub fn handle(app: &AppHandle, line: &str) -> String {
         Ok(_) if !allowed(app) => Err(TURNED_OFF.into()),
         Ok(r) => {
             log::info("ai", format!("AI assistant used {}", r.tool));
-            call(app, &r.tool, &r.args)
+            call(app, &r.tool, &r.args, &r.client)
         }
     };
     match reply {
@@ -324,7 +328,7 @@ fn shared(app: &AppHandle) -> Result<State<'static, Shared>, String> {
     app.try_state::<Shared>().ok_or_else(|| "FoxDen is still starting.".into())
 }
 
-fn call(app: &AppHandle, tool: &str, args: &Value) -> Reply {
+fn call(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
     let done = |r: Result<(), String>, text: String| r.map(|_| json!(text));
     match tool {
         "get_status" => status(app),
@@ -370,6 +374,8 @@ fn call(app: &AppHandle, tool: &str, args: &Value) -> Reply {
         }
         "assign_app" => assign_app(app, args),
         "get_batteries" => Ok(json!({"batteries": battery::get_batteries()})),
+        "get_fan_config" => Ok(fan_proposal::view(&fans::get_fans()?, DESK.last())),
+        "propose_fan_curves" => propose(app, args, client),
         _ => Err(format!("FoxDen has no tool named {tool}.")),
     }
 }
@@ -605,6 +611,45 @@ fn sensors() -> Reply {
         .map(|f| json!({"name": f["name"], "rpm": f["rpm"], "duty_percent": percent(&f["duty"]), "curve": f["curve"]}))
         .collect();
     Ok(json!({"service": state["service"], "sensors": sensors, "fans": fans}))
+}
+
+// ---- Fan curves, only with the approval of the person at the PC
+
+fn on_main<T: Send + 'static>(app: &AppHandle, wait: Duration, f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    let (tx, rx) = mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f());
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(wait).map_err(|_| "FoxDen's window did not answer.".to_string())
+}
+
+fn propose(app: &AppHandle, args: &Value, client: &str) -> Reply {
+    let state = fans::get_fans()?;
+    let who = match fan_proposal::clean_text(client, 40) {
+        c if c.is_empty() => "An AI assistant".to_string(),
+        c => c,
+    };
+    let show = |ask: fan_proposal::Ask| {
+        log::info("ai", format!("{who} proposed fan curves; waiting for approval"));
+        let a = app.clone();
+        on_main(app, Duration::from_secs(10), move || crate::ui::approval::open(&a, ask))?
+    };
+    let close = |id| {
+        let _ = app.run_on_main_thread(move || crate::ui::approval::close(id));
+    };
+    let apply = |config| {
+        let (tx, rx) = mpsc::channel();
+        app.run_on_main_thread(move || crate::ui::apply_proposed_fans(config, tx)).map_err(|e| e.to_string())?;
+        rx.recv_timeout(Duration::from_secs(15)).map_err(|_| "The fan service didn't answer in time.".to_string())?
+    };
+    let hooks = Hooks { show: &show, close: &close, apply: &apply };
+    let result = fan_proposal::propose(&DESK, &state, args, client, &hooks, fan_proposal::WAIT);
+    let said = match &result {
+        Ok(text) | Err(text) => text,
+    };
+    log::info("ai", format!("Fan curve proposal from {who}: {said}"));
+    result.map(|text| json!(text))
 }
 
 // ---- Audio

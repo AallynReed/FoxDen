@@ -382,8 +382,9 @@ fn overheated(sensors: &[SensorStatus], before: bool) -> bool {
     })
 }
 
-fn pump_like(fan: &dyn Fan) -> bool {
-    let (id, name) = (fan.id().to_lowercase(), fan.name().to_lowercase());
+/// A pump or an AIO, by its id or name. Such fans never run below `PUMP_FLOOR`.
+pub fn pump_like(id: &str, name: &str) -> bool {
+    let (id, name) = (id.to_lowercase(), name.to_lowercase());
     ["pump", "aio"]
         .iter()
         .any(|w| id.contains(w) || name.contains(w))
@@ -534,7 +535,7 @@ impl Controller {
                             1.0
                         }
                     };
-                    let duty = if pump_like(slot.fan.as_ref()) {
+                    let duty = if pump_like(slot.fan.id(), slot.fan.name()) {
                         duty.max(PUMP_FLOOR)
                     } else {
                         duty

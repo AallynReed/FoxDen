@@ -8,7 +8,7 @@ UI = ROOT / "native" / "ui"
 # Files whose short capitalised strings are labels shown in the UI: effects, settings, presets.
 LABELS = {"effect.rs", "post.rs", "proto.rs", "turtlebeach.rs", "profiles.rs", "presets.rs", "dsp.rs", "chain.rs", "razer.rs"}
 # Text for AI assistants, never shown in the window.
-NOT_UI = {ROOT / "crates" / "foxden-mcp" / "src", ROOT / "native" / "src" / "mcp.rs"}
+NOT_UI = {ROOT / "crates" / "foxden-mcp" / "src", ROOT / "native" / "src" / "mcp.rs", ROOT / "native" / "src" / "fan_proposal.rs"}
 RUST = [ROOT / "native" / "src", *(d for d in sorted((ROOT / "crates").glob("*/src")) if d not in NOT_UI)]
 
 def wordy(s):

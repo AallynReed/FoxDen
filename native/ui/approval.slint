@@ -1,0 +1,104 @@
+import { Theme, I18n, Hint, Button, Scroll } from "widgets.slint";
+import { Sheet } from "settings.slint";
+
+export struct ApprovalFan {
+    name: string,
+    before: string,
+    after: string,
+    before-path: string,
+    after-path: string,
+}
+
+export global FanApproval {
+    in property <bool> open;
+    in property <bool> armed;
+    in property <string> title;
+    in property <string> reason;
+    in property <[ApprovalFan]> fans;
+    in property <string> unchanged;
+    in property <string> loose;
+    callback apply();
+    callback reject();
+}
+
+component FanChange inherits HorizontalLayout {
+    in property <ApprovalFan> item;
+    spacing: 12px;
+    Rectangle {
+        width: 160px;
+        height: 80px;
+        background: Theme.field;
+        border-width: 1px;
+        border-color: Theme.line;
+        if root.item.before-path != "": Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 160;
+            viewbox-height: 80;
+            commands: root.item.before-path;
+            stroke: Theme.muted;
+            stroke-width: 1px;
+            stroke-dash-array: [3px, 3px];
+        }
+        if root.item.after-path != "": Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 160;
+            viewbox-height: 80;
+            commands: root.item.after-path;
+            stroke: Theme.accent;
+            stroke-width: 2px;
+            stroke-line-join: bevel;
+        }
+    }
+    VerticalLayout {
+        spacing: 2px;
+        alignment: start;
+        Text { text: root.item.name; color: Theme.text; font-weight: 600; wrap: word-wrap; }
+        Text { text: root.item.before; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+        Text { text: root.item.after; color: Theme.text; font-size: 12px; wrap: word-wrap; }
+    }
+}
+
+export component ApprovalSheet inherits Rectangle {
+    if FanApproval.open: Rectangle {
+        width: root.width;
+        height: root.height;
+        background: #00000099;
+        TouchArea { }
+        FocusScope {
+            key-pressed(e) => {
+                if e.text == Key.Escape { FanApproval.reject(); return accept; }
+                reject
+            }
+            Sheet {
+                parent-width: root.width;
+                wide: 620px;
+                x: (root.width - self.width) / 2;
+                y: max(16px, (root.height - self.preferred-height) / 2);
+                title: FanApproval.title;
+                Text { text: I18n.t("Reason given:"); color: Theme.muted; font-size: 12px; }
+                Text { text: FanApproval.reason; color: Theme.text; wrap: word-wrap; accessible-role: AccessibleRole.text; accessible-label: self.text; }
+                Scroll {
+                    height: min(root.height - 280px, list.preferred-height);
+                    content-height: list.preferred-height;
+                    list := VerticalLayout {
+                        width: parent.width - 12px;
+                        spacing: 10px;
+                        padding-top: 6px;
+                        for f in FanApproval.fans: FanChange { item: f; }
+                    }
+                }
+                if FanApproval.unchanged != "": Hint { text: FanApproval.unchanged; }
+                if FanApproval.loose != "": Hint { text: FanApproval.loose; }
+                Hint { text: I18n.t("Nothing changes unless you press Apply. With no answer in 3 minutes, the change is rejected."); }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Button { text: I18n.t("Apply"); primary: true; enabled: FanApproval.armed; clicked => { FanApproval.apply(); } }
+                    Button { text: I18n.t("Reject"); init => { self.focus(); } clicked => { FanApproval.reject(); } }
+                }
+            }
+        }
+    }
+}
