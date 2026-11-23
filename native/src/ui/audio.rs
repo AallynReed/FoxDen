@@ -570,7 +570,10 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
     g.on_flip(move |what, x, on| flip(&a, &what, &x, on));
     let a = app.clone();
     g.on_pick(move |what, x, v| pick(&a, &what, &x, &v));
-    st(|s| s.lang.clear());
+    st(|s| {
+        s.lang.clear();
+        s.vol_busy = false;
+    });
     redraw(w, app);
     load_mixer(app, false);
     load_priority(app);
@@ -1306,7 +1309,7 @@ fn copy_text(text: &str) -> bool {
     use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
+        if OpenClipboard(windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow()) == 0 {
             return false;
         }
         EmptyClipboard();
@@ -1318,6 +1321,9 @@ fn copy_text(text: &str) -> bool {
                 std::ptr::copy_nonoverlapping(wide.as_ptr(), p, wide.len());
                 GlobalUnlock(mem);
                 ok = !SetClipboardData(CF_UNICODETEXT as u32, mem).is_null();
+            }
+            if !ok {
+                windows_sys::Win32::Foundation::GlobalFree(mem);
             }
         }
         CloseClipboard();

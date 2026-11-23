@@ -84,6 +84,12 @@ fn top(g: &AudioPage, app: &AppHandle, s: &St) {
     g.set_master(f(&cfg["master"]));
     g.set_master_muted(cfg["master_muted"].as_bool().unwrap_or(false));
     g.set_master_fx_open(s.proc.as_deref() == Some("master"));
+    let m = tr(app, "Master");
+    let labels: Vec<SharedString> = [tf(app, "{0} volume", &[&m]), tf(app, "Mute {0}", &[&m]), tf(app, "Edit {0} processing", &[&m])]
+        .into_iter()
+        .map(SharedString::from)
+        .collect();
+    fill(g.get_master_labels(), labels, |l| g.set_master_labels(l));
     g.set_plays_on(
         if output.is_empty() {
             tr(app, "Pick an output above.")

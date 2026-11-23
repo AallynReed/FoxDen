@@ -247,7 +247,7 @@ component MasterStrip inherits Rectangle {
             HorizontalLayout {
                 spacing: 8px;
                 ASlider {
-                    label: I18n.t("Master volume");
+                    label: AudioPage.master-labels[0];
                     value: AudioPage.master;
                     changed(v) => { AudioPage.slide("master", "", v); }
                 }
@@ -257,7 +257,7 @@ component MasterStrip inherits Rectangle {
                 spacing: 6px;
                 AudBtn {
                     text: I18n.t("Mute");
-                    label: I18n.t("Mute Master");
+                    label: AudioPage.master-labels[1];
                     toggle: true;
                     pressed: AudioPage.master-muted;
                     clicked => { AudioPage.flip("master-mute", "", !AudioPage.master-muted); }
@@ -265,7 +265,7 @@ component MasterStrip inherits Rectangle {
                 Rectangle { horizontal-stretch: 1; }
                 AudBtn {
                     text: I18n.t("FX");
-                    label: I18n.t("Edit Master processing");
+                    label: AudioPage.master-labels[2];
                     expander: true;
                     pressed: AudioPage.master-fx-open;
                     clicked => { AudioPage.act("fx", "master", ""); }
@@ -471,7 +471,85 @@ export component VmicSettings inherits VerticalLayout {
     if AudioPage.sheet-open: VmicSheet { }
 }
 
+component RunBar inherits HorizontalLayout {
+    spacing: 12px;
+    AudBtn {
+        text: I18n.t("Priority");
+        expander: true;
+        pressed: false;
+        outline: AudioPage.prio-on;
+        accessible-expanded: AudioPage.prio-open;
+        clicked => { AudioPage.act("prio-open", "", ""); }
+    }
+    Rectangle { horizontal-stretch: 1; }
+    HorizontalLayout {
+        spacing: 6px;
+        accessible-role: AccessibleRole.text;
+        accessible-label: AudioPage.running ? I18n.t("Running") : I18n.t("Stopped");
+        VerticalLayout { alignment: center; Mark { kind: AudioPage.running ? "on" : ""; } }
+        Small { text: AudioPage.running ? I18n.t("Running") : I18n.t("Stopped"); color: Theme.text; }
+    }
+    Button {
+        min-width: 88px;
+        text: AudioPage.running ? I18n.t("Stop") : I18n.t("Start");
+        primary: !AudioPage.running;
+        enabled: !AudioPage.run-busy;
+        accessible-label: AudioPage.running ? I18n.t("Stop the mixer") : I18n.t("Start the mixer");
+        clicked => { AudioPage.act("run", "", ""); }
+    }
+}
+
+component Pair inherits VerticalLayout {
+    in property <length> colw;
+    spacing: 8px;
+    HorizontalLayout {
+        spacing: 8px;
+        Strip { idx: 0; width: root.colw; }
+        Strip { idx: 1; width: root.colw; }
+    }
+    ChatBar { }
+}
+
+// Strips: six across, three, two or one as the window narrows. Game and Chat share the chat mix.
+component Strips inherits VerticalLayout {
+    in property <length> cw;
+    property <int> cols: cw >= 1180px ? 6 : cw >= 760px ? 3 : cw >= 560px ? 2 : 1;
+    property <length> colw: (cw - 24px - (cols - 1) * 8px) / cols;
+    spacing: 8px;
+    if cols == 1: VerticalLayout {
+        spacing: 8px;
+        Strip { idx: 0; }
+        Strip { idx: 1; }
+        ChatBar { }
+        Strip { idx: 2; }
+        Strip { idx: 3; }
+        Strip { idx: 4; }
+        MasterStrip { }
+    }
+    if cols == 2: VerticalLayout {
+        spacing: 8px;
+        Pair { colw: root.colw; }
+        HorizontalLayout { spacing: 8px; Strip { idx: 2; width: root.colw; } Strip { idx: 3; width: root.colw; } }
+        HorizontalLayout { spacing: 8px; Strip { idx: 4; width: root.colw; } MasterStrip { width: root.colw; } }
+    }
+    if cols == 3: VerticalLayout {
+        spacing: 8px;
+        HorizontalLayout { spacing: 8px; Pair { colw: root.colw; } Strip { idx: 2; width: root.colw; } }
+        HorizontalLayout { spacing: 8px; Strip { idx: 3; width: root.colw; } Strip { idx: 4; width: root.colw; } MasterStrip { width: root.colw; } }
+    }
+    if cols == 6: HorizontalLayout {
+        spacing: 8px;
+        Pair { colw: root.colw; }
+        Strip { idx: 2; width: root.colw; }
+        Strip { idx: 3; width: root.colw; }
+        Strip { idx: 4; width: root.colw; }
+        MasterStrip { width: root.colw; }
+    }
+}
+
 component Mixer inherits Rectangle {
+    in property <length> cw;
+    property <bool> wide: cw >= 700px;
     border-width: 1px;
     border-color: Theme.line;
     accessible-role: groupbox;
@@ -511,53 +589,20 @@ component Mixer inherits Rectangle {
                         clicked => { AudioPage.act("rescan", "", ""); }
                     }
                 }
+                if root.wide: VerticalLayout { alignment: start; horizontal-stretch: 1; RunBar { } }
             }
             if AudioPage.following: Small { text: AudioPage.following-note; }
-            HorizontalLayout {
-                spacing: 12px;
-                AudBtn {
-                    text: I18n.t("Priority");
-                    expander: true;
-                    pressed: false;
-                    outline: AudioPage.prio-on;
-                    accessible-expanded: AudioPage.prio-open;
-                    clicked => { AudioPage.act("prio-open", "", ""); }
-                }
-                Rectangle { horizontal-stretch: 1; }
-                HorizontalLayout {
-                    spacing: 6px;
-                    accessible-role: AccessibleRole.text;
-                    accessible-label: AudioPage.running ? I18n.t("Running") : I18n.t("Stopped");
-                    VerticalLayout { alignment: center; Mark { kind: AudioPage.running ? "on" : ""; } }
-                    Small { text: AudioPage.running ? I18n.t("Running") : I18n.t("Stopped"); color: Theme.text; }
-                }
-                Button {
-                    min-width: 88px;
-                    text: AudioPage.running ? I18n.t("Stop") : I18n.t("Start");
-                    primary: !AudioPage.running;
-                    enabled: !AudioPage.run-busy;
-                    accessible-label: AudioPage.running ? I18n.t("Stop the mixer") : I18n.t("Start the mixer");
-                    clicked => { AudioPage.act("run", "", ""); }
-                }
-            }
+            if !root.wide: RunBar { }
             if AudioPage.prio-open: PrioBox { }
             if AudioPage.problem != "": Problem { text: AudioPage.problem; }
-            VerticalLayout {
-                spacing: 8px;
-                Strip { idx: 0; }
-                Strip { idx: 1; }
-                ChatBar { }
-                Strip { idx: 2; }
-                Strip { idx: 3; }
-                Strip { idx: 4; }
-                MasterStrip { }
-            }
+            Strips { cw: root.cw; }
         }
     }
 }
 
 export component AudioPanel inherits Rectangle {
     property <bool> drawer: AudioPage.eq-open || AudioPage.proc-open;
+    property <length> cw: root.width - 32px;
     init => { AudioPage.opened(); }
     changed drawer => {
         if drawer {
@@ -565,16 +610,20 @@ export component AudioPanel inherits Rectangle {
         }
     }
     scroll := Scroll {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
         content-height: body.preferred-height;
         body := VerticalLayout {
             padding: 16px;
             spacing: 12px;
             alignment: start;
-            mixer := Mixer { }
-            if AudioPage.eq-open: EqBox { }
-            if AudioPage.proc-open: ProcBox { }
-            VolPanels { }
-            MoreBox { }
+            mixer := Mixer { cw: root.cw; }
+            if AudioPage.eq-open: EqBox { cw: root.cw; }
+            if AudioPage.proc-open: ProcBox { cw: root.cw; }
+            VolPanels { cw: root.cw; }
+            MoreBox { cw: root.cw; }
         }
     }
     if AudioPage.sheet-open: Rectangle {
