@@ -2,6 +2,7 @@
 //! as Bragi properties.
 
 pub mod proto;
+pub mod turtlebeach;
 
 use std::sync::Mutex;
 use std::thread;
@@ -32,6 +33,8 @@ pub fn find() -> Vec<Found> {
         };
         let fits = if model.family == Family::Bragi {
             Bragi::fits(&c)
+        } else if model.family == Family::TurtleBeach {
+            turtlebeach::fits(&c)
         } else {
             match model.collection() {
                 (_, Some((page, usage))) => c.page == page && c.usage == usage,
@@ -73,6 +76,9 @@ pub fn read(f: &Found) -> Option<Reading> {
     if f.model.family == Family::Bragi {
         return bragi::read(f, true);
     }
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::read(f);
+    }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
     let _turn = foxden_core::hid_turn::take();
@@ -94,6 +100,9 @@ pub fn read(f: &Found) -> Option<Reading> {
 pub fn status(f: &Found) -> Option<Status> {
     if f.model.family == Family::Bragi {
         return bragi::read(f, false)?.status;
+    }
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::status(f);
     }
     wait_ready(&f.key);
     let dev = Dev::open(&f.coll)?;
@@ -121,11 +130,17 @@ pub fn set(f: &Found, c: Control, v: i32) -> Result<(), String> {
     if f.model.family == Family::Bragi {
         return bragi::set(f, c, v);
     }
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::send(f, f.model.set(c, v)?);
+    }
     send(f, f.model.set(c, v)?, f.model.save(Some(c)))
 }
 
 /// Custom EQ gains in half-dB steps.
 pub fn set_eq(f: &Found, bands: &[i32]) -> Result<(), String> {
+    if f.model.family == Family::TurtleBeach {
+        return turtlebeach::send(f, f.model.eq(bands)?);
+    }
     send(f, f.model.eq(bands)?, f.model.save(None))
 }
 
