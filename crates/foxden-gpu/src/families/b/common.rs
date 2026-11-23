@@ -31,7 +31,7 @@ pub fn info(bus: &SharedBus) -> BusInfo {
     lock(bus).info().clone()
 }
 
-/// Rows whose four PCI ids equal the bus's, as BackgroundDetectI2CPCIDevices compares them.
+/// Rows whose four PCI ids all equal the bus's.
 pub fn matching<'a>(bus: &SharedBus, cards: &'a [Card]) -> Vec<&'a Card> {
     let i = info(bus);
     cards

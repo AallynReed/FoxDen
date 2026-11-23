@@ -149,7 +149,7 @@ mod tests {
         v
     }
 
-    // DetectZotacV2GPUControllers, ReadVersion, then GetMode for the synchronized zone (4 + 1).
+    // Detection reads the version, then the mode of the synchronized zone (4 + 1).
     #[test]
     fn detect_version_and_initial() {
         let mut state = vec![0u8; 32];

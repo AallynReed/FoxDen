@@ -64,12 +64,12 @@ pub struct HyperX {
 }
 
 impl HyperX {
-    /// GetSlotCount: only the first four slots carry LEDs.
+    /// Only the first four slots carry LEDs.
     fn slot_count(&self) -> usize {
         (0..4).filter(|s| self.valid & (1 << s) != 0).count()
     }
 
-    /// The slot the C++ SetLEDColor(led) loop lands on for zone `led_slot`.
+    /// The slot a per-LED colour write lands on for zone `led_slot`.
     fn slot_of(&self, led_slot: usize) -> u8 {
         let mut slot_id = -1i32;
         let mut slot = 0;
@@ -101,7 +101,7 @@ impl HyperX {
 }
 
 impl Proto for HyperX {
-    /// SetMode(HYPERX_MODE_DIRECT)
+    /// Direct mode.
     fn start(&mut self, io: &Io, _zones: &[Vec<Color>]) {
         io.write_byte_data(DEV, REG_APPLY, 0x01);
         io.write_byte_data(DEV, REG_MODE_INDEPENDENT, MODE3_DIRECT);

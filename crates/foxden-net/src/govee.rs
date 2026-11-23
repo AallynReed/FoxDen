@@ -112,7 +112,7 @@ fn scan_reply(reply: &[u8]) -> Option<(String, String)> {
         .then(|| (text(&data["ip"]), text(&data["sku"])))
 }
 
-/// LED positions for each layout, from `SetupZones`' matrix maps.
+/// LED positions for each layout.
 fn positions(count: usize, layout: Layout) -> ([u32; 2], Vec<[f32; 2]>) {
     match layout {
         Layout::Linear => (

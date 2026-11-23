@@ -55,7 +55,7 @@ struct AdapterInfoX2 {
     info_value: c_int,
 }
 
-/// The ADLI2C request i2c_smbus_xfer and i2c_xfer build: line 1, 100 kHz, 8-bit address.
+/// The ADLI2C request for every transfer: line 1, 100 kHz, 8-bit address.
 fn request(addr: u8, offset: u8, action: c_int, buf: &mut [u8]) -> AdlI2c {
     AdlI2c {
         size: size_of::<AdlI2c>() as c_int,
@@ -259,7 +259,7 @@ unsafe fn symbol<T>(module: HMODULE, name: &CStr) -> Option<T> {
     Some(unsafe { std::mem::transmute_copy(&address) })
 }
 
-/// One bus per AMD card, as i2c_smbus_amdadl_detect registers them. Empty without the driver.
+/// One bus per AMD card. Empty without the driver.
 pub fn buses() -> Vec<SharedBus> {
     let Some(adl) = Adl::load() else {
         return Vec::new();
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(size_of::<AdapterInfoX2>(), 4 * 11 + 256 * 6);
     }
 
-    // i2c_smbus_amdadl::i2c_smbus_xfer, I2C_SMBUS_BYTE_DATA read
+    // I2C_SMBUS_BYTE_DATA read
     #[test]
     fn read_byte_data_request() {
         let (b, seen) = bus(vec![0x15], ADL_OK);
@@ -362,7 +362,7 @@ mod tests {
         );
     }
 
-    // i2c_smbus_amdadl::i2c_smbus_xfer, I2C_SMBUS_BYTE_DATA write
+    // I2C_SMBUS_BYTE_DATA write
     #[test]
     fn write_byte_data_request() {
         let (b, seen) = bus(vec![], ADL_OK);
@@ -373,7 +373,7 @@ mod tests {
         );
     }
 
-    // i2c_smbus_amdadl::i2c_smbus_xfer, I2C_SMBUS_WORD_DATA read and write
+    // I2C_SMBUS_WORD_DATA read and write
     #[test]
     fn word_requests() {
         let (b, seen) = bus(vec![0x34, 0x12], ADL_OK);
@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(seen[1], (40, 1, 0x52, 0, 2, 100, 3, vec![0x10, 0xEF, 0xBE]));
     }
 
-    // i2c_smbus_amdadl::i2c_smbus_xfer, I2C_SMBUS_BLOCK_DATA and I2C_SMBUS_I2C_BLOCK_DATA writes
+    // I2C_SMBUS_BLOCK_DATA and I2C_SMBUS_I2C_BLOCK_DATA writes
     #[test]
     fn block_writes() {
         let (b, seen) = bus(vec![], ADL_OK);
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(seen[2].6, 33);
     }
 
-    // i2c_smbus_amdadl::i2c_smbus_xfer, I2C_SMBUS_I2C_BLOCK_DATA read
+    // I2C_SMBUS_I2C_BLOCK_DATA read
     #[test]
     fn i2c_block_read() {
         let (b, seen) = bus(vec![1, 2, 3, 4], ADL_OK);
@@ -409,7 +409,7 @@ mod tests {
         );
     }
 
-    // i2c_smbus_amdadl::i2c_smbus_xfer, I2C_SMBUS_BYTE read and I2C_SMBUS_QUICK
+    // I2C_SMBUS_BYTE read and I2C_SMBUS_QUICK
     #[test]
     fn byte_and_quick() {
         let (b, seen) = bus(vec![0xAB], ADL_OK);
@@ -433,7 +433,7 @@ mod tests {
         assert!(b.write_byte_data(0x29, 0x20, 0).is_ok());
     }
 
-    // i2c_smbus_amdadl::i2c_xfer: offset 0, the whole packet, no block cap
+    // Raw I2C transfer: offset 0, the whole packet, no block cap
     #[test]
     fn raw_transfer() {
         let (b, seen) = bus(vec![0xAA, 0xEF, 0x81], ADL_OK);
@@ -444,7 +444,7 @@ mod tests {
         assert_eq!(seen[1], (40, 1, 0xC2, 0, 1, 100, 64, vec![]));
     }
 
-    // i2c_smbus_amdadl::i2c_smbus_amdadl, PNP string parsing
+    // PNP string parsing
     #[test]
     fn pnp_ids() {
         assert_eq!(

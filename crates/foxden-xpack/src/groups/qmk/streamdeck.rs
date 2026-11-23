@@ -77,7 +77,7 @@ fn gen2_reports(key: u8, image: &[u8]) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// grabColors (original): a 72x72 24-bit bottom-up BMP of one colour, BGR.
+/// Original model: a 72x72 24-bit bottom-up BMP of one colour, BGR.
 fn bmp(c: Color) -> Vec<u8> {
     let pixels = (V1_KEY_PX * V1_KEY_PX * 3) as usize;
     let mut b = Vec::with_capacity(54 + pixels);
@@ -95,7 +95,7 @@ fn bmp(c: Color) -> Vec<u8> {
     b
 }
 
-/// sendZone (original): the image in two pages, `[0x02, 0x01, page, 0, last, key + 1, ...]`.
+/// Original model: the image in two pages, `[0x02, 0x01, page, 0, last, key + 1, ...]`.
 fn v1_reports(key: u8, image: &[u8]) -> Vec<Vec<u8>> {
     let (a, b) = image.split_at(V1_SPLIT.min(image.len()));
     [(1u8, 0u8, a), (2, 1, b)]

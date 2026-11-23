@@ -28,21 +28,21 @@ const CONFIG_LED_COUNT_0107: usize = 0x03;
 const NUM_ZONES: usize = 8;
 const MAX_BLOCK: usize = 3;
 
-/// ENESMBusInterface_i2c_smbus::ENERegisterRead.
+/// Reads one 16-bit ENE register.
 fn reg_read(ctx: &Ctx, dev: u8, reg: u16) -> u8 {
     let bus = lock(&ctx.bus);
     let _ = bus.write_word_data(dev, 0x00, reg.swap_bytes());
     bus.read_byte_data(dev, 0x81).unwrap_or(0xFF)
 }
 
-/// ENESMBusInterface_i2c_smbus::ENERegisterWrite.
+/// Writes one 16-bit ENE register.
 fn reg_write(ctx: &Ctx, dev: u8, reg: u16, val: u8) {
     let bus = lock(&ctx.bus);
     let _ = bus.write_word_data(dev, 0x00, reg.swap_bytes());
     let _ = bus.write_byte_data(dev, 0x01, val);
 }
 
-/// ENESMBusInterface_i2c_smbus::ENERegisterWriteBlock, falling back to byte writes.
+/// Writes a block from a 16-bit ENE register, falling back to byte writes.
 fn reg_write_block(ctx: &Ctx, dev: u8, reg: u16, data: &[u8]) {
     let bus = lock(&ctx.bus);
     let _ = bus.write_word_data(dev, 0x00, reg.swap_bytes());
@@ -147,7 +147,7 @@ fn chip(ctx: &Ctx, dev: u8) -> Chip {
 impl Driver for Chip {
     fn write(&mut self, colors: &[Color], first: bool) -> Result<(), String> {
         if first {
-            // SetDirect(true)
+            // direct mode on
             reg_write(&self.ctx, self.dev, REG_DIRECT, 1);
             reg_write(&self.ctx, self.dev, REG_APPLY, APPLY_VAL);
         }
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(h.take()[..want.len()], want[..]);
     }
 
-    // IF_DRAM_SMBUS: any other bus is left alone.
+    // Only DRAM buses: any other bus is left alone.
     #[test]
     fn dram_ignores_other_buses() {
         let mut st = State::default();
@@ -423,7 +423,7 @@ mod tests {
         (h, found.remove(0))
     }
 
-    // SetDirect(true) then SetAllColorsDirect: R,B,G in 3-byte blocks at the v2 direct register.
+    // Direct mode on, then all colours: R,B,G in 3-byte blocks at the v2 direct register.
     #[test]
     fn direct_frame() {
         let (h, mut b) = one_chip("AUMA0-E6K5-0104", false);
@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(h.take(), want);
     }
 
-    // ENERegisterWriteBlock: a failed block write falls back to byte writes at 0x01.
+    // A failed block write falls back to byte writes at 0x01.
     #[test]
     fn block_write_fallback() {
         let (h, mut b) = one_chip("DIMM_LED-0103", true);
@@ -556,7 +556,7 @@ mod tests {
         assert!(h.take().is_empty());
     }
 
-    // ENERegisterRead: the register word goes out byte-swapped.
+    // A register read sends the register word byte-swapped.
     #[test]
     fn reads_swap_the_register_bytes() {
         assert_eq!(ene_r(0x70, 0x1C02)[0], "wwd 70 00 021c");

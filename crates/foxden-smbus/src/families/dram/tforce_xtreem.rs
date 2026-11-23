@@ -86,7 +86,7 @@ pub struct Xtreem {
 }
 
 impl Proto for Xtreem {
-    /// SetDirect(true)
+    /// Direct mode on.
     fn start(&mut self, io: &Io, _zones: &[Vec<Color>]) {
         io.ene_write(self.dev, REG_DIRECT, 1);
         io.ene_write(self.dev, REG_APPLY, APPLY_VAL);
@@ -206,7 +206,7 @@ mod tests {
         assert_eq!(ops[2], Rb(0x70));
     }
 
-    // SetDirect(true), then SetAllColorsDirect with the XTREEM_LED_OFFSET interleave
+    // Direct mode on, then all colours with the Xtreem LED offset interleave
     #[test]
     fn direct_frame() {
         let mut sim = Sim::default();

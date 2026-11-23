@@ -5,7 +5,7 @@ use foxden_smbus::i2c::SharedBus;
 
 use super::common::{Card, Driver, Gpu, Io, c, detect_each, device_id, row};
 
-/// PNY_XLR8_REVEL_Lovelace_GPU.js PNYGPUIDs.
+/// Supported PNY XLR8 Revel cards.
 #[rustfmt::skip]
 pub const PNY_REVEL: &[Card] = &[
     c("PNY GeForce RTX 4090 XLR8 GAMING REVEL EPIC-X RGB", 0x10DE, 0x2684, 0x196E, 0x13C7, 0x49),
@@ -62,7 +62,7 @@ mod tests {
     use super::super::fake::{Fake, ids, push, run, s, take};
     use super::*;
 
-    // PNY_XLR8_REVEL_Lovelace_GPU.js Initialize and sendColors.
+    // Start-up and colour frames.
     #[test]
     fn setup_and_frame() {
         let card = "PNY GeForce RTX 4090 XLR8 GAMING REVEL EPIC-X RGB";

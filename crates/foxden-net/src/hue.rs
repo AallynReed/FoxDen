@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! , with its hueplusplus REST calls.
+//! Philips Hue bridges over their local REST API.
 
 use std::thread;
 use std::time::{Duration, Instant};
@@ -11,7 +11,7 @@ use crate::net::{self, http};
 use crate::{Driver, Found, HueBridge, Light, local, parse, quote, text};
 
 const PORT: u16 = 80;
-/// hueplusplus Config: requestUsernameDelay and requestUsernameAttemptInterval.
+/// How long pairing waits for the link button, and how often it asks.
 const PAIR_FOR: Duration = Duration::from_secs(35);
 const PAIR_EVERY: Duration = Duration::from_secs(1);
 const DEVICE_TYPE: &str = "FoxDen#FoxDen";
@@ -100,7 +100,7 @@ fn linear(c: f32) -> f32 {
     }
 }
 
-/// hueplusplus `RGB::toXY(gamut)`: the colour point and the brightest channel.
+/// RGB to a CIE xy point inside `gamut`, and the brightest channel.
 fn to_xy(c: Color, gamut: &Gamut) -> (Xy, f32) {
     if c == Color::BLACK {
         return (
@@ -138,7 +138,7 @@ fn num(v: f32) -> String {
     }
 }
 
-/// What the bridge last reported, the way hueplusplus caches it to trim requests.
+/// What the bridge last reported, cached to trim requests.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct State {
     on: Option<bool>,
@@ -163,7 +163,7 @@ impl State {
     }
 }
 
-/// The request hueplusplus `setColorRGB(rgb, 0)` commits, after `commit()` and `trimRequest()`.
+/// The state change for one colour, without fields the bridge already reports.
 #[derive(Clone, Debug, PartialEq)]
 struct Request {
     bri: Option<i64>,
@@ -227,7 +227,7 @@ impl Request {
     }
 }
 
-/// hueplusplus `LightFactory::getColorType` and `Light::getColorGamut`.
+/// A light's colour gamut, from its reported capabilities or model.
 fn light_gamut(light: &Value) -> Gamut {
     let control = &light["capabilities"]["control"];
     let kind = match control["colorgamuttype"].as_str() {
@@ -271,7 +271,7 @@ fn light_gamut(light: &Value) -> Gamut {
     }
 }
 
-/// `hasColorControl()`: lights hueplusplus gives a colour strategy.
+/// Whether the light takes colours.
 fn has_color(light: &Value) -> bool {
     matches!(
         text(&light["type"]).to_lowercase().as_str(),
@@ -376,7 +376,7 @@ enum Pairing {
     Failed(String),
 }
 
-/// `Bridge::requestUsername`: error 101 means the link button has not been pressed yet.
+/// Pairing reply: error 101 means the link button has not been pressed yet.
 fn pairing(reply: &str) -> Pairing {
     let reply = parse(reply);
     let first = &reply[0];
@@ -423,7 +423,7 @@ pub fn pair(ip: &str) -> Result<HueBridge, String> {
 
 pub const SEARCH: &str = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 5\r\nST: ssdp:all\r\n\r\n";
 
-/// `UPnP::getDevices` entries whose SERVER names a Hue bridge: the host of each LOCATION.
+/// SSDP replies whose SERVER names a Hue bridge: the host of each LOCATION.
 fn bridges(replies: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for s in replies {
@@ -454,7 +454,7 @@ fn bridges(replies: &[String]) -> Vec<String> {
     out
 }
 
-/// `BridgeFinder::parseDescription`: the serial number, which is the bridge's MAC.
+/// The serial number in a bridge description, which is the bridge's MAC.
 fn description_mac(description: &str) -> Option<String> {
     if !description.contains("<modelName>Philips hue bridge") {
         return None;
@@ -464,7 +464,7 @@ fn description_mac(description: &str) -> Option<String> {
     Some(description[begin..end].to_string())
 }
 
-/// `BridgeFinder::findBridges` over SSDP. hueplusplus's cloud lookup is not used.
+/// Finds bridges over SSDP; no cloud lookup.
 pub fn discover() -> Vec<Found> {
     let Some(socket) = net::search_socket(0) else {
         return Vec::new();

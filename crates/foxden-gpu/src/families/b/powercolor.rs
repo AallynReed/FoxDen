@@ -63,7 +63,7 @@ pub fn detect_v1(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
         if io.read_block(addr, V1_REG_MAGIC, 3)? != MAGIC_V1 {
             return None;
         }
-        // GetMode: brightness and speed of a card already in Static carry over to Direct.
+        // Brightness and speed of a card already in Static carry over to Direct.
         let has_sync_mode = i.pci_device > AMD_NAVI10_DEV;
         let sync = reg_read(&io, addr, V1_REG_MB_SYNC + V1_READ_OFFSET, V1_DELAY).unwrap_or([0; 3]);
         let mut mode = (BRIGHTNESS_MAX, 0);
@@ -93,7 +93,7 @@ struct V1 {
 }
 
 impl Driver for V1 {
-    // SetMode{static, brightness, speed}: sync off, then the mode.
+    // Static mode with brightness and speed: sync off, then the mode.
     fn setup(&mut self, io: &Io, _: &[Color]) {
         reg_write(io, self.addr, V1_REG_MB_SYNC, [0; 3], V1_DELAY);
         let m = [MODE_STATIC, self.brightness, self.speed];
@@ -179,7 +179,7 @@ struct V2 {
 }
 
 impl Driver for V2 {
-    // SetMode{static, brightness, speed}: SetSync(false), then the mode.
+    // Static mode with brightness and speed: sync off, then the mode.
     fn setup(&mut self, io: &Io, _: &[Color]) {
         reg_write(io, self.addr, V2_WRITE_SYNC, [0; 3], V2_DELAY);
         let m = [MODE_STATIC, self.brightness, self.speed];
@@ -257,7 +257,7 @@ mod tests {
         );
     }
 
-    // GetMode on a Navi 2 card in motherboard sync skips the mode read; Static defaults apply.
+    // A Navi 2 card in motherboard sync skips the mode read; Static defaults apply.
     #[test]
     fn v1_sync_defaults() {
         let bus = Fake::new("AMD ADL", ids(POWERCOLOR_V1, V1_CARD))

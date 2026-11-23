@@ -1,5 +1,5 @@
 //! Raw USB, USB serial and screen-kit devices: Aqua Computer, PCDOCK, Lian Li, Cooler
-//! Master Atmos II Pixel and the Corsair XC7 ring. LCD image streaming is not ported.
+//! Master Atmos II Pixel and the Corsair XC7 ring. LCD image streaming is not supported.
 
 pub(super) mod aqua;
 mod atmos;

@@ -26,7 +26,7 @@ const V1_MODES: [u8; 20] = [
     0x13, 0x08, 0x1A, 0x07, 0x05, 0x06, 0x15, 0x1F, 0x16, 0x0D, 0x0B, 0x09, 0x0F, 0x11, 0x1D, 0x14,
     0x04, 0x02, 0x03, 0x01,
 ];
-/// R1 G1 B1 R2 G2 B2 R3 G3 B3, read by SetupZones.
+/// R1 G1 B1 R2 G2 B2 R3 G3 B3.
 const V1_COLOR_REGS: [u8; 9] = [0x30, 0x31, 0x32, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C];
 
 const V2_REG_UNKNOWN: u8 = 0x2E;
@@ -44,7 +44,7 @@ pub fn detect_v1(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
         for r in V1_COLOR_REGS {
             reg(r);
         }
-        // GetDeviceMode leaves Direct active when nothing matches, then the brightness is read into it.
+        // The mode read leaves Direct active when nothing matches, then the brightness is read into it.
         let mode = reg(REG_MODE);
         reg(REG_SPEED);
         let brightness = reg(REG_BRIGHTNESS) / BRIGHTNESS_MULTI;

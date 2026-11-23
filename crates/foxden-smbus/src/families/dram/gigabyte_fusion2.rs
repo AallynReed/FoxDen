@@ -28,7 +28,7 @@ fn test(io: &Io, a: u8) -> bool {
     io.read_word_data(a, 0xED) == 0x3282 && io.read_word_data(a, 0xEB) == 0x0800
 }
 
-/// DetectGigabyteRGBFusion2DRAMControllers for one bus.
+/// Finds RGB Fusion 2 DRAM on one bus.
 pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     if !is_dram_smbus(lock(bus).info()) || !test(&Io::new(bus), DEV) {
         return Vec::new();
@@ -107,7 +107,7 @@ mod tests {
         sim
     }
 
-    // DetectGigabyteRGBFusion2DRAMControllers: quick, E1=01, then words 0xED and 0xEB
+    // Detection: quick, E1=01, then words 0xED and 0xEB
     #[test]
     fn detection() {
         let found = detect(&bus(sim()));
@@ -142,7 +142,7 @@ mod tests {
         d[..len].to_vec()
     }
 
-    // SetLEDEffect(Direct) per LED: only the very first packet is 32 bytes
+    // Direct effect per LED: only the very first packet is 32 bytes
     #[test]
     fn direct_frames() {
         let mut found = detect(&bus(sim()));

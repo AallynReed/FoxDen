@@ -36,7 +36,7 @@ impl Polychrome {
         let _ = lock(&self.ctx.bus).write_block_data(ADDR, command, data);
     }
 
-    /// ASRockASRRGB / PolychromeV2 SetMode(0, Static, 0).
+    /// ASR RGB / Polychrome v2: zone 0 to Static, speed 0.
     fn set_mode(&self) {
         self.block(REG_MODE, &[MODE_STATIC]);
         self.ctx.ms(1);
@@ -46,7 +46,7 @@ impl Polychrome {
         }
     }
 
-    /// PolychromeV1 SetMode(zone, Static, 0).
+    /// Polychrome v1: `zone` to Static, speed 0.
     fn set_mode_v1(&self, zone: u8) {
         self.block(REG_SET_ALL_OR_COUNT, &[0x00]);
         self.ctx.ms(1);
@@ -221,7 +221,7 @@ mod tests {
         );
     }
 
-    // ASRockPolychromeV1: per zone SetMode(Static) then SetColorsAndSpeed; later frames colours only.
+    // Polychrome v1: per zone Static mode, then colours and speed; later frames colours only.
     #[test]
     fn polychrome_v1() {
         let (h, mut found) = board([2, 0], Some(vec![1, 0, 1, 0, 0, 30]));
@@ -264,7 +264,7 @@ mod tests {
         );
     }
 
-    // ASRockPolychromeV2: SetMode writes mode, an empty LED count block, then per-LED select + colour.
+    // Polychrome v2: setting the mode writes mode, an empty LED count block, then per-LED select + colour.
     #[test]
     fn polychrome_v2() {
         let (h, mut found) = board([3, 1], Some(vec![2, 0, 0, 0, 0, 12]));
@@ -295,7 +295,7 @@ mod tests {
         assert_eq!(h.take(), want);
     }
 
-    // GetFirmwareVersion: a read that is not two bytes is an unknown type, so nothing is added.
+    // A firmware version read that is not two bytes is an unknown type, so nothing is added.
     #[test]
     fn unknown_firmware() {
         let (h, found) = board([4, 0], None);
@@ -303,7 +303,7 @@ mod tests {
         assert_eq!(h.take(), ["quick 6a", "rblk 6a 00"]);
     }
 
-    // IF_MOBO_SMBUS + ASROCK_SUB_VEN gate.
+    // Motherboard bus and ASRock subvendor gate.
     #[test]
     fn other_vendors_are_not_probed() {
         let mut st = State::default();

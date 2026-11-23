@@ -30,7 +30,7 @@ enum Layout {
 }
 
 impl Layout {
-    /// LEDs per UI zone, from SetupZones.
+    /// LEDs per UI zone.
     fn zones(self) -> &'static [usize] {
         match self {
             Layout::Single => &[1],

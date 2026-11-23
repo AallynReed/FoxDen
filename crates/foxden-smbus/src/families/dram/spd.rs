@@ -151,7 +151,7 @@ fn detect(io: &Io, addr: u8, mem_type: u8) -> Option<u8> {
     Some(clamp(acc.memory_type(io)))
 }
 
-/// SPDWrapper: one occupied slot, its JEDEC id read once and cached.
+/// One occupied slot, its JEDEC id read once and cached.
 pub struct Slot {
     pub addr: u8,
     pub jedec: u16,
@@ -251,7 +251,7 @@ pub mod tests {
         ]
     }
 
-    // SPDDetector + SPDWrapper on two DDR4 Kingston modules in slots 1 and 3
+    // SPD detection on two DDR4 Kingston modules in slots 1 and 3
     #[test]
     fn ddr4_scan_reads_type_and_jedec() {
         let mut sim = Sim::default();

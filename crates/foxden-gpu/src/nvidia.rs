@@ -36,7 +36,7 @@ pub(crate) struct NvI2cInfoV3 {
     is_port_id_set: u32,
 }
 
-/// The NV_I2C_INFO_V3 i2c_smbus_xfer builds: port 1, default speed, 8-bit address.
+/// The NV_I2C_INFO_V3 request for every transfer: port 1, default speed, 8-bit address.
 fn request(addr: u8, reg: Option<&mut u8>, data: &mut [u8]) -> NvI2cInfoV3 {
     let (reg, reg_size) = match reg {
         Some(r) => (r as *mut u8, 1),
@@ -221,7 +221,7 @@ pub(crate) fn load() -> Option<(QueryInterface, Vec<Found>)> {
     }
 }
 
-/// One bus per NVIDIA GPU, as i2c_smbus_nvapi_detect registers them. Empty without the driver.
+/// One bus per NVIDIA GPU. Empty without the driver.
 pub fn buses() -> Vec<SharedBus> {
     let Some((query_interface, gpus)) = load() else {
         return Vec::new();
@@ -330,7 +330,7 @@ mod tests {
         )
     }
 
-    // i2c_smbus_nvapi::i2c_smbus_xfer: byte read ignores size, block read uses it
+    // Byte read ignores size, block read uses it
     #[test]
     fn returned_size() {
         let call: Call = Box::new(|_, r| {
@@ -353,7 +353,7 @@ mod tests {
         assert_eq!(VERSION, 0x0003_0040);
     }
 
-    // i2c_smbus_nvapi::i2c_smbus_xfer, I2C_SMBUS_BYTE_DATA read and write
+    // I2C_SMBUS_BYTE_DATA read and write
     #[test]
     fn byte_data() {
         let (b, log) = bus(vec![0x89], 0);
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(log[1], seen(true, 0x54, Some(0x04), vec![0xFF]));
     }
 
-    // i2c_smbus_nvapi::i2c_smbus_xfer, I2C_SMBUS_BYTE read and write
+    // I2C_SMBUS_BYTE read and write
     #[test]
     fn byte() {
         let (b, log) = bus(vec![0xAB], 0);
@@ -375,7 +375,7 @@ mod tests {
         assert_eq!(log[1], seen(true, 0x8E, None, vec![0x40]));
     }
 
-    // i2c_smbus_nvapi::i2c_smbus_xfer, I2C_SMBUS_WORD_DATA read and write
+    // I2C_SMBUS_WORD_DATA read and write
     #[test]
     fn word() {
         let (b, log) = bus(vec![0x34, 0x12], 0);
@@ -386,7 +386,7 @@ mod tests {
         assert_eq!(log[1], seen(true, 0x52, Some(0x10), vec![0xEF, 0xBE]));
     }
 
-    // i2c_smbus_nvapi::i2c_smbus_xfer, I2C_SMBUS_BLOCK_DATA and I2C_SMBUS_I2C_BLOCK_DATA
+    // I2C_SMBUS_BLOCK_DATA and I2C_SMBUS_I2C_BLOCK_DATA
     #[test]
     fn blocks() {
         let (b, log) = bus(vec![1, 2, 3], 0);
@@ -401,7 +401,7 @@ mod tests {
         assert_eq!(log[3], seen(false, 0x52, Some(0x81), vec![0, 0, 0]));
     }
 
-    // i2c_smbus_nvapi::i2c_xfer: no register, no block cap, the read keeps the size returned
+    // Raw I2C transfer: no register, no block cap, the read keeps the size returned
     #[test]
     fn raw_transfer() {
         let (b, log) = bus(vec![0xAB, 0x11], 0);
@@ -412,7 +412,7 @@ mod tests {
         assert_eq!(log[1], seen(false, 0xE2, None, vec![0; 4]));
     }
 
-    // i2c_smbus_nvapi::i2c_smbus_xfer, I2C_SMBUS_QUICK and failed reads
+    // I2C_SMBUS_QUICK and failed reads
     #[test]
     fn errors() {
         let (b, log) = bus(vec![], -5);
@@ -422,7 +422,7 @@ mod tests {
         assert!(b.write_byte(0x29, 0).is_err());
     }
 
-    // i2c_smbus_nvapi_detect, NvAPI_GPU_GetPCIIdentifiers split
+    // Bus detection: the NvAPI_GPU_GetPCIIdentifiers split
     #[test]
     fn ids() {
         assert_eq!(
