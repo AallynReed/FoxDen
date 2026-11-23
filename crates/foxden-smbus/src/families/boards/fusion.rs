@@ -24,7 +24,7 @@ fn wbd(bus: &dyn SmBus, reg: u8, val: u8) {
 }
 
 impl Fusion {
-    /// SetMode(RGB_FUSION_MODE_STATIC, 0).
+    /// Static mode, speed 0.
     fn set_mode(&self) {
         let bus = lock(&self.ctx.bus);
         wbd(&**bus, REG_BANK, 0);

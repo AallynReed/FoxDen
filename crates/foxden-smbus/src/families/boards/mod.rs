@@ -52,13 +52,13 @@ pub(crate) const ASROCK_SUB_VEN: u16 = 0x1849;
 pub(crate) const EVGA_SUB_VEN: u16 = 0x3842;
 pub(crate) const GIGABYTE_SUB_VEN: u16 = 0x1458;
 
-/// IF_DRAM_SMBUS.
+/// Whether DRAM can sit on this bus.
 fn dram_bus(info: &BusInfo) -> bool {
     (info.pci_vendor == AMD_VEN && info.pci_device == AMD_FCH_SMBUS_DEV)
         || (info.pci_vendor == INTEL_VEN && INTEL_SMBUS_DEVS.contains(&info.pci_device))
 }
 
-/// IF_MOBO_SMBUS.
+/// Whether motherboard lighting can sit on this bus.
 fn mobo_bus(info: &BusInfo) -> bool {
     info.pci_vendor == 0
         || (info.pci_vendor == 0xFFFF && info.pci_device == 0xFFFF)
@@ -146,7 +146,7 @@ impl<D: Driver> Backend for Board<D> {
 mod tests {
     use super::*;
 
-    // IF_DRAM_SMBUS and IF_MOBO_SMBUS.
+    // DRAM and motherboard bus gates.
     #[test]
     fn pci_gates_match_the_macros() {
         let bus = |pci_vendor, pci_device| BusInfo {

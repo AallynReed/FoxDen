@@ -17,7 +17,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
     })
 }
 
-/// SetDirect(color, false) packet with its checksum.
+/// Direct colour packet (not saved) with its checksum.
 fn direct_packet(c: Color) -> [u8; COLOR_PACKET_LENGTH] {
     let mut p = [0x08, 0x00, 0x20, 0x10, c.0, c.1, c.2, 0];
     let sum = p[..COLOR_PACKET_LENGTH - 1]

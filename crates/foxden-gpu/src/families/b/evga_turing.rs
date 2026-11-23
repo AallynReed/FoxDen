@@ -66,7 +66,7 @@ impl V2 {
 }
 
 impl Driver for V2 {
-    // SetMode(EVGA_GPU_V2_RGB_MODE_STATIC, colors[0], 0, speed, brightness).
+    // Static mode with colors[0], speed and brightness.
     fn setup(&mut self, io: &Io, colors: &[Color]) {
         self.enable_write(io, true);
         io.write(self.addr, REG_MODE, MODE_STATIC);
@@ -74,7 +74,7 @@ impl Driver for V2 {
         self.enable_write(io, false);
     }
 
-    // SetColor(colors[0], 0, brightness).
+    // colors[0] at the current brightness.
     fn update(&mut self, io: &Io, colors: &[Color], _: Option<&[Color]>) {
         self.enable_write(io, true);
         self.send_color(io, REG_COLOR_A_RED, colors[0]);

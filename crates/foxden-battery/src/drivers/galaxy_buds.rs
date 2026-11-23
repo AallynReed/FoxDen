@@ -5,6 +5,7 @@ use std::time::Duration;
 use windows_sys::core::GUID;
 
 use super::bt::{nodes, rfcomm::Link, split_detail};
+use crate::util::crc16_ccitt;
 use crate::{Battery, Ctx, Kind};
 
 /// Buds2 and later, then Buds+ / Live / Pro (standard SPP), then the original Buds.
@@ -31,21 +32,6 @@ struct Levels {
     left: Option<u8>,
     right: Option<u8>,
     case: Option<u8>,
-}
-
-/// CRC-16/XMODEM.
-fn crc16(data: &[u8]) -> u16 {
-    data.iter().fold(0u16, |mut crc, &b| {
-        crc ^= (b as u16) << 8;
-        for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 {
-                (crc << 1) ^ 0x1021
-            } else {
-                crc << 1
-            };
-        }
-        crc
-    })
 }
 
 fn level(v: u8) -> Option<u8> {
@@ -78,7 +64,7 @@ fn find_status(data: &[u8], legacy: bool) -> Option<Levels> {
         }
         let body = &data[i + 3..i + 3 + len];
         let (msg, crc) = body.split_at(len - 2);
-        if crc16(msg) != u16::from_le_bytes([crc[0], crc[1]]) {
+        if crc16_ccitt(0, msg) != u16::from_le_bytes([crc[0], crc[1]]) {
             i += 1;
             continue;
         }
@@ -149,7 +135,7 @@ mod tests {
 
     fn frame(legacy: bool, msg: &[u8]) -> Vec<u8> {
         let len = msg.len() + 2;
-        let crc = crc16(msg);
+        let crc = crc16_ccitt(0, msg);
         let mut f = if legacy {
             vec![0xFE, 0x00, len as u8]
         } else {
@@ -202,6 +188,6 @@ mod tests {
                 case: None
             })
         );
-        assert_eq!(crc16(b"123456789"), 0x31C3);
+        assert_eq!(crc16_ccitt(0, b"123456789"), 0x31C3);
     }
 }

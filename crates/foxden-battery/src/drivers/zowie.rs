@@ -162,7 +162,6 @@ pub fn poll_zowie(ctx: &mut Ctx) {
             ..Default::default()
         };
         if s.mv != 0 {
-            b.millivolts = s.mv;
             b.percent = Some(s.reported.unwrap_or_else(|| percent(s.mv)));
             if !ec {
                 b.charging = cable || trends.entry(pid).or_default().update(s.mv);

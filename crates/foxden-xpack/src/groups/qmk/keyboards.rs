@@ -57,7 +57,7 @@ fn ask(io: &mut dyn Io, cmd: u8) -> Option<Vec<u8>> {
     reply(&r, cmd).map(<[u8]>::to_vec)
 }
 
-/// Initialize's queries; refuses firmware without the SignalRGB commands. Returns the layout id byte.
+/// Start-up queries; refuses firmware without the SignalRGB commands. Returns the layout id byte.
 fn handshake(io: &mut dyn Io) -> Result<u8, String> {
     drain(io, REPORT);
     let fw = ask(io, FIRMWARE_TYPE).ok_or("no SignalRGB QMK firmware reply")?;

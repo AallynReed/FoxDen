@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! , with libe131's packet layout.
+//! E1.31 (sACN) output.
 
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::Duration;
@@ -52,7 +52,7 @@ fn universes(d: &E131Device) -> u32 {
     (((d.num_leds * 3 + d.start_channel) as f32) / d.universe_size as f32).ceil() as u32
 }
 
-/// `DetectE131Controllers`: devices on the same address whose universes overlap share one controller.
+/// Devices on the same address whose universes overlap share one controller.
 fn group(devices: &[E131Device]) -> Vec<Vec<E131Device>> {
     let end = |d: &E131Device| {
         d.start_universe + (d.start_channel + 3 * d.num_leds).saturating_sub(2) / 512

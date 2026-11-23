@@ -159,7 +159,7 @@ pub fn model_of(pid: u16) -> Option<&'static Model> {
     MODELS.iter().find(|m| m.key == key)
 }
 
-/// `DetectProtocolVersion`, the buffer size, and the device to address (a dongle's child).
+/// The protocol version, the buffer size, and the device to address (a dongle's child).
 fn identify(io: &mut dyn Io, usb_pid: u16) -> Result<(Link, &'static Model, u16), String> {
     let mut found = None;
     for v2 in [false, true] {

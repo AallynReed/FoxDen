@@ -31,6 +31,30 @@ pub fn interpolate(mv: i32, table: &[(i32, i32)]) -> u8 {
     clamp100(table.last().unwrap().1)
 }
 
+/// CRC-16 with polynomial 0x1021, MSB first: `init` 0 is XMODEM, 0xFFFF is CCITT-FALSE.
+pub fn crc16_ccitt(init: u16, data: &[u8]) -> u16 {
+    data.iter().fold(init, |mut crc, &b| {
+        crc ^= (b as u16) << 8;
+        for _ in 0..8 {
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
+        }
+        crc
+    })
+}
+
+/// Wrapping byte sum.
+pub fn sum8(b: &[u8]) -> u8 {
+    b.iter().fold(0u8, |a, &v| a.wrapping_add(v))
+}
+
+pub fn xor8(b: &[u8]) -> u8 {
+    b.iter().fold(0, |a, v| a ^ v)
+}
+
 pub fn hex4(v: u16) -> String {
     format!("{v:04X}")
 }

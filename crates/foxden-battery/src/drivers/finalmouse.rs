@@ -159,7 +159,6 @@ pub fn poll_finalmouse(ctx: &mut Ctx) {
                 // no level but no link either: the mouse sleeps or is off
                 asleep: percent.is_none(),
                 charging: st.charging == Some(true),
-                millivolts: st.mv,
                 grace_secs: 1800,
                 ..Default::default()
             };

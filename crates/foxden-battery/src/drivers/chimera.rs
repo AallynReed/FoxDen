@@ -64,7 +64,6 @@ pub fn poll_chimera(ctx: &mut Ctx) {
             kind: Kind::Mouse,
             percent: Some(l.pct),
             charging: l.charging,
-            millivolts: l.mv,
             grace_secs: 1800,
             ..Default::default()
         };

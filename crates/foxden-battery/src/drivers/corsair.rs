@@ -135,7 +135,7 @@ fn poll_compx(ctx: &mut Ctx, pid: u16, name: &str) {
             ..Battery::default()
         };
         match battery {
-            Some(r) => (b.percent, b.charging, b.millivolts) = parse_compx_battery(&r),
+            Some(r) => (b.percent, b.charging, _) = parse_compx_battery(&r),
             None => b.asleep = true,
         }
         ctx.add(b, VID, pid);

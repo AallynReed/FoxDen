@@ -187,7 +187,6 @@ pub fn poll_kysona(ctx: &mut Ctx) {
                     kind,
                     percent: state.percent,
                     charging: state.charging,
-                    millivolts: state.mv,
                     asleep: state.asleep,
                     grace_secs: 1800,
                     ..Default::default()

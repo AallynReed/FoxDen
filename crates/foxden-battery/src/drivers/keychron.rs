@@ -392,7 +392,6 @@ fn link_keyboard(ctx: &mut Ctx, vid: u16, pid: u16) {
             via: via.into(),
             kind: Kind::Keyboard,
             percent: Some(p.percent),
-            millivolts: p.millivolts,
             charging: p.charging,
             full: p.full,
             ..Default::default()

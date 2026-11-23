@@ -1460,7 +1460,6 @@ name = "foxden-vcable"
 version = "0.17.0"
 dependencies = [
  "windows 0.62.2",
- "windows-core 0.62.2",
 ]
 
 [[package]]

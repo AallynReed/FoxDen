@@ -33,7 +33,7 @@ git tag -d v0.2.0
 
 ## Updates
 
-The app checks `releases/latest/download/latest.json` a minute after start and every six hours,
+The app checks `releases/latest/download/latest.json` a minute after start and every hour,
 and installs signed updates by itself. The signing key is the `TAURI_SIGNING_PRIVATE_KEY`
 secret; the public key is in `src-tauri/tauri.conf.json`. Losing the private key means no
 further update can reach installed copies.

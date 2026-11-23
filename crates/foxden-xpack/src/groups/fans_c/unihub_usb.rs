@@ -502,7 +502,7 @@ pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
 mod tests {
     use super::*;
 
-    // Lian_Li_Uni_Fans_SL_1.2.js: setFanPercent / setFanRPM.
+    // SL 1.2: fan percent and fan rpm.
     #[test]
     fn rpm_targets() {
         assert_eq!(rpm_bytes(1.0, 0), 1900u16.to_le_bytes());

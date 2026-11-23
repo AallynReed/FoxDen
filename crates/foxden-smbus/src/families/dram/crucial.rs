@@ -121,7 +121,7 @@ impl Proto for Crucial {
         }
     }
 
-    /// SendDirectColors: red, green and blue channels as three 8-byte blocks.
+    /// Direct colours: red, green and blue channels as three 8-byte blocks.
     fn frame(&mut self, io: &Io, zones: &[Vec<Color>], _zone: usize) {
         let z = &zones[0];
         let reds: Vec<u8> = z.iter().map(|c| c.0).collect();

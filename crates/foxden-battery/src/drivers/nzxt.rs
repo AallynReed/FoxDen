@@ -81,9 +81,6 @@ pub fn poll_nzxt(ctx: &mut Ctx) {
         Some((_, t)) => {
             b.percent = Some(t.percent);
             b.charging = t.charging;
-            if (3000..=4500).contains(&t.mv) {
-                b.millivolts = t.mv;
-            }
         }
         // Mouse off, or the vendor app holds the dongle.
         None => b.asleep = true,

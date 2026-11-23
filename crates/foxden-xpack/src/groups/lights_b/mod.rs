@@ -21,7 +21,6 @@ mod vertagear;
 
 use crate::hid::{Driver, Proto, open_io};
 use foxden_core::{Backend, Color, Device, DeviceKind};
-use foxden_fan::FanBackend;
 use foxden_hid::registry::{Detector, Info, Open};
 use hidapi::HidApi;
 
@@ -47,22 +46,6 @@ pub fn detectors() -> Vec<&'static Detector> {
     .iter()
     .flat_map(|d| d.iter())
     .collect()
-}
-
-pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
-    Vec::new()
-}
-
-pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
-    Vec::new()
-}
-
-pub fn probe_other() -> Vec<Box<dyn Backend>> {
-    Vec::new()
-}
-
-pub fn fan_backends(_api: &HidApi) -> Vec<Box<dyn FanBackend>> {
-    Vec::new()
 }
 
 const KEYBOARD: [f32; 4] = [0.10, 0.40, 0.60, 0.25];

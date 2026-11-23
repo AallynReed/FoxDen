@@ -45,7 +45,7 @@ pub fn detect(bus: &SharedBus) -> Vec<Box<dyn Backend>> {
         match addr {
             0x32 | 0x23 => Some(Gpu::boxed(bus, dev, V1 { addr })),
             _ => {
-                // GetDeviceMode, GetBrightness, GetSpeed: a card already in Direct keeps them.
+                // Mode, brightness and speed: a card already in Direct keeps them.
                 let mode = io.read(addr, V2_MODE) as u8;
                 let sync = io.read(addr, V2_SYNC) as u8;
                 let brightness = io.read(addr, V2_BRIGHTNESS) as u8;
@@ -78,7 +78,7 @@ struct V1 {
 }
 
 impl Driver for V1 {
-    // SetMode(1): static.
+    // Mode 1: static.
     fn setup(&mut self, io: &Io, _: &[Color]) {
         io.write(self.addr, V1_MODE_1, 0x00);
         io.write(self.addr, V1_MODE_2, 0x01);

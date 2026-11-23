@@ -33,24 +33,14 @@ pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
     v.extend(fans_a::fan_ids());
     v.extend(fans_b::fan_ids());
     v.extend(fans_c::fan_ids());
-    v.extend(lights_a::fan_ids());
-    v.extend(lights_b::fan_ids());
-    v.extend(lights_c::fan_ids());
     v.extend(usb_serial::fan_ids());
-    v.extend(qmk::fan_ids());
     v
 }
 
 pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
     let mut v = Vec::new();
-    v.extend(fans_a::other_ids());
-    v.extend(fans_b::other_ids());
     v.extend(fans_c::other_ids());
-    v.extend(lights_a::other_ids());
-    v.extend(lights_b::other_ids());
-    v.extend(lights_c::other_ids());
     v.extend(usb_serial::other_ids());
-    v.extend(qmk::other_ids());
     v
 }
 
@@ -65,13 +55,7 @@ pub fn probe_other(pick: Pick) -> Vec<Box<dyn Backend>> {
     if matches!(pick, Pick::Only(_)) {
         return v;
     }
-    v.extend(fans_a::probe_other());
-    v.extend(fans_b::probe_other());
-    v.extend(lights_a::probe_other());
-    v.extend(lights_b::probe_other());
-    v.extend(lights_c::probe_other());
     v.extend(usb_serial::probe_other());
-    v.extend(qmk::probe_other());
     v
 }
 
@@ -80,10 +64,7 @@ pub fn fan_backends(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
     v.extend(fans_a::fan_backends(api));
     v.extend(fans_b::fan_backends(api));
     v.extend(fans_c::fan_backends(api));
-    v.extend(lights_a::fan_backends(api));
-    v.extend(lights_b::fan_backends(api));
-    v.extend(lights_c::fan_backends(api));
+    v.extend(lights_a::misc_a::fan_backends(api));
     v.extend(usb_serial::fan_backends(api));
-    v.extend(qmk::fan_backends(api));
     v
 }

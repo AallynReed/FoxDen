@@ -4,7 +4,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use crate::hid::{Coll, Dev};
-use crate::util::hex4;
+use crate::util::{hex4, xor8};
 use crate::{Battery, Ctx, Kind};
 
 const VID: u16 = 0x3837;
@@ -27,15 +27,11 @@ const DATA: usize = 8;
 /// Idle keyboards are asked this rarely so polling doesn't keep them awake.
 const KEYBOARD_EVERY: Duration = Duration::from_secs(180);
 
-fn xor(b: &[u8]) -> u8 {
-    b.iter().fold(0, |a, x| a ^ x)
-}
-
 fn request(len: usize) -> Vec<u8> {
     let mut req = vec![0u8; len.max(DATA + 1)];
     let [lo, hi] = DEVICE_INFO.to_le_bytes();
     req[..6].copy_from_slice(&[REPORT, 0x01, 0x01, 0x00, lo, hi]);
-    req[DATA] = xor(&req[2..DATA]);
+    req[DATA] = xor8(&req[2..DATA]);
     req
 }
 
@@ -59,7 +55,7 @@ fn parse(r: &[u8], keyboard: bool) -> Option<Info> {
         return (!keyboard || (len == 1 && r[DATA] == 0xFF)).then_some(Info::Unlinked);
     }
     let d = &r[DATA..DATA + len];
-    if r[DATA + len] != xor(&r[2..DATA + len]) || u16::from_le_bytes([d[0], d[1]]) != VID {
+    if r[DATA + len] != xor8(&r[2..DATA + len]) || u16::from_le_bytes([d[0], d[1]]) != VID {
         return None;
     }
     if keyboard && (len < 20 || d[2..4] != [0x23, 0x20]) {
@@ -193,7 +189,7 @@ mod tests {
     fn frame(data: &[u8]) -> Vec<u8> {
         let mut r = vec![REPORT, 0x01, 0x01, data.len() as u8, 0x00, 0x09, 0x00, 0x00];
         r.extend_from_slice(data);
-        r.push(xor(&r[2..]));
+        r.push(xor8(&r[2..]));
         r.resize(64, 0);
         r
     }

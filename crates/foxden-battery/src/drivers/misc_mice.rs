@@ -28,10 +28,6 @@ fn via(cable: bool) -> &'static str {
     }
 }
 
-fn sum(b: &[u8]) -> u8 {
-    b.iter().fold(0u8, |a, &v| a.wrapping_add(v))
-}
-
 /// Bit 7 charging, low 7 bits percent.
 fn level_byte(b: u8) -> (u8, bool) {
     (b & 0x7F, b & 0x80 != 0)

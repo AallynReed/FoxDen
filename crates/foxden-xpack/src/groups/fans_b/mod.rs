@@ -13,7 +13,6 @@ mod platinum;
 mod thermaltake;
 mod util;
 
-use foxden_core::Backend;
 use foxden_fan::FanBackend;
 use foxden_hid::registry::{Detector, Info};
 use hidapi::HidApi;
@@ -58,14 +57,6 @@ pub fn fan_ids() -> Vec<(u16, u16, &'static str)> {
             .map(|&(pid, name)| (cm_psu::VID, pid, name)),
     );
     v
-}
-
-pub fn other_ids() -> Vec<(u16, u16, &'static str)> {
-    Vec::new()
-}
-
-pub fn probe_other() -> Vec<Box<dyn Backend>> {
-    Vec::new()
 }
 
 type Make = fn(&HidApi, &Info) -> Option<Box<dyn FanBackend>>;

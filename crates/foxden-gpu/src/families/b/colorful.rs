@@ -128,7 +128,7 @@ mod tests {
         expect.push_str(" 30 03");
         assert_eq!(log, vec![expect]);
     }
-    // Colorful_Ampere_GPU.js: the short packet with the Vulcan model bytes.
+    // Ampere cards: the short packet with the Vulcan model bytes.
     #[test]
     fn direct_vulcan_short() {
         let bus = Fake::new("NV", ids(COLORFUL, "Colorful 3080 iGame Vulcan"))

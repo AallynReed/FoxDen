@@ -303,7 +303,7 @@ pub fn fans(api: &HidApi) -> Vec<Box<dyn FanBackend>> {
 mod tests {
     use super::*;
 
-    // LianLi_SL_Infinity.js: setFanMode / setFanPercent / PollFans.
+    // SL Infinity: fan mode, fan percent and fan polling.
     #[test]
     fn infinity_packets() {
         assert_eq!(inf_mode(0, false), [0xE0, 0x10, 0x62, 0x10]);
@@ -317,7 +317,7 @@ mod tests {
         assert_eq!(r[3], None);
     }
 
-    // Lian_Li_Uni_Fans_SL_V2.js: softwareDict, moboDict, setFanPercent.
+    // SL V2: software and motherboard modes, fan percent.
     #[test]
     fn v2_packets() {
         let soft: Vec<u8> = (0..4).map(|c| v2_mode(c, false)[3]).collect();
