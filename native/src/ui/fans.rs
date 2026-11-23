@@ -1081,47 +1081,73 @@ fn sample(st: &mut St) {
     }
 }
 
-/// A sparkline in a 150 by 32 box, scaled to its own range but never narrower than `span`.
-fn spark(h: Option<&VecDeque<Option<f32>>>, span: f32) -> (String, String) {
-    let Some(h) = h else {
-        return Default::default();
+const SPARK_W: u32 = 300;
+const SPARK_H: u32 = 64;
+
+/// A sparkline as an image: Slint paths left stray pixels on partial repaints.
+fn spark(h: Option<&VecDeque<Option<f32>>>, span: f32, ink: [u8; 3]) -> slint::Image {
+    use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
+    let light = super::light_theme();
+    let bg = if light { [0xf3, 0xf3, 0xf5] } else { [0x1f, 0x20, 0x23] };
+    let Some(mut pm) = Pixmap::new(SPARK_W, SPARK_H) else {
+        return slint::Image::default();
     };
-    let got: Vec<f32> = h.iter().flatten().copied().collect();
-    if got.len() < 2 {
-        return Default::default();
-    }
-    let mut lo = got.iter().copied().fold(f32::INFINITY, f32::min);
-    let mut hi = got.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    if hi - lo < span {
-        let mid = (hi + lo) / 2.0;
-        lo = mid - span / 2.0;
-        hi = mid + span / 2.0;
-    }
-    // Stretched over the full width until five minutes have been seen.
-    let step = HISTORY as f32 / (h.len() - 1) as f32;
-    let (mut line, mut area) = (String::new(), String::new());
-    let mut run: Vec<(f32, f32)> = Vec::new();
-    let mut flush = |run: &mut Vec<(f32, f32)>| {
-        if run.len() > 1 {
-            let d: String = run
-                .iter()
-                .enumerate()
-                .map(|(i, p)| format!("{} {:.1} {:.1} ", if i == 0 { "M" } else { "L" }, p.0, p.1))
-                .collect();
-            let (first, last) = (run[0].0, run[run.len() - 1].0);
-            area += &format!("{d}L {last:.1} 32 L {first:.1} 32 Z ");
-            line += &d;
+    pm.fill(Color::from_rgba8(bg[0], bg[1], bg[2], 255));
+    let got: Vec<f32> = h.into_iter().flatten().flatten().copied().collect();
+    if let (Some(h), true) = (h, got.len() >= 2) {
+        let mut lo = got.iter().copied().fold(f32::INFINITY, f32::min);
+        let mut hi = got.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        if hi - lo < span {
+            let mid = (hi + lo) / 2.0;
+            lo = mid - span / 2.0;
+            hi = mid + span / 2.0;
         }
-        run.clear();
-    };
-    for (i, v) in h.iter().enumerate() {
-        match v {
-            Some(v) => run.push((i as f32 * step, 30.0 - (v - lo) / (hi - lo) * 26.0)),
-            None => flush(&mut run),
+        let (sx, sy) = (SPARK_W as f32 / HISTORY as f32, SPARK_H as f32 / 32.0);
+        let step = HISTORY as f32 / (h.len() - 1).max(1) as f32;
+        let mix = |a: u8, b: u8, f: f32| (a as f32 * f + b as f32 * (1.0 - f)).round() as u8;
+        let mut fill = Paint::default();
+        fill.set_color_rgba8(mix(ink[0], bg[0], 0.22), mix(ink[1], bg[1], 0.22), mix(ink[2], bg[2], 0.22), 255);
+        fill.anti_alias = true;
+        let mut pen = Paint::default();
+        pen.set_color_rgba8(ink[0], ink[1], ink[2], 255);
+        pen.anti_alias = true;
+        let stroke = Stroke { width: 3.0, line_join: tiny_skia::LineJoin::Round, ..Stroke::default() };
+        let mut run: Vec<(f32, f32)> = Vec::new();
+        let draw = |run: &mut Vec<(f32, f32)>, pm: &mut Pixmap| {
+            if run.len() > 1 {
+                let mut area = PathBuilder::new();
+                let mut line = PathBuilder::new();
+                for (i, &(x, y)) in run.iter().enumerate() {
+                    if i == 0 {
+                        area.move_to(x, y);
+                        line.move_to(x, y);
+                    } else {
+                        area.line_to(x, y);
+                        line.line_to(x, y);
+                    }
+                }
+                area.line_to(run[run.len() - 1].0, SPARK_H as f32);
+                area.line_to(run[0].0, SPARK_H as f32);
+                area.close();
+                if let Some(p) = area.finish() {
+                    pm.fill_path(&p, &fill, FillRule::Winding, Transform::identity(), None);
+                }
+                if let Some(p) = line.finish() {
+                    pm.stroke_path(&p, &pen, &stroke, Transform::identity(), None);
+                }
+            }
+            run.clear();
+        };
+        for (i, v) in h.iter().enumerate() {
+            match v {
+                Some(v) => run.push((i as f32 * step * sx, (30.0 - (v - lo) / (hi - lo) * 26.0) * sy)),
+                None => draw(&mut run, &mut pm),
+            }
         }
+        draw(&mut run, &mut pm);
     }
-    flush(&mut run);
-    (line, area)
+    let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(pm.data(), SPARK_W, SPARK_H);
+    slint::Image::from_rgba8_premultiplied(buf)
 }
 
 struct Plot {
@@ -1423,7 +1449,8 @@ fn render_sensors(st: &St, w: &AppWindow, inner: f32) {
             });
         }
         for (i, s) in sensors.iter().enumerate() {
-            let (line, area) = spark(st.history.get(&format!("s:{}", s.id)), 4.0);
+            let accent = if super::light_theme() { [0xa8, 0x4a, 0x00] } else { [0xe8, 0x82, 0x2e] };
+            let graph = spark(st.history.get(&format!("s:{}", s.id)), 4.0, accent);
             // The group heading already says what kind of reading it is.
             let short = s
                 .name
@@ -1438,8 +1465,7 @@ fn render_sensors(st: &St, w: &AppWindow, inner: f32) {
                 name: tr(st, short).into(),
                 value: reading(st, s.value, s.kind).into(),
                 none: s.value.is_none(),
-                line: line.into(),
-                area: area.into(),
+                graph,
             });
         }
         x += gw + 16.0;
@@ -1462,7 +1488,8 @@ fn render_fans(st: &mut St, w: &AppWindow, inner: f32) {
         .map(|(id, name, now)| {
             let rule = st.draft.rules.iter().find(|r| r.fan == id);
             let was = st.saved.rules.iter().find(|r| r.fan == id);
-            let (line, area) = spark(st.history.get(&format!("f:{id}")), 200.0);
+            let blue = if super::light_theme() { [0x1f, 0x6f, 0xb2] } else { [0x5a, 0xa9, 0xe6] };
+            let graph = spark(st.history.get(&format!("f:{id}")), 200.0, blue);
             let duty = now.as_ref().and_then(|n| n.duty);
             let warn = rule.is_some_and(|r| r.min_duty > r.max_duty);
             FanCard {
@@ -1499,8 +1526,7 @@ fn render_fans(st: &mut St, w: &AppWindow, inner: f32) {
                 min: trim(rule.map_or(0.0, |r| r.min_duty) * 100.0).into(),
                 max: trim(rule.map_or(1.0, |r| r.max_duty) * 100.0).into(),
                 ramp: trim(rule.map_or(0.2, |r| r.ramp) * 100.0).into(),
-                line: line.into(),
-                area: area.into(),
+                graph,
             }
         })
         .collect();

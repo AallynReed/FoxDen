@@ -8,8 +8,7 @@ export struct FanTile {
     name: string,
     value: string,
     none: bool,
-    line: string,
-    area: string,
+    graph: image,
 }
 
 export struct FanCurveItem {
@@ -62,8 +61,7 @@ export struct FanCard {
     min: string,
     max: string,
     ramp: string,
-    line: string,
-    area: string,
+    graph: image,
 }
 
 export struct FanRow {
@@ -359,34 +357,9 @@ component Frame inherits Rectangle {
     }
 }
 
-component Spark inherits Rectangle {
-    in property <string> line;
-    in property <string> area;
-    in property <color> ink;
+component Spark inherits Image {
     height: 32px;
-    background: Theme.panel;
-    Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: 150;
-        viewbox-height: 32;
-        fit: fill;
-        commands: root.area != "" ? root.area : "M 0 0";
-        fill: root.ink.mix(Theme.panel, 0.22);
-        visible: root.area != "";
-    }
-    Path {
-        width: parent.width;
-        height: parent.height;
-        viewbox-width: 150;
-        viewbox-height: 32;
-        fit: fill;
-        commands: root.line != "" ? root.line : "M 0 0";
-        stroke: root.ink;
-        stroke-width: 1.5px;
-        stroke-line-join: round;
-        visible: root.line != "";
-    }
+    image-fit: fill;
 }
 
 component SensorsBox inherits Frame {
@@ -431,9 +404,7 @@ component SensorsBox inherits Frame {
                     x: 1px;
                     y: parent.height - 33px;
                     width: parent.width - 2px;
-                    line: t.line;
-                    area: t.area;
-                    ink: Theme.accent;
+                    source: t.graph;
                 }
                 Cut { x: parent.width - self.size; under: Theme.panel; }
             }
@@ -487,9 +458,7 @@ component Card inherits Rectangle {
             }
         }
         Spark {
-            line: root.c.line;
-            area: root.c.area;
-            ink: Theme.light ? #1f6fb2 : #5aa9e6;
+            source: root.c.graph;
         }
         Rectangle {
             height: 4px;
