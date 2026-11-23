@@ -668,6 +668,8 @@ impl Proto for Gen185 {
 struct Board185 {
     inner: Gen185,
     settings: [u8; 185],
+    /// The last effect report, until a frame takes direct mode back.
+    last: Option<[u8; 185]>,
 }
 
 impl Board185 {
@@ -676,12 +678,17 @@ impl Board185 {
         let n = read.len().min(185);
         settings[..n].copy_from_slice(&read[..n]);
         settings[184] = 0;
-        Board185 { inner, settings }
+        Board185 {
+            inner,
+            settings,
+            last: None,
+        }
     }
 }
 
 impl Proto for Board185 {
     fn frame(&mut self, colors: &[Color]) -> Vec<Op> {
+        self.last = None;
         self.inner.frame(colors)
     }
 
@@ -698,11 +705,12 @@ impl Proto for Board185 {
         let config = self.inner.config;
         let zones: Vec<u8> = self.inner.leds.iter().map(|z| z.0).collect();
         let new = effect_185(config.onboard, config.mixed(), &zones, &self.settings, s)?;
-        let now = if self.inner.enabled {
-            config.enable(self.inner.sync)
-        } else {
-            self.settings
+        let now = match self.last {
+            Some(last) => last,
+            None if self.inner.enabled => config.enable(self.inner.sync),
+            None => self.settings,
         };
+        self.last = Some(new);
         Ok(vec![Op::Feature(now.to_vec()), Op::Feature(new.to_vec())])
     }
 }
@@ -2641,10 +2649,15 @@ mod tests {
         read.push(0x01);
         let mut b = Board185::new(inner, &read);
         assert_eq!(b.settings[..], defaults_185()[..]);
-        let colors = vec![Color(1, 2, 3); 87];
-        let first = b.frame(&colors);
+        assert!(b.hardware().is_some());
         let mut s = HardwareSetting::new("breathing");
         s.colors = vec![Color(4, 5, 6)];
+        let cold = b.hardware_ops(&s).unwrap();
+        assert_eq!(feature(&cold[0]), &defaults_185()[..]);
+        b.reset();
+        let colors = vec![Color(1, 2, 3); 87];
+        let first = b.frame(&colors);
+        assert_eq!(feature(&first[0]), &crate::msi::enable_direct()[..]);
         let ops = b.hardware_ops(&s).unwrap();
         assert_eq!(ops.len(), 2);
         assert_eq!(feature(&ops[0]), &crate::msi::enable_direct()[..]);
@@ -2653,16 +2666,15 @@ mod tests {
             [2, 4, 5, 6, 0x29, 4, 5, 6, 0x80, 0]
         );
         b.reset();
+        s.brightness = Some(3);
+        let next = b.hardware_ops(&s).unwrap();
+        assert_eq!(next[0], ops[1]);
+        assert_eq!(feature(&next[1])[5], 0x0D);
+        b.reset();
         assert_eq!(b.frame(&colors), first);
-        assert!(b.hardware().is_some());
         assert_eq!(
             feature(&b.hardware_ops(&s).unwrap()[0]),
             &crate::msi::enable_direct()[..]
-        );
-        b.reset();
-        assert_eq!(
-            feature(&b.hardware_ops(&s).unwrap()[0]),
-            &defaults_185()[..]
         );
     }
 }

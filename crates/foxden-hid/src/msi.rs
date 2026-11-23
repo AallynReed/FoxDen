@@ -94,6 +94,8 @@ pub struct Board {
     sent: Option<Vec<Color>>,
     /// The settings report as read at open.
     settings: [u8; 185],
+    /// The last effect report, until a push takes direct mode back.
+    last_effect: Option<[u8; 185]>,
 }
 
 /// Length of settings report 0x52 on this generation; some platforms count one byte more.
@@ -120,6 +122,7 @@ impl Board {
             headers: D99::open(ID),
             sent: None,
             settings: stored,
+            last_effect: None,
         })
     }
 }
@@ -144,6 +147,7 @@ impl Backend for Board {
             self.hid
                 .send_feature_report(&self.headers.enable())
                 .map_err(|e| e.to_string())?;
+            self.last_effect = None;
         }
         match send(&self.hid, self.headers.frames(colors)) {
             Ok(()) => {
@@ -171,7 +175,16 @@ impl Backend for Board {
             return Err(format!("unknown device {device_id}"));
         }
         let ops = match setting {
-            Some(s) => effect_ops(&self.headers, self.sent.is_some(), &self.settings, s)?,
+            Some(s) => {
+                let now = match self.last_effect {
+                    Some(last) => last,
+                    None if self.sent.is_some() => self.headers.enable(),
+                    None => self.settings,
+                };
+                let (ops, new) = effect_ops(&self.headers, now, &self.settings, s)?;
+                self.last_effect = Some(new);
+                ops
+            }
             None => Vec::new(),
         };
         self.sent = None;
@@ -179,15 +192,18 @@ impl Backend for Board {
     }
 }
 
+/// `now`, the state on the board, then the effect; also returns the effect report.
 fn effect_ops(
     d99: &D99,
-    direct: bool,
+    now: [u8; 185],
     settings: &[u8; 185],
     s: &HardwareSetting,
-) -> Result<Vec<Op>, String> {
+) -> Result<(Vec<Op>, [u8; 185]), String> {
     let new = d99.effect(settings, s)?;
-    let now = if direct { d99.enable() } else { *settings };
-    Ok(vec![Op::Feature(now.to_vec()), Op::Feature(new.to_vec())])
+    Ok((
+        vec![Op::Feature(now.to_vec()), Op::Feature(new.to_vec())],
+        new,
+    ))
 }
 
 fn send(hid: &HidDevice, ops: Vec<Op>) -> Result<(), String> {
@@ -363,7 +379,7 @@ mod tests {
         s.speed = Some(2);
         s.brightness = Some(5);
         s.colors = vec![Color(7, 8, 9)];
-        let ops = effect_ops(&d99, true, &settings, &s).unwrap();
+        let (ops, new) = effect_ops(&d99, enable_direct(), &settings, &s).unwrap();
         let sent = features(&ops);
         assert_eq!(sent[0], &enable_direct()[..]);
         let p = sent[1];
@@ -374,7 +390,8 @@ mod tests {
         assert_eq!(p[64..74], [5, 7, 8, 9, 0x16, 7, 8, 9, 0x80, 0]);
         assert_eq!(p[134..144], settings[134..144]);
         assert_eq!(p[184], 0);
-        let cold = effect_ops(&d99, false, &settings, &s).unwrap();
-        assert_eq!(features(&cold)[0], &settings[..]);
+        assert_eq!(p, &new[..]);
+        let (again, _) = effect_ops(&d99, new, &settings, &s).unwrap();
+        assert_eq!(features(&again)[0], &new[..]);
     }
 }
