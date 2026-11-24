@@ -1,5 +1,13 @@
 [
  {
+  "version": "0.20.0",
+  "date": "2026-11-23",
+  "added": [
+   "AI assistants can read your devices, sensors and fans, and change lighting, through FoxDen's MCP server (off until you turn it on in Settings)",
+   "An AI assistant can propose new fan curves; FoxDen shows them on screen and only applies them if you click Apply"
+  ]
+ },
+ {
   "version": "0.19.0",
   "date": "2026-11-23",
   "added": [

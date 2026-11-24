@@ -120,11 +120,11 @@ Measured on Windows 11 with a 28-thread CPU, five devices and 198 LEDs:
 
 | In the tray, with the audio mixer | Private memory | CPU |
 | --- | --- | --- |
-| `foxden.exe`, static colour | 14 MB | about 4% of one core |
-| `foxden.exe`, animated effect and a layer | 23 MB | about 4% of one core |
+| `foxden.exe`, static colour | 14 MB | about 2% of one core |
+| `foxden.exe`, animated effect and a layer | 23 MB | about 2% of one core |
 | `foxden-service.exe`, fans | 7 MB | under 0.01% |
 
-That is under 0.2% of the whole CPU. The open window adds about 10 MB and 6% of one core.
+That is under 0.1% of the whole CPU. The open window adds about 10 MB and 6% of one core.
 
 ## Install
 
