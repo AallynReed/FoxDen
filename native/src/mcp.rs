@@ -881,6 +881,32 @@ mod tests {
         s.trim_end_matches('\0').to_string()
     }
 
+    /// `sddl` as the system writes it back, with well-known accounts shown by alias.
+    fn normalised(sddl: &str) -> String {
+        use windows_sys::Win32::Security::Authorization::{
+            ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        };
+        use windows_sys::Win32::Security::{DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION};
+        let wide: Vec<u16> = sddl.encode_utf16().chain([0]).collect();
+        let mut descriptor = null_mut();
+        let parsed = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(wide.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut())
+        };
+        assert_ne!(parsed, 0);
+        let what = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+        let (mut text, mut len) = (null_mut(), 0);
+        let converted = unsafe {
+            ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, what, &mut text, &mut len)
+        };
+        assert_ne!(converted, 0);
+        let s = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len as usize) });
+        unsafe {
+            LocalFree(text.cast());
+            LocalFree(descriptor);
+        }
+        s.trim_end_matches(' ').to_string()
+    }
+
     fn try_ask(pipe: &File, line: &str) -> Option<String> {
         (&*pipe).write_all(format!("{line}\n").as_bytes()).ok()?;
         let mut out = String::new();
@@ -894,7 +920,7 @@ mod tests {
         let server = Server::start(name.clone(), Arc::new(|line: &str| format!("echo {line}"))).unwrap();
         assert!(create(&name, true).is_err());
         let pipe = open(&name);
-        assert_eq!(access_of(&pipe), format!("O:{0}D:P(A;;FA;;;{0})", user_sid().unwrap()));
+        assert_eq!(access_of(&pipe), normalised(&format!("O:{0}D:P(A;;FA;;;{0})", user_sid().unwrap())));
         assert_eq!(try_ask(&pipe, "hi").as_deref(), Some("echo hi\n"));
         let long = "x".repeat(MAX_LINE + 10);
         assert!(try_ask(&open(&name), &long).unwrap().contains("too long"));

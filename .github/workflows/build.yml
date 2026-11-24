@@ -106,15 +106,15 @@ jobs:
         run: npm install --prefix "$env:RUNNER_TEMP\signer" --no-fund --no-audit "@tauri-apps/cli@2.12.4"
 
       - name: Compile app
-        run: cargo build --release --locked -p foxden-native -p foxden-service -p foxden-mcp
+        run: cargo build --release --locked -p foxden -p foxden-service -p foxden-mcp
 
       - name: Compile installer
         run: |
           $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages |
-            Where-Object name -eq 'foxden-native' | Select-Object -ExpandProperty version
+            Where-Object name -eq 'foxden' | Select-Object -ExpandProperty version
           New-Item -ItemType Directory -Force dist | Out-Null
           $setup = "$PWD\dist\FoxDen_${version}_x64-setup.exe"
-          & $env:MAKENSIS -V2 "/DVERSION=$version" "/DAPP=$PWD\target\release\foxden-native.exe" "/DSERVICE=$PWD\target\release\foxden-service.exe" "/DMCP=$PWD\target\release\foxden-mcp.exe" "/DPAWNIO=$PWD\packaging\PawnIO_setup.exe" "/DOUT=$setup" packaging\native.nsi
+          & $env:MAKENSIS -V2 "/DVERSION=$version" "/DAPP=$PWD\target\release\foxden.exe" "/DSERVICE=$PWD\target\release\foxden-service.exe" "/DMCP=$PWD\target\release\foxden-mcp.exe" "/DPAWNIO=$PWD\packaging\PawnIO_setup.exe" "/DOUT=$setup" packaging\native.nsi
           if ($LASTEXITCODE) { throw 'makensis failed' }
           "SETUP=$setup" >> $env:GITHUB_ENV
 

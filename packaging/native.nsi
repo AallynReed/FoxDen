@@ -1,5 +1,5 @@
 ; Installer for the native FoxDen build. Same folder, uninstall entry and hooks as the earlier installer.
-; makensis /DVERSION=x.y.z /DAPP=<foxden-native.exe> /DSERVICE=<foxden-service.exe> /DMCP=<foxden-mcp.exe> /DOUT=<setup.exe> packaging\native.nsi
+; makensis /DVERSION=x.y.z /DAPP=<foxden.exe> /DSERVICE=<foxden-service.exe> /DMCP=<foxden-mcp.exe> /DOUT=<setup.exe> packaging\native.nsi
 
 Unicode true
 ManifestDPIAware true
