@@ -24,7 +24,7 @@ jobs:
           n=$(gh api "repos/${{ github.repository }}/releases" --paginate --jq '.[].assets[] | select(.name | endswith(".exe")) | .download_count' | awk '{s+=$1} END {print s+0}')
           printf '{"schemaVersion":1,"label":"downloads","message":"%s","color":"brightgreen"}' "$n" > site/downloads.json
           cat site/downloads.json
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
