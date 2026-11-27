@@ -1,0 +1,524 @@
+import { Theme, I18n, Heading, Hint, Button, Toggle, Select, Pick, Scroll } from "widgets.slint";
+import { Label, Problem, NameInput, SmallButton } from "profiles.slint";
+
+export struct MacroItem {
+    id: string,
+    name: string,
+    hotkey: string,
+    running: bool,
+}
+
+export struct MacroStep {
+    text: string,
+    // "delay" and "text" steps are edited in place; their value is the field's text.
+    kind: string,
+    value: string,
+}
+
+export global MacrosPage {
+    in property <bool> enabled;
+    in property <[MacroItem]> macros;
+    in property <string> selected;
+    in property <bool> warned;
+    in-out property <string> name;
+    in property <int> mode;
+    in property <[string]> modes;
+    in property <string> hotkey;
+    in property <bool> block;
+    in property <bool> catching;
+    // What the next caught key is for: "hotkey" or "step".
+    in property <string> catch-for;
+    in property <bool> recording;
+    in property <int> section;
+    in property <[MacroStep]> steps;
+    in-out property <string> default-delay;
+    in property <[string]> buttons;
+    in property <[string]> media;
+    in property <string> problem;
+    in property <bool> playing;
+
+    callback set-enabled(bool);
+    callback dismiss-note();
+    callback new-macro();
+    callback select(string);
+    callback rename(string);
+    callback set-mode(int);
+    callback catch-hotkey();
+    callback catch-step();
+    callback cancel-catch();
+    callback clear-hotkey();
+    callback set-block(bool);
+    callback set-default-delay(string);
+    callback set-section(int);
+    callback add-key(string);
+    callback add-text(string);
+    callback add-delay(string);
+    callback add-button(int);
+    callback add-wheel(int);
+    callback add-media(int);
+    callback edit-step(int, string);
+    callback move-step(int, int);
+    callback remove-step(int);
+    callback clear-steps();
+    callback record();
+    callback stop-record();
+    callback play();
+    callback stop-all();
+    callback delete();
+}
+
+component Input inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder;
+    in property <bool> mono;
+    callback accepted(string);
+    callback left(string);
+    height: 32px;
+    min-width: 72px;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.stroke;
+    forward-focus: input;
+    clip: true;
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        color: Theme.text;
+        font-family: root.mono ? Theme.mono : "";
+        vertical-alignment: center;
+        single-line: true;
+        accessible-label: root.placeholder;
+        accepted => { root.accepted(self.text); }
+        changed has-focus => { if !self.has-focus { root.left(self.text); } }
+    }
+    if input.text == "": Text {
+        x: 8px;
+        height: parent.height;
+        text: root.placeholder;
+        color: Theme.muted;
+        vertical-alignment: center;
+    }
+}
+
+component Box inherits Rectangle {
+    in property <string> title;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    min-height: col.preferred-height;
+    col := VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+        alignment: start;
+        if root.title != "": Heading { text: root.title; }
+        @children
+    }
+}
+
+component MacroList inherits Box {
+    title: I18n.t("Macros");
+    HorizontalLayout {
+        spacing: 8px;
+        Toggle {
+            y: 6px;
+            on: MacrosPage.enabled;
+            label: I18n.t("Hotkeys on");
+            toggled(v) => { MacrosPage.set-enabled(v); }
+        }
+        Text {
+            text: MacrosPage.enabled ? I18n.t("Hotkeys on") : I18n.t("Hotkeys off");
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Button { text: I18n.t("New macro"); primary: true; clicked => { MacrosPage.new-macro(); } }
+    }
+    if !MacrosPage.warned: VerticalLayout {
+        spacing: 4px;
+        Hint { text: I18n.t("Macros send keys and clicks to the app in front. Some games' anti-cheat blocks or flags that, so check a game's rules before you bind one. Apps running as administrator only get them when FoxDen runs as administrator too. Pause stops every macro."); }
+        HorizontalLayout {
+            alignment: start;
+            SmallButton { text: I18n.t("Got it"); label: I18n.t("Hide this note"); clicked => { MacrosPage.dismiss-note(); } }
+        }
+    }
+    if MacrosPage.macros.length == 0: Hint { text: I18n.t("No macros yet. Make one with New macro."); }
+    VerticalLayout {
+        accessible-role: list;
+        accessible-label: I18n.t("Macros");
+        for m in MacrosPage.macros: Rectangle {
+            height: 36px;
+            background: m.id == MacrosPage.selected ? Theme.raised : ta.has-hover ? Theme.hover : transparent;
+            accessible-role: list-item;
+            accessible-label: m.name;
+            accessible-item-selectable: true;
+            accessible-item-selected: m.id == MacrosPage.selected;
+            accessible-action-default => { MacrosPage.select(m.id); }
+            Rectangle {
+                x: 0;
+                width: 3px;
+                background: m.id == MacrosPage.selected ? Theme.accent : transparent;
+            }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 8px;
+                spacing: 8px;
+                Text {
+                    text: m.name;
+                    color: Theme.text;
+                    font-weight: m.id == MacrosPage.selected ? 600 : 400;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                if m.running: Text {
+                    text: I18n.t("Playing");
+                    color: Theme.accent;
+                    font-size: 12px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: m.hotkey == "" ? I18n.t("No hotkey") : m.hotkey;
+                    color: Theme.muted;
+                    font-family: Theme.mono;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.line;
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { MacrosPage.select(m.id); }
+            }
+        }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Button { text: I18n.t("Stop all"); enabled: MacrosPage.playing; clicked => { MacrosPage.stop-all(); } }
+    }
+}
+
+component StepRow inherits Rectangle {
+    in property <int> index;
+    in property <MacroStep> step;
+    in property <int> count;
+    min-height: 34px;
+    accessible-role: list-item;
+    accessible-label: step.text;
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        Text {
+            width: 32px;
+            text: root.index + 1;
+            color: Theme.muted;
+            font-family: Theme.mono;
+            font-size: 12px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+        if root.step.kind == "delay": HorizontalLayout {
+            spacing: 6px;
+            horizontal-stretch: 1;
+            Text { text: I18n.t("Wait"); color: Theme.text; vertical-alignment: center; }
+            Input {
+                width: 88px;
+                height: 26px;
+                mono: true;
+                text: root.step.value;
+                placeholder: I18n.t("ms");
+                accepted(t) => { MacrosPage.edit-step(root.index, t); }
+                left(t) => { if t != root.step.value { MacrosPage.edit-step(root.index, t); } }
+            }
+            Text { text: I18n.t("ms"); color: Theme.muted; vertical-alignment: center; horizontal-stretch: 1; }
+        }
+        if root.step.kind == "text": HorizontalLayout {
+            spacing: 6px;
+            horizontal-stretch: 1;
+            Text { text: I18n.t("Type"); color: Theme.text; vertical-alignment: center; }
+            Input {
+                height: 26px;
+                horizontal-stretch: 1;
+                text: root.step.value;
+                placeholder: I18n.t("Text to type");
+                accepted(t) => { MacrosPage.edit-step(root.index, t); }
+                left(t) => { if t != root.step.value { MacrosPage.edit-step(root.index, t); } }
+            }
+        }
+        if root.step.kind != "delay" && root.step.kind != "text": Text {
+            text: root.step.text;
+            color: Theme.text;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        SmallButton {
+            y: 1px;
+            text: I18n.t("Up");
+            label: I18n.t("Move step up");
+            opacity: root.index > 0 ? 1 : 0.4;
+            clicked => { if root.index > 0 { MacrosPage.move-step(root.index, -1); } }
+        }
+        SmallButton {
+            y: 1px;
+            text: I18n.t("Down");
+            label: I18n.t("Move step down");
+            opacity: root.index < root.count - 1 ? 1 : 0.4;
+            clicked => { if root.index < root.count - 1 { MacrosPage.move-step(root.index, 1); } }
+        }
+        SmallButton {
+            y: 1px;
+            text: I18n.t("Remove");
+            label: I18n.t("Remove step");
+            clicked => { MacrosPage.remove-step(root.index); }
+        }
+    }
+}
+
+component AddSteps inherits Box {
+    title: I18n.t("Add steps");
+    property <int> button;
+    property <int> media;
+    HorizontalLayout {
+        spacing: 8px;
+        Button {
+            text: MacrosPage.catching && MacrosPage.catch-for == "step" ? I18n.t("Press a key or chord") : I18n.t("Key or chord");
+            clicked => {
+                if MacrosPage.catching && MacrosPage.catch-for == "step" { MacrosPage.cancel-catch(); } else { MacrosPage.catch-step(); }
+            }
+        }
+        key := Input {
+            horizontal-stretch: 1;
+            placeholder: I18n.t("Key by name, such as Esc or F13");
+            accepted(t) => { MacrosPage.add-key(t); self.text = ""; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        text := Input {
+            horizontal-stretch: 1;
+            placeholder: I18n.t("Text to type, then Enter");
+            accepted(t) => { MacrosPage.add-text(t); self.text = ""; }
+        }
+        wait := Input {
+            width: 140px;
+            mono: true;
+            placeholder: I18n.t("Wait in ms, Enter");
+            accepted(t) => { MacrosPage.add-delay(t); self.text = ""; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        VerticalLayout {
+            alignment: start;
+            Select {
+                width: 160px;
+                options: MacrosPage.buttons;
+                index: root.button;
+                label: I18n.t("Mouse button");
+                selected(i) => { root.button = i; }
+            }
+        }
+        Button { text: I18n.t("Add click"); clicked => { MacrosPage.add-button(root.button + 1); } }
+        Button { text: I18n.t("Wheel up"); clicked => { MacrosPage.add-wheel(1); } }
+        Button { text: I18n.t("Wheel down"); clicked => { MacrosPage.add-wheel(-1); } }
+        VerticalLayout {
+            alignment: start;
+            Select {
+                width: 160px;
+                options: MacrosPage.media;
+                index: root.media;
+                label: I18n.t("Media key");
+                selected(i) => { root.media = i; }
+            }
+        }
+        Button { text: I18n.t("Add media key"); clicked => { MacrosPage.add-media(root.media); } }
+    }
+}
+
+component Editor inherits VerticalLayout {
+    property <bool> armed;
+    spacing: 12px;
+    alignment: start;
+    Box {
+        title: I18n.t("Macro");
+        HorizontalLayout {
+            spacing: 12px;
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Label { text: I18n.t("Name"); }
+                NameInput {
+                    text <=> MacrosPage.name;
+                    label: I18n.t("Name");
+                    invalid: MacrosPage.problem != "";
+                    accepted => { MacrosPage.rename(self.text); }
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+                Label { text: I18n.t("Mode"); }
+                Select {
+                    width: 200px;
+                    options: MacrosPage.modes;
+                    index: MacrosPage.mode;
+                    label: I18n.t("Mode");
+                    selected(i) => { MacrosPage.set-mode(i); }
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+                Label { text: I18n.t("Default wait"); }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Input {
+                        width: 72px;
+                        mono: true;
+                        text <=> MacrosPage.default-delay;
+                        placeholder: I18n.t("none");
+                        accepted(t) => { MacrosPage.set-default-delay(t); }
+                        left(t) => { MacrosPage.set-default-delay(t); }
+                    }
+                    Text { text: I18n.t("ms"); color: Theme.muted; vertical-alignment: center; }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Label { text: I18n.t("Hotkey"); }
+            }
+            Rectangle {
+                width: 180px;
+                height: 32px;
+                background: Theme.field;
+                border-width: 1px;
+                border-color: MacrosPage.catching && MacrosPage.catch-for == "hotkey" ? Theme.accent : Theme.line;
+                Text {
+                    x: 8px;
+                    width: parent.width - 16px;
+                    text: MacrosPage.catching && MacrosPage.catch-for == "hotkey" ? I18n.t("Press a key or button") : MacrosPage.hotkey == "" ? I18n.t("None") : MacrosPage.hotkey;
+                    color: MacrosPage.hotkey == "" ? Theme.muted : Theme.text;
+                    font-family: Theme.mono;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            Button {
+                text: MacrosPage.catching && MacrosPage.catch-for == "hotkey" ? I18n.t("Cancel") : I18n.t("Set hotkey");
+                clicked => {
+                    if MacrosPage.catching && MacrosPage.catch-for == "hotkey" { MacrosPage.cancel-catch(); } else { MacrosPage.catch-hotkey(); }
+                }
+            }
+            Button { text: I18n.t("Clear"); enabled: MacrosPage.hotkey != ""; clicked => { MacrosPage.clear-hotkey(); } }
+            Toggle {
+                y: 6px;
+                on: MacrosPage.block;
+                label: I18n.t("Hide the hotkey from other apps");
+                toggled(v) => { MacrosPage.set-block(v); }
+            }
+            Text {
+                text: I18n.t("Hide the hotkey from other apps");
+                color: Theme.text;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+        }
+        if MacrosPage.problem != "": Problem { text: MacrosPage.problem; }
+    }
+    Box {
+        title: I18n.t("Steps");
+        if MacrosPage.mode == 1: HorizontalLayout {
+            spacing: 0;
+            alignment: start;
+            for s[i] in [I18n.t("On press"), I18n.t("While held"), I18n.t("On release")]: Pick {
+                width: 120px;
+                text: s;
+                selected: MacrosPage.section == i;
+                clicked => { MacrosPage.set-section(i); }
+            }
+        }
+        if MacrosPage.steps.length == 0: Hint { text: I18n.t("No steps yet. Record some, or add them below."); }
+        VerticalLayout {
+            accessible-role: list;
+            accessible-label: I18n.t("Steps");
+            for s[i] in MacrosPage.steps: StepRow {
+                index: i;
+                step: s;
+                count: MacrosPage.steps.length;
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Button {
+                primary: !MacrosPage.recording;
+                text: MacrosPage.recording ? I18n.t("Stop recording") : I18n.t("Record");
+                clicked => { if MacrosPage.recording { MacrosPage.stop-record(); } else { MacrosPage.record(); } }
+            }
+            Button { text: I18n.t("Play in 3 s"); enabled: !MacrosPage.recording; clicked => { MacrosPage.play(); } }
+            Button { text: I18n.t("Clear steps"); enabled: MacrosPage.steps.length > 0; clicked => { MacrosPage.clear-steps(); } }
+            Button {
+                text: root.armed ? I18n.t("Confirm delete") : I18n.t("Delete macro");
+                clicked => {
+                    if root.armed {
+                        root.armed = false;
+                        MacrosPage.delete();
+                    } else {
+                        root.armed = true;
+                    }
+                }
+            }
+        }
+        if MacrosPage.recording: Hint { text: I18n.t("Recording every key, click and wheel turn with its timing. Nothing is kept until you stop."); }
+    }
+    AddSteps { }
+    Timer {
+        interval: 4s;
+        running: root.armed;
+        triggered => { root.armed = false; }
+    }
+}
+
+export component MacrosPanel inherits Rectangle {
+    vertical-stretch: 1;
+    property <bool> two: root.width >= 860px;
+    Scroll {
+        content-height: body.preferred-height;
+        body := VerticalLayout {
+            padding: 16px;
+            spacing: 16px;
+            alignment: start;
+            if root.two: HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: start;
+                    MacroList { width: 340px; }
+                }
+                if MacrosPage.selected != "": Editor { width: min(820px, root.width - 340px - 48px); }
+            }
+            if !root.two: VerticalLayout {
+                spacing: 16px;
+                MacroList { }
+                if MacrosPage.selected != "": Editor { }
+            }
+        }
+    }
+}

@@ -8,6 +8,7 @@ mod effects;
 pub(crate) mod effects_keys;
 mod fans;
 mod logs;
+mod macros;
 mod profiles;
 pub(crate) mod settings;
 mod stage;
@@ -93,6 +94,7 @@ fn dispatch(w: &AppWindow, app: &AppHandle, view: &mut View, name: &str) {
     effects::event(w, app, view, name);
     settings::event(w, app, view, name);
     profiles::event(w, app, view, name);
+    macros::event(w, app, view, name);
     stage::event(w, app, view, name);
 }
 
@@ -101,6 +103,7 @@ fn apply_all(w: &AppWindow, app: &AppHandle, view: &mut View) {
     effects::apply(w, app, view);
     devices::apply(w, app, view);
     profiles::apply(w, app, view);
+    macros::apply(w, app, view);
     fans::apply(w, app, view);
     audio::apply(w, app, view);
     stage::apply(w, app, view);
@@ -194,6 +197,7 @@ fn build(app: &AppHandle) -> Result<AppWindow, slint::PlatformError> {
     fans::bind(&w, app);
     audio::bind(&w, app);
     profiles::bind(&w, app);
+    macros::bind(&w, app);
     settings::bind(&w, app);
     stage::bind(&w, app);
     approval::bind(&w);

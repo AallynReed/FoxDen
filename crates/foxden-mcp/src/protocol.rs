@@ -114,7 +114,7 @@ fn initialize(params: &Value) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {}},
         "serverInfo": {"name": "foxden", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": "Controls the FoxDen app on this PC: lighting effects, layers (including keys lit while a game is in front), devices, key maps, profiles, everyday settings and the audio mixer, and reads sensors and batteries. Fan curves can be proposed; the person at the PC approves them on screen.",
+        "instructions": "Controls the FoxDen app on this PC: lighting effects, layers (including keys lit while a game is in front), devices, key maps, profiles, everyday settings, the audio mixer and key and mouse macros, and reads sensors and batteries. Fan curves can be proposed; the person at the PC approves them on screen, as they do any macro that would send input.",
     })
 }
 

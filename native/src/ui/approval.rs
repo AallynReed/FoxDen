@@ -12,6 +12,9 @@ use crate::fan_proposal::{Ask, DESK, Decision, Drive, NO_WINDOW};
 /// A short pause before Apply works, so a click meant for another window does not approve.
 const ARM: Duration = Duration::from_millis(800);
 const GRAPH_W: f32 = 160.0;
+pub const SAVE_MACRO: &str = "{0} wants to save a macro";
+pub const PLAY_MACRO: &str = "{0} wants to play a macro";
+pub const MACROS_ON: &str = "{0} wants to turn on macro hotkeys";
 const GRAPH_H: f32 = 80.0;
 
 thread_local! {
@@ -67,13 +70,18 @@ pub fn open(app: &AppHandle, ask: Ask) -> Result<(), String> {
     with_win(|w| {
         let g = w.global::<FanApproval>();
         let who = if ask.client.is_empty() { tr(app, "An AI assistant") } else { ask.client.clone() };
-        let title = if ask.settings.is_empty() { "{0} wants to change your fan curves" } else { "{0} wants to change FoxDen's settings" };
+        let title = match &ask.other {
+            Some((title, _)) => title,
+            None if ask.settings.is_empty() => "{0} wants to change your fan curves",
+            None => "{0} wants to change FoxDen's settings",
+        };
         g.set_title(tr(app, title).replace("{0}", &who).into());
-        let lines: Vec<slint::SharedString> = ask
+        let mut lines: Vec<slint::SharedString> = ask
             .settings
             .iter()
             .map(|&(label, on)| format!("{}: {}", tr(app, label), tr(app, if on { "On" } else { "Off" })).into())
             .collect();
+        lines.extend(ask.other.iter().flat_map(|(_, l)| l.iter().map(|t| t.as_str().into())));
         fill(g.get_lines(), lines, |m| g.set_lines(m));
         g.set_reason(ask.reason.clone().into());
         let fans: Vec<ApprovalFan> = ask

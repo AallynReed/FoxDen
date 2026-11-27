@@ -38,6 +38,8 @@ pub struct Ask {
     pub diff: Diff,
     /// App settings to change instead of fans: label and the new value.
     pub settings: Vec<(&'static str, bool)>,
+    /// Anything else to approve: the sheet's title template and the lines it shows as they are.
+    pub other: Option<(&'static str, Vec<String>)>,
 }
 
 /// One fan as a rule leaves it: its curve's name and points, and its duty limits.
@@ -151,7 +153,7 @@ pub fn propose(desk: &Desk, state: &FanState, args: &Value, client: &str, hooks:
     let changes = diff(&now, &config, state);
     let make = |id| {
         desk.record(&client, "waiting for approval");
-        Ask { id, client: client.clone(), reason, diff: changes, settings: Vec::new() }
+        Ask { id, client: client.clone(), reason, diff: changes, settings: Vec::new(), other: None }
     };
     let decision = match await_answer(desk, hooks.show, hooks.close, make, wait) {
         Err(e) if e == BUSY => return Err(e),

@@ -417,6 +417,9 @@ fn call(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
             let name = text(args, "name")?;
             done(key_maps::delete_key_map(app.clone(), shared(app)?, name.clone()), format!("Deleted key map {name}."))
         }
+        "list_macros" | "save_macro" | "delete_macro" | "play_macro" | "stop_macros" | "set_macros_enabled" => {
+            macro_tool(app, tool, args, client)
+        }
         "list_apps" => Ok(json!({"apps": apps::windowed()})),
         "get_settings" => get_settings(app),
         "set_settings" => set_settings(app, args, client),
@@ -1221,7 +1224,7 @@ fn set_settings_with(
         let record = |outcome: &str| *lock(&LAST_SETTINGS) = Some(json!({"client": client, "outcome": outcome}));
         let make = |id| {
             record("waiting for approval");
-            fan_proposal::Ask { id, client: client.clone(), reason, diff: Default::default(), settings: asked }
+            fan_proposal::Ask { id, client: client.clone(), reason, diff: Default::default(), settings: asked, other: None }
         };
         match await_answer(desk, show, close, make, wait) {
             Err(e) => {
@@ -1243,6 +1246,198 @@ fn set_settings_with(
     }
     commands::set_settings(app.clone(), s, jobs, settings)?;
     get_settings(app)
+}
+
+// ---- Macros: reading, deleting and stopping are free; anything that sends input needs approval
+
+/// How an approval is asked for, so tests can answer it.
+struct Gate<'a> {
+    desk: &'a fan_proposal::Desk,
+    show: &'a dyn Fn(fan_proposal::Ask) -> Result<(), String>,
+    close: &'a dyn Fn(u64),
+    wait: Duration,
+}
+
+static LAST_MACRO: Mutex<Option<Value>> = Mutex::new(None);
+const MACRO_LINES: usize = 14;
+
+fn macro_tool(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
+    let who = match fan_proposal::clean_text(client, 40) {
+        c if c.is_empty() => "An AI assistant".to_string(),
+        c => c,
+    };
+    let show = |ask: fan_proposal::Ask| {
+        log::info("ai", format!("{who} asked to use macros; waiting for approval"));
+        let a = app.clone();
+        on_main(app, Duration::from_secs(10), move || crate::ui::approval::open(&a, ask))?
+    };
+    let close = |id| {
+        let _ = app.run_on_main_thread(move || crate::ui::approval::close(id));
+    };
+    let gate = Gate { desk: &DESK, show: &show, close: &close, wait: fan_proposal::WAIT };
+    macro_tool_with(app, tool, args, client, &gate)
+}
+
+/// Asks the person at the PC; true when they approved.
+fn approve(gate: &Gate, args: &Value, client: &str, title: &'static str, lines: Vec<String>) -> Result<bool, String> {
+    let reason = match args["reason"].as_str().map(|r| fan_proposal::clean_text(r, 300)) {
+        Some(r) if !r.is_empty() => r,
+        _ => return Err("This needs a reason: a sentence for the person approving.".into()),
+    };
+    let client = fan_proposal::clean_text(client, 40);
+    let record = |outcome: &str| *lock(&LAST_MACRO) = Some(json!({"client": client, "outcome": outcome}));
+    let make = |id| {
+        record("waiting for approval");
+        fan_proposal::Ask {
+            id,
+            client: client.clone(),
+            reason,
+            diff: Default::default(),
+            settings: Vec::new(),
+            other: Some((title, lines)),
+        }
+    };
+    match fan_proposal::await_answer(gate.desk, gate.show, gate.close, make, gate.wait) {
+        Err(e) => {
+            if e != fan_proposal::BUSY {
+                record("not shown");
+            }
+            Err(e)
+        }
+        Ok(None) => {
+            record("not approved in time");
+            Err(fan_proposal::LATE.into())
+        }
+        Ok(Some(fan_proposal::Decision::Reject)) => {
+            record("rejected");
+            Ok(false)
+        }
+        Ok(Some(fan_proposal::Decision::Apply)) => {
+            record("approved");
+            Ok(true)
+        }
+    }
+}
+
+fn macro_view(e: &foxden_macros::Entry) -> Value {
+    let mut v = foxden_macros::spec::macro_json(&e.macro_);
+    v["id"] = json!(e.id);
+    v["hotkey"] = foxden_macros::spec::hotkey_json(e.hotkey);
+    v["block"] = json!(e.block);
+    v
+}
+
+fn step_lines(m: &foxden_macros::Macro) -> Vec<String> {
+    let all: Vec<&foxden_macros::Step> = m.press.iter().chain(&m.hold).chain(&m.release).collect();
+    let mut lines: Vec<String> =
+        all.iter().take(MACRO_LINES).enumerate().map(|(i, s)| format!("{}. {}", i + 1, s.describe())).collect();
+    if all.len() > MACRO_LINES {
+        lines.push(format!("and {} more steps", all.len() - MACRO_LINES));
+    }
+    lines
+}
+
+fn macro_tool_with(app: &AppHandle, tool: &str, args: &Value, client: &str, gate: &Gate) -> Reply {
+    use foxden_macros::{Entry, Hotkey, spec};
+    let m = crate::macros::get(app)?;
+    let find = |key: &str| -> Result<Entry, String> {
+        let id = text(args, key)?;
+        m.find(&id).ok_or_else(|| format!("No macro {id}. list_macros shows them."))
+    };
+    match tool {
+        "list_macros" => {
+            let lib = m.library();
+            let running = m.host().running();
+            let names: Vec<&str> = foxden_macros::keys::all().map(|k| k.1).chain(["Pause"]).collect();
+            Ok(json!({
+                "enabled": lib.enabled,
+                "running": running,
+                "macros": lib.entries.iter().map(macro_view).collect::<Vec<_>>(),
+                "key_names": names,
+                "last_request": lock(&LAST_MACRO).clone(),
+                "note": "Pause stops every macro. Macros reach apps running as administrator only when FoxDen runs as administrator too.",
+            }))
+        }
+        "save_macro" => {
+            let old = match args["id"].as_str() {
+                Some(_) => Some(find("id")?),
+                None => None,
+            };
+            let macro_ = spec::macro_from(args)?;
+            let hotkey = match args.get("hotkey") {
+                None => old.as_ref().and_then(|o| o.hotkey),
+                Some(Value::Null) => None,
+                Some(Value::String(h)) if h.trim().is_empty() => None,
+                Some(Value::String(h)) => Some(Hotkey::parse(h)?),
+                Some(_) => return Err("hotkey must be text such as \"F13\", or null.".into()),
+            };
+            let block = args["block"].as_bool().or(old.as_ref().map(|o| o.block)).unwrap_or(false);
+            let entry = Entry { id: old.map(|o| o.id).unwrap_or_default(), macro_, hotkey, block };
+            m.library().put(entry.clone())?;
+            let mut lines = vec![
+                format!("Name: {}", entry.macro_.name),
+                match hotkey {
+                    Some(h) if block => format!("Hotkey: {} (hidden from other apps)", h.label()),
+                    Some(h) => format!("Hotkey: {}", h.label()),
+                    None => "No hotkey".to_string(),
+                },
+                format!("Mode: {}", entry.macro_.mode.label()),
+            ];
+            lines.extend(step_lines(&entry.macro_));
+            if !approve(gate, args, client, crate::ui::approval::SAVE_MACRO, lines)? {
+                return Ok(json!(fan_proposal::REJECTED));
+            }
+            let name = entry.macro_.name.clone();
+            let id = m.put(entry)?;
+            crate::macros::changed(app);
+            Ok(json!({"id": id, "saved": name}))
+        }
+        "delete_macro" => {
+            let e = find("id")?;
+            m.remove(&e.id)?;
+            crate::macros::changed(app);
+            Ok(json!(format!("Deleted macro {}.", e.macro_.name)))
+        }
+        "play_macro" => {
+            let e = find("id")?;
+            let delay = args["delay_s"].as_f64().unwrap_or(3.0);
+            if !(0.0..=30.0).contains(&delay) {
+                return Err("delay_s must be from 0 to 30.".into());
+            }
+            let mut lines = vec![format!("Play \"{}\" in {} s", e.macro_.name, delay)];
+            lines.extend(step_lines(&e.macro_));
+            if !approve(gate, args, client, crate::ui::approval::PLAY_MACRO, lines)? {
+                return Ok(json!(fan_proposal::REJECTED));
+            }
+            m.play(&e.id, Duration::from_secs_f64(delay))?;
+            Ok(json!(format!("Playing {} in {delay} s. Pause stops it.", e.macro_.name)))
+        }
+        "stop_macros" => {
+            m.stop_all();
+            Ok(json!("Stopped every macro."))
+        }
+        "set_macros_enabled" => {
+            let on = args["on"].as_bool().ok_or("on must be true or false.")?;
+            let lib = m.library();
+            if on && !lib.enabled {
+                let mut lines: Vec<String> = lib
+                    .entries
+                    .iter()
+                    .filter_map(|e| e.hotkey.map(|h| format!("{}: {}", h.label(), e.macro_.name)))
+                    .collect();
+                if lines.is_empty() {
+                    lines.push("No macro has a hotkey yet".into());
+                }
+                if !approve(gate, args, client, crate::ui::approval::MACROS_ON, lines)? {
+                    return Ok(json!(fan_proposal::REJECTED));
+                }
+            }
+            m.set_enabled(on)?;
+            crate::macros::changed(app);
+            Ok(json!(if on { "Macro hotkeys are on." } else { "Macro hotkeys are off." }))
+        }
+        _ => Err(format!("FoxDen has no tool named {tool}.")),
+    }
 }
 
 // ---- Fans, read only
@@ -1533,6 +1728,77 @@ mod tests {
         assert_eq!(set(json!({"native_drivers": true, "reason": "Back"})), Err(fan_proposal::LATE.into()));
         assert!(!lock(&shared).config.settings.native_drivers);
         assert_eq!(ok(&app, "get_settings", json!({}))["last_request"]["outcome"], "not approved in time");
+    }
+
+    #[test]
+    fn macros_send_input_only_once_approved() {
+        let (app, _) = app_with(true);
+        let (store, dir) = crate::macros::tests::temp();
+        app.manage(store);
+        let desk = fan_proposal::Desk::new();
+        let shown: Mutex<Vec<(String, Vec<String>)>> = Mutex::new(Vec::new());
+        let answer = Mutex::new(fan_proposal::Decision::Reject);
+        let show = |ask: fan_proposal::Ask| {
+            let (title, lines) = ask.other.clone().unwrap_or_default();
+            lock(&shown).push((title.to_string(), lines));
+            desk.decide(ask.id, *lock(&answer));
+            Ok(())
+        };
+        let close = |_| {};
+        let gate = Gate { desk: &desk, show: &show, close: &close, wait: Duration::from_millis(50) };
+        let run = |tool: &str, args: Value| macro_tool_with(&app, tool, &args, "Tester", &gate);
+        let copy = json!({
+            "name": "Copy", "hotkey": "Ctrl+F13", "block": true, "reason": "Testing",
+            "press": [{"type": "key", "key": "Ctrl", "action": "down"}, {"type": "key", "key": "C"}, {"type": "key", "key": "Ctrl", "action": "up"}],
+        });
+
+        let mut no_reason = copy.clone();
+        no_reason["reason"] = Value::Null;
+        assert!(run("save_macro", no_reason).unwrap_err().contains("reason"));
+        assert_eq!(run("save_macro", copy.clone()), Ok(json!(fan_proposal::REJECTED)));
+        let list = run("list_macros", json!({})).unwrap();
+        assert_eq!(list["macros"], json!([]));
+        assert_eq!(list["last_request"]["outcome"], "rejected");
+        assert_eq!(lock(&shown)[0].0, "{0} wants to save a macro");
+        assert_eq!(lock(&shown)[0].1[..3], ["Name: Copy", "Hotkey: Ctrl+F13 (hidden from other apps)", "Mode: Once"]);
+        assert_eq!(lock(&shown)[0].1[4], "2. C down");
+
+        *lock(&answer) = fan_proposal::Decision::Apply;
+        assert_eq!(run("save_macro", copy.clone()).unwrap()["id"], "m1");
+        let list = run("list_macros", json!({})).unwrap();
+        assert_eq!(list["macros"][0]["hotkey"], "Ctrl+F13");
+        assert_eq!(list["macros"][0]["press"].as_array().unwrap().len(), 4);
+        assert!(list["key_names"].as_array().unwrap().contains(&json!("F13")));
+
+        let asked = lock(&shown).len();
+        let mut clash = copy.clone();
+        clash["name"] = json!("Other");
+        assert!(run("save_macro", clash).unwrap_err().contains("already starts"));
+        assert!(run("save_macro", json!({"name": "x", "reason": "r", "press": [{"type": "jump"}]})).is_err());
+        assert!(run("play_macro", json!({"id": "nope", "reason": "r"})).unwrap_err().contains("No macro"));
+        assert!(run("play_macro", json!({"id": "Copy", "reason": "r", "delay_s": 99})).unwrap_err().contains("delay_s"));
+        assert_eq!(lock(&shown).len(), asked);
+
+        let mut edit = json!({"id": "m1", "name": "Copy", "reason": "r", "press": [{"type": "text", "text": "hi"}]});
+        assert_eq!(run("save_macro", edit.clone()).unwrap()["id"], "m1");
+        assert_eq!(run("list_macros", json!({})).unwrap()["macros"][0]["hotkey"], "Ctrl+F13");
+        edit["hotkey"] = Value::Null;
+        run("save_macro", edit).unwrap();
+        assert_eq!(run("list_macros", json!({})).unwrap()["macros"][0]["hotkey"], Value::Null);
+
+        *lock(&answer) = fan_proposal::Decision::Reject;
+        assert_eq!(run("set_macros_enabled", json!({"on": true, "reason": "r"})), Ok(json!(fan_proposal::REJECTED)));
+        assert_eq!(run("play_macro", json!({"id": "copy", "reason": "r"})), Ok(json!(fan_proposal::REJECTED)));
+        assert_eq!(lock(&shown).last().unwrap().1[0], "Play \"Copy\" in 3 s");
+        let list = run("list_macros", json!({})).unwrap();
+        assert_eq!((list["enabled"].clone(), list["running"].clone()), (json!(false), json!([])));
+        let asked = lock(&shown).len();
+        run("set_macros_enabled", json!({"on": false})).unwrap();
+        run("stop_macros", json!({})).unwrap();
+        assert!(run("delete_macro", json!({"id": "Copy"})).unwrap().as_str().unwrap().contains("Copy"));
+        assert!(run("delete_macro", json!({"id": "Copy"})).is_err());
+        assert_eq!(lock(&shown).len(), asked);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

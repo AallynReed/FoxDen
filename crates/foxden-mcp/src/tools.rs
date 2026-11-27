@@ -216,6 +216,52 @@ pub fn list() -> Vec<Value> {
             false,
         ),
         tool(
+            "list_macros",
+            "Key and mouse macros: id, name, hotkey, whether the hotkey is hidden from other apps, mode and steps, in the shape save_macro takes. Also whether macro hotkeys are on, which macros are playing, the key names steps and hotkeys use, and how the last request for approval ended.",
+            none(),
+            &[],
+            true,
+        ),
+        tool(
+            "save_macro",
+            "Creates a macro, or replaces the one with this id. A macro sends keys, mouse buttons, wheel turns, typed text and media keys when its hotkey is pressed, in any app. The person at this PC approves it on screen first, so give a reason; the call waits up to 50 seconds.",
+            json!({
+                "id": {"type": "string", "description": "An id from list_macros to replace that macro; leave out to create one"},
+                "name": {"type": "string", "maxLength": 40},
+                "mode": {"type": "string", "enum": ["once", "press_hold_release", "repeat_while_held", "toggle"],
+                    "description": "once plays press; press_hold_release plays press, loops hold while held, then release; repeat_while_held loops press while held; toggle loops press until pressed again. Pause stops every macro."},
+                "press": macro_steps(),
+                "hold": macro_steps(),
+                "release": macro_steps(),
+                "default_delay_ms": {"type": "integer", "minimum": 0, "maximum": 60000, "description": "Wait between steps that don't wait themselves"},
+                "hotkey": {"type": ["string", "null"], "description": "Such as \"F13\", \"Ctrl+Shift+F5\" or \"Back button\"; null for none. Left out: an existing macro keeps its hotkey."},
+                "block": {"type": "boolean", "description": "Hide the hotkey from the app in front"},
+                "reason": {"type": "string", "maxLength": 300, "description": "One or two sentences for the person approving"},
+            }),
+            &["name", "press", "reason"],
+            false,
+        ),
+        tool("delete_macro", "Deletes a macro by id or name.", json!({"id": {"type": "string"}}), &["id"], false),
+        tool(
+            "play_macro",
+            "Plays a macro once after a delay, whatever its hotkey and mode. The person at this PC approves it on screen first.",
+            json!({
+                "id": {"type": "string", "description": "Id or name from list_macros"},
+                "delay_s": {"type": "number", "minimum": 0, "maximum": 30, "description": "Seconds before it starts; 3 if left out"},
+                "reason": {"type": "string", "maxLength": 300},
+            }),
+            &["id", "reason"],
+            false,
+        ),
+        tool("stop_macros", "Stops every macro that is playing.", none(), &[], false),
+        tool(
+            "set_macros_enabled",
+            "Turns macro hotkeys on or off. Turning them on needs the approval of the person at this PC and a reason.",
+            json!({"on": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 300}}),
+            &["on"],
+            false,
+        ),
+        tool(
             "get_sensors",
             "Temperatures and fan speeds and duty from FoxDen's fan service. Read only.",
             none(),
@@ -278,6 +324,19 @@ pub fn list() -> Vec<Value> {
             false,
         ),
     ]
+}
+
+fn macro_steps() -> Value {
+    json!({"type": "array", "items": {"type": "object", "properties": {
+        "type": {"type": "string", "enum": ["key", "button", "wheel", "delay", "text", "media"]},
+        "key": {"type": "string", "description": "key: a key name from list_macros' key_names; media: play_pause, stop, next, previous, volume_up, volume_down or mute"},
+        "action": {"type": "string", "enum": ["tap", "down", "up"], "description": "For key and button; tap if left out"},
+        "button": {"type": "string", "enum": ["left", "right", "middle", "back", "forward"]},
+        "ticks": {"type": "integer", "description": "Wheel: positive up or right, negative down or left"},
+        "horizontal": {"type": "boolean"},
+        "ms": {"type": "integer", "minimum": 0, "maximum": 60000},
+        "text": {"type": "string", "maxLength": 1000, "description": "Typed as it is"},
+    }, "required": ["type"]}})
 }
 
 fn layer_schema(new: bool) -> Value {

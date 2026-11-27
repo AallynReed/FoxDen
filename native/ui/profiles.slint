@@ -30,12 +30,12 @@ export global ProfilesPage {
     callback paste-effect();
 }
 
-component Label inherits Text {
+export component Label inherits Text {
     color: Theme.muted;
     font-size: 12px;
 }
 
-component Problem inherits HorizontalLayout {
+export component Problem inherits HorizontalLayout {
     in property <string> text;
     spacing: 6px;
     Path {
@@ -57,7 +57,7 @@ component Problem inherits HorizontalLayout {
     }
 }
 
-component NameInput inherits Rectangle {
+export component NameInput inherits Rectangle {
     in-out property <string> text <=> input.text;
     in property <string> label;
     in property <bool> invalid;
@@ -87,7 +87,7 @@ component NameInput inherits Rectangle {
     }
 }
 
-component SmallButton inherits Rectangle {
+export component SmallButton inherits Rectangle {
     in property <string> text;
     in property <string> label;
     callback clicked;

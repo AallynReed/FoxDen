@@ -1489,6 +1489,7 @@ dependencies = [
  "foxden-headset",
  "foxden-hid",
  "foxden-host",
+ "foxden-macros",
  "foxden-mixer",
  "foxden-net",
  "foxden-notify",
@@ -1624,6 +1625,15 @@ name = "foxden-hwmon"
 version = "0.20.0"
 dependencies = [
  "foxden-fan",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "foxden-macros"
+version = "0.20.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 

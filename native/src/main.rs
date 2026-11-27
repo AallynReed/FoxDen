@@ -28,6 +28,7 @@ mod volumes;
 mod canvas;
 mod changelog;
 mod log;
+mod macros;
 mod tray;
 mod ui;
 mod updater;
@@ -144,6 +145,7 @@ fn main() {
     }
     app.manage(state::spawn_worker(app.clone(), shared.clone()));
     app.manage(mixer::Mixer::start(shared.clone()));
+    macros::start(&app);
     mcp::set_enabled(&app, settings.ai_access);
     headset::spawn_dial(app.clone());
     priority::spawn(app.clone());
