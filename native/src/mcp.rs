@@ -426,7 +426,18 @@ fn call(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
         "get_settings" => get_settings(app),
         "set_settings" => set_settings(app, args, client),
         "get_sensors" => sensors(),
-        "get_audio" => audio(app),
+        "get_audio" => audio_with(app, args["rescan"] == true),
+        "key_map_code" => {
+            let name = text(args, "name")?;
+            let s = shared(app)?;
+            let map = lock(&s).config.key_maps.iter().find(|m| m.name == name).cloned().ok_or_else(|| format!("No key map named {name}."))?;
+            Ok(json!(key_maps::key_map_code(map)))
+        }
+        "import_key_map_code" => {
+            let map = key_maps::key_map_decode(text(args, "code")?)?;
+            let name = map.name.clone();
+            done(key_maps::save_key_map(app.clone(), shared(app)?, map), format!("Saved key map {name}."))
+        }
         "set_channel_volume" => {
             let (id, label) = channel(args)?;
             let v = number(args, "volume")?;
@@ -1787,7 +1798,12 @@ fn audio_of(v: &Value) -> Value {
 }
 
 fn audio(app: &AppHandle) -> Reply {
-    let mut v = audio_of(&mixer_view(app)?);
+    audio_with(app, false)
+}
+
+fn audio_with(app: &AppHandle, rescan: bool) -> Reply {
+    let view = serde_json::to_value(mixer::get_mixer(mixer_state(app)?, rescan)?).map_err(|e| e.to_string())?;
+    let mut v = audio_of(&view);
     v["last_recording_request"] = json!(lock(&LAST_MIC).clone());
     v["auto_tune_undo"] = json!(crate::mic_check::can_undo());
     Ok(v)
@@ -2283,12 +2299,23 @@ fn mic_tool_with(tool: &str, args: &Value, client: &str, gate: &Gate, hooks: &Mi
     if !approve(gate, &LAST_MIC, args, client, crate::ui::approval::RECORD_MIC, lines)? {
         return Err("The person at this PC did not allow the recording; nothing was recorded.".into());
     }
-    let (raw, rate) = (hooks.record)(&setup, seconds)?;
+    let client = fan_proposal::clean_text(client, 40);
+    let outcome = |what: &str, result: Value| *lock(&LAST_MIC) = Some(json!({"client": client, "outcome": what, "result": result}));
+    let (raw, rate) = match (hooks.record)(&setup, seconds) {
+        Ok(r) => r,
+        Err(e) => {
+            outcome("recording failed", json!(e));
+            return Err(e);
+        }
+    };
     let out = match target {
         None => crate::mic_check::measure(&raw, rate, &setup),
         Some(target) => {
             let t = crate::mic_check::work_out(&raw, rate, &setup, target, mono);
-            (hooks.commit)(&setup, &t)?;
+            if let Err(e) = (hooks.commit)(&setup, &t) {
+                outcome("worked out but not applied", json!(e));
+                return Err(e);
+            }
             let mut r = crate::mic_check::report(&t);
             r["applied"] = json!(true);
             r["undo"] = json!("undo_auto_tune puts the previous mic chain back.");
@@ -2296,6 +2323,7 @@ fn mic_tool_with(tool: &str, args: &Value, client: &str, gate: &Gate, hooks: &Mi
         }
     };
     drop(raw);
+    outcome(if target.is_some() { "applied" } else { "measured" }, out.clone());
     Ok(out)
 }
 
@@ -2549,6 +2577,9 @@ mod tests {
     use crate::state::AppState;
     use foxden_core::Color;
 
+    /// Held by tests that read or write the last-request statics, which tests share.
+    static LAST: Mutex<()> = Mutex::new(());
+
     fn app_with(ai_access: bool) -> (AppHandle, Shared) {
         let mut config = Config::default();
         config.settings.ai_access = ai_access;
@@ -2645,6 +2676,7 @@ mod tests {
 
     #[test]
     fn settings_that_reach_outside_wait_for_approval() {
+        let _last = lock(&LAST);
         let (app, shared) = app_with(true);
         let desk = fan_proposal::Desk::new();
         let shown = Mutex::new(Vec::new());
@@ -3055,6 +3087,7 @@ mod tests {
 
     #[test]
     fn every_recording_asks_again() {
+        let _last = lock(&LAST);
         use fan_proposal::Decision::Apply;
         let ask = json!({"seconds": 2, "reason": "Check the mic"});
         let (out, shown, recorded, _) = mic_hooks_run(vec![Some(Apply), Some(Apply)], vec![("analyze_mic", ask.clone()), ("analyze_mic", ask)]);
@@ -3065,10 +3098,14 @@ mod tests {
         }
         assert!(r["raw"]["lufs"].is_number() && r["raw"]["bands"].is_array());
         assert!(out[1].is_ok());
+        let last = lock(&LAST_MIC).clone().unwrap();
+        assert_eq!((last["outcome"].clone(), last["client"].clone()), (json!("measured"), json!("Tester")));
+        assert_eq!(last["result"], *out[1].as_ref().unwrap(), "a client that gave up can read the result later");
     }
 
     #[test]
     fn a_denied_or_unanswered_recording_records_nothing() {
+        let _last = lock(&LAST);
         use fan_proposal::Decision::{Apply, Reject};
         let ask = json!({"seconds": 2, "reason": "Check the mic"});
         let (out, shown, recorded, _) = mic_hooks_run(vec![Some(Reject)], vec![("analyze_mic", ask.clone())]);
@@ -3089,6 +3126,51 @@ mod tests {
         assert!(r["before"]["lufs"].is_number() && r["after"]["lufs"].is_number() && r["settings"]["processing"]["denoise"]["engine"] == "strong");
         let (_, shown, recorded, _) = mic_hooks_run(vec![], vec![("analyze_mic", json!({"seconds": 20, "reason": "x"})), ("auto_tune_mic", json!({"target": "karaoke", "reason": "x"})), ("analyze_mic", json!({"seconds": 2}))]);
         assert_eq!((shown, recorded), (0, 0), "bad arguments are refused before asking");
+    }
+
+    #[test]
+    fn volume_and_profile_tools_check_before_they_reach_windows() {
+        let rows = json!({
+            "apps": [{"exe": "Game.exe", "name": "Game", "endpoint": "{e1}"}],
+            "devices": [{"id": "{e1}", "name": "Speakers"}, {"id": "{e2}", "name": "USB Mic"}],
+        });
+        assert_eq!(find_row(&rows, "apps", "game.EXE", "exe").unwrap()["endpoint"], "{e1}");
+        assert_eq!(find_row(&rows, "devices", "usb mic", "id").unwrap()["id"], "{e2}");
+        assert_eq!(find_row(&rows, "devices", "{e1}", "id").unwrap()["name"], "Speakers");
+        assert!(find_row(&rows, "devices", "HDMI", "id").is_err());
+
+        let (app, _) = app_with(true);
+        assert!(err(&app, "set_app_volume", json!({"app": "game.exe"})).contains("volume or muted"));
+        assert!(err(&app, "set_device_volume", json!({"device": "Speakers", "volume": 140})).contains("0 to 100"));
+        assert!(err(&app, "set_default_device", json!({"device": "Speakers"})).contains("mixer"));
+        assert!(err(&app, "get_app_volumes", json!({})).contains("mixer"));
+        assert!(err(&app, "get_audio_priority", json!({})).contains("mixer"));
+        assert!(err(&app, "sound_profile_code", json!({"name": "x"})).contains("mixer"));
+        assert!(err(&app, "undo_auto_tune", json!({})).contains("no auto-tune to undo"));
+        assert!(err(&app, "set_headset_eq", json!({"headset": "nope", "bands": [0]})).contains("No headset"));
+
+        let v = mixer_json();
+        let builtin = crate::profiles::builtins()[0].name.clone();
+        assert!(sound_profile_change("rename_sound_profile", &json!({"name": builtin, "to": "Mine"}), &v).unwrap_err().contains("keep their names"));
+        let mut mine = v.clone();
+        mine["profiles"].as_array_mut().unwrap().push(json!({"name": "Old", "kind": "mic", "builtin": false}));
+        let c = sound_profile_change("rename_sound_profile", &json!({"name": "Old", "to": " New "}), &mine).unwrap();
+        assert_eq!(c, json!({"kind": "rename_profile", "from": "Old", "to": "New"}));
+        let p: crate::profiles::Profile = serde_json::from_value(profile_named(&v, &builtin).unwrap().clone()).unwrap();
+        assert_eq!(crate::profiles::sound_decode(crate::profiles::sound_code(p.clone())).unwrap().name, p.name);
+    }
+
+    #[test]
+    fn key_maps_travel_as_codes() {
+        let (app, _) = app_with(true);
+        ok(&app, "save_key_map", json!({"name": "WASD", "keys": {"W": "#ff0000", "A": "#00ff00"}}));
+        let code = ok(&app, "key_map_code", json!({"name": "WASD"}));
+        ok(&app, "delete_key_map", json!({"name": "WASD"}));
+        ok(&app, "import_key_map_code", json!({"code": code}));
+        let maps = ok(&app, "list_key_maps", json!({}));
+        assert_eq!(maps["key_maps"][0]["keys"]["W"], "#ff0000");
+        assert!(err(&app, "key_map_code", json!({"name": "Nope"})).contains("No key map"));
+        assert!(err(&app, "import_key_map_code", json!({"code": "garbage"})).len() > 3);
     }
 
     #[test]
@@ -3115,6 +3197,7 @@ mod tests {
 
     #[test]
     fn devices_logs_and_settings_tools_answer() {
+        let _last = lock(&LAST);
         let (app, shared) = with_devices();
         assert!(err(&app, "set_hardware_mode", json!({"device": "TKL keyboard", "mode": "wave"})).contains("no effects of its own"));
         ok(&app, "reset_layout", json!({}));

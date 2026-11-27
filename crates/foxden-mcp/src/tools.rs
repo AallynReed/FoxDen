@@ -183,6 +183,20 @@ pub fn list() -> Vec<Value> {
         ),
         tool("delete_key_map", "Deletes a saved key colour map.", json!({"name": {"type": "string"}}), &["name"], false),
         tool(
+            "key_map_code",
+            "A saved key colour map as a share code.",
+            json!({"name": {"type": "string"}}),
+            &["name"],
+            true,
+        ),
+        tool(
+            "import_key_map_code",
+            "Saves a key colour map from a share code.",
+            json!({"code": {"type": "string"}}),
+            &["code"],
+            false,
+        ),
+        tool(
             "list_apps",
             "Executables with a window open now, for a layer's apps.",
             none(),
@@ -323,7 +337,7 @@ pub fn list() -> Vec<Value> {
         tool(
             "get_audio",
             "The audio mixer in full: output, master, chat mix, monitor, virtual mic, each channel's volume, mute, source, apps, EQ and processing (the mic's with its gate and block order), sound profiles, EQ filters and presets, the inputs and outputs to choose from, what noise removal is running with its delay and CPU use, and how the last recording request ended.",
-            none(),
+            json!({"rescan": {"type": "boolean", "description": "List the audio devices again first"}}),
             &[],
             true,
         ),

@@ -36,7 +36,7 @@ const APPROVAL: Duration = Duration::from_secs(50);
 const PENDING: &str = "Still waiting: the person at this PC hasn't answered yet. The request stays on screen for up to 3 minutes. Call get_fan_config later and read last_proposal for the outcome.";
 const PENDING_SETTINGS: &str = "Still waiting: the person at this PC hasn't answered yet. The request stays on screen for up to 3 minutes. Call get_settings later and read last_request for the outcome.";
 /// How often a waiting call tells the client it is still going.
-const PENDING_MIC: &str = "Still waiting: the person at this PC hasn't answered yet, and nothing has been recorded. The request stays on screen for up to 3 minutes. Call get_audio later and read last_recording_request for the outcome.";
+const PENDING_MIC: &str = "Still waiting: the person at this PC may not have answered yet, or FoxDen is still recording and measuring. The request stays on screen for up to 3 minutes. Call get_audio later: last_recording_request holds the outcome and, once done, the result.";
 const PENDING_MACROS: &str = "Still waiting: the person at this PC hasn't answered yet. The request stays on screen for up to 3 minutes. Call list_macros later and read last_request for the outcome.";
 const TICK: Duration = Duration::from_secs(10);
 const MAX_REPLY: u64 = 4 * 1024 * 1024;

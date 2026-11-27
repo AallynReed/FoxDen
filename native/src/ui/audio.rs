@@ -815,7 +815,7 @@ fn act(app: &AppHandle, what: &str, x: &str, y: &str) {
                 Box::new(move |w, a| {
                     st(|s| s.tune_summary = match r {
                         Ok(_) => tr(a, "The mic chain from before auto-tune is back."),
-                        Err(e) => e,
+                        Err(e) => tr(a, &e),
                     });
                     load_mixer(a, false);
                     redraw(w, a);
@@ -843,14 +843,22 @@ fn auto_tune(app: &AppHandle) {
             let t = crate::mic_check::work_out(&raw, rate, &old, target, false);
             drop(raw);
             crate::mic_check::commit(a, &old, &t)?;
-            Ok(crate::mic_check::summary(&t))
+            Ok((t.before, t.after))
         });
         Box::new(move |w, a| {
             st(|s| {
                 s.tune_busy = false;
+                let line = |m: &foxden_mixer::analysis::Analysis| {
+                    tf(a, "{0} LUFS, peak {1} dBFS, floor {2} dBFS, sibilance {3} dB", &[
+                        &format!("{:.1}", m.lufs),
+                        &format!("{:.1}", m.peak_dbfs),
+                        &format!("{:.0}", m.noise_floor_dbfs),
+                        &format!("{:.0}", m.sibilance_peak_db),
+                    ])
+                };
                 s.tune_summary = match r {
-                    Ok((before, after)) => tf(a, "Before: {0}. After: {1}.", &[&before, &after]),
-                    Err(e) => e,
+                    Ok((before, after)) => tf(a, "Before: {0}. After: {1}.", &[&line(&before), &line(&after)]),
+                    Err(e) => tr(a, &e),
                 };
             });
             load_mixer(a, false);

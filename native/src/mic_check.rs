@@ -161,17 +161,6 @@ pub fn report(t: &Tuning) -> Value {
     })
 }
 
-/// One line each for before and after, for the Audio tab.
-pub fn summary(t: &Tuning) -> (String, String) {
-    let line = |a: &Analysis| {
-        format!(
-            "{:.1} LUFS, peak {:.1} dBFS, floor {:.0} dBFS, sibilance {:.0} dB",
-            a.lufs, a.peak_dbfs, a.noise_floor_dbfs, a.sibilance_peak_db
-        )
-    };
-    (line(&t.before), line(&t.after))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
