@@ -2045,8 +2045,8 @@ fn proc_changes(args: &Value, v: &Value) -> Result<Vec<Value>, String> {
         }
         if key == "denoise" && !args[key]["engine"].is_null() {
             let e = args[key]["engine"].as_str().unwrap_or_default();
-            if !["light", "strong", "auto"].contains(&e) {
-                return Err("denoise.engine must be light, strong or auto.".into());
+            if !["light", "strong", "strong_ll", "auto"].contains(&e) {
+                return Err("denoise.engine must be light, strong, strong_ll or auto.".into());
             }
         }
         overlay(&mut p[key], &args[key], key)?;

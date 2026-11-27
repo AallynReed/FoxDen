@@ -668,9 +668,9 @@ fn processing(g: &AudioPage, app: &AppHandle, s: &St) {
             "attack_ms": p["gate"]["attack_ms"], "hold_ms": p["gate"]["hold_ms"], "release_ms": p["gate"]["release_ms"],
         });
         let v = if b.id == "gate" { &gate } else { &p[b.id] };
-        let engines = ["light", "strong", "auto"];
+        let engines = ["light", "strong", "strong_ll", "auto"];
         let (modes, mode, info) = if b.id == "denoise" {
-            let names = ["Light (RNNoise)", "Strong (DeepFilterNet)", "Auto"];
+            let names = ["Light (RNNoise)", "Strong (DeepFilterNet)", "Strong, low latency", "Auto"];
             let modes: Vec<AudOpt> = engines.iter().zip(names).map(|(id, n)| opt(id, &tr(app, n), false)).collect();
             let now = engines.iter().position(|e| v["engine"] == *e).unwrap_or(0) as i32;
             (modes, now, engine_info(app))
@@ -753,18 +753,24 @@ fn mic_rows(g: &AudioPage, app: &AppHandle, s: &St, p: &Value) {
 /// Delay and CPU use of the noise removal engines, as last measured on the audio thread.
 fn engine_info(app: &AppHandle) -> String {
     let Some(st) = foxden_mixer::denoise::status() else {
-        return tr(app, "Light adds about 20 ms and little CPU; strong adds about 40 ms and more.");
+        return tr(app, "Light and strong low latency add about 20 ms, strong about 40 ms; the strong models use more CPU.");
     };
     let mut line = tf(
         app,
-        "Running {0}, {1} ms delay. Light: {2} ms a frame, {3}% of a core. Strong: {4} ms a frame, {5}% of a core.",
+        "Running {0}, {1} ms delay. Light: {2} ms a frame, {3}% of a core. Strong: {4} ms, {5}%. Strong low latency: {6} ms, {7}%.",
         &[
-            &tr(app, if st.running == "strong" { "strong" } else { "light" }),
+            &tr(app, match st.running {
+                "strong" => "strong",
+                "strong_ll" => "strong, low latency",
+                _ => "light",
+            }),
             &format!("{:.0}", st.latency_ms),
             &format!("{:.2}", st.light_ms),
             &format!("{:.1}", st.light_cpu_percent),
             &format!("{:.2}", st.strong_ms),
             &format!("{:.1}", st.strong_cpu_percent),
+            &format!("{:.2}", st.strong_ll_ms),
+            &format!("{:.1}", st.strong_ll_cpu_percent),
         ],
     );
     if st.fell_back {

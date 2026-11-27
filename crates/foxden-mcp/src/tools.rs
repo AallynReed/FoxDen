@@ -425,7 +425,7 @@ pub fn list() -> Vec<Value> {
             "Changes a channel's processing, or the master's with channel \"master\". Blocks left out stay as they are, and fields of a block left out keep their values; get_audio shows them all. The mic runs noise removal (denoise), gate, then agc (level stabilizer), comp, deesser and eq in `order`, then the limiter. Outputs and the master take comp and limiter only.",
             json!({
                 "channel": {"type": "string", "enum": ["game", "chat", "media", "aux", "mic", "master"]},
-                "denoise": {"type": "object", "description": "on, strength 0 to 1, engine light (RNNoise, about 10 ms), strong (DeepFilterNet, about 40 ms) or auto (strong while it keeps up)"},
+                "denoise": {"type": "object", "description": "on, strength 0 to 1, engine light (RNNoise, about 20 ms in all), strong (DeepFilterNet 3, about 40 ms), strong_ll (DeepFilterNet 3 low latency, about 20 ms) or auto (strong while it keeps up); strong and strong_ll fall back to light when they cannot keep up"},
                 "gate": {"type": "object", "description": "on, threshold_db -90 to 0, attack_ms 0.1 to 50, hold_ms 0 to 1000, release_ms 5 to 1000"},
                 "agc": {"type": "object", "description": "on, target_db -40 to -6, max_gain_db, max_cut_db 0 to 30, speed_db dB/s, floor_db (hold below)"},
                 "comp": {"type": "object", "description": "on, threshold_db -60 to 0, ratio 1 to 20, attack_ms, release_ms, knee_db, makeup_db, auto_makeup"},

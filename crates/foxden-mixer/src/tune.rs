@@ -148,6 +148,7 @@ pub fn tune(a: &Analysis, target: Target, mono: bool) -> Tuned {
         Target::Music => 0.0,
     };
     let engine = match target {
+        Target::Gaming if clicky(a) => Engine::StrongLl,
         Target::Gaming | Target::Music => Engine::Light,
         Target::Meeting | Target::Podcast | Target::Streaming => Engine::Strong,
         Target::Discord if clicky(a) => Engine::Strong,
@@ -157,7 +158,11 @@ pub fn tune(a: &Analysis, target: Target, mono: bool) -> Tuned {
     notes.push(if denoise.on {
         format!(
             "Noise removal {} at {:.0}% for a floor of {floor:.0} dBFS and {:.1} clicks a second.",
-            if engine == Engine::Strong { "strong" } else { "light" },
+            match engine {
+                Engine::Strong => "strong",
+                Engine::StrongLl => "strong, low latency",
+                _ => "light",
+            },
             denoise.strength * 100.0,
             a.clicks_per_second
         )
@@ -442,7 +447,8 @@ mod tests {
         assert!(clicks.processing.gate.hold_ms < discord.processing.gate.hold_ms);
         assert!(clicks.processing.gate.attack_ms < 1.0);
         assert_eq!(clicks.processing.denoise.strength, 1.0);
-        assert_eq!(clicks.processing.denoise.engine, Engine::Light);
+        assert_eq!(clicks.processing.denoise.engine, Engine::StrongLl, "clicks call for the low-latency strong model");
+        assert_eq!(calm.processing.denoise.engine, Engine::Light);
         assert_eq!(discord.processing.denoise.engine, Engine::Strong, "clicks call for the strong engine");
         assert!(clicks.processing.comp.attack_ms < discord.processing.comp.attack_ms);
         assert!(clicks.processing.comp.ratio > discord.processing.comp.ratio);

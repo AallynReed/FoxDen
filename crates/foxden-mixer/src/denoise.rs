@@ -1,5 +1,6 @@
-//! AI noise removal: light with nnnoiseless (RNNoise), strong with DeepFilterNet 3. Both run on
-//! mono 48 kHz 480-sample frames; other rates are resampled linearly on the way in and out.
+//! AI noise removal: light with nnnoiseless (RNNoise), strong with DeepFilterNet 3, in its standard
+//! or low-latency model. All run on mono 48 kHz 480-sample frames; other rates are resampled
+//! linearly on the way in and out.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -25,7 +26,9 @@ pub enum Engine {
     #[default]
     Light,
     Strong,
-    /// Strong while it keeps up, else light.
+    /// DeepFilterNet 3 without lookahead.
+    StrongLl,
+    /// Standard strong while it keeps up, else light.
     Auto,
 }
 
@@ -70,17 +73,20 @@ pub fn attenuation_db(strength: f32) -> f32 {
 /// What the running chain's noise removal is doing, for the Audio tab and AI assistants.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Status {
-    /// "light" or "strong".
+    /// "light", "strong" or "strong_ll".
     pub running: &'static str,
     pub strong_ready: bool,
+    pub strong_ll_ready: bool,
     /// The strong engine could not keep up and light took over.
     pub fell_back: bool,
     pub latency_ms: f32,
     /// Average time per 10 ms frame, and the share of one core that is.
     pub light_ms: f32,
     pub strong_ms: f32,
+    pub strong_ll_ms: f32,
     pub light_cpu_percent: f32,
     pub strong_cpu_percent: f32,
+    pub strong_ll_cpu_percent: f32,
     pub error: Option<String>,
 }
 
@@ -92,6 +98,7 @@ pub fn status() -> Option<Status> {
 }
 
 struct Strong {
+    ll: bool,
     model: DfTract,
     noisy: Array2<f32>,
     enh: Array2<f32>,
@@ -101,18 +108,30 @@ struct Strong {
 // The models are plain data, not tied to the thread that built them.
 unsafe impl Send for Strong {}
 
-fn load_strong(strength: f32) -> Result<Strong, String> {
+static LL_MODEL: &[u8] = include_bytes!(env!("FOXDEN_DF_LL_MODEL"));
+
+fn load_strong(strength: f32, ll: bool) -> Result<Strong, String> {
     let params = RuntimeParams::default_with_ch(1).with_atten_lim(attenuation_db(strength));
-    let model = DfTract::new(DfParams::default(), &params).map_err(|e| format!("strong noise removal: {e}"))?;
+    let model = if ll { DfParams::from_bytes(LL_MODEL).map_err(|e| e.to_string())? } else { DfParams::default() };
+    let model = DfTract::new(model, &params).map_err(|e| format!("strong noise removal: {e}"))?;
     let hop = model.hop_size;
     if hop != FRAME || model.sr as f32 != MODEL_RATE {
         return Err("strong noise removal: unexpected model frame".into());
     }
     let delay = model.fft_size - hop + model.lookahead * hop;
-    Ok(Strong { model, noisy: Array2::zeros((1, hop)), enh: Array2::zeros((1, hop)), delay })
+    Ok(Strong { ll, model, noisy: Array2::zeros((1, hop)), enh: Array2::zeros((1, hop)), delay })
 }
 
 type Slot = Arc<Mutex<Option<Result<Strong, String>>>>;
+
+/// Whether `engine` asks for the low-latency model; `None` for light.
+fn wants_ll(engine: Engine) -> Option<bool> {
+    match engine {
+        Engine::Light => None,
+        Engine::StrongLl => Some(true),
+        Engine::Strong | Engine::Auto => Some(false),
+    }
+}
 
 /// Average time per frame, in ms.
 #[derive(Default, Clone, Copy)]
@@ -167,7 +186,7 @@ pub struct Denoiser {
     on: bool,
     engine: Engine,
     strong: Option<Strong>,
-    slot: Option<Slot>,
+    slot: Option<(bool, Slot)>,
     strong_error: Option<String>,
     /// Strong is in use; it changes only between frames, with the buffers emptied.
     using_strong: bool,
@@ -175,6 +194,7 @@ pub struct Denoiser {
     realtime: bool,
     light_clock: Clock,
     strong_clock: Clock,
+    ll_clock: Clock,
     down: Option<Linear>,
     up: Option<Linear>,
     input: VecDeque<f32>,
@@ -209,6 +229,7 @@ impl Denoiser {
             realtime: true,
             light_clock: Clock::default(),
             strong_clock: Clock::default(),
+            ll_clock: Clock::default(),
             down: resample.then(|| Linear::new(rate, MODEL_RATE)),
             up: resample.then(|| Linear::new(MODEL_RATE, rate)),
             input: VecDeque::with_capacity(FIFO),
@@ -238,18 +259,25 @@ impl Denoiser {
         {
             strong.model.set_atten_lim(attenuation_db(s.strength));
         }
-        if s.on && s.engine != Engine::Light && self.strong.is_none() && self.slot.is_none() && self.strong_error.is_none() {
+        let Some(ll) = wants_ll(s.engine) else { return };
+        if self.strong.as_ref().is_some_and(|m| m.ll != ll) {
+            self.strong = None;
+        }
+        if self.slot.as_ref().is_some_and(|(l, _)| *l != ll) {
+            self.slot = None;
+        }
+        if s.on && self.strong.is_none() && self.slot.is_none() && self.strong_error.is_none() {
             let slot: Slot = Arc::default();
             let fill = slot.clone();
             let strength = s.strength;
             let started = std::thread::Builder::new().name("foxden-denoise-load".into()).spawn(move || {
-                let loaded = load_strong(strength);
+                let loaded = load_strong(strength, ll);
                 if let Ok(mut f) = fill.lock() {
                     *f = Some(loaded);
                 }
             });
             match started {
-                Ok(_) => self.slot = Some(slot),
+                Ok(_) => self.slot = Some((ll, slot)),
                 Err(e) => self.strong_error = Some(e.to_string()),
             }
         }
@@ -259,8 +287,8 @@ impl Denoiser {
     /// falls back for being slow.
     pub fn offline(&mut self) {
         self.realtime = false;
-        if self.on && self.engine != Engine::Light && self.strong.is_none() {
-            if let Some(slot) = self.slot.take() {
+        if self.on && self.strong.is_none() && let Some(ll) = wants_ll(self.engine) {
+            if let Some((_, slot)) = self.slot.take() {
                 while slot.lock().is_ok_and(|s| s.is_none()) {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
@@ -270,7 +298,7 @@ impl Denoiser {
                     None => {}
                 }
             } else {
-                match load_strong(self.strength) {
+                match load_strong(self.strength, ll) {
                     Ok(s) => self.strong = Some(s),
                     Err(e) => self.strong_error = Some(e),
                 }
@@ -278,18 +306,26 @@ impl Denoiser {
         }
     }
 
-    /// Which engine runs now: "light" or "strong".
+    /// Which engine runs now: "light", "strong" or "strong_ll".
     pub fn running(&self) -> &'static str {
-        if self.using_strong { "strong" } else { "light" }
+        match (&self.strong, self.using_strong) {
+            (Some(s), true) if s.ll => "strong_ll",
+            (Some(_), true) => "strong",
+            _ => "light",
+        }
     }
 
     fn wants_strong(&self) -> bool {
-        self.engine != Engine::Light && !self.fell_back && self.strong.is_some()
+        !self.fell_back && wants_ll(self.engine).is_some_and(|ll| self.strong.as_ref().is_some_and(|s| s.ll == ll))
+    }
+
+    fn clock(&mut self) -> &mut Clock {
+        if self.strong.as_ref().is_some_and(|s| s.ll) { &mut self.ll_clock } else { &mut self.strong_clock }
     }
 
     /// Takes up a strong engine that finished loading, without waiting for the lock.
     fn collect(&mut self) {
-        let Some(slot) = &self.slot else { return };
+        let Some((_, slot)) = &self.slot else { return };
         let Ok(mut s) = slot.try_lock() else { return };
         match s.take() {
             Some(Ok(strong)) => self.strong = Some(strong),
@@ -308,13 +344,16 @@ impl Denoiser {
         let cpu = |c: &Clock| (c.ms * 100.0).round() / 10.0;
         *s = Some(Status {
             running: self.running(),
-            strong_ready: self.strong.is_some(),
+            strong_ready: self.strong.as_ref().is_some_and(|s| !s.ll),
+            strong_ll_ready: self.strong.as_ref().is_some_and(|s| s.ll),
             fell_back: self.fell_back,
             latency_ms: self.latency() as f32 * 1000.0 / self.rate,
             light_ms: self.light_clock.ms,
             strong_ms: self.strong_clock.ms,
+            strong_ll_ms: self.ll_clock.ms,
             light_cpu_percent: cpu(&self.light_clock),
             strong_cpu_percent: cpu(&self.strong_clock),
+            strong_ll_cpu_percent: cpu(&self.ll_clock),
             error: self.strong_error.clone(),
         });
     }
@@ -376,7 +415,7 @@ impl Denoiser {
             }
         }
         self.resample_out();
-        let frames = self.light_clock.frames.wrapping_add(self.strong_clock.frames);
+        let frames = self.light_clock.frames.wrapping_add(self.strong_clock.frames).wrapping_add(self.ll_clock.frames);
         if frames % 100 == 1 {
             self.report();
         }
@@ -395,8 +434,10 @@ impl Denoiser {
                 self.model_out.push_back(v);
             }
         }
-        self.strong_clock.add(at);
-        if self.realtime && self.strong_clock.frames > WARM_FRAMES && self.strong_clock.ms > KEEP_UP * 10.0 {
+        let realtime = self.realtime;
+        let clock = self.clock();
+        clock.add(at);
+        if realtime && clock.frames > WARM_FRAMES && clock.ms > KEEP_UP * 10.0 {
             self.fell_back = true;
         }
     }
@@ -585,16 +626,21 @@ mod tests {
 
     #[test]
     fn both_engines_turn_down_noise_and_clicks() {
-        for engine in [Engine::Light, Engine::Strong] {
+        for engine in [Engine::Light, Engine::Strong, Engine::StrongLl] {
             let mut seed = 9;
             let x = noisy_clicks(3.0, &mut seed);
             let s = DenoiseSettings { on: true, strength: 1.0, engine };
             let mut d = Denoiser::new(48000.0, 1, &s);
             d.offline();
             let y = run(&mut d, &x);
-            assert_eq!(d.running(), if engine == Engine::Strong { "strong" } else { "light" });
+            let name = match engine {
+                Engine::Strong => "strong",
+                Engine::StrongLl => "strong_ll",
+                _ => "light",
+            };
+            assert_eq!(d.running(), name);
             let (a, b) = (rms(&x[48000..]), rms(&y[48000..]));
-            let most = if engine == Engine::Strong { 0.3 } else { 0.9 };
+            let most = if engine == Engine::Light { 0.9 } else { 0.3 };
             assert!(b < a * most, "{engine:?}: {b} vs {a}");
         }
     }
@@ -618,6 +664,31 @@ mod tests {
         assert!(rms(&gentle[48000..]) > rms(&full[48000..]) * 1.5, "a low strength keeps more of the room");
         d.set(&DenoiseSettings { on: true, strength: 1.0, engine: Engine::Light });
         run(&mut d, &x[..4800]);
+        assert_eq!(d.running(), "light");
+    }
+
+    #[test]
+    fn the_low_latency_model_has_no_lookahead() {
+        let mut seed = 6;
+        let x = noisy_clicks(2.0, &mut seed);
+        let mut d = Denoiser::new(48000.0, 1, &DenoiseSettings { on: true, strength: 1.0, engine: Engine::StrongLl });
+        d.offline();
+        run(&mut d, &x);
+        assert_eq!(d.running(), "strong_ll");
+        let ms = d.latency() as f32 * 1000.0 / 48000.0;
+        assert!((ms - 20.0).abs() < 0.5, "{ms} ms");
+        d.set(&DenoiseSettings { on: true, strength: 1.0, engine: Engine::Strong });
+        d.offline();
+        run(&mut d, &x[..4800]);
+        assert_eq!(d.running(), "strong");
+        assert!((d.latency() as f32 * 1000.0 / 48000.0 - 40.0).abs() < 0.5);
+        d.set(&DenoiseSettings { on: true, strength: 1.0, engine: Engine::StrongLl });
+        d.offline();
+        d.realtime = true;
+        d.ll_clock = Clock { ms: 9.0, frames: WARM_FRAMES + 1 };
+        run(&mut d, &x[..9600]);
+        run(&mut d, &x[..9600]);
+        assert!(d.fell_back);
         assert_eq!(d.running(), "light");
     }
 
