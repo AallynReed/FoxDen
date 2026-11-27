@@ -36,6 +36,8 @@ pub struct Ask {
     pub client: String,
     pub reason: String,
     pub diff: Diff,
+    /// App settings to change instead of fans: label and the new value.
+    pub settings: Vec<(&'static str, bool)>,
 }
 
 /// One fan as a rule leaves it: its curve's name and points, and its duty limits.
@@ -145,26 +147,20 @@ pub fn propose(desk: &Desk, state: &FanState, args: &Value, client: &str, hooks:
     if tidy(&config) == tidy(&now) {
         return Ok("Nothing to change: that is the fan config in use.".into());
     }
-    let (id, rx) = desk.reserve()?;
-    let client = match clean_text(client, 40) {
-        c if c.is_empty() => String::new(),
-        c => c,
+    let client = clean_text(client, 40);
+    let changes = diff(&now, &config, state);
+    let make = |id| {
+        desk.record(&client, "waiting for approval");
+        Ask { id, client: client.clone(), reason, diff: changes, settings: Vec::new() }
     };
-    let ask = Ask { id, client: client.clone(), reason, diff: diff(&now, &config, state) };
-    desk.record(&client, "waiting for approval");
-    if let Err(e) = (hooks.show)(ask) {
-        desk.take(id);
-        desk.record(&client, "not shown");
-        return Err(e);
-    }
-    let decision = match rx.recv_timeout(wait) {
-        Ok(d) => Some(d),
-        // The answer came at the last moment: it is on its way.
-        Err(RecvTimeoutError::Timeout) if desk.take(id).is_none() => rx.recv().ok(),
-        Err(RecvTimeoutError::Timeout) => None,
-        Err(RecvTimeoutError::Disconnected) => Some(Decision::Reject),
+    let decision = match await_answer(desk, hooks.show, hooks.close, make, wait) {
+        Err(e) if e == BUSY => return Err(e),
+        Err(e) => {
+            desk.record(&client, "not shown");
+            return Err(e);
+        }
+        Ok(d) => d,
     };
-    (hooks.close)(id);
     let result = match decision {
         None => Err(LATE.to_string()),
         Some(Decision::Reject) => Ok(REJECTED.to_string()),
@@ -178,6 +174,30 @@ pub fn propose(desk: &Desk, state: &FanState, args: &Value, client: &str, hooks:
     };
     desk.record(&client, &outcome);
     result
+}
+
+/// Shows the request `make` builds and waits for the person's answer; `None` when none came in time.
+pub fn await_answer(
+    desk: &Desk,
+    show: &dyn Fn(Ask) -> Result<(), String>,
+    close: &dyn Fn(u64),
+    make: impl FnOnce(u64) -> Ask,
+    wait: Duration,
+) -> Result<Option<Decision>, String> {
+    let (id, rx) = desk.reserve()?;
+    if let Err(e) = show(make(id)) {
+        desk.take(id);
+        return Err(e);
+    }
+    let decision = match rx.recv_timeout(wait) {
+        Ok(d) => Some(d),
+        // The answer came at the last moment: it is on its way.
+        Err(RecvTimeoutError::Timeout) if desk.take(id).is_none() => rx.recv().ok(),
+        Err(RecvTimeoutError::Timeout) => None,
+        Err(RecvTimeoutError::Disconnected) => Some(Decision::Reject),
+    };
+    close(id);
+    Ok(decision)
 }
 
 /// Printable text on one line, clipped to `max` characters.

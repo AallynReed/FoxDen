@@ -1311,6 +1311,7 @@
  "{0} takes {1} to {2} fans.": "{0} 支持 {1} 到 {2} 个风扇。",
  "{0} volume": "{0} 音量",
  "{0} wants to change your fan curves": "{0} 想要更改你的风扇曲线",
+ "{0} wants to change FoxDen's settings": "{0} 想要更改 FoxDen 的设置",
  "{0} will no longer be controlled.": "{0} 将不再受控制。",
  "{0}% of {1}": "{1} 的 {0}%",
  "{0}, edited": "{0}，已编辑",

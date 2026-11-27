@@ -15,6 +15,7 @@ export global FanApproval {
     in property <string> title;
     in property <string> reason;
     in property <[ApprovalFan]> fans;
+    in property <[string]> lines;
     in property <string> unchanged;
     in property <string> loose;
     callback apply();
@@ -87,6 +88,7 @@ export component ApprovalSheet inherits Rectangle {
                         spacing: 10px;
                         padding-top: 6px;
                         for f in FanApproval.fans: FanChange { item: f; }
+                        for l in FanApproval.lines: Text { text: l; color: Theme.text; wrap: word-wrap; }
                     }
                 }
                 if FanApproval.unchanged != "": Hint { text: FanApproval.unchanged; }

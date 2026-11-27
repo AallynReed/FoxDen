@@ -1311,6 +1311,7 @@
  "{0} takes {1} to {2} fans.": "{0} podporuje {1} až {2} ventilátorů.",
  "{0} volume": "Hlasitost: {0}",
  "{0} wants to change your fan curves": "{0} chce změnit křivky vašich ventilátorů",
+ "{0} wants to change FoxDen's settings": "{0} chce změnit nastavení FoxDenu",
  "{0} will no longer be controlled.": "{0} už nebude řízeno.",
  "{0}% of {1}": "{0} % z {1}",
  "{0}, edited": "{0}, upraveno",

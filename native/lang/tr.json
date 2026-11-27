@@ -1311,6 +1311,7 @@
  "{0} takes {1} to {2} fans.": "{0}, {1} ile {2} arasında fan alır.",
  "{0} volume": "{0} ses düzeyi",
  "{0} wants to change your fan curves": "{0} fan eğrilerinizi değiştirmek istiyor",
+ "{0} wants to change FoxDen's settings": "{0} FoxDen ayarlarını değiştirmek istiyor",
  "{0} will no longer be controlled.": "{0} artık kontrol edilmeyecek.",
  "{0}% of {1}": "{1} için %{0}",
  "{0}, edited": "{0}, düzenlendi",

@@ -1311,6 +1311,7 @@
  "{0} takes {1} to {2} fans.": "{0}: число вентиляторов от {1} до {2}.",
  "{0} volume": "Громкость {0}",
  "{0} wants to change your fan curves": "{0} хочет изменить кривые ваших вентиляторов",
+ "{0} wants to change FoxDen's settings": "{0} хочет изменить настройки FoxDen",
  "{0} will no longer be controlled.": "FoxDen перестанет управлять: {0}.",
  "{0}% of {1}": "{0}% от {1}",
  "{0}, edited": "{0}, изменено",

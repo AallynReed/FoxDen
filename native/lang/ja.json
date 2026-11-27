@@ -1311,6 +1311,7 @@
  "{0} takes {1} to {2} fans.": "{0} のファン数は {1}～{2} です。",
  "{0} volume": "{0} の音量",
  "{0} wants to change your fan curves": "{0} がファンカーブを変更しようとしています",
+ "{0} wants to change FoxDen's settings": "{0} が FoxDen の設定を変更しようとしています",
  "{0} will no longer be controlled.": "{0} は制御されなくなります。",
  "{0}% of {1}": "{1} の {0}%",
  "{0}, edited": "{0}（編集済み）",

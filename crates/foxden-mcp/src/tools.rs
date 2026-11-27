@@ -191,15 +191,19 @@ pub fn list() -> Vec<Value> {
         ),
         tool(
             "get_settings",
-            "The app settings this tool set can change, and the languages.",
+            "The app settings set_settings can change, those that need approval on screen, the languages, and how the last request for approval ended.",
             none(),
             &[],
             true,
         ),
         tool(
             "set_settings",
-            "Changes app settings. Only these: fps, language, close_to_tray, start_minimized, battery_tray, battery_alerts, auto_detect.",
+            "Changes app settings: fps, language, close_to_tray, start_minimized, battery_tray, battery_alerts and auto_detect at once. Changing autostart, lighting_module or native_drivers asks the person at this PC on screen first and needs a reason; nothing in the call changes unless they approve. The call waits up to 50 seconds; get_settings shows the outcome later under last_request.",
             json!({
+                "autostart": {"type": "boolean", "description": "Start FoxDen with Windows; needs approval"},
+                "lighting_module": {"type": "boolean", "description": "FoxDen drives lighting at all; needs approval"},
+                "native_drivers": {"type": "boolean", "description": "FoxDen's own device drivers; needs approval"},
+                "reason": {"type": "string", "maxLength": 300, "description": "For settings that need approval: one or two sentences for the person approving"},
                 "fps": {"type": "integer", "minimum": 10, "maximum": 60},
                 "language": {"type": "string", "description": "\"auto\" or a code from get_settings"},
                 "close_to_tray": {"type": "boolean"},

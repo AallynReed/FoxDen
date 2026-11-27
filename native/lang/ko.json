@@ -1311,6 +1311,7 @@
  "{0} takes {1} to {2} fans.": "{0}: 팬 {1}~{2}개를 지원합니다.",
  "{0} volume": "{0} 볼륨",
  "{0} wants to change your fan curves": "{0}이(가) 팬 곡선을 바꾸려고 합니다",
+ "{0} wants to change FoxDen's settings": "{0}이(가) FoxDen 설정을 바꾸려고 합니다",
  "{0} will no longer be controlled.": "{0}: 더 이상 제어하지 않습니다.",
  "{0}% of {1}": "{1}의 {0}%",
  "{0}, edited": "{0}, 편집됨",

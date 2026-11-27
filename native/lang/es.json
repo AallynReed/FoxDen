@@ -1311,6 +1311,7 @@
  "{0} takes {1} to {2} fans.": "{0} admite de {1} a {2} ventiladores.",
  "{0} volume": "Volumen de {0}",
  "{0} wants to change your fan curves": "{0} quiere cambiar tus curvas de ventiladores",
+ "{0} wants to change FoxDen's settings": "{0} quiere cambiar los ajustes de FoxDen",
  "{0} will no longer be controlled.": "{0} dejará de estar controlado.",
  "{0}% of {1}": "{0}% de {1}",
  "{0}, edited": "{0}, editado",

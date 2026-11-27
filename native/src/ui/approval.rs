@@ -67,7 +67,14 @@ pub fn open(app: &AppHandle, ask: Ask) -> Result<(), String> {
     with_win(|w| {
         let g = w.global::<FanApproval>();
         let who = if ask.client.is_empty() { tr(app, "An AI assistant") } else { ask.client.clone() };
-        g.set_title(tr(app, "{0} wants to change your fan curves").replace("{0}", &who).into());
+        let title = if ask.settings.is_empty() { "{0} wants to change your fan curves" } else { "{0} wants to change FoxDen's settings" };
+        g.set_title(tr(app, title).replace("{0}", &who).into());
+        let lines: Vec<slint::SharedString> = ask
+            .settings
+            .iter()
+            .map(|&(label, on)| format!("{}: {}", tr(app, label), tr(app, if on { "On" } else { "Off" })).into())
+            .collect();
+        fill(g.get_lines(), lines, |m| g.set_lines(m));
         g.set_reason(ask.reason.clone().into());
         let fans: Vec<ApprovalFan> = ask
             .diff

@@ -33,7 +33,7 @@ use windows_sys::Win32::System::Pipes::{
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
-use crate::fan_proposal::{self, DESK, Hooks};
+use crate::fan_proposal::{self, DESK, Hooks, await_answer};
 use crate::mixer::Mixer;
 use crate::config::Settings;
 use crate::key_maps::{self, KeyMap};
@@ -419,7 +419,7 @@ fn call(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
         }
         "list_apps" => Ok(json!({"apps": apps::windowed()})),
         "get_settings" => get_settings(app),
-        "set_settings" => set_settings(app, args),
+        "set_settings" => set_settings(app, args, client),
         "get_sensors" => sensors(),
         "get_audio" => audio(app),
         "set_channel_volume" => {
@@ -1118,35 +1118,74 @@ fn save_key_map(app: &AppHandle, args: &Value) -> Reply {
     Ok(json!(format!("Saved key map {saved}.")))
 }
 
-// ---- Settings that change nothing outside FoxDen
+// ---- Settings: some change freely, a few only with the approval of the person at the PC
 
 const SAFE_SETTINGS: [&str; 7] =
     ["fps", "language", "close_to_tray", "start_minimized", "battery_tray", "battery_alerts", "auto_detect"];
+/// Settings that reach outside FoxDen, by name and the label the approval shows.
+const ASKED_SETTINGS: [(&str, &str); 3] =
+    [("autostart", "Start with Windows"), ("lighting_module", "Lighting"), ("native_drivers", "Native drivers")];
+
+static LAST_SETTINGS: Mutex<Option<Value>> = Mutex::new(None);
 
 fn get_settings(app: &AppHandle) -> Reply {
     let all = serde_json::to_value(&lock(&*shared(app)?).config.settings).map_err(|e| e.to_string())?;
-    let mut editable = Map::new();
+    let mut free = Map::new();
     for key in SAFE_SETTINGS {
-        editable.insert(key.into(), all[key].clone());
+        free.insert(key.into(), all[key].clone());
+    }
+    let mut asked = Map::new();
+    for (key, _) in ASKED_SETTINGS {
+        asked.insert(key.into(), all[key].clone());
     }
     let languages: Vec<&str> = std::iter::once("auto").chain(crate::ui::settings::LANGS.iter().map(|l| l.0)).collect();
     Ok(json!({
-        "settings": editable,
+        "settings": free,
+        "need_approval": asked,
         "languages": languages,
-        "note": "Other settings change only in FoxDen's window.",
+        "last_request": lock(&LAST_SETTINGS).clone(),
+        "note": "need_approval settings change only once the person at this PC approves on screen. Other settings change only in FoxDen's window.",
     }))
 }
 
-fn set_settings(app: &AppHandle, args: &Value) -> Reply {
+fn set_settings(app: &AppHandle, args: &Value, client: &str) -> Reply {
+    let who = match fan_proposal::clean_text(client, 40) {
+        c if c.is_empty() => "An AI assistant".to_string(),
+        c => c,
+    };
+    let show = |ask: fan_proposal::Ask| {
+        log::info("ai", format!("{who} asked to change settings; waiting for approval"));
+        let a = app.clone();
+        on_main(app, Duration::from_secs(10), move || crate::ui::approval::open(&a, ask))?
+    };
+    let close = |id| {
+        let _ = app.run_on_main_thread(move || crate::ui::approval::close(id));
+    };
+    set_settings_with(app, args, client, &DESK, &show, &close, fan_proposal::WAIT)
+}
+
+fn set_settings_with(
+    app: &AppHandle,
+    args: &Value,
+    client: &str,
+    desk: &fan_proposal::Desk,
+    show: &dyn Fn(fan_proposal::Ask) -> Result<(), String>,
+    close: &dyn Fn(u64),
+    wait: Duration,
+) -> Reply {
     let given = args.as_object().ok_or("Pass the settings to change.")?;
-    if given.is_empty() {
-        return Err(format!("Pass at least one of {}.", SAFE_SETTINGS.join(", ")));
-    }
+    let asked_names: Vec<&str> = ASKED_SETTINGS.iter().map(|a| a.0).collect();
+    let names = || format!("{}, and with approval {}", SAFE_SETTINGS.join(", "), asked_names.join(", "));
     let s = shared(app)?;
     let mut v = serde_json::to_value(&lock(&s).config.settings).map_err(|e| e.to_string())?;
+    let mut asked = Vec::new();
     for (key, value) in given {
-        if !SAFE_SETTINGS.contains(&key.as_str()) {
-            return Err(format!("{key} changes only in FoxDen's window. These can change here: {}.", SAFE_SETTINGS.join(", ")));
+        if key == "reason" {
+            continue;
+        }
+        let label = ASKED_SETTINGS.iter().find(|a| a.0 == key).map(|a| a.1);
+        if !SAFE_SETTINGS.contains(&key.as_str()) && label.is_none() {
+            return Err(format!("{key} changes only in FoxDen's window. These can change here: {}.", names()));
         }
         let ok = match key.as_str() {
             "fps" => value.as_u64().is_some_and(|f| (10..=60).contains(&f)),
@@ -1163,10 +1202,45 @@ fn set_settings(app: &AppHandle, args: &Value) -> Reply {
             };
             return Err(format!("{key} must be {want}."));
         }
+        if let Some(label) = label.filter(|_| v[key.as_str()] != *value) {
+            asked.push((label, value.as_bool().unwrap_or_default()));
+        }
         v[key.as_str()] = value.clone();
+    }
+    if given.keys().all(|k| k == "reason") {
+        return Err(format!("Pass at least one of {}.", names()));
     }
     let settings: Settings = serde_json::from_value(v).map_err(|e| e.to_string())?;
     let jobs = app.try_state::<Jobs>().ok_or("FoxDen is still starting.")?;
+    if !asked.is_empty() {
+        let reason = match args["reason"].as_str().map(|r| fan_proposal::clean_text(r, 300)) {
+            Some(r) if !r.is_empty() => r,
+            _ => return Err("Changing these settings needs a reason: a sentence for the person approving.".into()),
+        };
+        let client = fan_proposal::clean_text(client, 40);
+        let record = |outcome: &str| *lock(&LAST_SETTINGS) = Some(json!({"client": client, "outcome": outcome}));
+        let make = |id| {
+            record("waiting for approval");
+            fan_proposal::Ask { id, client: client.clone(), reason, diff: Default::default(), settings: asked }
+        };
+        match await_answer(desk, show, close, make, wait) {
+            Err(e) => {
+                if e != fan_proposal::BUSY {
+                    record("not shown");
+                }
+                return Err(e);
+            }
+            Ok(None) => {
+                record("not approved in time");
+                return Err(fan_proposal::LATE.into());
+            }
+            Ok(Some(fan_proposal::Decision::Reject)) => {
+                record("rejected");
+                return Ok(json!(fan_proposal::REJECTED));
+            }
+            Ok(Some(fan_proposal::Decision::Apply)) => record("applied"),
+        }
+    }
     commands::set_settings(app.clone(), s, jobs, settings)?;
     get_settings(app)
 }
@@ -1336,7 +1410,8 @@ mod tests {
         let shared: Shared = Arc::new(Mutex::new(AppState::new(config)));
         let app = AppHandle::new();
         app.manage(shared.clone());
-        let (jobs, _) = mpsc::channel::<crate::state::Job>();
+        let (jobs, rx) = mpsc::channel::<crate::state::Job>();
+        std::mem::forget(rx);
         app.manage::<Jobs>(jobs);
         (app, shared)
     }
@@ -1424,6 +1499,43 @@ mod tests {
     }
 
     #[test]
+    fn settings_that_reach_outside_wait_for_approval() {
+        let (app, shared) = app_with(true);
+        let desk = fan_proposal::Desk::new();
+        let shown = Mutex::new(Vec::new());
+        let answer = Mutex::new(Some(fan_proposal::Decision::Reject));
+        let show = |ask: fan_proposal::Ask| {
+            lock(&shown).push(ask.settings.clone());
+            if let Some(d) = *lock(&answer) {
+                desk.decide(ask.id, d);
+            }
+            Ok(())
+        };
+        let close = |_| {};
+        let set = |args: Value| set_settings_with(&app, &args, "Tester", &desk, &show, &close, Duration::from_millis(50));
+        let ask = json!({"native_drivers": false, "fps": 20, "reason": "Testing"});
+
+        assert_eq!(set(ask.clone()), Ok(json!(fan_proposal::REJECTED)));
+        assert!(lock(&shared).config.settings.native_drivers);
+        assert_eq!(lock(&shared).config.settings.fps, 30);
+        assert_eq!(lock(&shown)[0], [("Native drivers", false)]);
+
+        *lock(&answer) = Some(fan_proposal::Decision::Apply);
+        let after = set(ask.clone()).unwrap();
+        assert_eq!((after["need_approval"]["native_drivers"].clone(), after["settings"]["fps"].clone()), (json!(false), json!(20)));
+        assert_eq!(after["last_request"]["outcome"], "applied");
+
+        let before = lock(&shown).len();
+        set(json!({"native_drivers": false, "fps": 25})).unwrap();
+        assert_eq!(lock(&shown).len(), before);
+
+        *lock(&answer) = None;
+        assert_eq!(set(json!({"native_drivers": true, "reason": "Back"})), Err(fan_proposal::LATE.into()));
+        assert!(!lock(&shared).config.settings.native_drivers);
+        assert_eq!(ok(&app, "get_settings", json!({}))["last_request"]["outcome"], "not approved in time");
+    }
+
+    #[test]
     fn every_key_has_its_own_name() {
         let mut seen = std::collections::HashSet::new();
         for k in key_layout() {
@@ -1489,6 +1601,8 @@ mod tests {
         assert_eq!(s["settings"]["fps"], 45);
         assert!(!lock(&shared).config.settings.battery_alerts);
         assert!(err(&app, "set_settings", json!({"ai_access": false})).contains("only in FoxDen's window"));
+        assert!(err(&app, "set_settings", json!({"native_drivers": false})).contains("needs a reason"));
+        assert!(lock(&shared).config.settings.native_drivers);
         assert!(err(&app, "set_settings", json!({"close_conflicts": true})).contains("only in FoxDen's window"));
         assert!(err(&app, "set_settings", json!({"fps": 5})).contains("10 to 60"));
         assert!(err(&app, "set_settings", json!({"language": "xx"})).contains("auto"));
