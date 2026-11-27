@@ -68,6 +68,9 @@ export struct AudBlock {
     gr-title: string,
     check: string,
     checked: bool,
+    modes: [AudOpt],
+    mode: int,
+    info: string,
 }
 
 export struct AudPSlider {
@@ -191,6 +194,14 @@ export global AudioPage {
     in property <[AudOpt]> filters;
 
     in property <bool> proc-open;
+    in property <bool> proc-mic;
+    in property <[AudOpt]> order-options;
+    in property <int> order-index;
+    in property <[AudOpt]> tune-targets;
+    in property <int> tune-index;
+    in property <bool> tune-busy;
+    in property <bool> tune-undo;
+    in property <string> tune-summary;
     in property <string> proc-title;
     in property <[AudOpt]> proc-presets;
     in property <string> proc-note;

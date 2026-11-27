@@ -186,7 +186,7 @@ mod tests {
             assert!(names.contains(&n), "{n}");
         }
         assert!(names.contains(&"get_fan_config") && names.contains(&"propose_fan_curves"));
-        assert!(!names.iter().any(|n| n.contains("set_fan") || n.contains("shutdown")));
+        assert!(!names.iter().any(|n| n.contains("fan_speed") || n.contains("fan_duty") || n.contains("shutdown")));
 
         let get = tools.iter().find(|t| t["name"] == "get_fan_config").unwrap();
         assert_eq!(get["annotations"]["readOnlyHint"], true);
@@ -244,7 +244,7 @@ mod tests {
         let r = ask(&mut s, json!({"jsonrpc": "2.0", "id": 3, "method": "resources/list"}));
         assert_eq!(r["error"]["code"], METHOD_NOT_FOUND);
         assert_eq!(r["id"], 3);
-        let r = ask(&mut s, json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "set_fan_curve"}}));
+        let r = ask(&mut s, json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "set_fan_speed"}}));
         assert_eq!(r["error"]["code"], INVALID_PARAMS);
         let r = ask(&mut s, json!({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "pause", "arguments": 3}}));
         assert_eq!(r["error"]["code"], INVALID_PARAMS);

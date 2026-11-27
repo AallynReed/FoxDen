@@ -250,10 +250,38 @@ pub fn response_db(bands: &[Band], rate: f32, freq: f32) -> f32 {
     db
 }
 
+/// How fast the gate opens, how long it stays open after the level drops, and how fast it closes.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GateTiming {
+    pub attack_ms: f32,
+    pub hold_ms: f32,
+    pub release_ms: f32,
+}
+
+impl Default for GateTiming {
+    fn default() -> Self {
+        Self { attack_ms: 2.0, hold_ms: 150.0, release_ms: 60.0 }
+    }
+}
+
+impl GateTiming {
+    pub fn clean(self) -> Self {
+        let d = Self::default();
+        let n = |v: f32, lo: f32, hi: f32, or: f32| if v.is_finite() { v.clamp(lo, hi) } else { or };
+        Self {
+            attack_ms: n(self.attack_ms, 0.1, 50.0, d.attack_ms),
+            hold_ms: n(self.hold_ms, 0.0, 1000.0, d.hold_ms),
+            release_ms: n(self.release_ms, 5.0, 1000.0, d.release_ms),
+        }
+    }
+}
+
 /// A noise gate: silent below the threshold, open while the level is above it and for a moment after.
 #[derive(Debug, Clone)]
 pub struct Gate {
     channels: usize,
+    rate: f32,
     open: f32,
     hold: u32,
     hold_frames: u32,
@@ -263,15 +291,26 @@ pub struct Gate {
 
 impl Gate {
     pub fn new(rate: f32, channels: usize) -> Self {
-        let per = |ms: f32| 1.0 - (-1.0 / (rate * ms / 1000.0)).exp();
-        Self {
+        let mut g = Self {
             channels: channels.max(1),
+            rate,
             open: 0.0,
             hold: 0,
-            hold_frames: (rate * 0.15) as u32,
-            attack: per(2.0),
-            release: per(60.0),
-        }
+            hold_frames: 0,
+            attack: 1.0,
+            release: 1.0,
+        };
+        g.set(&GateTiming::default());
+        g
+    }
+
+    pub fn set(&mut self, t: &GateTiming) {
+        let t = t.clean();
+        let rate = self.rate;
+        let per = |ms: f32| 1.0 - (-1.0 / (rate * ms / 1000.0)).exp();
+        self.hold_frames = (rate * t.hold_ms / 1000.0) as u32;
+        self.attack = per(t.attack_ms);
+        self.release = per(t.release_ms);
     }
 
     /// Mostly shut, so level-following blocks should hold still.

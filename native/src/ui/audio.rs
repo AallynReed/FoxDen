@@ -24,8 +24,8 @@ pub(super) const CHANNELS: [(&str, &str); 5] = [
     ("chatCapture", "Mic"),
 ];
 pub(super) const SIDES: [(&str, &str); 3] = [("game", "Game"), ("media", "Media"), ("aux", "Aux")];
-pub(super) const FREQS: [f64; 10] = [32., 64., 125., 250., 500., 1000., 2000., 4000., 8000., 16000.];
-pub(super) const PRESETS: [[f64; 10]; 4] = [
+pub(crate) const FREQS: [f64; 10] = [32., 64., 125., 250., 500., 1000., 2000., 4000., 8000., 16000.];
+pub(crate) const PRESETS: [[f64; 10]; 4] = [
     [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
     [6., 5., 4., 2., 0., 0., 0., 0., 0., 0.],
     [-4., -3., -2., -1., 0., 2., 4., 4., 2., 0.],
@@ -47,6 +47,9 @@ pub(super) struct St {
     pub shown: [f32; 5],
     pub reduction: Value,
     pub peaks: HashMap<String, f32>,
+    pub tune_target: usize,
+    pub tune_busy: bool,
+    pub tune_summary: String,
     vol_busy: bool,
     timer: Option<Timer>,
     tick: u32,
@@ -805,8 +808,55 @@ fn act(app: &AppHandle, what: &str, x: &str, y: &str) {
             vol_call(app, "", move |a| crate::volumes::make_default_device(mixer(a), id));
         }
         "allow" => send_mix(app, "", json!({"kind": "allow_auto", "exe": x})),
+        "auto-tune" => auto_tune(app),
+        "tune-undo" => {
+            aside(app, |a| {
+                let r = crate::mic_check::undo(a);
+                Box::new(move |w, a| {
+                    st(|s| s.tune_summary = match r {
+                        Ok(_) => tr(a, "The mic chain from before auto-tune is back."),
+                        Err(e) => e,
+                    });
+                    load_mixer(a, false);
+                    redraw(w, a);
+                })
+            });
+        }
         _ => {}
     }
+}
+
+const TUNE_SECONDS: f64 = 6.0;
+
+/// Records a sample the person asked for with the button, then sets the whole mic chain.
+fn auto_tune(app: &AppHandle) {
+    if st(|s| std::mem::replace(&mut s.tune_busy, true)) {
+        return;
+    }
+    let n = st(|s| s.tune_target).min(render::TARGETS.len() - 1);
+    let target: foxden_mixer::tune::Target = serde_json::from_value(json!(render::TARGETS[n].0)).unwrap_or(foxden_mixer::tune::Target::Discord);
+    st(|s| s.tune_summary = tf(app, "Speak normally for {0} seconds…", &[&TUNE_SECONDS.to_string()]));
+    redraw_now(app);
+    aside(app, move |a| {
+        let r = crate::mic_check::current(a).and_then(|old| {
+            let (raw, rate) = crate::mic_check::record(&old, TUNE_SECONDS)?;
+            let t = crate::mic_check::work_out(&raw, rate, &old, target, false);
+            drop(raw);
+            crate::mic_check::commit(a, &old, &t)?;
+            Ok(crate::mic_check::summary(&t))
+        });
+        Box::new(move |w, a| {
+            st(|s| {
+                s.tune_busy = false;
+                s.tune_summary = match r {
+                    Ok((before, after)) => tf(a, "Before: {0}. After: {1}.", &[&before, &after]),
+                    Err(e) => e,
+                };
+            });
+            load_mixer(a, false);
+            redraw(w, a);
+        })
+    });
 }
 
 fn slide(app: &AppHandle, what: &str, x: &str, v: f32) {
@@ -867,6 +917,7 @@ fn slide(app: &AppHandle, what: &str, x: &str, v: f32) {
                 send_eq(app, &id, None);
             }
         }
+        "proc" if x == "gate.threshold_db" => slide(app, "gate", "", v),
         "proc" => {
             let Some(target) = st(|s| s.proc.clone()) else { return };
             let Some((block, field)) = x.split_once('.') else { return };
@@ -945,6 +996,7 @@ fn flip(app: &AppHandle, what: &str, x: &str, on: bool) {
             st(|s| s.prio_inputs = on);
             redraw_now(app);
         }
+        "block" if x == "gate" => flip(app, "gate", "", on),
         "block" | "block-check" => {
             let Some(target) = st(|s| s.proc.clone()) else { return };
             let field = if what == "block" { "on" } else { "auto_makeup" };
@@ -1082,6 +1134,26 @@ fn pick(app: &AppHandle, what: &str, x: &str, v: &str) {
             } else {
                 send_mix(app, "", json!({"kind": "apply_profile", "channel": target, "profile": p}));
             }
+        }
+        "proc-engine" | "proc-order" => {
+            let Some(target) = st(|s| s.proc.clone()) else { return };
+            let ok = st(|s| {
+                let p = s.proc_mut(&target)?;
+                if what == "proc-engine" {
+                    p.get_mut("denoise")?["engine"] = json!(v);
+                } else {
+                    p["order"] = json!(v.split(',').collect::<Vec<_>>());
+                }
+                Some(())
+            });
+            if ok.is_some() {
+                send_proc(app, &target);
+            }
+        }
+        "tune-target" => {
+            let n = render::TARGETS.iter().position(|t| t.0 == v).unwrap_or(0);
+            st(|s| s.tune_target = n);
+            redraw_now(app);
         }
         "park" => {
             st(|s| {

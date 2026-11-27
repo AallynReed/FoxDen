@@ -16,6 +16,8 @@ pub const SAVE_MACRO: &str = "{0} wants to save a macro";
 pub const PLAY_MACRO: &str = "{0} wants to play a macro";
 pub const MACROS_ON: &str = "{0} wants to turn on macro hotkeys";
 pub const MOUSE_MACRO: &str = "{0} wants to change a button in your mouse's memory";
+pub const RECORD_MIC: &str = "{0} wants to record your microphone";
+pub const CLOSE_APPS: &str = "{0} wants to close conflicting software";
 const GRAPH_H: f32 = 80.0;
 
 thread_local! {

@@ -16,6 +16,7 @@ mod key_maps;
 mod keys;
 mod links;
 mod mcp;
+mod mic_check;
 mod mixer;
 mod modules;
 mod priority;

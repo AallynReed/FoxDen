@@ -577,6 +577,69 @@ where
     .map_err(dev_err)
 }
 
+/// Records `secs` of an input, or of what plays on an output, as mono samples kept in memory only.
+pub fn record(name: &str, loopback: bool, secs: f32) -> Result<(Vec<f32>, u32)> {
+    let host = cpal::default_host();
+    let dev = find(&host, name, loopback)?;
+    let supported = if loopback {
+        dev.default_output_config()
+    } else {
+        dev.default_input_config()
+    }
+    .map_err(dev_err)?;
+    let config: cpal::StreamConfig = supported.config();
+    let (chans, rate) = (config.channels as usize, config.sample_rate.0);
+    let want = (secs.clamp(0.0, 60.0) * rate as f32) as usize;
+    let taken: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(want)));
+    let stream = match supported.sample_format() {
+        SampleFormat::F32 => record_stream::<f32>(&dev, &config, taken.clone(), chans, want),
+        SampleFormat::I16 => record_stream::<i16>(&dev, &config, taken.clone(), chans, want),
+        SampleFormat::I32 => record_stream::<i32>(&dev, &config, taken.clone(), chans, want),
+        SampleFormat::U16 => record_stream::<u16>(&dev, &config, taken.clone(), chans, want),
+        f => return Err(format!("unsupported input format {f}")),
+    }?;
+    stream.play().map_err(dev_err)?;
+    let end = std::time::Instant::now() + std::time::Duration::from_secs_f32(secs.clamp(0.0, 60.0) + 3.0);
+    while taken.lock().map_or(0, |t| t.len()) < want && std::time::Instant::now() < end {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    drop(stream);
+    let out = taken.lock().map(|mut t| std::mem::take(&mut *t)).unwrap_or_default();
+    if out.len() < want / 2 {
+        return Err(format!("{name} sent too little sound to measure"));
+    }
+    Ok((out, rate))
+}
+
+fn record_stream<T: SizedSample>(
+    dev: &cpal::Device,
+    config: &cpal::StreamConfig,
+    taken: Arc<Mutex<Vec<f32>>>,
+    chans: usize,
+    want: usize,
+) -> Result<cpal::Stream>
+where
+    f32: FromSample<T>,
+{
+    let chans = chans.max(1);
+    dev.build_input_stream(
+        config,
+        move |data: &[T], _: &cpal::InputCallbackInfo| {
+            if let Ok(mut t) = taken.lock() {
+                for frame in data.chunks(chans) {
+                    if t.len() >= want {
+                        break;
+                    }
+                    t.push(frame.iter().map(|s| f32::from_sample(*s)).sum::<f32>() / chans as f32);
+                }
+            }
+        },
+        |e| eprintln!("record stream: {e}"),
+        None,
+    )
+    .map_err(dev_err)
+}
+
 /// Channel mapping and linear resampling into an output lane.
 struct Feed {
     in_ch: usize,

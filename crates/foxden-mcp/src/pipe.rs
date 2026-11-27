@@ -36,6 +36,7 @@ const APPROVAL: Duration = Duration::from_secs(50);
 const PENDING: &str = "Still waiting: the person at this PC hasn't answered yet. The request stays on screen for up to 3 minutes. Call get_fan_config later and read last_proposal for the outcome.";
 const PENDING_SETTINGS: &str = "Still waiting: the person at this PC hasn't answered yet. The request stays on screen for up to 3 minutes. Call get_settings later and read last_request for the outcome.";
 /// How often a waiting call tells the client it is still going.
+const PENDING_MIC: &str = "Still waiting: the person at this PC hasn't answered yet, and nothing has been recorded. The request stays on screen for up to 3 minutes. Call get_audio later and read last_recording_request for the outcome.";
 const PENDING_MACROS: &str = "Still waiting: the person at this PC hasn't answered yet. The request stays on screen for up to 3 minutes. Call list_macros later and read last_request for the outcome.";
 const TICK: Duration = Duration::from_secs(10);
 const MAX_REPLY: u64 = 4 * 1024 * 1024;
@@ -76,8 +77,9 @@ impl Relay for AppPipe {
         };
         let line = request(tool, args, client);
         let pending = match tool {
-            "propose_fan_curves" => Some(PENDING),
-            "set_settings" => Some(PENDING_SETTINGS),
+            "propose_fan_curves" | "set_fan_curve" | "remove_fan_curve" | "set_fan_rule" => Some(PENDING),
+            "set_settings" | "close_conflicts" => Some(PENDING_SETTINGS),
+            "analyze_mic" | "auto_tune_mic" => Some(PENDING_MIC),
             "save_macro" | "play_macro" | "set_macros_enabled" | "add_macro_preset" | "store_macro_on_mouse" | "reset_mouse_button" => {
                 Some(PENDING_MACROS)
             }

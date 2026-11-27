@@ -1,15 +1,28 @@
-//! Processing chains. Mic: noise suppression, gate, level stabilizer, compressor, de-esser, EQ,
-//! limiter. Outputs and master: compressor, limiter. Volume comes after, in the router.
+//! Processing chains. Mic: noise suppression, gate, then the level stabilizer, compressor,
+//! de-esser and EQ in the chosen order, then the limiter. Outputs and master: compressor, limiter.
+//! Volume comes after, in the router.
 
 use serde::{Deserialize, Serialize};
 
 use crate::denoise::{DenoiseSettings, Denoiser};
-use crate::dsp::{Equalizer, Gate};
+use crate::dsp::{Equalizer, Gate, GateTiming};
 use crate::dynamics::{
     Agc, AgcSettings, CompSettings, Compressor, DeEsser, DeEsserSettings, Limiter, LimiterSettings,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+/// A mic block whose place between the gate and the limiter can change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage {
+    Agc,
+    Comp,
+    Deesser,
+    Eq,
+}
+
+pub const ORDER: [Stage; 4] = [Stage::Agc, Stage::Comp, Stage::Deesser, Stage::Eq];
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Processing {
     pub denoise: DenoiseSettings,
@@ -17,6 +30,28 @@ pub struct Processing {
     pub comp: CompSettings,
     pub deesser: DeEsserSettings,
     pub limiter: LimiterSettings,
+    pub order: [Stage; 4],
+    /// Mic only; the gate's threshold and switch are the mixer's.
+    pub gate: GateTiming,
+}
+
+impl Default for Processing {
+    fn default() -> Self {
+        Self {
+            denoise: Default::default(),
+            agc: Default::default(),
+            comp: Default::default(),
+            deesser: Default::default(),
+            limiter: Default::default(),
+            order: ORDER,
+            gate: Default::default(),
+        }
+    }
+}
+
+/// `order` if it holds each stage once, else the default.
+pub fn clean_order(order: [Stage; 4]) -> [Stage; 4] {
+    if ORDER.iter().all(|s| order.contains(s)) { order } else { ORDER }
 }
 
 impl Processing {
@@ -29,6 +64,8 @@ impl Processing {
             comp: self.comp.clean(),
             deesser: if mic { self.deesser.clean() } else { d.deesser },
             limiter: self.limiter.clean(),
+            order: if mic { clean_order(self.order) } else { ORDER },
+            gate: if mic { self.gate.clean() } else { d.gate },
         }
     }
 }
@@ -67,7 +104,11 @@ impl MicChain {
         Self {
             s: *s,
             denoise: Denoiser::new(rate, channels, &s.denoise),
-            gate: Gate::new(rate, channels),
+            gate: {
+                let mut g = Gate::new(rate, channels);
+                g.set(&s.gate);
+                g
+            },
             agc: Agc::new(rate, channels, &s.agc),
             comp: Compressor::new(rate, channels, &s.comp),
             deesser: DeEsser::new(rate, channels, &s.deesser),
@@ -92,6 +133,12 @@ impl MicChain {
         self.comp.set(&s.comp);
         self.deesser.set(&s.deesser);
         self.limiter.set(&s.limiter);
+        self.gate.set(&s.gate);
+    }
+
+    /// For recordings processed off the audio thread.
+    pub fn offline(&mut self) {
+        self.denoise.offline();
     }
 
     /// `gate` is the threshold as a linear level, when the gate is on.
@@ -102,17 +149,16 @@ impl MicChain {
         if let Some(t) = gate {
             self.gate.process(samples, t);
         }
-        if self.s.agc.on {
-            self.agc
-                .process(samples, gate.is_some() && self.gate.closed());
+        let hold = gate.is_some() && self.gate.closed();
+        for stage in clean_order(self.s.order) {
+            match stage {
+                Stage::Agc if self.s.agc.on => self.agc.process(samples, hold),
+                Stage::Comp if self.s.comp.on => self.comp.process(samples),
+                Stage::Deesser if self.s.deesser.on => self.deesser.process(samples),
+                Stage::Eq => self.eq.process(samples),
+                _ => {}
+            }
         }
-        if self.s.comp.on {
-            self.comp.process(samples);
-        }
-        if self.s.deesser.on {
-            self.deesser.process(samples);
-        }
-        self.eq.process(samples);
         if self.s.limiter.on {
             self.limiter.process(samples);
         }
@@ -202,6 +248,7 @@ mod tests {
             denoise: DenoiseSettings {
                 on: true,
                 strength: 0.9,
+                ..Default::default()
             },
             agc: AgcSettings {
                 on: true,
@@ -219,7 +266,35 @@ mod tests {
                 on: true,
                 ..Default::default()
             },
+            order: ORDER,
+            gate: Default::default(),
         }
+    }
+
+    #[test]
+    fn the_order_of_blocks_is_kept_and_checked() {
+        let mut p = everything();
+        p.order = [Stage::Eq, Stage::Agc, Stage::Comp, Stage::Deesser];
+        assert_eq!(p.clean(true).order, p.order);
+        assert_eq!(p.clean(false).order, ORDER);
+        p.order = [Stage::Eq, Stage::Eq, Stage::Comp, Stage::Deesser];
+        assert_eq!(p.clean(true).order, ORDER);
+        let run = |order| {
+            let mut q = everything();
+            q.order = order;
+            let mut m = MicChain::new(48000.0, 2, &q);
+            let mut bands = default_bands();
+            bands[5].gain_db = 12.0;
+            m.eq = Equalizer::new(&bands, 48000.0, 2);
+            let mut x = speech_like(9600, 2);
+            for block in x.chunks_mut(960) {
+                m.process(block, None);
+            }
+            x
+        };
+        assert_ne!(run(ORDER), run([Stage::Eq, Stage::Agc, Stage::Comp, Stage::Deesser]));
+        let old: Processing = serde_json::from_str(r#"{"comp": {"on": true}}"#).unwrap();
+        assert_eq!(old.order, ORDER);
     }
 
     fn speech_like(frames: usize, chans: usize) -> Vec<f32> {

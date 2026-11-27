@@ -212,6 +212,14 @@ component Block inherits Rectangle {
             Text { text: b.name; font-weight: 600; color: Theme.text; vertical-alignment: center; }
             if b.hint != "": Small { text: b.hint; }
             Rectangle { horizontal-stretch: 1; }
+            if b.modes.length > 0: Choice {
+                label: I18n.t("Engine");
+                options: b.modes;
+                index: b.mode;
+                horizontal-stretch: 0;
+                min-width: 150px;
+                picked(v) => { AudioPage.pick("proc-engine", b.id, v); }
+            }
             if b.meter: VerticalLayout {
                 alignment: center;
                 horizontal-stretch: 1;
@@ -219,6 +227,7 @@ component Block inherits Rectangle {
             }
             if b.meter: Num { text: AudioPage.gr[root.i].text; min-width: 64px; accessible-label: b.gr-title; }
         }
+        if b.info != "": Small { text: b.info; wrap: word-wrap; accessible-role: AccessibleRole.text; }
         for s in AudioPage.psliders: VerticalLayout {
             if s.block == root.i && (!s.adv || AudioPage.proc-adv): HorizontalLayout {
                 spacing: 6px;
@@ -273,6 +282,47 @@ export component ProcBox inherits Rectangle {
                         picked(v) => { AudioPage.pick("proc-preset", "", v); }
                     }
                     VerticalLayout { alignment: start; Check { text: I18n.t("Advanced"); checked: AudioPage.proc-adv; toggled(v) => { AudioPage.proc-adv = v; } } }
+                }
+                if AudioPage.proc-mic: HorizontalLayout {
+                    spacing: 12px;
+                    Choice {
+                        label: I18n.t("Block order");
+                        options: AudioPage.order-options;
+                        index: AudioPage.order-index;
+                        picked(v) => { AudioPage.pick("proc-order", "", v); }
+                    }
+                    Choice {
+                        label: I18n.t("Auto-tune for");
+                        options: AudioPage.tune-targets;
+                        index: AudioPage.tune-index;
+                        horizontal-stretch: 0;
+                        min-width: 120px;
+                        picked(v) => { AudioPage.pick("tune-target", "", v); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        AudBtn {
+                            text: AudioPage.tune-busy ? I18n.t("Listening…") : I18n.t("Auto-tune");
+                            label: I18n.t("Record a few seconds of the mic and set the whole chain for this use");
+                            primary: true;
+                            enabled: !AudioPage.tune-busy;
+                            clicked => { AudioPage.act("auto-tune", "", ""); }
+                        }
+                    }
+                    if AudioPage.tune-undo: VerticalLayout {
+                        alignment: center;
+                        AudBtn {
+                            text: I18n.t("Undo");
+                            label: I18n.t("Put back the mic chain from before auto-tune");
+                            enabled: !AudioPage.tune-busy;
+                            clicked => { AudioPage.act("tune-undo", "", ""); }
+                        }
+                    }
+                }
+                if AudioPage.proc-mic && AudioPage.tune-summary != "": Small {
+                    text: AudioPage.tune-summary;
+                    wrap: word-wrap;
+                    accessible-role: AccessibleRole.text;
                 }
             }
         }

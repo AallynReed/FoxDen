@@ -446,6 +446,35 @@ fn call(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
         "get_batteries" => Ok(json!({"batteries": battery::get_batteries()})),
         "get_fan_config" => Ok(fan_proposal::view(&fans::get_fans()?, DESK.last())),
         "propose_fan_curves" => propose(app, args, client),
+        "set_fan_curve" | "remove_fan_curve" | "set_fan_rule" => fan_edit(app, tool, args, client),
+        "set_fan_service" => {
+            let on = flag(args, "running")?.ok_or("running must be true or false.")?;
+            if on { fans::start_service()? } else { fans::stop_service()? }
+            sensors()
+        }
+        "set_audio" | "route_channel" | "unassign_app" | "set_eq" | "set_processing" | "sound_profile_code"
+        | "apply_sound_profile" | "save_sound_profile" | "rename_sound_profile" | "delete_sound_profile"
+        | "import_sound_profile" | "get_audio_priority" | "set_audio_priority" | "get_app_volumes" | "set_app_volume"
+        | "set_device_volume" | "set_default_device" => audio_tool(app, tool, args),
+        "analyze_mic" | "auto_tune_mic" | "undo_auto_tune" => mic_tool(app, tool, args, client),
+        "set_hardware_mode" => set_hardware_mode(app, args),
+        "reset_layout" => done(commands::reset_layout(app.clone(), shared(app)?), "Every device is back in its first place.".into()),
+        "detect_devices" => {
+            let jobs = app.try_state::<Jobs>().ok_or("FoxDen is still starting.")?;
+            done(commands::detect(jobs), "Detecting hardware.".into())
+        }
+        "set_zone_leds" => set_zone_leds(app, args, app.try_state::<Jobs>().ok_or("FoxDen is still starting.")?),
+        "get_headsets" => headsets(app),
+        "set_headset" | "set_headset_eq" => headset_tool(app, tool, args),
+        "get_device_info" => {
+            let snap = snapshot(app)?;
+            let id = device_id(&snap, &text(args, "device")?)?;
+            let name = snap["devices"].as_array().into_iter().flatten().find(|d| d["id"] == id.as_str()).map(|d| d["name"].as_str().unwrap_or_default().to_string()).unwrap_or_default();
+            Ok(json!(tauri::async_runtime::block_on(crate::device_info::device_info(id, name))?))
+        }
+        "get_logs" => logs_of(&log::get_logs(), args),
+        "get_conflicts" => serde_json::to_value(commands::get_conflicts(app.clone(), shared(app)?)).map_err(|e| e.to_string()),
+        "close_conflicts" => close_conflicts(app, args, client),
         _ => Err(format!("FoxDen has no tool named {tool}.")),
     }
 }
@@ -496,6 +525,9 @@ fn status(app: &AppHandle) -> Reply {
             }
             if own {
                 out["hardware_mode"] = d["hardware_setting"].clone();
+            }
+            if d["hardware"]["modes"].as_array().is_some_and(|m| !m.is_empty()) {
+                out["hardware_modes"] = d["hardware"]["modes"].clone();
             }
             if d["zones"].as_array().is_some_and(|z| !z.is_empty()) {
                 out["zones"] = d["zones"].clone();
@@ -1128,8 +1160,17 @@ fn save_key_map(app: &AppHandle, args: &Value) -> Reply {
 const SAFE_SETTINGS: [&str; 7] =
     ["fps", "language", "close_to_tray", "start_minimized", "battery_tray", "battery_alerts", "auto_detect"];
 /// Settings that reach outside FoxDen, by name and the label the approval shows.
-const ASKED_SETTINGS: [(&str, &str); 3] =
-    [("autostart", "Start with Windows"), ("lighting_module", "Lighting"), ("native_drivers", "Native drivers")];
+const ASKED_SETTINGS: [(&str, &str); 9] = [
+    ("autostart", "Start with Windows"),
+    ("lighting_module", "Lighting"),
+    ("native_drivers", "Native drivers"),
+    ("fans_module", "Fans"),
+    ("network_enabled", "Lights on this network"),
+    ("openrgb_enabled", "Use an OpenRGB server"),
+    ("auto_update", "Install updates automatically"),
+    ("close_conflicts", "Close conflicting software"),
+    ("send_reports", "Send anonymous error reports"),
+];
 
 static LAST_SETTINGS: Mutex<Option<Value>> = Mutex::new(None);
 
@@ -1281,13 +1322,20 @@ fn macro_tool(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply 
 }
 
 /// Asks the person at the PC; true when they approved.
-fn approve(gate: &Gate, args: &Value, client: &str, title: &'static str, lines: Vec<String>) -> Result<bool, String> {
+fn approve(
+    gate: &Gate,
+    last: &Mutex<Option<Value>>,
+    args: &Value,
+    client: &str,
+    title: &'static str,
+    lines: Vec<String>,
+) -> Result<bool, String> {
     let reason = match args["reason"].as_str().map(|r| fan_proposal::clean_text(r, 300)) {
         Some(r) if !r.is_empty() => r,
         _ => return Err("This needs a reason: a sentence for the person approving.".into()),
     };
     let client = fan_proposal::clean_text(client, 40);
-    let record = |outcome: &str| *lock(&LAST_MACRO) = Some(json!({"client": client, "outcome": outcome}));
+    let record = |outcome: &str| *lock(last) = Some(json!({"client": client, "outcome": outcome}));
     let make = |id| {
         record("waiting for approval");
         fan_proposal::Ask {
@@ -1386,7 +1434,7 @@ fn macro_tool_with(app: &AppHandle, tool: &str, args: &Value, client: &str, gate
                 format!("Mode: {}", entry.macro_.mode.label()),
             ];
             lines.extend(step_lines(&entry.macro_));
-            if !approve(gate, args, client, crate::ui::approval::SAVE_MACRO, lines)? {
+            if !approve(gate, &LAST_MACRO, args, client, crate::ui::approval::SAVE_MACRO, lines)? {
                 return Ok(json!(fan_proposal::REJECTED));
             }
             let name = entry.macro_.name.clone();
@@ -1408,7 +1456,7 @@ fn macro_tool_with(app: &AppHandle, tool: &str, args: &Value, client: &str, gate
             }
             let mut lines = vec![format!("Play \"{}\" in {} s", e.macro_.name, delay)];
             lines.extend(step_lines(&e.macro_));
-            if !approve(gate, args, client, crate::ui::approval::PLAY_MACRO, lines)? {
+            if !approve(gate, &LAST_MACRO, args, client, crate::ui::approval::PLAY_MACRO, lines)? {
                 return Ok(json!(fan_proposal::REJECTED));
             }
             m.play(&e.id, Duration::from_secs_f64(delay))?;
@@ -1445,7 +1493,7 @@ fn macro_tool_with(app: &AppHandle, tool: &str, args: &Value, client: &str, gate
                 format!("Mode: {}", entry.macro_.mode.label()),
             ];
             lines.extend(step_lines(&entry.macro_));
-            if !approve(gate, args, client, crate::ui::approval::SAVE_MACRO, lines)? {
+            if !approve(gate, &LAST_MACRO, args, client, crate::ui::approval::SAVE_MACRO, lines)? {
                 return Ok(json!(fan_proposal::REJECTED));
             }
             let name = entry.macro_.name.clone();
@@ -1491,7 +1539,7 @@ fn macro_tool_with(app: &AppHandle, tool: &str, args: &Value, client: &str, gate
                 }
                 None => lines.push(format!("Put back to: {}", b.factory)),
             }
-            if !approve(gate, args, client, crate::ui::approval::MOUSE_MACRO, lines)? {
+            if !approve(gate, &LAST_MACRO, args, client, crate::ui::approval::MOUSE_MACRO, lines)? {
                 return Ok(json!(fan_proposal::REJECTED));
             }
             let done = match store {
@@ -1513,7 +1561,7 @@ fn macro_tool_with(app: &AppHandle, tool: &str, args: &Value, client: &str, gate
                 if lines.is_empty() {
                     lines.push("No macro has a hotkey yet".into());
                 }
-                if !approve(gate, args, client, crate::ui::approval::MACROS_ON, lines)? {
+                if !approve(gate, &LAST_MACRO, args, client, crate::ui::approval::MACROS_ON, lines)? {
                     return Ok(json!(fan_proposal::REJECTED));
                 }
             }
@@ -1620,29 +1668,6 @@ fn mix(app: &AppHandle, change: Value) -> Reply {
     serde_json::to_value(view).map_err(|e| e.to_string())
 }
 
-fn audio(app: &AppHandle) -> Reply {
-    let v = mixer_view(app)?;
-    let config = &v["config"];
-    let channels: Vec<Value> = config["channels"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|c| {
-            let name = CHANNELS.iter().find(|x| c["channel"] == x.1).map_or("", |x| x.0);
-            json!({
-                "channel": name, "on": c["on"], "volume": percent(&c["volume"]), "muted": c["muted"],
-                "source": c["source"], "apps": c["apps"],
-            })
-        })
-        .collect();
-    let apps: Vec<&Value> = v["apps"].as_array().into_iter().flatten().map(|a| &a["exe"]).collect();
-    Ok(json!({
-        "running": v["running"], "output": config["output"], "playing_on": v["playing_on"],
-        "master": percent(&config["master"]), "master_muted": config["master_muted"],
-        "channels": channels, "apps_with_sound": apps, "problem": v["error"],
-    }))
-}
-
 fn assign_app(app: &AppHandle, args: &Value) -> Reply {
     let exe = text(args, "app")?;
     let (id, label) = channel(args)?;
@@ -1675,6 +1700,846 @@ fn assign_app(app: &AppHandle, args: &Value) -> Reply {
         mix(app, json!({"kind": "route", "channel": id, "source": ch["source"], "loopback": ch["loopback"], "on": true}))?;
     }
     Ok(json!(format!("{exe} now plays on {label}.")))
+}
+
+// ---- Audio in full: routing, EQ, processing, sound profiles, priority and Windows volumes
+
+const SIDES: [&str; 3] = ["game", "media", "aux"];
+const EQ_PRESETS: [&str; 4] = ["flat", "bass_boost", "voice_clarity", "treble"];
+const BLOCKS: [&str; 5] = ["denoise", "agc", "comp", "deesser", "limiter"];
+const MIC_BLOCKS: [&str; 3] = ["denoise", "agc", "deesser"];
+
+fn chan_cfg<'a>(v: &'a Value, id: &str) -> Result<&'a Value, String> {
+    v["config"]["channels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|c| c["channel"] == id)
+        .ok_or_else(|| format!("The mixer has no {id} channel."))
+}
+
+fn strings(v: &Value) -> Vec<String> {
+    v.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect()
+}
+
+fn name_of(id: &str) -> &'static str {
+    CHANNELS.iter().find(|x| x.1 == id).map_or("", |x| x.0)
+}
+
+/// Processing as an AI sees it: outputs and the master keep only the compressor and limiter.
+fn proc_view(p: &Value, mic: bool, config: &Value) -> Value {
+    let mut out = json!({"comp": p["comp"], "limiter": p["limiter"]});
+    if mic {
+        for key in MIC_BLOCKS {
+            out[key] = p[key].clone();
+        }
+        out["order"] = p["order"].clone();
+        out["gate"] = json!({
+            "on": config["gate_on"], "threshold_db": config["gate_db"],
+            "attack_ms": p["gate"]["attack_ms"], "hold_ms": p["gate"]["hold_ms"], "release_ms": p["gate"]["release_ms"],
+        });
+    }
+    out
+}
+
+fn audio_of(v: &Value) -> Value {
+    let config = &v["config"];
+    let channels: Vec<Value> = config["channels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            let mic = c["channel"] == "chatCapture";
+            json!({
+                "channel": name_of(c["channel"].as_str().unwrap_or_default()), "on": c["on"],
+                "volume": percent(&c["volume"]), "muted": c["muted"],
+                "source": c["source"], "source_is_output": c["loopback"], "apps": c["apps"],
+                "eq": {"on": c["eq_on"], "bands": c["eq"]},
+                "processing": proc_view(&c["processing"], mic, config),
+            })
+        })
+        .collect();
+    let apps: Vec<&Value> = v["apps"].as_array().into_iter().flatten().map(|a| &a["exe"]).collect();
+    let profiles: Vec<Value> = v["profiles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| json!({"name": p["name"], "kind": p["kind"], "builtin": p["builtin"]}))
+        .collect();
+    let filters: Vec<&Value> = v["filters"].as_array().into_iter().flatten().map(|f| &f["id"]).collect();
+    let sides: Vec<&str> = config["game_side"].as_array().into_iter().flatten().filter_map(|s| s.as_str()).collect();
+    json!({
+        "running": v["running"], "output": config["output"], "playing_on": v["playing_on"],
+        "park": config["park"], "parked_on": v["parked_on"],
+        "master": percent(&config["master"]), "master_muted": config["master_muted"],
+        "master_processing": proc_view(&config["master_processing"], false, config),
+        "chat_mix": config["chat_mix"].as_f64().map(|b| (b * 100.0).round()),
+        "game_side": sides,
+        "monitor": {"on": config["monitor"], "volume": percent(&config["monitor_volume"])},
+        "auto_assign": config["auto_assign"], "auto_assign_skips": config["no_auto"],
+        "virtual_mic": {"on": config["virtual_mic"], "installed": v["vmic"]["installed"], "ready": v["vmic"]["ready"], "playing": v["vmic"]["playing"]},
+        "channels": channels, "outputs": v["outputs"], "inputs": v["inputs"], "apps_with_sound": apps,
+        "sound_profiles": profiles, "eq_filters": filters, "eq_presets": EQ_PRESETS,
+        "noise_removal": foxden_mixer::denoise::status(),
+        "problem": v["error"],
+        "note": "The mic chain runs noise removal, then the gate, then the stabilizer (agc), compressor, de-esser and EQ in `order`, then the limiter. High pass is an EQ band with filter HighPass.",
+    })
+}
+
+fn audio(app: &AppHandle) -> Reply {
+    let mut v = audio_of(&mixer_view(app)?);
+    v["last_recording_request"] = json!(lock(&LAST_MIC).clone());
+    v["auto_tune_undo"] = json!(crate::mic_check::can_undo());
+    Ok(v)
+}
+
+fn flag(args: &Value, key: &str) -> Result<Option<bool>, String> {
+    match &args[key] {
+        Value::Null => Ok(None),
+        Value::Bool(b) => Ok(Some(*b)),
+        _ => Err(format!("{key} must be true or false.")),
+    }
+}
+
+fn ranged(args: &Value, key: &str, lo: f64, hi: f64) -> Result<Option<f64>, String> {
+    if args[key].is_null() {
+        return Ok(None);
+    }
+    let n = number(args, key)?;
+    if !(lo..=hi).contains(&n) {
+        return Err(format!("{key} must be from {lo} to {hi}."));
+    }
+    Ok(Some(n))
+}
+
+/// The mixer changes `set_audio` asks for, checked against the mixer's view.
+fn audio_changes(args: &Value, v: &Value) -> Result<Vec<Value>, String> {
+    let config = &v["config"];
+    let mut out = Vec::new();
+    if let Some(name) = args["output"].as_str() {
+        if !strings(&v["outputs"]).iter().any(|o| o == name) {
+            return Err(format!("No output named {name}; get_audio lists outputs."));
+        }
+        out.push(json!({"kind": "output", "name": name}));
+    }
+    if let Some(name) = args["park"].as_str() {
+        if !name.is_empty() && !strings(&v["outputs"]).iter().any(|o| o == name) {
+            return Err(format!("No output named {name}; leave park empty to let FoxDen pick."));
+        }
+        out.push(json!({"kind": "park", "name": name}));
+    }
+    if let Some(m) = ranged(args, "master", 0.0, 100.0)? {
+        out.push(json!({"kind": "master", "volume": m / 100.0}));
+    }
+    if let Some(m) = flag(args, "master_muted")? {
+        out.push(json!({"kind": "master_mute", "muted": m}));
+    }
+    if let Some(b) = ranged(args, "chat_mix", -100.0, 100.0)? {
+        out.push(json!({"kind": "chat_mix", "balance": b / 100.0}));
+    }
+    if !args["game_side"].is_null() {
+        let list = strings(&args["game_side"]);
+        if list.iter().any(|s| !SIDES.contains(&s.as_str())) || !args["game_side"].is_array() {
+            return Err("game_side takes game, media and aux.".into());
+        }
+        out.push(json!({"kind": "mix_sides", "channels": list}));
+    }
+    if let Some(on) = flag(args, "running")? {
+        out.push(json!({"kind": "run", "on": on}));
+    }
+    if let Some(on) = flag(args, "auto_assign")? {
+        out.push(json!({"kind": "auto_assign", "on": on}));
+    }
+    if let Some(exe) = args["allow_auto_assign"].as_str() {
+        out.push(json!({"kind": "allow_auto", "exe": exe}));
+    }
+    let monitor = flag(args, "monitor")?;
+    let monitor_volume = ranged(args, "monitor_volume", 0.0, 100.0)?;
+    if monitor.is_some() || monitor_volume.is_some() {
+        out.push(json!({
+            "kind": "monitor",
+            "on": monitor.unwrap_or(config["monitor"].as_bool().unwrap_or(false)),
+            "volume": monitor_volume.map_or(config["monitor_volume"].as_f64().unwrap_or(0.5), |m| m / 100.0),
+        }));
+    }
+    if let Some(on) = flag(args, "virtual_mic")? {
+        if on && v["vmic"]["installed"] != true {
+            return Err("The virtual mic needs VB-CABLE, which is set up in FoxDen's Audio tab.".into());
+        }
+        out.push(json!({"kind": "virtual_mic", "on": on}));
+    }
+    if out.is_empty() {
+        return Err("Pass at least one setting to change.".into());
+    }
+    Ok(out)
+}
+
+fn apply_all(app: &AppHandle, changes: Vec<Value>) -> Reply {
+    for c in changes {
+        mix(app, c)?;
+    }
+    audio(app)
+}
+
+fn route_change(args: &Value, v: &Value) -> Result<Value, String> {
+    let (id, label) = channel(args)?;
+    let c = chan_cfg(v, id)?;
+    let source = match args["source"].as_str() {
+        Some(s) => s.trim().to_string(),
+        None => c["source"].as_str().unwrap_or_default().to_string(),
+    };
+    let (outputs, inputs) = (strings(&v["outputs"]), strings(&v["inputs"]));
+    let is_out = outputs.contains(&source);
+    let is_in = inputs.contains(&source);
+    let loopback = match flag(args, "source_is_output")? {
+        Some(l) => l,
+        None if !args["source"].is_null() => is_out && !is_in,
+        None => c["loopback"].as_bool().unwrap_or(false),
+    };
+    if !source.is_empty() && !(if loopback { is_out } else { is_in }) {
+        let list = if loopback { "outputs" } else { "inputs" };
+        return Err(format!("{source} is not among the {list} get_audio lists."));
+    }
+    let has_apps = !strings(&c["apps"]).is_empty();
+    let on = flag(args, "on")?.unwrap_or(!source.is_empty() || has_apps);
+    if on && source.is_empty() && !has_apps {
+        return Err(format!("{label} needs a source or an app to turn on."));
+    }
+    Ok(json!({"kind": "route", "channel": id, "source": source, "loopback": loopback, "on": on}))
+}
+
+fn unassign_change(args: &Value, v: &Value) -> Result<Value, String> {
+    let exe = text(args, "app")?;
+    for (_, id, _) in &CHANNELS[..4] {
+        let apps = strings(&chan_cfg(v, id)?["apps"]);
+        if apps.iter().any(|a| a.eq_ignore_ascii_case(&exe)) {
+            let left: Vec<&String> = apps.iter().filter(|a| !a.eq_ignore_ascii_case(&exe)).collect();
+            return Ok(json!({"kind": "apps", "channel": id, "apps": left}));
+        }
+    }
+    Err(format!("{exe} is on no channel."))
+}
+
+fn band_of(v: &Value, base: &Value, filters: &[String]) -> Result<Value, String> {
+    let mut b = if base.is_object() { base.clone() } else { json!({"enabled": true, "filter": "PeakingEQ", "frequency": 1000.0, "gain_db": 0.0, "q": 1.414}) };
+    let given = v.as_object().ok_or("Each band is an object.")?;
+    for (key, x) in given {
+        match key.as_str() {
+            "enabled" => b[key] = json!(x.as_bool().ok_or("enabled must be true or false.")?),
+            "filter" => {
+                let f = x.as_str().unwrap_or_default();
+                if !filters.iter().any(|g| g == f) {
+                    return Err(format!("filter must be one of {}.", filters.join(", ")));
+                }
+                b[key] = json!(f);
+            }
+            "frequency" | "gain_db" | "q" => {
+                let (lo, hi) = match key.as_str() {
+                    "frequency" => (20.0, 20000.0),
+                    "gain_db" => (-24.0, 24.0),
+                    _ => (0.1, 10.0),
+                };
+                let n = x.as_f64().filter(|n| (lo..=hi).contains(n)).ok_or_else(|| format!("{key} must be from {lo} to {hi}."))?;
+                b[key] = json!(n);
+            }
+            "index" => {}
+            _ => return Err(format!("A band has no {key}; it takes enabled, filter, frequency, gain_db and q.")),
+        }
+    }
+    Ok(b)
+}
+
+fn eq_change(args: &Value, v: &Value) -> Result<Value, String> {
+    let (id, _) = channel(args)?;
+    let c = chan_cfg(v, id)?;
+    let filters = strings(&json!(v["filters"].as_array().into_iter().flatten().map(|f| f["id"].clone()).collect::<Vec<_>>()));
+    let mut bands: Vec<Value> = c["eq"].as_array().cloned().unwrap_or_default();
+    let mut enabled = flag(args, "enabled")?;
+    if let Some(p) = args["preset"].as_str() {
+        let n = EQ_PRESETS.iter().position(|x| *x == p).ok_or_else(|| format!("preset must be one of {}.", EQ_PRESETS.join(", ")))?;
+        bands = crate::ui::audio::FREQS
+            .iter()
+            .zip(crate::ui::audio::PRESETS[n])
+            .map(|(fq, g)| json!({"enabled": true, "filter": "PeakingEQ", "frequency": fq, "gain_db": g, "q": 1.414}))
+            .collect();
+        enabled = enabled.or(Some(n != 0 || c["eq_on"] == true));
+    }
+    if let Some(list) = args["bands"].as_array() {
+        if list.is_empty() || list.len() > foxden_mixer::dsp::MAX_BANDS {
+            return Err(format!("bands takes 1 to {} bands.", foxden_mixer::dsp::MAX_BANDS));
+        }
+        bands = list.iter().map(|b| band_of(b, &Value::Null, &filters)).collect::<Result<_, _>>()?;
+    }
+    if let Some(list) = args["band_changes"].as_array() {
+        for b in list {
+            let i = b["index"].as_u64().map(|i| i as usize).filter(|i| *i < bands.len())
+                .ok_or_else(|| format!("Each band change needs an index from 0 to {}.", bands.len().saturating_sub(1)))?;
+            bands[i] = band_of(b, &bands[i], &filters)?;
+        }
+    }
+    if enabled.is_none() && args["preset"].is_null() && args["bands"].is_null() && args["band_changes"].is_null() {
+        return Err("Pass enabled, preset, bands or band_changes.".into());
+    }
+    Ok(json!({"kind": "eq", "channel": id, "enabled": enabled.unwrap_or(c["eq_on"] == true), "bands": bands}))
+}
+
+/// Lays `given` over `current` field by field, refusing names and types `current` lacks.
+fn overlay(current: &mut Value, given: &Value, what: &str) -> Result<(), String> {
+    let given = given.as_object().ok_or_else(|| format!("{what} must be an object."))?;
+    for (key, x) in given {
+        let Some(now) = current.get(key) else {
+            let names: Vec<&String> = current.as_object().map(|o| o.keys().collect()).unwrap_or_default();
+            return Err(format!("{what} has no {key}; it takes {}.", names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+        };
+        let same = match now {
+            Value::Bool(_) => x.is_boolean(),
+            Value::Number(_) => x.as_f64().is_some_and(f64::is_finite),
+            Value::String(_) => x.is_string(),
+            _ => false,
+        };
+        if !same {
+            return Err(format!("{what}.{key} must be like {now}."));
+        }
+        current[key] = x.clone();
+    }
+    Ok(())
+}
+
+fn proc_changes(args: &Value, v: &Value) -> Result<Vec<Value>, String> {
+    let asked = args["channel"].as_str().unwrap_or_default().trim().to_lowercase();
+    let (id, mic) = if asked == "master" {
+        (None, false)
+    } else {
+        let (id, _) = channel(args)?;
+        (Some(id), id == "chatCapture")
+    };
+    let config = &v["config"];
+    let mut p = match id {
+        Some(id) => chan_cfg(v, id)?["processing"].clone(),
+        None => config["master_processing"].clone(),
+    };
+    let mut out = Vec::new();
+    let mut any = false;
+    for key in BLOCKS {
+        if args[key].is_null() {
+            continue;
+        }
+        if !mic && MIC_BLOCKS.contains(&key) {
+            return Err(format!("{key} is for the mic; outputs and the master take comp and limiter."));
+        }
+        if key == "denoise" && !args[key]["engine"].is_null() {
+            let e = args[key]["engine"].as_str().unwrap_or_default();
+            if !["light", "strong", "auto"].contains(&e) {
+                return Err("denoise.engine must be light, strong or auto.".into());
+            }
+        }
+        overlay(&mut p[key], &args[key], key)?;
+        any = true;
+    }
+    if !args["order"].is_null() {
+        if !mic {
+            return Err("order is for the mic.".into());
+        }
+        let order: Vec<String> = strings(&args["order"]);
+        let all = ["agc", "comp", "deesser", "eq"];
+        if order.len() != 4 || all.iter().any(|s| !order.iter().any(|o| o == s)) {
+            return Err("order lists agc, comp, deesser and eq, each once.".into());
+        }
+        p["order"] = json!(order);
+        any = true;
+    }
+    if !args["gate"].is_null() {
+        if !mic {
+            return Err("The gate is for the mic.".into());
+        }
+        let g = &args["gate"];
+        let mut timing = g.clone();
+        if let Some(o) = timing.as_object_mut() {
+            o.remove("on");
+            o.remove("threshold_db");
+        }
+        if timing.as_object().is_some_and(|o| !o.is_empty()) {
+            overlay(&mut p["gate"], &timing, "gate")?;
+            any = true;
+        }
+        let on = flag(g, "on")?;
+        let db = ranged(g, "threshold_db", -90.0, 0.0)?;
+        if on.is_some() || db.is_some() {
+            out.push(json!({
+                "kind": "gate",
+                "on": on.unwrap_or(config["gate_on"].as_bool().unwrap_or(false)),
+                "threshold_db": db.unwrap_or(config["gate_db"].as_f64().unwrap_or(-50.0)),
+            }));
+        }
+    }
+    if any {
+        let clean: foxden_mixer::chain::Processing = serde_json::from_value(p).map_err(|e| e.to_string())?;
+        out.insert(0, json!({"kind": "processing", "channel": id, "processing": clean.clean(mic)}));
+    }
+    if out.is_empty() {
+        return Err("Pass a block to change: denoise, gate, agc, comp, deesser, limiter or order.".into());
+    }
+    Ok(out)
+}
+
+fn profile_named<'a>(v: &'a Value, name: &str) -> Result<&'a Value, String> {
+    v["profiles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| p["name"] == name)
+        .ok_or_else(|| format!("No sound profile named {name}; get_audio lists sound_profiles."))
+}
+
+fn sound_profile_change(tool: &str, args: &Value, v: &Value) -> Result<Value, String> {
+    match tool {
+        "apply_sound_profile" => {
+            let (id, label) = channel(args)?;
+            let p = profile_named(v, &text(args, "name")?)?;
+            let kind = if id == "chatCapture" { "mic" } else { "output" };
+            if p["kind"] != kind {
+                return Err(format!("That is a{} profile; {label} takes {kind} profiles.", if kind == "mic" { "n output" } else { " mic" }));
+            }
+            Ok(json!({"kind": "apply_profile", "channel": id, "profile": p}))
+        }
+        "save_sound_profile" => {
+            let (id, _) = channel(args)?;
+            let name = crate::profiles::clean_name(&text(args, "name")?);
+            Ok(json!({"kind": "save_profile", "channel": id, "name": name}))
+        }
+        "rename_sound_profile" => {
+            let name = text(args, "name")?;
+            if profile_named(v, &name)?["builtin"] == true {
+                return Err("Built-in profiles keep their names.".into());
+            }
+            Ok(json!({"kind": "rename_profile", "from": name, "to": crate::profiles::clean_name(&text(args, "to")?)}))
+        }
+        "delete_sound_profile" => {
+            let name = text(args, "name")?;
+            if profile_named(v, &name)?["builtin"] == true {
+                return Err("Built-in profiles cannot be deleted.".into());
+            }
+            Ok(json!({"kind": "delete_profile", "name": name}))
+        }
+        _ => {
+            let p = crate::profiles::sound_decode(text(args, "code")?)?;
+            Ok(json!({"kind": "add_profile", "profile": p}))
+        }
+    }
+}
+
+fn priority_config(args: &Value, now: &Value) -> Result<crate::priority::PriorityConfig, String> {
+    let mut c = now["config"].clone();
+    for key in ["on", "mixer", "windows"] {
+        if let Some(b) = flag(args, key)? {
+            c[key] = json!(b);
+        }
+    }
+    for (key, choices) in [("outputs", "choices_out"), ("inputs", "choices_in")] {
+        let Some(list) = args[key].as_array() else { continue };
+        let known: Vec<&Value> = now[choices].as_array().into_iter().flatten().chain(now["config"][key].as_array().into_iter().flatten()).collect();
+        let mut out = Vec::new();
+        for want in list {
+            let w = want.as_str().unwrap_or_default();
+            let e = known
+                .iter()
+                .find(|e| e["id"] == w || e["name"] == w)
+                .ok_or_else(|| format!("{w} is not a connected device or already in the list; get_audio_priority lists them."))?;
+            out.push(json!({"id": e["id"], "name": e["name"]}));
+        }
+        c[key] = json!(out);
+    }
+    serde_json::from_value(c).map_err(|e| e.to_string())
+}
+
+fn volume_rows(app: &AppHandle) -> Reply {
+    serde_json::to_value(crate::volumes::get_volumes(mixer_state(app)?)?).map_err(|e| e.to_string())
+}
+
+fn find_row<'a>(rows: &'a Value, list: &str, wanted: &str, key: &str) -> Result<&'a Value, String> {
+    rows[list]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|r| r[key].as_str().is_some_and(|k| k.eq_ignore_ascii_case(wanted)) || r["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(wanted)))
+        .ok_or_else(|| format!("{wanted} is not in get_app_volumes' {list}."))
+}
+
+fn audio_tool(app: &AppHandle, tool: &str, args: &Value) -> Reply {
+    match tool {
+        "set_audio" => apply_all(app, audio_changes(args, &mixer_view(app)?)?),
+        "route_channel" => apply_all(app, vec![route_change(args, &mixer_view(app)?)?]),
+        "unassign_app" => apply_all(app, vec![unassign_change(args, &mixer_view(app)?)?]),
+        "set_eq" => apply_all(app, vec![eq_change(args, &mixer_view(app)?)?]),
+        "set_processing" => apply_all(app, proc_changes(args, &mixer_view(app)?)?),
+        "sound_profile_code" => {
+            let v = mixer_view(app)?;
+            let p = serde_json::from_value(profile_named(&v, &text(args, "name")?)?.clone()).map_err(|e| e.to_string())?;
+            Ok(json!(crate::profiles::sound_code(p)))
+        }
+        "apply_sound_profile" | "save_sound_profile" | "rename_sound_profile" | "delete_sound_profile" | "import_sound_profile" => {
+            apply_all(app, vec![sound_profile_change(tool, args, &mixer_view(app)?)?])
+        }
+        "get_audio_priority" => serde_json::to_value(crate::priority::get_priority(app.clone())?).map_err(|e| e.to_string()),
+        "set_audio_priority" => {
+            let now = serde_json::to_value(crate::priority::get_priority(app.clone())?).map_err(|e| e.to_string())?;
+            let c = priority_config(args, &now)?;
+            serde_json::to_value(crate::priority::set_priority(app.clone(), mixer_state(app)?, c)?).map_err(|e| e.to_string())
+        }
+        "get_app_volumes" => volume_rows(app),
+        "set_app_volume" | "set_device_volume" => {
+            let volume = ranged(args, "volume", 0.0, 100.0)?.map(|v| (v / 100.0) as f32);
+            let muted = flag(args, "muted")?;
+            if volume.is_none() && muted.is_none() {
+                return Err("Pass volume or muted.".into());
+            }
+            let rows = volume_rows(app)?;
+            let out = if tool == "set_app_volume" {
+                let r = find_row(&rows, "apps", &text(args, "app")?, "exe")?;
+                let exe = r["exe"].as_str().unwrap_or_default().to_string();
+                let endpoint = r["endpoint"].as_str().unwrap_or_default().to_string();
+                crate::volumes::set_app_volume(mixer_state(app)?, exe, endpoint, volume, muted)?
+            } else {
+                let r = find_row(&rows, "devices", &text(args, "device")?, "id")?;
+                crate::volumes::set_device_volume(mixer_state(app)?, r["id"].as_str().unwrap_or_default().into(), volume, muted)?
+            };
+            serde_json::to_value(out).map_err(|e| e.to_string())
+        }
+        _ => {
+            let rows = volume_rows(app)?;
+            let r = find_row(&rows, "devices", &text(args, "device")?, "id")?;
+            let out = crate::volumes::make_default_device(mixer_state(app)?, r["id"].as_str().unwrap_or_default().into())?;
+            serde_json::to_value(out).map_err(|e| e.to_string())
+        }
+    }
+}
+
+// ---- Mic samples: every recording is approved on screen, each time
+
+static LAST_MIC: Mutex<Option<Value>> = Mutex::new(None);
+
+type Recorder<'a> = &'a dyn Fn(&crate::mic_check::MicSetup, f64) -> Result<(Vec<f32>, u32), String>;
+
+/// What the mic tools need from the mixer, so tests can stand in for it.
+struct MicHooks<'a> {
+    setup: &'a dyn Fn() -> Result<crate::mic_check::MicSetup, String>,
+    record: Recorder<'a>,
+    commit: &'a dyn Fn(&crate::mic_check::MicSetup, &crate::mic_check::Tuning) -> Result<(), String>,
+}
+
+fn mic_tool(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
+    if tool == "undo_auto_tune" {
+        let old = crate::mic_check::undo(app)?;
+        return Ok(json!({"restored": old}));
+    }
+    let who = match fan_proposal::clean_text(client, 40) {
+        c if c.is_empty() => "An AI assistant".to_string(),
+        c => c,
+    };
+    let show = |ask: fan_proposal::Ask| {
+        log::info("ai", format!("{who} asked to record the microphone; waiting for approval"));
+        let a = app.clone();
+        on_main(app, Duration::from_secs(10), move || crate::ui::approval::open(&a, ask))?
+    };
+    let close = |id| {
+        let _ = app.run_on_main_thread(move || crate::ui::approval::close(id));
+    };
+    let gate = Gate { desk: &DESK, show: &show, close: &close, wait: fan_proposal::WAIT };
+    let setup = || crate::mic_check::current(app);
+    let commit = |old: &crate::mic_check::MicSetup, t: &crate::mic_check::Tuning| crate::mic_check::commit(app, old, t);
+    let hooks = MicHooks { setup: &setup, record: &crate::mic_check::record, commit: &commit };
+    mic_tool_with(tool, args, client, &gate, &hooks)
+}
+
+fn mic_tool_with(tool: &str, args: &Value, client: &str, gate: &Gate, hooks: &MicHooks) -> Reply {
+    use crate::mic_check::{MAX_SECONDS, MIN_SECONDS};
+    let default = if tool == "auto_tune_mic" { 6.0 } else { 5.0 };
+    let seconds = ranged(args, "seconds", MIN_SECONDS, MAX_SECONDS)?.unwrap_or(default);
+    let target = if tool == "auto_tune_mic" {
+        let t = args["target"].as_str().unwrap_or_default();
+        Some(serde_json::from_value::<foxden_mixer::tune::Target>(json!(t)).map_err(|_| {
+            "target must be discord, streaming, podcast, gaming, meeting or music.".to_string()
+        })?)
+    } else {
+        None
+    };
+    let mono = match args["delivery"].as_str() {
+        None | Some("stereo") => false,
+        Some("mono") => true,
+        Some(_) => return Err("delivery must be stereo or mono.".into()),
+    };
+    let setup = (hooks.setup)()?;
+    if setup.source.is_empty() {
+        return Err("Pick a microphone for the Mic channel first.".into());
+    }
+    let what = match target {
+        Some(_) => "then works out and applies new mic settings; Undo in the Audio tab puts the old ones back",
+        None => "then measures it",
+    };
+    let lines = vec![
+        format!("Records {} seconds from {}.", seconds, setup.source),
+        format!("FoxDen keeps the sound in memory only, {what}, and deletes it at once. Nothing is saved or sent."),
+    ];
+    if !approve(gate, &LAST_MIC, args, client, crate::ui::approval::RECORD_MIC, lines)? {
+        return Err("The person at this PC did not allow the recording; nothing was recorded.".into());
+    }
+    let (raw, rate) = (hooks.record)(&setup, seconds)?;
+    let out = match target {
+        None => crate::mic_check::measure(&raw, rate, &setup),
+        Some(target) => {
+            let t = crate::mic_check::work_out(&raw, rate, &setup, target, mono);
+            (hooks.commit)(&setup, &t)?;
+            let mut r = crate::mic_check::report(&t);
+            r["applied"] = json!(true);
+            r["undo"] = json!("undo_auto_tune puts the previous mic chain back.");
+            r
+        }
+    };
+    drop(raw);
+    Ok(out)
+}
+
+// ---- Fans: edits of one curve or rule, approved like a whole proposal
+
+fn fan_edit(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
+    let state = fans::get_fans()?;
+    let v = fan_proposal::view(&state, Value::Null);
+    let proposal = fan_edit_proposal(tool, args, &v)?;
+    propose(app, &proposal, client)
+}
+
+/// The whole config `propose_fan_curves` takes, with one curve or rule changed.
+fn fan_edit_proposal(tool: &str, args: &Value, v: &Value) -> Result<Value, String> {
+    let mut curves: Vec<Value> = v["curves"].as_array().cloned().unwrap_or_default();
+    let mut rules: Vec<Value> = v["rules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|r| json!({"fan": r["fan"], "curve": r["curve"], "min_duty": r["min_duty"], "max_duty": r["max_duty"], "ramp": r["ramp"]}))
+        .collect();
+    match tool {
+        "set_fan_curve" => {
+            let name = text(args, "name")?;
+            let old = curves.iter().position(|c| c["name"] == name.as_str());
+            let mut c = old.map(|i| curves[i].clone()).unwrap_or_else(|| json!({"name": name, "hysteresis": 2.0}));
+            for key in ["sensors", "points", "hysteresis"] {
+                if !args[key].is_null() {
+                    c[key] = args[key].clone();
+                }
+            }
+            if c["sensors"].is_null() || c["points"].is_null() {
+                return Err("A new curve needs sensors and points.".into());
+            }
+            match old {
+                Some(i) => curves[i] = c,
+                None => curves.push(c),
+            }
+        }
+        "remove_fan_curve" => {
+            let name = text(args, "name")?;
+            let before = curves.len();
+            curves.retain(|c| c["name"] != name.as_str());
+            if curves.len() == before {
+                return Err(format!("No curve named {name}; get_fan_config lists them."));
+            }
+            if let Some(r) = rules.iter().find(|r| r["curve"] == name.as_str()) {
+                return Err(format!("{} follows {name}; give it another curve first with set_fan_rule.", r["fan"]));
+            }
+        }
+        _ => {
+            let fan = text(args, "fan")?;
+            if !v["fans"].as_array().into_iter().flatten().any(|f| f["id"] == fan.as_str()) {
+                return Err(format!("No fan {fan}; get_fan_config lists fan ids."));
+            }
+            let at = rules.iter().position(|r| r["fan"] == fan.as_str());
+            if args["curve"].is_null() && args.get("curve").is_some() {
+                if let Some(i) = at {
+                    rules.remove(i);
+                }
+            } else {
+                let mut r = at.map(|i| rules[i].clone()).unwrap_or_else(|| json!({"fan": fan, "min_duty": 0.0, "max_duty": 100.0, "ramp": 20.0}));
+                for key in ["curve", "min_duty", "max_duty", "ramp"] {
+                    if !args[key].is_null() {
+                        r[key] = args[key].clone();
+                    }
+                }
+                if r["curve"].is_null() {
+                    return Err("A fan without a rule needs a curve.".into());
+                }
+                match at {
+                    Some(i) => rules[i] = r,
+                    None => rules.push(r),
+                }
+            }
+        }
+    }
+    Ok(json!({"curves": curves, "rules": rules, "reason": args["reason"]}))
+}
+
+// ---- Devices
+
+fn set_hardware_mode(app: &AppHandle, args: &Value) -> Reply {
+    let snap = snapshot(app)?;
+    let id = device_id(&snap, &text(args, "device")?)?;
+    let d = snap["devices"].as_array().into_iter().flatten().find(|d| d["id"] == id.as_str()).cloned().unwrap_or_default();
+    let modes = d["hardware"]["modes"].as_array().cloned().unwrap_or_default();
+    if modes.is_empty() {
+        return Err(format!("{id} has no effects of its own."));
+    }
+    let setting = match &args["mode"] {
+        Value::Null if args.get("mode").is_some() => None,
+        m => {
+            let name = m.as_str().map(str::to_string).or_else(|| d["hardware_setting"]["mode"].as_str().map(str::to_string)).ok_or("Pass a mode.")?;
+            let mode = modes.iter().find(|x| x["id"] == name.as_str()).ok_or_else(|| {
+                let ids: Vec<&str> = modes.iter().filter_map(|x| x["id"].as_str()).collect();
+                format!("{id} has no mode {name}; it has {}.", ids.join(", "))
+            })?;
+            let mut base = d["hardware_setting"].clone();
+            if !base.is_object() || base["mode"] != name.as_str() {
+                base = json!({"mode": name});
+            }
+            for key in ["speed", "brightness", "direction", "random"] {
+                if !args[key].is_null() {
+                    base[key] = args[key].clone();
+                }
+            }
+            if let Some(list) = args["colors"].as_array() {
+                let colors: Vec<Value> = list.iter().map(|c| color("colors", c)).collect::<Result<_, _>>()?;
+                base["colors"] = json!(colors);
+            }
+            let s = crate::ui::devices::hardware_values(mode, Some(&base));
+            Some(serde_json::from_value(s).map_err(|e| e.to_string())?)
+        }
+    };
+    let own = setting.is_some();
+    commands::set_hardware(app.clone(), shared(app)?, id.clone(), setting)?;
+    Ok(json!(if own { format!("{id} runs its own effect.") } else { format!("{id} follows FoxDen again.") }))
+}
+
+fn set_zone_leds(app: &AppHandle, args: &Value, jobs: State<'static, Jobs>) -> Reply {
+    let snap = snapshot(app)?;
+    let key = text(args, "zone")?;
+    let z = snap["devices"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|d| d["zones"].as_array().into_iter().flatten())
+        .find(|z| z["key"] == key.as_str())
+        .cloned()
+        .ok_or_else(|| format!("No resizable zone {key}; get_status lists zones by key."))?;
+    let n = number(args, "leds")? as u64;
+    let (lo, hi, step) = (z["min"].as_u64().unwrap_or(0), z["max"].as_u64().unwrap_or(0), z["step"].as_u64().unwrap_or(1).max(1));
+    if !(lo..=hi).contains(&n) || !n.is_multiple_of(step) {
+        return Err(format!("{key} takes {lo} to {hi} LEDs in steps of {step}."));
+    }
+    let s = shared(app)?;
+    let mut settings = lock(&s).config.settings.clone();
+    settings.zone_leds.insert(key.clone(), n as usize);
+    commands::set_settings(app.clone(), s, jobs, settings)?;
+    Ok(json!(format!("{key} has {n} LEDs.")))
+}
+
+fn headsets(app: &AppHandle) -> Reply {
+    let list = tauri::async_runtime::block_on(crate::headset::headset_list(shared(app)?))?;
+    serde_json::to_value(list).map_err(|e| e.to_string())
+}
+
+fn headset_tool(app: &AppHandle, tool: &str, args: &Value) -> Reply {
+    let list = headsets(app)?;
+    let wanted = text(args, "headset")?;
+    let h = list
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|h| h["key"] == wanted.as_str() || h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(&wanted)))
+        .ok_or_else(|| format!("No headset {wanted}; get_headsets lists them."))?;
+    let key = h["key"].as_str().unwrap_or_default().to_string();
+    if tool == "set_headset_eq" {
+        let eq = &h["eq"];
+        if !eq.is_object() {
+            return Err("This headset has no EQ.".into());
+        }
+        let (lo, hi) = (eq["min"].as_i64().unwrap_or(0), eq["max"].as_i64().unwrap_or(0));
+        let bands: Vec<i32> = args["bands"]
+            .as_array()
+            .ok_or("bands must be a list of whole numbers.")?
+            .iter()
+            .map(|b| b.as_i64().filter(|b| (lo..=hi).contains(b)).map(|b| b as i32).ok_or_else(|| format!("Each band is a whole number from {lo} to {hi}.")))
+            .collect::<Result<_, _>>()?;
+        tauri::async_runtime::block_on(crate::headset::headset_eq(shared(app)?, key, bands))?;
+        return Ok(json!("EQ set."));
+    }
+    let control = text(args, "control")?;
+    let c = h["controls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|c| c["id"] == control.as_str())
+        .ok_or_else(|| format!("This headset has no {control}; get_headsets lists its controls."))?;
+    let value = number(args, "value")? as i64;
+    let shape = &c["shape"];
+    let n = |k: &str| shape[k].as_i64().unwrap_or(0);
+    let fits = match shape["type"].as_str() {
+        Some("switch") => (0..=1).contains(&value),
+        Some("steps") => (n("min")..=n("max")).contains(&value),
+        Some("minutes") => (0..=n("max")).contains(&value),
+        Some("choice") => shape["options"].as_array().into_iter().flatten().any(|o| o[0].as_i64() == Some(value)),
+        _ => false,
+    };
+    if !fits {
+        return Err(format!("{value} does not fit {control}: {shape}."));
+    }
+    let id: foxden_headset::Control = serde_json::from_value(json!(control)).map_err(|e| e.to_string())?;
+    tauri::async_runtime::block_on(crate::headset::headset_set(shared(app)?, key, id, value as i32))?;
+    Ok(json!(format!("{control} set to {value}.")))
+}
+
+// ---- Logs and conflicts
+
+fn logs_of(entries: &[log::Entry], args: &Value) -> Result<Value, String> {
+    let level = args["level"].as_str();
+    if level.is_some_and(|l| !["info", "warn", "error"].contains(&l)) {
+        return Err("level must be info, warn or error.".into());
+    }
+    let rank = |l: &str| ["info", "warn", "error"].iter().position(|x| *x == l).unwrap_or(0);
+    let floor = level.map_or(0, rank);
+    let source = args["source"].as_str().map(str::to_lowercase);
+    let limit = args["limit"].as_u64().unwrap_or(100).clamp(1, 1000) as usize;
+    let kept: Vec<Value> = entries
+        .iter()
+        .filter(|e| {
+            let l = serde_json::to_value(e.level).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+            rank(&l) >= floor && source.as_ref().is_none_or(|s| e.source.to_lowercase() == *s)
+        })
+        .map(|e| json!(e))
+        .collect();
+    let start = kept.len().saturating_sub(limit);
+    Ok(json!({"entries": &kept[start..], "total": kept.len()}))
+}
+
+fn close_conflicts(app: &AppHandle, args: &Value, client: &str) -> Reply {
+    if args["reason"].as_str().is_none_or(|r| r.trim().is_empty()) {
+        return Err("This needs a reason: a sentence for the person approving.".into());
+    }
+    let found = commands::get_conflicts(app.clone(), shared(app)?);
+    let closing: Vec<String> = found.iter().filter(|f| f.running && f.closes).map(|f| f.name.to_string()).collect();
+    if closing.is_empty() {
+        return Ok(json!("Nothing to close."));
+    }
+    let show = |ask: fan_proposal::Ask| {
+        let a = app.clone();
+        on_main(app, Duration::from_secs(10), move || crate::ui::approval::open(&a, ask))?
+    };
+    let close = |id| {
+        let _ = app.run_on_main_thread(move || crate::ui::approval::close(id));
+    };
+    let gate = Gate { desk: &DESK, show: &show, close: &close, wait: fan_proposal::WAIT };
+    let lines = closing.iter().map(|n| format!("Close {n}")).collect();
+    if !approve(&gate, &LAST_SETTINGS, args, client, crate::ui::approval::CLOSE_APPS, lines)? {
+        return Ok(json!(fan_proposal::REJECTED));
+    }
+    let r = commands::close_conflicts_now(app.clone(), shared(app)?);
+    serde_json::to_value(r).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -1983,7 +2848,8 @@ mod tests {
         assert!(err(&app, "set_settings", json!({"ai_access": false})).contains("only in FoxDen's window"));
         assert!(err(&app, "set_settings", json!({"native_drivers": false})).contains("needs a reason"));
         assert!(lock(&shared).config.settings.native_drivers);
-        assert!(err(&app, "set_settings", json!({"close_conflicts": true})).contains("only in FoxDen's window"));
+        assert!(err(&app, "set_settings", json!({"openrgb_host": "10.0.0.2"})).contains("only in FoxDen's window"));
+        assert!(err(&app, "set_settings", json!({"close_conflicts": false})).contains("needs a reason"));
         assert!(err(&app, "set_settings", json!({"fps": 5})).contains("10 to 60"));
         assert!(err(&app, "set_settings", json!({"language": "xx"})).contains("auto"));
         assert!(lock(&shared).config.settings.ai_access);
@@ -2005,6 +2871,280 @@ mod tests {
 
     fn json_of(s: &str) -> Value {
         serde_json::from_str(s).unwrap()
+    }
+
+    /// A mixer view as `get_mixer` gives it, with two outputs and one input.
+    fn mixer_json() -> Value {
+        let mut config = crate::mixer::AudioConfig::default();
+        config.channels[0].apps = vec!["game.exe".into()];
+        json!({
+            "config": config, "running": false, "outputs": ["Speakers", "Headphones"], "inputs": ["USB Mic"],
+            "profiles": crate::profiles::builtins(), "apps": [{"exe": "game.exe"}],
+            "filters": [{"id": "PeakingEQ"}, {"id": "HighPass"}, {"id": "LowPass"}],
+            "vmic": {"installed": false},
+        })
+    }
+
+    #[test]
+    fn get_audio_shows_every_chain() {
+        let a = audio_of(&mixer_json());
+        let mic = a["channels"].as_array().unwrap().iter().find(|c| c["channel"] == "mic").unwrap();
+        for key in ["denoise", "gate", "agc", "comp", "deesser", "limiter", "order"] {
+            assert!(!mic["processing"][key].is_null(), "{key}");
+        }
+        assert_eq!(mic["processing"]["gate"]["threshold_db"], -50.0);
+        assert_eq!(mic["processing"]["denoise"]["engine"], "light");
+        let game = &a["channels"][0];
+        assert!(game["processing"]["deesser"].is_null() && !game["processing"]["comp"].is_null());
+        assert_eq!(game["eq"]["bands"].as_array().unwrap().len(), 10);
+        assert_eq!((a["chat_mix"].clone(), a["master"].clone()), (json!(0.0), json!(100.0)));
+        assert_eq!(a["inputs"], json!(["USB Mic"]));
+        assert!(a["sound_profiles"].as_array().unwrap().iter().any(|p| p["kind"] == "mic"));
+        assert_eq!(a["eq_presets"][1], "bass_boost");
+    }
+
+    #[test]
+    fn audio_settings_become_mixer_changes() {
+        let v = mixer_json();
+        let c = audio_changes(&json!({"output": "Headphones", "master": 50, "chat_mix": -40, "game_side": ["game", "aux"], "monitor_volume": 30}), &v).unwrap();
+        assert_eq!(c[0], json!({"kind": "output", "name": "Headphones"}));
+        assert_eq!(c[1]["volume"], 0.5);
+        assert_eq!(c[2]["balance"], -0.4);
+        assert_eq!(c[3]["channels"], json!(["game", "aux"]));
+        assert_eq!(c[4], json!({"kind": "monitor", "on": false, "volume": 0.3}));
+        for c in &c {
+            serde_json::from_value::<crate::mixer::Change>(c.clone()).unwrap();
+        }
+        assert!(audio_changes(&json!({"output": "Nope"}), &v).unwrap_err().contains("No output"));
+        assert!(audio_changes(&json!({"master": 140}), &v).is_err());
+        assert!(audio_changes(&json!({"game_side": ["chat"]}), &v).is_err());
+        assert!(audio_changes(&json!({"virtual_mic": true}), &v).unwrap_err().contains("VB-CABLE"));
+        assert!(audio_changes(&json!({}), &v).is_err());
+
+        let r = route_change(&json!({"channel": "mic", "source": "USB Mic"}), &v).unwrap();
+        assert_eq!(r, json!({"kind": "route", "channel": "chatCapture", "source": "USB Mic", "loopback": false, "on": true}));
+        let r = route_change(&json!({"channel": "media", "source": "Speakers"}), &v).unwrap();
+        assert_eq!((r["loopback"].clone(), r["on"].clone()), (json!(true), json!(true)));
+        assert!(route_change(&json!({"channel": "mic", "source": "Webcam"}), &v).is_err());
+        assert!(route_change(&json!({"channel": "aux", "source": "", "on": true}), &v).unwrap_err().contains("needs a source"));
+        assert_eq!(route_change(&json!({"channel": "game", "source": ""}), &v).unwrap()["on"], true, "its apps keep it on");
+        serde_json::from_value::<crate::mixer::Change>(r).unwrap();
+
+        assert_eq!(unassign_change(&json!({"app": "GAME.exe"}), &v).unwrap(), json!({"kind": "apps", "channel": "game", "apps": []}));
+        assert!(unassign_change(&json!({"app": "other.exe"}), &v).is_err());
+    }
+
+    #[test]
+    fn eq_edits_keep_the_other_bands() {
+        let v = mixer_json();
+        let c = eq_change(&json!({"channel": "mic", "band_changes": [{"index": 0, "filter": "HighPass", "frequency": 90}]}), &v).unwrap();
+        assert_eq!((c["bands"][0]["filter"].clone(), c["bands"][0]["frequency"].clone()), (json!("HighPass"), json!(90.0)));
+        assert_eq!(c["bands"][5]["frequency"], 1000.0);
+        assert_eq!(c["enabled"], false);
+        let c = eq_change(&json!({"channel": "game", "preset": "bass_boost"}), &v).unwrap();
+        assert_eq!((c["enabled"].clone(), c["bands"][0]["gain_db"].clone()), (json!(true), json!(6.0)));
+        let c = eq_change(&json!({"channel": "chat", "bands": [{"filter": "LowPass", "frequency": 8000}], "enabled": true}), &v).unwrap();
+        assert_eq!(c["bands"].as_array().unwrap().len(), 1);
+        serde_json::from_value::<crate::mixer::Change>(c).unwrap();
+        assert!(eq_change(&json!({"channel": "mic", "band_changes": [{"index": 12}]}), &v).is_err());
+        assert!(eq_change(&json!({"channel": "mic", "bands": [{"filter": "Wobble"}]}), &v).unwrap_err().contains("filter must be"));
+        assert!(eq_change(&json!({"channel": "mic", "bands": [{"gain_db": 40}]}), &v).is_err());
+        assert!(eq_change(&json!({"channel": "mic"}), &v).is_err());
+    }
+
+    #[test]
+    fn processing_merges_into_the_chain() {
+        let v = mixer_json();
+        let c = proc_changes(&json!({
+            "channel": "mic",
+            "denoise": {"on": true, "engine": "strong", "strength": 0.7},
+            "deesser": {"on": true, "threshold_db": -18},
+            "limiter": {"lookahead_ms": 0},
+            "gate": {"on": true, "threshold_db": -45, "hold_ms": 60},
+            "order": ["eq", "agc", "comp", "deesser"],
+        }), &v).unwrap();
+        let p: foxden_mixer::chain::Processing = serde_json::from_value(c[0]["processing"].clone()).unwrap();
+        assert_eq!((p.denoise.engine, p.denoise.strength), (foxden_mixer::denoise::Engine::Strong, 0.7));
+        assert!(p.deesser.on && p.deesser.threshold_db == -18.0 && p.deesser.frequency == 6500.0);
+        assert_eq!((p.limiter.lookahead_ms, p.limiter.ceiling_db), (0.0, -1.0));
+        assert_eq!((p.gate.hold_ms, p.gate.attack_ms), (60.0, 2.0));
+        assert_eq!(p.order[0], foxden_mixer::chain::Stage::Eq);
+        assert_eq!(c[1], json!({"kind": "gate", "on": true, "threshold_db": -45.0}));
+        serde_json::from_value::<crate::mixer::Change>(c[0].clone()).unwrap();
+
+        let m = proc_changes(&json!({"channel": "master", "limiter": {"on": true, "ceiling_db": -2}}), &v).unwrap();
+        assert_eq!(m[0]["channel"], Value::Null);
+        assert!(proc_changes(&json!({"channel": "game", "deesser": {"on": true}}), &v).unwrap_err().contains("for the mic"));
+        assert!(proc_changes(&json!({"channel": "mic", "comp": {"punch": 3}}), &v).unwrap_err().contains("has no punch"));
+        assert!(proc_changes(&json!({"channel": "mic", "comp": {"ratio": "high"}}), &v).is_err());
+        assert!(proc_changes(&json!({"channel": "mic", "order": ["eq", "eq", "comp", "agc"]}), &v).is_err());
+        assert!(proc_changes(&json!({"channel": "mic", "denoise": {"engine": "magic"}}), &v).is_err());
+        assert!(proc_changes(&json!({"channel": "mic"}), &v).is_err());
+    }
+
+    #[test]
+    fn sound_profiles_and_priority_follow_the_mixer() {
+        let v = mixer_json();
+        let mic_profile = crate::profiles::builtins().into_iter().find(|p| p.kind == crate::profiles::Kind::Mic).unwrap();
+        let out_profile = crate::profiles::builtins().into_iter().find(|p| p.kind == crate::profiles::Kind::Output).unwrap();
+        let c = sound_profile_change("apply_sound_profile", &json!({"channel": "mic", "name": mic_profile.name}), &v).unwrap();
+        assert_eq!(c["channel"], "chatCapture");
+        assert!(sound_profile_change("apply_sound_profile", &json!({"channel": "mic", "name": out_profile.name}), &v).is_err());
+        assert!(sound_profile_change("delete_sound_profile", &json!({"name": mic_profile.name}), &v).unwrap_err().contains("Built-in"));
+        let code = crate::profiles::sound_code(mic_profile.clone());
+        let c = sound_profile_change("import_sound_profile", &json!({"code": code}), &v).unwrap();
+        serde_json::from_value::<crate::mixer::Change>(c).unwrap();
+        let c = sound_profile_change("save_sound_profile", &json!({"channel": "chat", "name": " Mine "}), &v).unwrap();
+        assert_eq!(c["name"], "Mine");
+
+        let now = json!({
+            "config": crate::priority::PriorityConfig::default(),
+            "choices_out": [{"id": "a", "name": "Speakers"}, {"id": "b", "name": "Headphones"}], "choices_in": [],
+        });
+        let c = priority_config(&json!({"on": true, "outputs": ["Headphones", "a"]}), &now).unwrap();
+        assert!(c.on && c.mixer);
+        assert_eq!(c.outputs.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), ["b", "a"]);
+        assert!(priority_config(&json!({"inputs": ["nothing"]}), &now).is_err());
+    }
+
+    fn mic_hooks_run(answers: Vec<Option<fan_proposal::Decision>>, calls: Vec<(&str, Value)>) -> (Vec<Reply>, usize, usize, usize) {
+        let desk = fan_proposal::Desk::new();
+        let answers = Mutex::new(answers.into_iter());
+        let shown = Mutex::new(0usize);
+        let show = |ask: fan_proposal::Ask| {
+            *lock(&shown) += 1;
+            assert!(ask.other.as_ref().unwrap().1[0].contains("seconds from USB Mic"), "{:?}", ask.other);
+            if let Some(Some(d)) = lock(&answers).next() {
+                desk.decide(ask.id, d);
+            }
+            Ok(())
+        };
+        let close = |_| {};
+        let gate = Gate { desk: &desk, show: &show, close: &close, wait: Duration::from_millis(50) };
+        let recorded = Mutex::new(0usize);
+        let committed = Mutex::new(0usize);
+        let setup = || {
+            let mut s = crate::mic_check::setup_of(&serde_json::to_value(crate::mixer::AudioConfig::default()).unwrap())?;
+            s.source = "USB Mic".into();
+            Ok(s)
+        };
+        let record = |_: &crate::mic_check::MicSetup, secs: f64| {
+            *lock(&recorded) += 1;
+            let mut x = foxden_mixer_test_voice(secs);
+            x.iter_mut().step_by(7).for_each(|v| *v += 0.001);
+            Ok((x, 48000))
+        };
+        let commit = |_: &crate::mic_check::MicSetup, _: &crate::mic_check::Tuning| {
+            *lock(&committed) += 1;
+            Ok(())
+        };
+        let hooks = MicHooks { setup: &setup, record: &record, commit: &commit };
+        let out = calls.into_iter().map(|(tool, args)| mic_tool_with(tool, &args, "Tester", &gate, &hooks)).collect();
+        let (s, r, c) = (*lock(&shown), *lock(&recorded), *lock(&committed));
+        (out, s, r, c)
+    }
+
+    fn foxden_mixer_test_voice(secs: f64) -> Vec<f32> {
+        (0..(48000.0 * secs) as usize)
+            .map(|i| {
+                let t = i as f32 / 48000.0;
+                0.1 * (t * std::f32::consts::TAU * 150.0).sin() * (t * std::f32::consts::TAU * 2.0).sin().abs()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_recording_asks_again() {
+        use fan_proposal::Decision::Apply;
+        let ask = json!({"seconds": 2, "reason": "Check the mic"});
+        let (out, shown, recorded, _) = mic_hooks_run(vec![Some(Apply), Some(Apply)], vec![("analyze_mic", ask.clone()), ("analyze_mic", ask)]);
+        assert_eq!((shown, recorded), (2, 2), "the second recording was asked for again");
+        let r = out[0].as_ref().unwrap();
+        for key in ["raw", "processed", "difference"] {
+            assert!(r[key].is_object(), "{key}");
+        }
+        assert!(r["raw"]["lufs"].is_number() && r["raw"]["bands"].is_array());
+        assert!(out[1].is_ok());
+    }
+
+    #[test]
+    fn a_denied_or_unanswered_recording_records_nothing() {
+        use fan_proposal::Decision::{Apply, Reject};
+        let ask = json!({"seconds": 2, "reason": "Check the mic"});
+        let (out, shown, recorded, _) = mic_hooks_run(vec![Some(Reject)], vec![("analyze_mic", ask.clone())]);
+        assert_eq!((shown, recorded), (1, 0));
+        assert!(out[0].as_ref().unwrap_err().contains("nothing was recorded"));
+        let (out, shown, recorded, _) = mic_hooks_run(vec![None], vec![("analyze_mic", ask.clone())]);
+        assert_eq!((shown, recorded), (1, 0));
+        assert_eq!(out[0], Err(fan_proposal::LATE.into()));
+        assert_eq!(lock(&LAST_MIC).as_ref().unwrap()["outcome"], "not approved in time");
+        let (out, shown, recorded, committed) = mic_hooks_run(
+            vec![Some(Reject), Some(Apply)],
+            vec![("auto_tune_mic", json!({"target": "podcast", "seconds": 2, "reason": "Tune"})), ("auto_tune_mic", json!({"target": "podcast", "seconds": 2, "reason": "Tune"}))],
+        );
+        assert_eq!((shown, recorded, committed), (2, 1, 1), "auto-tune asks for its own recording each run");
+        assert!(out[0].is_err());
+        let r = out[1].as_ref().unwrap();
+        assert_eq!(r["target"], "podcast");
+        assert!(r["before"]["lufs"].is_number() && r["after"]["lufs"].is_number() && r["settings"]["processing"]["denoise"]["engine"] == "strong");
+        let (_, shown, recorded, _) = mic_hooks_run(vec![], vec![("analyze_mic", json!({"seconds": 20, "reason": "x"})), ("auto_tune_mic", json!({"target": "karaoke", "reason": "x"})), ("analyze_mic", json!({"seconds": 2}))]);
+        assert_eq!((shown, recorded), (0, 0), "bad arguments are refused before asking");
+    }
+
+    #[test]
+    fn fan_edits_change_one_curve_or_rule() {
+        let v = json!({
+            "curves": [{"name": "Quiet", "sensors": ["cpu"], "points": [[30, 20], [80, 100]], "hysteresis": 2}],
+            "rules": [{"fan": "board/fan1", "name": "CPU fan", "curve": "Quiet", "min_duty": 20, "max_duty": 100, "ramp": 20}],
+            "fans": [{"id": "board/fan1"}, {"id": "board/fan2"}],
+        });
+        let p = fan_edit_proposal("set_fan_curve", &json!({"name": "Quiet", "points": [[40, 25], [85, 100]], "reason": "r"}), &v).unwrap();
+        assert_eq!((p["curves"][0]["points"][0].clone(), p["curves"][0]["sensors"].clone()), (json!([40, 25]), json!(["cpu"])));
+        assert_eq!(p["rules"][0]["curve"], "Quiet");
+        let p = fan_edit_proposal("set_fan_curve", &json!({"name": "Loud", "sensors": ["gpu"], "points": [[30, 50]], "reason": "r"}), &v).unwrap();
+        assert_eq!(p["curves"].as_array().unwrap().len(), 2);
+        assert!(fan_edit_proposal("set_fan_curve", &json!({"name": "New", "reason": "r"}), &v).is_err());
+        assert!(fan_edit_proposal("remove_fan_curve", &json!({"name": "Quiet"}), &v).unwrap_err().contains("follows"));
+        let p = fan_edit_proposal("set_fan_rule", &json!({"fan": "board/fan2", "curve": "Quiet", "max_duty": 70, "reason": "r"}), &v).unwrap();
+        assert_eq!(p["rules"][1], json!({"fan": "board/fan2", "curve": "Quiet", "min_duty": 0.0, "max_duty": 70, "ramp": 20.0}));
+        let p = fan_edit_proposal("set_fan_rule", &json!({"fan": "board/fan1", "curve": null, "reason": "r"}), &v).unwrap();
+        assert!(p["rules"].as_array().unwrap().is_empty(), "back to firmware");
+        assert!(fan_edit_proposal("set_fan_rule", &json!({"fan": "board/fan9", "curve": "Quiet"}), &v).is_err());
+        assert_eq!(p["reason"], "r");
+    }
+
+    #[test]
+    fn devices_logs_and_settings_tools_answer() {
+        let (app, shared) = with_devices();
+        assert!(err(&app, "set_hardware_mode", json!({"device": "TKL keyboard", "mode": "wave"})).contains("no effects of its own"));
+        ok(&app, "reset_layout", json!({}));
+        ok(&app, "detect_devices", json!({}));
+        assert!(err(&app, "set_zone_leds", json!({"zone": "nope", "leds": 10})).contains("No resizable zone"));
+        assert!(err(&app, "get_device_info", json!({"device": "nothing"})).contains("No device"));
+        assert!(err(&app, "set_headset", json!({"headset": "nope", "control": "sidetone", "value": 1})).contains("No headset"));
+        assert!(err(&app, "set_fan_service", json!({})).contains("running"));
+        assert!(err(&app, "close_conflicts", json!({})).contains("reason"));
+        assert!(ok(&app, "get_conflicts", json!({})).is_array());
+
+        log::warn("test", "a warning for get_logs");
+        let logs = ok(&app, "get_logs", json!({"level": "warn", "source": "test"}));
+        assert!(logs["entries"].as_array().unwrap().iter().all(|e| e["level"] != "info"));
+        assert!(logs["entries"].as_array().unwrap().iter().any(|e| e["text"] == "a warning for get_logs"));
+        assert!(err(&app, "get_logs", json!({"level": "loud"})).contains("level"));
+
+        let desk = fan_proposal::Desk::new();
+        let shown = Mutex::new(Vec::new());
+        let show = |ask: fan_proposal::Ask| {
+            lock(&shown).push(ask.settings.clone());
+            desk.decide(ask.id, fan_proposal::Decision::Reject);
+            Ok(())
+        };
+        let close = |_| {};
+        let r = set_settings_with(&app, &json!({"fans_module": false, "send_reports": true, "reason": "r"}), "T", &desk, &show, &close, Duration::from_millis(50));
+        assert_eq!(r, Ok(json!(fan_proposal::REJECTED)));
+        assert_eq!(lock(&shown)[0], [("Fans", false), ("Send anonymous error reports", true)]);
+        assert!(lock(&shared).config.settings.fans_module);
+        assert!(set_settings_with(&app, &json!({"ai_access": false}), "T", &desk, &show, &close, Duration::from_millis(50)).is_err());
     }
 
     #[test]

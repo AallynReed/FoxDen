@@ -1,9 +1,9 @@
 //! The window: one module per tab, plus the device canvas stage.
 
 pub mod approval;
-mod audio;
+pub(crate) mod audio;
 mod clipboard;
-mod devices;
+pub(crate) mod devices;
 mod effects;
 pub(crate) mod effects_keys;
 mod fans;

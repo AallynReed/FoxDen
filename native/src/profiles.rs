@@ -1,9 +1,9 @@
 //! Sound profiles: named processing for an output channel or the mic, shareable as a short code.
 
 use crate::share;
-use foxden_mixer::chain::Processing;
-use foxden_mixer::denoise::DenoiseSettings;
-use foxden_mixer::dsp::{self, Band, FilterType};
+use foxden_mixer::chain::{ORDER, Processing, Stage};
+use foxden_mixer::denoise::{DenoiseSettings, Engine};
+use foxden_mixer::dsp::{self, Band, FilterType, GateTiming};
 use foxden_mixer::dynamics::{AgcSettings, CompSettings, DeEsserSettings, LimiterSettings};
 use serde::{Deserialize, Serialize};
 
@@ -124,7 +124,7 @@ fn builtin(
 }
 
 fn denoise(strength: f32) -> DenoiseSettings {
-    DenoiseSettings { on: true, strength }
+    DenoiseSettings { on: true, strength, ..Default::default() }
 }
 
 fn agc(target_db: f32, max_gain_db: f32) -> AgcSettings {
@@ -160,6 +160,7 @@ fn deess(frequency: f32, amount_db: f32) -> DeEsserSettings {
         on: true,
         frequency,
         amount_db,
+        ..Default::default()
     }
 }
 
@@ -168,6 +169,7 @@ fn limit(ceiling_db: f32, release_ms: f32) -> LimiterSettings {
         on: true,
         ceiling_db,
         release_ms,
+        ..Default::default()
     }
 }
 
@@ -249,6 +251,7 @@ pub fn builtins() -> Vec<Profile> {
                 comp: comp(-20.0, 3.0, 5.0, 120.0, 6.0),
                 deesser: deess(7000.0, 5.0),
                 limiter: limit(-1.0, 80.0),
+                ..Default::default()
             }),
         ),
         builtin(
@@ -312,6 +315,17 @@ struct ShareProc {
     s: Option<(bool, f32, f32)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     l: Option<(bool, f32, f32)>,
+    /// De-esser threshold, noise engine, block order, gate timing and limiter lookahead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    t: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    n: Option<Engine>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    r: Option<[Stage; 4]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    q: Option<(f32, f32, f32)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    h: Option<f32>,
 }
 
 fn changed<T: PartialEq + Default>(v: T) -> Option<T> {
@@ -346,6 +360,11 @@ fn share_proc(p: &Processing) -> ShareProc {
         }),
         s: changed(s).map(|s| (s.on, round(s.frequency, 0), round(s.amount_db, 1))),
         l: changed(l).map(|l| (l.on, round(l.ceiling_db, 1), round(l.release_ms, 0))),
+        t: (s.threshold_db != DeEsserSettings::default().threshold_db).then(|| round(s.threshold_db, 1)),
+        n: (d.engine != Engine::Light).then_some(d.engine),
+        r: (p.order != ORDER).then_some(p.order),
+        q: changed(p.gate).map(|g| (round(g.attack_ms, 1), round(g.hold_ms, 0), round(g.release_ms, 0))),
+        h: (l.lookahead_ms != LimiterSettings::default().lookahead_ms).then(|| round(l.lookahead_ms, 1)),
     }
 }
 
@@ -381,7 +400,7 @@ fn read_proc(p: ShareProc) -> Processing {
     Processing {
         denoise: p
             .d
-            .map(|(on, strength)| DenoiseSettings { on, strength })
+            .map(|(on, strength)| DenoiseSettings { on, strength, engine: p.n.unwrap_or_default() })
             .unwrap_or_default(),
         agc: p.a.map(agc).unwrap_or_default(),
         comp: p.c.map(comp).unwrap_or_default(),
@@ -391,6 +410,7 @@ fn read_proc(p: ShareProc) -> Processing {
                 on,
                 frequency,
                 amount_db,
+                threshold_db: p.t.unwrap_or(DeEsserSettings::default().threshold_db),
             })
             .unwrap_or_default(),
         limiter: p
@@ -399,7 +419,13 @@ fn read_proc(p: ShareProc) -> Processing {
                 on,
                 ceiling_db,
                 release_ms,
+                lookahead_ms: p.h.unwrap_or(LimiterSettings::default().lookahead_ms),
             })
+            .unwrap_or_default(),
+        order: p.r.unwrap_or(ORDER),
+        gate: p
+            .q
+            .map(|(attack_ms, hold_ms, release_ms)| GateTiming { attack_ms, hold_ms, release_ms })
             .unwrap_or_default(),
     }
 }
@@ -509,6 +535,22 @@ mod tests {
     use super::*;
     use base64::Engine;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    #[test]
+    fn codes_carry_the_newer_mic_settings() {
+        let mut p = builtins().into_iter().find(|p| p.kind == Kind::Mic).unwrap();
+        let x = p.processing.as_mut().unwrap();
+        x.deesser.threshold_db = -20.0;
+        x.denoise.engine = foxden_mixer::denoise::Engine::Strong;
+        x.order = [Stage::Eq, Stage::Agc, Stage::Comp, Stage::Deesser];
+        x.gate = GateTiming { attack_ms: 0.5, hold_ms: 40.0, release_ms: 30.0 };
+        x.limiter.lookahead_ms = 0.0;
+        let back = decode(&encode(&p)).unwrap().processing.unwrap();
+        assert_eq!(back, p.processing.unwrap().clean(true));
+        let plain = builtins().into_iter().find(|p| p.kind == Kind::Mic).unwrap();
+        assert!(!encode(&plain).is_empty());
+        assert_eq!(decode(&encode(&plain)).unwrap().processing.unwrap().order, ORDER);
+    }
 
     #[test]
     fn codes_round_trip_and_stay_short() {

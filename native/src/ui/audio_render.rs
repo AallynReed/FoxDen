@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use slint::{ComponentHandle, Model, SharedString};
 use tauri::AppHandle;
 
@@ -525,7 +525,7 @@ struct BlockDef {
     check: Option<(&'static str, &'static str)>,
 }
 
-const BLOCKS: [BlockDef; 5] = [
+const BLOCKS: [BlockDef; 6] = [
     BlockDef {
         id: "denoise",
         name: "Noise suppression",
@@ -533,6 +533,20 @@ const BLOCKS: [BlockDef; 5] = [
         hint: "Adds 20 ms of delay.",
         meter: None,
         sliders: &[("strength", "Strength", 0.0, 1.0, 0.01, Fmt::Pct, false)],
+        check: None,
+    },
+    BlockDef {
+        id: "gate",
+        name: "Gate",
+        mic: true,
+        hint: "",
+        meter: None,
+        sliders: &[
+            ("threshold_db", "Threshold", -90.0, 0.0, 1.0, Fmt::Dbfs, false),
+            ("attack_ms", "Attack", 0.1, 50.0, 0.1, Fmt::Ms1, true),
+            ("hold_ms", "Hold", 0.0, 1000.0, 5.0, Fmt::Ms0, true),
+            ("release_ms", "Release", 5.0, 1000.0, 5.0, Fmt::Ms0, true),
+        ],
         check: None,
     },
     BlockDef {
@@ -574,6 +588,7 @@ const BLOCKS: [BlockDef; 5] = [
         meter: Some("deess"),
         sliders: &[
             ("frequency", "Frequency", 3000.0, 10000.0, 100.0, Fmt::Hz, false),
+            ("threshold_db", "Threshold", -30.0, 0.0, 0.5, Fmt::Db, false),
             ("amount_db", "Amount", 0.0, 24.0, 0.5, Fmt::Db, false),
         ],
         check: None,
@@ -587,6 +602,7 @@ const BLOCKS: [BlockDef; 5] = [
         sliders: &[
             ("ceiling_db", "Ceiling", -24.0, 0.0, 0.1, Fmt::Dbfs, false),
             ("release_ms", "Release", 5.0, 2000.0, 1.0, Fmt::Ms0, true),
+            ("lookahead_ms", "Lookahead", 0.0, 5.0, 0.1, Fmt::Ms1, true),
         ],
         check: None,
     },
@@ -629,9 +645,13 @@ fn processing(g: &AudioPage, app: &AppHandle, s: &St) {
         presets.push(opt(name, name, false));
     }
     fill(g.get_proc_presets(), presets, |m| g.set_proc_presets(m));
+    g.set_proc_mic(mic);
+    if mic {
+        mic_rows(g, app, s, p);
+    }
     g.set_proc_note(
         if mic {
-            tr(app, "Order: noise suppression, gate, level stabilizer, compressor, de-esser, EQ, limiter, then volume.")
+            tr(app, "Noise removal and the gate come first and the limiter last, then volume.")
         } else if target == "master" {
             tr(app, "Works on the whole mix, after every channel's volume.")
         } else {
@@ -641,8 +661,22 @@ fn processing(g: &AudioPage, app: &AppHandle, s: &St) {
     );
     let mut blocks = Vec::new();
     let mut sliders = Vec::new();
+    let cfg = s.cfg();
     for (i, b) in shown_blocks(target).enumerate() {
-        let v = &p[b.id];
+        let gate = json!({
+            "on": cfg["gate_on"], "threshold_db": cfg["gate_db"],
+            "attack_ms": p["gate"]["attack_ms"], "hold_ms": p["gate"]["hold_ms"], "release_ms": p["gate"]["release_ms"],
+        });
+        let v = if b.id == "gate" { &gate } else { &p[b.id] };
+        let engines = ["light", "strong", "auto"];
+        let (modes, mode, info) = if b.id == "denoise" {
+            let names = ["Light (RNNoise)", "Strong (DeepFilterNet)", "Auto"];
+            let modes: Vec<AudOpt> = engines.iter().zip(names).map(|(id, n)| opt(id, &tr(app, n), false)).collect();
+            let now = engines.iter().position(|e| v["engine"] == *e).unwrap_or(0) as i32;
+            (modes, now, engine_info(app))
+        } else {
+            (Vec::new(), 0, String::new())
+        };
         blocks.push(AudBlock {
             id: b.id.into(),
             name: tr(app, b.name).into(),
@@ -653,6 +687,9 @@ fn processing(g: &AudioPage, app: &AppHandle, s: &St) {
             gr_title: tr(app, if b.meter == Some("agc") { "Gain applied now" } else { "Gain reduction" }).into(),
             check: b.check.map_or(SharedString::new(), |c| tr(app, c.1).into()),
             checked: b.check.is_some_and(|c| v[c.0].as_bool().unwrap_or(false)),
+            modes: slint::ModelRc::new(slint::VecModel::from(modes)),
+            mode,
+            info: info.into(),
         });
         for (field, label, min, max, step, fmt, adv) in b.sliders {
             let x = v[*field].as_f64().unwrap_or(*min as f64);
@@ -672,6 +709,69 @@ fn processing(g: &AudioPage, app: &AppHandle, s: &St) {
     fill(g.get_blocks(), blocks, |m| g.set_blocks(m));
     fill(g.get_psliders(), sliders, |m| g.set_psliders(m));
     paint_proc(g, s);
+}
+
+const STAGES: [(&str, &str); 4] =
+    [("agc", "Level stabilizer"), ("comp", "Compressor"), ("deesser", "De-esser"), ("eq", "EQ")];
+pub(super) const TARGETS: [(&str, &str); 6] = [
+    ("discord", "Discord"),
+    ("streaming", "Streaming"),
+    ("podcast", "Podcast"),
+    ("gaming", "Gaming"),
+    ("meeting", "Meeting"),
+    ("music", "Music"),
+];
+
+/// The block order choice, auto-tune and its summary, for the mic.
+fn mic_rows(g: &AudioPage, app: &AppHandle, s: &St, p: &Value) {
+    let now: Vec<String> = p["order"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(String::from)).collect();
+    let label = |order: &[&str]| {
+        order.iter().map(|id| tr(app, STAGES.iter().find(|s| s.0 == *id).map_or(*id, |s| s.1))).collect::<Vec<_>>().join(" → ")
+    };
+    let mut orders: Vec<Vec<&str>> = (0..4)
+        .map(|at| {
+            let mut o = vec!["agc", "comp", "deesser"];
+            o.insert(at, "eq");
+            o
+        })
+        .collect();
+    if !now.is_empty() && !orders.iter().any(|o| o.iter().eq(now.iter())) {
+        orders.push(now.iter().map(String::as_str).collect());
+    }
+    let index = orders.iter().position(|o| o.iter().eq(now.iter())).unwrap_or(3) as i32;
+    let options: Vec<AudOpt> = orders.iter().map(|o| opt(&o.join(","), &label(o), false)).collect();
+    fill(g.get_order_options(), options, |m| g.set_order_options(m));
+    g.set_order_index(index);
+    let targets: Vec<AudOpt> = TARGETS.iter().map(|(id, n)| opt(id, &tr(app, n), false)).collect();
+    fill(g.get_tune_targets(), targets, |m| g.set_tune_targets(m));
+    g.set_tune_index(s.tune_target as i32);
+    g.set_tune_busy(s.tune_busy);
+    g.set_tune_undo(crate::mic_check::can_undo());
+    g.set_tune_summary(s.tune_summary.clone().into());
+}
+
+/// Delay and CPU use of the noise removal engines, as last measured on the audio thread.
+fn engine_info(app: &AppHandle) -> String {
+    let Some(st) = foxden_mixer::denoise::status() else {
+        return tr(app, "Light adds about 20 ms and little CPU; strong adds about 40 ms and more.");
+    };
+    let mut line = tf(
+        app,
+        "Running {0}, {1} ms delay. Light: {2} ms a frame, {3}% of a core. Strong: {4} ms a frame, {5}% of a core.",
+        &[
+            &tr(app, if st.running == "strong" { "strong" } else { "light" }),
+            &format!("{:.0}", st.latency_ms),
+            &format!("{:.2}", st.light_ms),
+            &format!("{:.1}", st.light_cpu_percent),
+            &format!("{:.2}", st.strong_ms),
+            &format!("{:.1}", st.strong_cpu_percent),
+        ],
+    );
+    if st.fell_back {
+        line.push(' ');
+        line.push_str(&tr(app, "Strong could not keep up, so light took over."));
+    }
+    line
 }
 
 /// Gain reduction meters of the open processing drawer.

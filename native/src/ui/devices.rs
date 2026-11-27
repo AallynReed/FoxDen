@@ -117,7 +117,7 @@ fn own_effect(d: &Value) -> bool {
 }
 
 /// The values a hardware mode runs with when the setting leaves them out, as the app fills them in.
-fn hardware_values(mode: &Value, setting: Option<&Value>) -> Value {
+pub(crate) fn hardware_values(mode: &Value, setting: Option<&Value>) -> Value {
     let id = mode["id"].as_str().unwrap_or_default();
     let blank = json!({ "mode": id });
     let s = setting.filter(|s| s["mode"] == id).unwrap_or(&blank);

@@ -209,6 +209,8 @@ pub struct LimiterSettings {
     pub on: bool,
     pub ceiling_db: f32,
     pub release_ms: f32,
+    /// How far ahead it looks, ms; 0 is a single sample.
+    pub lookahead_ms: f32,
 }
 
 impl Default for LimiterSettings {
@@ -217,6 +219,7 @@ impl Default for LimiterSettings {
             on: false,
             ceiling_db: -1.0,
             release_ms: 80.0,
+            lookahead_ms: LIMIT_LOOKAHEAD_MS,
         }
     }
 }
@@ -228,8 +231,13 @@ impl LimiterSettings {
             on: self.on,
             ceiling_db: num(self.ceiling_db, -24.0, 0.0, d.ceiling_db),
             release_ms: num(self.release_ms, 5.0, 2000.0, d.release_ms),
+            lookahead_ms: num(self.lookahead_ms, 0.0, 5.0, d.lookahead_ms),
         }
     }
+}
+
+fn lag_of(rate: f32, s: &LimiterSettings) -> usize {
+    (rate * s.clean().lookahead_ms / 1000.0).round().max(1.0) as usize
 }
 
 /// Brickwall limiter: the gain needed for each peak is held across the lookahead and smoothed
@@ -259,7 +267,7 @@ pub struct Limiter {
 impl Limiter {
     pub fn new(rate: f32, channels: usize, s: &LimiterSettings) -> Self {
         let channels = channels.max(1);
-        let lag = (rate * LIMIT_LOOKAHEAD_MS / 1000.0).round().max(1.0) as usize;
+        let lag = lag_of(rate, s);
         let window = lag + 1;
         let mut l = Self {
             channels,
@@ -286,6 +294,10 @@ impl Limiter {
 
     pub fn set(&mut self, s: &LimiterSettings) {
         let s = s.clean();
+        if lag_of(self.rate, &s) != self.window - 1 {
+            *self = Limiter::new(self.rate, self.channels, &s);
+            return;
+        }
         self.ceiling = from_db(s.ceiling_db);
         self.release = coef(self.rate, s.release_ms);
     }
@@ -500,6 +512,8 @@ pub struct DeEsserSettings {
     pub frequency: f32,
     /// Most reduction of the band, dB.
     pub amount_db: f32,
+    /// Band level next to the whole signal where reduction starts, dB.
+    pub threshold_db: f32,
 }
 
 impl Default for DeEsserSettings {
@@ -508,6 +522,7 @@ impl Default for DeEsserSettings {
             on: false,
             frequency: 6500.0,
             amount_db: 6.0,
+            threshold_db: DEESS_REL_DB,
         }
     }
 }
@@ -519,6 +534,7 @@ impl DeEsserSettings {
             on: self.on,
             frequency: num(self.frequency, 3000.0, 10000.0, d.frequency),
             amount_db: num(self.amount_db, 0.0, 24.0, d.amount_db),
+            threshold_db: num(self.threshold_db, -30.0, 0.0, d.threshold_db),
         }
     }
 }
@@ -530,6 +546,7 @@ pub struct DeEsser {
     channels: usize,
     rate: f32,
     amount: f32,
+    threshold: f32,
     b: [f32; 3],
     a: [f32; 2],
     state: Vec<[f32; 4]>,
@@ -547,6 +564,7 @@ impl DeEsser {
             channels,
             rate,
             amount: 0.0,
+            threshold: DEESS_REL_DB,
             b: [0.0; 3],
             a: [0.0; 2],
             state: vec![[0.0; 4]; channels],
@@ -563,6 +581,7 @@ impl DeEsser {
     pub fn set(&mut self, s: &DeEsserSettings) {
         let s = s.clean();
         self.amount = s.amount_db;
+        self.threshold = s.threshold_db;
         let f = s.frequency.min(self.rate * 0.45);
         let w0 = 2.0 * std::f32::consts::PI * f / self.rate;
         let (sin, cos) = w0.sin_cos();
@@ -601,7 +620,7 @@ impl DeEsser {
             Self::env(&mut self.full_env, full, self.attack, self.release);
             let gr = if self.band_env > floor && self.full_env > 0.0 {
                 let rel = to_db(self.band_env) - to_db(self.full_env);
-                ((rel - DEESS_REL_DB) * 1.5).clamp(0.0, self.amount)
+                ((rel - self.threshold) * 1.5).clamp(0.0, self.amount)
             } else {
                 0.0
             };
@@ -730,6 +749,7 @@ mod tests {
             on: true,
             ceiling_db: -3.0,
             release_ms: 50.0,
+            ..Default::default()
         };
         let mut l = Limiter::new(RATE, 2, &s);
         let ceiling = from_db(-3.0);
@@ -757,6 +777,18 @@ mod tests {
             (x[1000 + lag] - input[1000]).abs() < 1e-6,
             "quiet part passes as it was"
         );
+    }
+
+    #[test]
+    fn a_limiter_without_lookahead_still_holds_the_ceiling() {
+        let s = LimiterSettings { on: true, ceiling_db: -4.0, lookahead_ms: 0.0, ..Default::default() };
+        let mut l = Limiter::new(RATE, 1, &s);
+        assert_eq!(l.latency(), 1);
+        let mut x: Vec<f32> = (0..48000).map(|i| if i % 4801 == 4800 { 1.8 } else { 0.1 * (i as f32 * 0.05).sin() }).collect();
+        l.process(&mut x);
+        assert!(peak(&x) <= from_db(-4.0) + 1e-6, "{}", peak(&x));
+        l.set(&LimiterSettings { lookahead_ms: 2.0, ..s });
+        assert_eq!(l.latency(), 96);
     }
 
     #[test]
@@ -880,6 +912,7 @@ mod tests {
             on: true,
             frequency: 6500.0,
             amount_db: 8.0,
+            ..Default::default()
         };
         let mut d = DeEsser::new(RATE, 2, &s);
         let mut voice = sine(300.0, -12.0, 0.5);
@@ -892,6 +925,24 @@ mod tests {
         assert!(d.take_meter() > 7.5);
         let e = to_db(peak(&ess[ess.len() / 2..]));
         assert!((e + 20.0).abs() < 0.7, "{e}");
+    }
+
+    #[test]
+    fn a_higher_deesser_threshold_cuts_less() {
+        let cut = |threshold_db| {
+            let s = DeEsserSettings { on: true, amount_db: 12.0, threshold_db, ..Default::default() };
+            let mut d = DeEsser::new(RATE, 2, &s);
+            let mut x = sine(300.0, -12.0, 0.5);
+            for (v, e) in x.iter_mut().zip(sine(6500.0, -20.0, 0.5)) {
+                *v += e;
+            }
+            d.process(&mut x);
+            d.take_meter()
+        };
+        assert!(cut(-20.0) > cut(-10.0) + 3.0);
+        assert_eq!(cut(0.0), 0.0);
+        let clean = DeEsserSettings { threshold_db: -99.0, ..Default::default() }.clean();
+        assert_eq!(clean.threshold_db, -30.0);
     }
 
     #[test]
