@@ -2018,7 +2018,7 @@ mod tests {
             LocalFree(text.cast());
             LocalFree(descriptor);
         }
-        s.trim_end_matches(' ').to_string()
+        s.trim_end_matches('\0').to_string()
     }
 
     fn try_ask(pipe: &File, line: &str) -> Option<String> {
