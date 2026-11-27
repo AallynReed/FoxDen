@@ -5,11 +5,11 @@ mod audio;
 mod clipboard;
 mod devices;
 mod effects;
-mod effects_keys;
+pub(crate) mod effects_keys;
 mod fans;
 mod logs;
 mod profiles;
-mod settings;
+pub(crate) mod settings;
 mod stage;
 
 use std::cell::RefCell;

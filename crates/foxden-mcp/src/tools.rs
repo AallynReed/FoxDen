@@ -22,14 +22,14 @@ pub fn list() -> Vec<Value> {
     vec![
         tool(
             "get_status",
-            "FoxDen's version, lighting devices, current effect, brightness, active profile and whether lighting is paused.",
+            "FoxDen's version, lighting devices (with their own effects, onboard modes, zones, brightness and layout), the main effect, a summary of the layers over it, brightness, active profile and whether lighting is paused.",
             none(),
             &[],
             true,
         ),
         tool(
             "list_effects",
-            "Every lighting effect kind with its parameters: name, type and range or options.",
+            "Every main effect kind and every layer effect kind with its parameters: name, type and range or options.",
             none(),
             &[],
             true,
@@ -70,6 +70,145 @@ pub fn list() -> Vec<Value> {
                 "replace": {"type": "boolean", "description": "Overwrite a profile with this name"},
             }),
             &["name"],
+            false,
+        ),
+        tool(
+            "get_profile",
+            "A saved profile in full: main effect, layers, per-device effects and brightness.",
+            json!({"name": {"type": "string"}}),
+            &["name"],
+            true,
+        ),
+        tool("delete_profile", "Deletes a saved profile.", json!({"name": {"type": "string"}}), &["name"], false),
+        tool(
+            "rename_profile",
+            "Renames a saved profile.",
+            json!({
+                "name": {"type": "string"},
+                "to": {"type": "string", "maxLength": 40},
+                "replace": {"type": "boolean", "description": "Overwrite a profile already named `to`"},
+            }),
+            &["name", "to"],
+            false,
+        ),
+        tool(
+            "list_layers",
+            "The layers drawn over the main effect, in order with the last on top: index, effect and its parameters, opacity, blend, which devices and when it shows.",
+            none(),
+            &[],
+            true,
+        ),
+        tool(
+            "add_layer",
+            "Adds a layer over the main effect, on top unless position says otherwise. For keys lit while a game is in front, use kind \"key_lights\" or \"key_colours\" with when \"front\" and apps [\"Game.exe\"]; the layer then shows only while that app is in front and goes away after.",
+            layer_schema(true),
+            &["kind"],
+            false,
+        ),
+        tool(
+            "update_layer",
+            "Changes a layer. Fields left out stay as they are; params are laid over the layer's current ones. Giving a different kind replaces its effect.",
+            layer_schema(false),
+            &["index"],
+            false,
+        ),
+        tool(
+            "remove_layer",
+            "Removes a layer.",
+            json!({"index": {"type": "integer", "minimum": 0}}),
+            &["index"],
+            false,
+        ),
+        tool(
+            "move_layer",
+            "Moves a layer to another place in the stack; the last is drawn on top.",
+            json!({"index": {"type": "integer", "minimum": 0}, "to": {"type": "integer", "minimum": 0}}),
+            &["index", "to"],
+            false,
+        ),
+        tool(
+            "toggle_layer",
+            "Turns a layer on or off; without enabled it flips.",
+            json!({"index": {"type": "integer", "minimum": 0}, "enabled": {"type": "boolean"}}),
+            &["index"],
+            false,
+        ),
+        tool(
+            "clear_device_effect",
+            "Has a device follow the main effect again, removing the effect set_effect gave it.",
+            json!({"device": {"type": "string", "description": "Device id or name from get_status"}}),
+            &["device"],
+            false,
+        ),
+        tool(
+            "set_device",
+            "Turns a lighting device on or off, sets its own brightness, or moves it on the effect canvas. Fields left out stay as they are.",
+            json!({
+                "device": {"type": "string", "description": "Device id or name from get_status"},
+                "enabled": {"type": "boolean"},
+                "brightness": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent"},
+                "layout": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4,
+                    "description": "[x, y, width, height] on the effect canvas, each 0 to 1"},
+            }),
+            &["device"],
+            false,
+        ),
+        tool("rescan_devices", "Reconnects the lighting drivers and looks for devices again.", none(), &[], false),
+        tool(
+            "list_keys",
+            "Every keyboard key by the name the key tools take, with its code and place.",
+            none(),
+            &[],
+            true,
+        ),
+        tool(
+            "get_key_map",
+            "A device's LEDs: each LED's index, position, and the key (or, on zone boards, the keys) it lights.",
+            json!({"device": {"type": "string", "description": "Device id or name from get_status"}}),
+            &["device"],
+            true,
+        ),
+        tool("list_key_maps", "Saved key colour maps.", none(), &[], true),
+        tool(
+            "save_key_map",
+            "Saves a key colour map, which the Effects tab can load into a key colours layer.",
+            json!({
+                "name": {"type": "string", "maxLength": 40},
+                "keys": {"type": "object", "additionalProperties": {"type": "string"},
+                    "description": "Key name from list_keys to colour \"#rrggbb\""},
+                "replace": {"type": "boolean"},
+            }),
+            &["name", "keys"],
+            false,
+        ),
+        tool("delete_key_map", "Deletes a saved key colour map.", json!({"name": {"type": "string"}}), &["name"], false),
+        tool(
+            "list_apps",
+            "Executables with a window open now, for a layer's apps.",
+            none(),
+            &[],
+            true,
+        ),
+        tool(
+            "get_settings",
+            "The app settings this tool set can change, and the languages.",
+            none(),
+            &[],
+            true,
+        ),
+        tool(
+            "set_settings",
+            "Changes app settings. Only these: fps, language, close_to_tray, start_minimized, battery_tray, battery_alerts, auto_detect.",
+            json!({
+                "fps": {"type": "integer", "minimum": 10, "maximum": 60},
+                "language": {"type": "string", "description": "\"auto\" or a code from get_settings"},
+                "close_to_tray": {"type": "boolean"},
+                "start_minimized": {"type": "boolean"},
+                "battery_tray": {"type": "boolean"},
+                "battery_alerts": {"type": "boolean"},
+                "auto_detect": {"type": "boolean", "description": "Watch for devices being plugged in"},
+            }),
+            &[],
             false,
         ),
         tool(
@@ -135,6 +274,30 @@ pub fn list() -> Vec<Value> {
             false,
         ),
     ]
+}
+
+fn layer_schema(new: bool) -> Value {
+    let mut props = json!({
+        "kind": {"type": "string", "description": "A layer effect kind from list_effects' layer_effects, or any main effect kind to fill the layer"},
+        "params": {"type": "object", "additionalProperties": true,
+            "description": "Parameter values by name; keys as names from list_keys, key colours as {\"Q\": \"#ff0000\"}"},
+        "enabled": {"type": "boolean"},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent"},
+        "blend": {"type": "string", "enum": ["normal", "add", "screen", "multiply", "tint"]},
+        "scope": {"type": "string", "enum": ["all", "keyboards", "chosen"], "description": "Which devices; chosen takes devices"},
+        "devices": {"type": "array", "items": {"type": "string"}, "description": "Device ids or names; sets scope to chosen"},
+        "when": {"type": "string", "enum": ["always", "running", "front", "battery_low"],
+            "description": "running or front: while one of apps runs or is in front"},
+        "apps": {"type": "array", "items": {"type": "string"}, "description": "Executable names, such as \"League of Legends.exe\""},
+        "battery": {"type": "string", "description": "For battery_low: a battery key from get_batteries, empty for any"},
+        "low": {"type": "number", "minimum": 0, "maximum": 100, "description": "For battery_low: percent counted as low"},
+    });
+    if new {
+        props["position"] = json!({"type": "integer", "minimum": 0, "description": "Index to insert at; on top if left out"});
+    } else {
+        props["index"] = json!({"type": "integer", "minimum": 0, "description": "Layer index from list_layers"});
+    }
+    props
 }
 
 fn proposal_schema() -> Value {

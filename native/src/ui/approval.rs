@@ -105,7 +105,7 @@ pub fn open(app: &AppHandle, ask: Ask) -> Result<(), String> {
         }
     });
     // The window may only exist once the event loop has run.
-    Timer::single_shot(Duration::from_millis(50), bring_to_front);
+    Timer::single_shot(Duration::from_millis(50), || bring_to_front(20));
     Ok(())
 }
 
@@ -146,15 +146,17 @@ fn path(drive: Option<&Drive>) -> String {
         .join(" ")
 }
 
-/// Raises the window; Windows may refuse focus to a background app, so it flashes then.
-fn bring_to_front() {
+/// Raises and focuses the window, trying again while a window just opened is not up yet.
+/// Windows may still refuse focus, so it flashes then.
+fn bring_to_front(tries: u32) {
     use std::ptr::null_mut;
     use windows_sys::Win32::Foundation::{HWND, LPARAM};
-    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, FLASHW_ALL, FLASHW_TIMERNOFG, FLASHWINFO, FlashWindowEx, GetWindowTextW,
-        GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindowVisible, SW_RESTORE,
-        SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowPos, ShowWindow,
+        BringWindowToTop, EnumWindows, FLASHW_ALL, FLASHW_TIMERNOFG, FLASHWINFO, FlashWindowEx,
+        GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic,
+        IsWindowVisible, SW_RESTORE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SetForegroundWindow, SetWindowPos,
+        ShowWindow,
     };
 
     unsafe extern "system" fn each(hwnd: HWND, found: LPARAM) -> windows_sys::core::BOOL {
@@ -178,6 +180,9 @@ fn bring_to_front() {
     unsafe {
         EnumWindows(Some(each), &mut hwnd as *mut HWND as LPARAM);
         if hwnd.is_null() {
+            if tries > 0 {
+                Timer::single_shot(Duration::from_millis(100), move || bring_to_front(tries - 1));
+            }
             return;
         }
         if IsIconic(hwnd) != 0 {
@@ -186,7 +191,16 @@ fn bring_to_front() {
         let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags);
         SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
-        if SetForegroundWindow(hwnd) == 0 {
+        // Sharing input with the window in front lets Windows hand focus over.
+        let front = GetWindowThreadProcessId(GetForegroundWindow(), null_mut());
+        let me = GetCurrentThreadId();
+        let joined = front != 0 && front != me && AttachThreadInput(me, front, 1) != 0;
+        BringWindowToTop(hwnd);
+        let focused = SetForegroundWindow(hwnd) != 0;
+        if joined {
+            AttachThreadInput(me, front, 0);
+        }
+        if !focused {
             let info = FLASHWINFO {
                 cbSize: size_of::<FLASHWINFO>() as u32,
                 hwnd,

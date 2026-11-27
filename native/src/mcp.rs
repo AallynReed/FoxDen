@@ -9,7 +9,10 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use foxden_core::{Effect, from_hex};
+use foxden_core::{
+    Color, Effect, Layer, LayerEffect, ParamInfo, Post, Scope, Spot, When, clean_key_map, from_hex, key_layout,
+    spots, to_hex, zoned,
+};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -32,8 +35,11 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 
 use crate::fan_proposal::{self, DESK, Hooks};
 use crate::mixer::Mixer;
-use crate::state::{Shared, lock};
-use crate::{battery, commands, fans, log, mixer};
+use crate::config::Settings;
+use crate::key_maps::{self, KeyMap};
+use crate::state::{Jobs, Shared, lock, update};
+use crate::ui::effects_keys::key_name;
+use crate::{apps, battery, commands, fans, log, mixer};
 
 const MAX_LINE: usize = 64 * 1024;
 const MAX_CLIENTS: usize = 4;
@@ -355,6 +361,65 @@ fn call(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
             done(commands::load_profile(app.clone(), shared(app)?, name.clone()), format!("Applied profile {name}."))
         }
         "save_profile" => save_profile(app, args),
+        "get_profile" => get_profile(app, args),
+        "delete_profile" => {
+            let name = text(args, "name")?;
+            done(commands::delete_profile(app.clone(), shared(app)?, name.clone()), format!("Deleted profile {name}."))
+        }
+        "rename_profile" => rename_profile(app, args),
+        "list_layers" => Ok(json!({"layers": layers_view(&lock(&*shared(app)?).engine.layers)})),
+        "add_layer" => add_layer(app, args),
+        "update_layer" => update_layer(app, args),
+        "remove_layer" => edit_layers(app, |layers| {
+            let i = index(args, layers.len())?;
+            layers.remove(i);
+            Ok(())
+        }),
+        "move_layer" => edit_layers(app, |layers| {
+            let i = index(args, layers.len())?;
+            let to = number(args, "to")?;
+            if to < 0.0 || to as usize >= layers.len() || to.fract() != 0.0 {
+                return Err(format!("to must be a layer index from 0 to {}.", layers.len().saturating_sub(1)));
+            }
+            let layer = layers.remove(i);
+            layers.insert(to as usize, layer);
+            Ok(())
+        }),
+        "toggle_layer" => edit_layers(app, |layers| {
+            let i = index(args, layers.len())?;
+            let on = args["enabled"].as_bool().unwrap_or(!layers[i].enabled);
+            layers[i].enabled = on;
+            Ok(())
+        }),
+        "clear_device_effect" => {
+            let id = device_id(&snapshot(app)?, &text(args, "device")?)?;
+            done(commands::set_override(app.clone(), shared(app)?, id.clone(), None), format!("{id} follows the main effect again."))
+        }
+        "set_device" => set_device(app, args),
+        "rescan_devices" => {
+            let jobs = app.try_state::<Jobs>().ok_or("FoxDen is still starting.")?;
+            done(commands::rescan(jobs), "Looking for devices again.".into())
+        }
+        "list_keys" => Ok(list_keys()),
+        "get_key_map" => key_map_of(app, args),
+        "list_key_maps" => {
+            let s = shared(app)?;
+            let maps: Vec<Value> = lock(&s)
+                .config
+                .key_maps
+                .iter()
+                .map(|m| json!({"name": m.name, "keys": readable_map(&m.map)}))
+                .collect();
+            Ok(json!({"key_maps": maps}))
+        }
+        "save_key_map" => save_key_map(app, args),
+        "delete_key_map" => {
+            let name = text(args, "name")?;
+            done(key_maps::delete_key_map(app.clone(), shared(app)?, name.clone()), format!("Deleted key map {name}."))
+        }
+        "list_apps" => Ok(json!({"apps": apps::windowed()})),
+        "get_settings" => get_settings(app),
+        "set_settings" => set_settings(app, args),
         "get_sensors" => sensors(),
         "get_audio" => audio(app),
         "set_channel_volume" => {
@@ -415,21 +480,40 @@ fn status(app: &AppHandle) -> Reply {
         .map(|d| {
             let own = d["hardware_setting"].is_object();
             let mut out = json!({
-                "id": d["id"], "name": d["name"], "kind": d["kind"],
+                "id": d["id"], "name": d["name"], "kind": d["kind"], "backend": d["backend"],
                 "leds": d["leds"].as_array().map_or(0, Vec::len),
                 "enabled": d["enabled"], "brightness": percent(&d["brightness"]),
+                "layout": d["rect"],
                 "driven_by": if own { "hardware" } else { "foxden" },
             });
             if let Some(effect) = snap["overrides"].get(d["id"].as_str().unwrap_or_default()) {
                 out["own_effect"] = effect.clone();
             }
+            if own {
+                out["hardware_mode"] = d["hardware_setting"].clone();
+            }
+            if d["zones"].as_array().is_some_and(|z| !z.is_empty()) {
+                out["zones"] = d["zones"].clone();
+            }
             out
         })
         .collect();
+    let layers: Vec<Layer> = serde_json::from_value(snap["layers"].clone()).unwrap_or_default();
+    let layers: Vec<Value> = layers_view(&layers)
+        .into_iter()
+        .map(|l| json!({"index": l["index"], "kind": l["effect"]["kind"], "enabled": l["enabled"], "scope": l["scope"], "when": l["when"]}))
+        .collect();
+    let key_maps: Vec<&Value> = snap["key_maps"].as_array().into_iter().flatten().map(|m| &m["name"]).collect();
+    let mut effect = snap["effect"].clone();
+    tidy(&mut effect);
+    let mut devices = devices;
+    devices.iter_mut().for_each(tidy);
     Ok(json!({
         "version": snap["version"],
-        "effect": snap["effect"],
-        "layers": snap["layers"].as_array().map_or(0, Vec::len),
+        "effect": effect,
+        "layers": layers,
+        "layers_note": "Layers are drawn over the main effect in order, the last on top; list_layers shows them in full.",
+        "key_maps": key_maps,
         "brightness": percent(&snap["brightness"]),
         "paused": snap["paused"],
         "active_profile": snap["active_profile"],
@@ -444,27 +528,45 @@ fn kind_of(effect: &Effect) -> String {
         .unwrap_or_default()
 }
 
+fn params_view(params: &[ParamInfo]) -> Vec<Value> {
+    params
+        .iter()
+        .map(|p| {
+            let mut out = serde_json::to_value(&p.control).unwrap_or_default();
+            out["name"] = json!(p.name);
+            out["label"] = json!(p.label);
+            match out["type"].as_str() {
+                Some("color") => out["format"] = json!("#rrggbb or [r,g,b]"),
+                Some("keys") => out["format"] = json!("list of key names from list_keys, such as [\"Q\", \"W\", \"F1\"]"),
+                Some("key_colours") => out["format"] = json!("object of key name to colour, such as {\"Q\": \"#ff0000\"}"),
+                _ => {}
+            }
+            out
+        })
+        .collect()
+}
+
 fn effects() -> Value {
     let list: Vec<Value> = Effect::catalog()
         .into_iter()
         .map(|info| {
-            let params: Vec<Value> = info
-                .params
-                .iter()
-                .map(|p| {
-                    let mut out = serde_json::to_value(&p.control).unwrap_or_default();
-                    out["name"] = json!(p.name);
-                    out["label"] = json!(p.label);
-                    if out["type"] == "color" {
-                        out["format"] = json!("#rrggbb or [r,g,b]");
-                    }
-                    out
-                })
-                .collect();
-            json!({"kind": kind_of(&info.default), "label": info.label, "params": params, "default": info.default})
+            json!({"kind": kind_of(&info.default), "label": info.label, "params": params_view(&info.params), "default": info.default})
         })
         .collect();
-    json!({"effects": list})
+    let layer: Vec<Value> = Post::catalog()
+        .into_iter()
+        .filter(|info| info.default != Post::None)
+        .map(|info| {
+            let mut default = serde_json::to_value(&info.default).unwrap_or_default();
+            readable_effect(&mut default);
+            json!({"kind": post_kind(&info.default), "label": info.label, "params": params_view(&info.params), "default": default})
+        })
+        .collect();
+    json!({
+        "effects": list,
+        "layer_effects": layer,
+        "note": "A layer takes a layer effect or any of effects, which then fills the layer.",
+    })
 }
 
 /// The effect `kind` with `params` laid over the current one of that kind, or over its default.
@@ -474,22 +576,56 @@ fn build_effect(current: Option<&Value>, kind: &str, params: &Map<String, Value>
         let kinds: Vec<String> = catalog.iter().map(|i| kind_of(&i.default)).collect();
         return Err(format!("Unknown effect kind \"{kind}\". Kinds: {}.", kinds.join(", ")));
     };
+    let effect = fill(current, kind, &info.default, &info.params, params)?;
+    serde_json::from_value(effect).map_err(|e| format!("Those parameters don't fit {kind}: {e}"))
+}
+
+/// `default`, or `current` when it is of this kind, with `params` checked and laid over it.
+fn fill(
+    current: Option<&Value>,
+    kind: &str,
+    default: &impl serde::Serialize,
+    info: &[ParamInfo],
+    params: &Map<String, Value>,
+) -> Result<Value, String> {
     let mut effect = match current {
         Some(c) if c["kind"] == kind => c.clone(),
-        _ => serde_json::to_value(&info.default).map_err(|e| e.to_string())?,
+        _ => serde_json::to_value(default).map_err(|e| e.to_string())?,
     };
     for (name, v) in params {
         if name == "kind" {
             continue;
         }
-        let Some(p) = info.params.iter().find(|p| p.name == name) else {
-            let names: Vec<&str> = info.params.iter().map(|p| p.name).collect();
+        let Some(p) = info.iter().find(|p| p.name == name) else {
+            let names: Vec<&str> = info.iter().map(|p| p.name).collect();
             return Err(format!("{kind} has no parameter \"{name}\". It takes: {}.", names.join(", ")));
         };
         let control = serde_json::to_value(&p.control).unwrap_or_default();
         effect[name.as_str()] = param(&control, name, v)?;
     }
-    serde_json::from_value(effect).map_err(|e| format!("Those parameters don't fit {kind}: {e}"))
+    Ok(effect)
+}
+
+fn post_kind(p: &Post) -> String {
+    serde_json::to_value(p).ok().and_then(|v| v["kind"].as_str().map(str::to_string)).unwrap_or_default()
+}
+
+/// A layer's effect: a layer effect from `list_effects`' `layer_effects`, or any main effect filling the layer.
+fn build_layer_effect(current: Option<&Value>, kind: &str, params: &Map<String, Value>) -> Result<LayerEffect, String> {
+    let posts = Post::catalog();
+    if let Some(info) = posts.iter().find(|i| kind != "none" && post_kind(&i.default) == kind) {
+        let v = fill(current, kind, &info.default, &info.params, params)?;
+        return serde_json::from_value(v)
+            .map(LayerEffect::Post)
+            .map_err(|e| format!("Those parameters don't fit {kind}: {e}"));
+    }
+    if kind == "none" {
+        return Err("A layer needs an effect; remove_layer takes a layer away.".into());
+    }
+    build_effect(current, kind, params).map(LayerEffect::Fill).map_err(|e| {
+        let kinds: Vec<String> = posts.iter().map(|i| post_kind(&i.default)).filter(|k| k != "none").collect();
+        format!("{e} Layer effects: {}.", kinds.join(", "))
+    })
 }
 
 fn param(control: &Value, name: &str, v: &Value) -> Result<Value, String> {
@@ -510,6 +646,14 @@ fn param(control: &Value, name: &str, v: &Value) -> Result<Value, String> {
             }
         }
         "sensor" | "battery" => v.as_str().map(|s| json!(s)).ok_or(format!("{name} must be a string.")),
+        "keys" => {
+            let keys = v.as_array().ok_or(format!("{name} must be a list of key names from list_keys."))?;
+            let mut codes = keys.iter().map(key_code).collect::<Result<Vec<u32>, String>>()?;
+            codes.sort_unstable();
+            codes.dedup();
+            Ok(json!(codes))
+        }
+        "key_colours" => Ok(json!(key_colours(v)?)),
         "stops" => {
             let max = control["max"].as_f64().unwrap_or(100.0);
             let stops = v.as_array().ok_or(format!("{name} must be a list of {{temp, color}}."))?;
@@ -575,7 +719,8 @@ fn set_effect(app: &AppHandle, args: &Value) -> Reply {
         None => Some(&snap["effect"]),
     };
     let effect = build_effect(current, &kind, &params)?;
-    let shown = serde_json::to_value(&effect).unwrap_or_default();
+    let mut shown = serde_json::to_value(&effect).unwrap_or_default();
+    tidy(&mut shown);
     match device {
         Some(id) => commands::set_override(app.clone(), shared(app)?, id, Some(effect)),
         None => commands::set_effect(app.clone(), shared(app)?, effect),
@@ -592,6 +737,438 @@ fn save_profile(app: &AppHandle, args: &Value) -> Reply {
     }
     commands::save_profile(app.clone(), s, name.clone())?;
     Ok(json!(format!("Saved profile {name}.")))
+}
+
+fn get_profile(app: &AppHandle, args: &Value) -> Reply {
+    let name = text(args, "name")?;
+    let s = shared(app)?;
+    let state = lock(&s);
+    let p = state.config.profiles.get(&name).ok_or_else(|| format!("No profile named \"{name}\". list_profiles names them."))?;
+    let mut out = json!({
+        "name": name,
+        "effect": p.effect,
+        "layers": layers_view(&p.layers),
+        "device_effects": p.overrides,
+        "brightness": (p.brightness * 100.0).round(),
+        "active": state.config.active_profile.as_deref() == Some(name.as_str()),
+    });
+    tidy(&mut out);
+    Ok(out)
+}
+
+fn rename_profile(app: &AppHandle, args: &Value) -> Reply {
+    let (name, to) = (text(args, "name")?, text(args, "to")?);
+    let to: String = to.chars().take(40).collect::<String>().trim().to_string();
+    let replace = args["replace"].as_bool().unwrap_or(false);
+    update(app, &*shared(app)?, |s| {
+        if name != to && !replace && s.config.profiles.contains_key(&to) {
+            return Err(format!("A profile named \"{to}\" already exists. Pass replace: true to overwrite it."));
+        }
+        let p = s.config.profiles.remove(&name).ok_or_else(|| format!("No profile named \"{name}\"."))?;
+        s.config.profiles.insert(to.clone(), p);
+        if s.config.active_profile.as_deref() == Some(name.as_str()) {
+            s.config.active_profile = Some(to.clone());
+        }
+        Ok(())
+    })?;
+    Ok(json!(format!("Renamed profile {name} to {to}.")))
+}
+
+// ---- Layers
+
+/// Names of the keys, for key codes no one reads.
+fn key_label(vk: u32) -> String {
+    let named = match vk {
+        0xa0 => "LShift",
+        0xa1 => "RShift",
+        0xa2 => "LCtrl",
+        0xa3 => "RCtrl",
+        0xa4 => "LAlt",
+        0xa5 => "RAlt",
+        0x5b => "LWin",
+        0x5c => "RWin",
+        0x25 => "Left",
+        0x26 => "Up",
+        0x27 => "Right",
+        0x28 => "Down",
+        0x6a => "Num*",
+        0x6b => "Num+",
+        0x6d => "Num-",
+        0x6e => "Num.",
+        0x6f => "Num/",
+        0x60..=0x69 => return format!("Num{}", vk - 0x60),
+        _ => return key_name(vk),
+    };
+    named.into()
+}
+
+fn key_code(v: &Value) -> Result<u32, String> {
+    let known = |vk: u32| key_layout().iter().any(|k| k.vk == vk);
+    if let Some(n) = v.as_u64() {
+        return u32::try_from(n).ok().filter(|&n| known(n)).ok_or(format!("No key with code {n}. list_keys names them."));
+    }
+    let asked = v.as_str().map(str::trim).unwrap_or_default();
+    let low = asked.to_lowercase();
+    let low = match low.as_str() {
+        "shift" => "lshift",
+        "ctrl" | "control" => "lctrl",
+        "alt" => "lalt",
+        "win" | "windows" => "lwin",
+        "escape" => "esc",
+        "space bar" | "spacebar" => "space",
+        "capslock" | "caps lock" => "caps",
+        "return" => "enter",
+        other => other,
+    };
+    key_layout()
+        .iter()
+        .map(|k| k.vk)
+        .find(|&vk| key_label(vk).to_lowercase() == low)
+        .ok_or(format!("No key named \"{asked}\". list_keys names them."))
+}
+
+/// `{key: colour}` or `[[key, colour]]`, as key codes and colours.
+fn key_colours(v: &Value) -> Result<Vec<(u32, Color)>, String> {
+    let pairs: Vec<(Value, Value)> = match v {
+        Value::Object(m) => m.iter().map(|(k, c)| (json!(k), c.clone())).collect(),
+        Value::Array(a) => a
+            .iter()
+            .map(|p| match p.as_array().map(Vec::as_slice) {
+                Some([k, c]) => Ok((k.clone(), c.clone())),
+                _ => Err("Each key colour must be [key, colour].".to_string()),
+            })
+            .collect::<Result<_, _>>()?,
+        _ => return Err("Key colours must be an object of key name to colour.".into()),
+    };
+    let mut map = Vec::new();
+    for (k, c) in pairs {
+        let vk = key_code(&k)?;
+        let c: Color = serde_json::from_value(color("colour", &c)?).map_err(|e| e.to_string())?;
+        map.push((vk, c));
+    }
+    Ok(clean_key_map(map))
+}
+
+fn readable_map(map: &[(u32, Color)]) -> Value {
+    let m: Map<String, Value> = map.iter().map(|&(vk, c)| (key_label(vk), json!(format!("#{}", to_hex(&[c]))))).collect();
+    Value::Object(m)
+}
+
+/// Numbers to four places, without the noise of f32.
+fn tidy(v: &mut Value) {
+    match v {
+        Value::Number(n) if n.is_f64() => {
+            if let Some(x) = n.as_f64() {
+                *v = json!((x * 10_000.0).round() / 10_000.0);
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(tidy),
+        Value::Object(m) => m.values_mut().for_each(tidy),
+        _ => {}
+    }
+}
+
+/// Key codes in an effect as key names.
+fn readable_effect(e: &mut Value) {
+    tidy(e);
+    if let Some(keys) = e["keys"].as_array() {
+        let names: Vec<String> = keys.iter().filter_map(Value::as_u64).map(|vk| key_label(vk as u32)).collect();
+        e["keys"] = json!(names);
+    }
+    if e["map"].is_array() {
+        let map: Vec<(u32, Color)> = serde_json::from_value(e["map"].clone()).unwrap_or_default();
+        e["map"] = readable_map(&map);
+    }
+}
+
+fn layers_view(layers: &[Layer]) -> Vec<Value> {
+    layers
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let mut v = serde_json::to_value(l).unwrap_or_default();
+            readable_effect(&mut v["effect"]);
+            let mut out = json!({
+                "index": i, "enabled": l.enabled, "effect": v["effect"],
+                "opacity": (l.opacity * 100.0).round(), "blend": v["blend"], "scope": v["scope"], "when": v["when"],
+            });
+            if l.scope == Scope::Chosen {
+                out["devices"] = json!(l.devices);
+            }
+            if matches!(l.when, When::Running | When::Front) {
+                out["apps"] = json!(l.apps);
+            }
+            if l.when == When::BatteryLow {
+                out["battery"] = json!(l.battery);
+                out["low"] = json!(l.low);
+            }
+            out
+        })
+        .collect()
+}
+
+fn index(args: &Value, len: usize) -> Result<usize, String> {
+    let i = number(args, "index")?;
+    if len == 0 {
+        return Err("There are no layers.".into());
+    }
+    if i < 0.0 || i.fract() != 0.0 || i as usize >= len {
+        return Err(format!("index must be a layer index from 0 to {}; list_layers shows them.", len - 1));
+    }
+    Ok(i as usize)
+}
+
+fn edit_layers(app: &AppHandle, change: impl FnOnce(&mut Vec<Layer>) -> Result<(), String>) -> Reply {
+    let s = shared(app)?;
+    let mut layers = lock(&s).engine.layers.clone();
+    change(&mut layers)?;
+    commands::set_layers(app.clone(), s, layers.clone())?;
+    Ok(json!({"layers": layers_view(&layers)}))
+}
+
+fn word<T: serde::de::DeserializeOwned>(args: &Value, key: &str, options: &str) -> Result<Option<T>, String> {
+    match &args[key] {
+        Value::Null => Ok(None),
+        v => serde_json::from_value(v.clone()).map(Some).map_err(|_| format!("{key} must be one of {options}.")),
+    }
+}
+
+/// Lays the layer settings found in `args` over `layer`.
+fn layer_fields(layer: &mut Layer, args: &Value, snap: &Value) -> Result<(), String> {
+    if !args["enabled"].is_null() {
+        layer.enabled = args["enabled"].as_bool().ok_or("enabled must be true or false.")?;
+    }
+    if !args["opacity"].is_null() {
+        let v = number(args, "opacity")?;
+        if !(0.0..=100.0).contains(&v) {
+            return Err("opacity must be from 0 to 100.".into());
+        }
+        layer.opacity = (v / 100.0) as f32;
+    }
+    if let Some(b) = word(args, "blend", "normal, add, screen, multiply, tint")? {
+        layer.blend = b;
+    }
+    if !args["devices"].is_null() {
+        let list = args["devices"].as_array().ok_or("devices must be a list of device ids or names.")?;
+        layer.devices = list
+            .iter()
+            .map(|d| device_id(snap, d.as_str().unwrap_or_default().trim()))
+            .collect::<Result<Vec<String>, String>>()?;
+        if args["scope"].is_null() {
+            layer.scope = if layer.devices.is_empty() { Scope::All } else { Scope::Chosen };
+        }
+    }
+    if let Some(scope) = word(args, "scope", "all, keyboards, chosen")? {
+        layer.scope = scope;
+    }
+    if !args["apps"].is_null() {
+        let list = args["apps"].as_array().ok_or("apps must be a list of executable names.")?;
+        layer.apps = list
+            .iter()
+            .filter_map(|a| a.as_str().map(str::trim).filter(|a| !a.is_empty()).map(str::to_string))
+            .take(32)
+            .collect();
+    }
+    if let Some(when) = word(args, "when", "always, running, front, battery_low")? {
+        layer.when = when;
+    }
+    if !args["battery"].is_null() {
+        layer.battery = args["battery"].as_str().ok_or("battery must be a string.")?.trim().to_string();
+    }
+    if !args["low"].is_null() {
+        layer.low = number(args, "low")?.clamp(0.0, 100.0) as f32;
+    }
+    if layer.scope == Scope::Chosen && layer.devices.is_empty() {
+        return Err("A layer on chosen devices needs devices.".into());
+    }
+    if matches!(layer.when, When::Running | When::Front) && layer.apps.is_empty() {
+        return Err("A layer shown while an app runs or is in front needs apps, such as [\"game.exe\"].".into());
+    }
+    Ok(())
+}
+
+fn effect_params(args: &Value) -> Result<Map<String, Value>, String> {
+    match &args["params"] {
+        Value::Null => Ok(Map::new()),
+        Value::Object(m) => Ok(m.clone()),
+        _ => Err("params must be an object.".into()),
+    }
+}
+
+fn add_layer(app: &AppHandle, args: &Value) -> Reply {
+    let kind = text(args, "kind")?.to_lowercase();
+    let effect = build_layer_effect(None, &kind, &effect_params(args)?)?;
+    let mut layer = Layer::new(effect);
+    let snap = snapshot(app)?;
+    layer_fields(&mut layer, args, &snap)?;
+    edit_layers(app, |layers| {
+        let at = match &args["position"] {
+            Value::Null => layers.len(),
+            v => v.as_u64().filter(|&p| p as usize <= layers.len()).ok_or(format!("position must be from 0 to {}.", layers.len()))? as usize,
+        };
+        layers.insert(at, layer);
+        Ok(())
+    })
+}
+
+fn update_layer(app: &AppHandle, args: &Value) -> Reply {
+    let snap = snapshot(app)?;
+    edit_layers(app, |layers| {
+        let i = index(args, layers.len())?;
+        let mut layer = layers[i].clone();
+        let current = serde_json::to_value(&layer.effect).unwrap_or_default();
+        let kind = match args["kind"].as_str().map(str::trim) {
+            Some(k) if !k.is_empty() => k.to_lowercase(),
+            _ => current["kind"].as_str().unwrap_or_default().to_string(),
+        };
+        let params = effect_params(args)?;
+        if !params.is_empty() || kind != current["kind"] {
+            layer.effect = build_layer_effect(Some(&current), &kind, &params)?;
+        }
+        layer_fields(&mut layer, args, &snap)?;
+        layers[i] = layer;
+        Ok(())
+    })
+}
+
+// ---- Devices and keys
+
+fn set_device(app: &AppHandle, args: &Value) -> Reply {
+    let snap = snapshot(app)?;
+    let id = device_id(&snap, &text(args, "device")?)?;
+    let d = snap["devices"].as_array().into_iter().flatten().find(|d| d["id"] == id.as_str()).cloned().unwrap_or_default();
+    let enabled = match &args["enabled"] {
+        Value::Null => d["enabled"].as_bool().unwrap_or(true),
+        v => v.as_bool().ok_or("enabled must be true or false.")?,
+    };
+    let brightness = match &args["brightness"] {
+        Value::Null => d["brightness"].as_f64().unwrap_or(1.0),
+        _ => {
+            let v = number(args, "brightness")?;
+            if !(0.0..=100.0).contains(&v) {
+                return Err("brightness must be from 0 to 100.".into());
+            }
+            v / 100.0
+        }
+    };
+    let rect: [f32; 4] = match &args["layout"] {
+        Value::Null => serde_json::from_value(d["rect"].clone()).map_err(|e| e.to_string())?,
+        v => serde_json::from_value(v.clone()).map_err(|_| "layout must be [x, y, width, height], each from 0 to 1.".to_string())?,
+    };
+    commands::set_device(app.clone(), shared(app)?, id.clone(), enabled, brightness as f32, rect)?;
+    Ok(json!({"device": id, "enabled": enabled, "brightness": (brightness * 100.0).round(), "layout": rect}))
+}
+
+fn list_keys() -> Value {
+    let keys: Vec<Value> = key_layout()
+        .iter()
+        .map(|k| json!({"name": key_label(k.vk), "code": k.vk, "row": k.row, "x": k.x}))
+        .collect();
+    json!({
+        "keys": keys,
+        "note": "Row 0 is the function row; x is in key widths from the left. The number pad sits right of x 18.",
+    })
+}
+
+fn key_map_of(app: &AppHandle, args: &Value) -> Reply {
+    let snap = snapshot(app)?;
+    let id = device_id(&snap, &text(args, "device")?)?;
+    let s = shared(app)?;
+    let device = lock(&s).engine.devices().into_iter().find(|d| d.id == id).ok_or("The device is gone.")?;
+    let round = |v: f32| (v * 1000.0).round() / 1000.0;
+    let found = spots(&device);
+    let lights: Vec<Value> = device
+        .leds
+        .iter()
+        .enumerate()
+        .map(|(i, &[x, y])| {
+            let mut out = json!({"led": i, "x": round(x), "y": round(y)});
+            match found.get(i) {
+                Some(Spot::Key(vk)) => out["key"] = json!(key_label(*vk)),
+                Some(Spot::Zone(keys)) => out["keys"] = json!(keys.iter().map(|&vk| key_label(vk)).collect::<Vec<_>>()),
+                _ => {}
+            }
+            out
+        })
+        .collect();
+    let layout = if found.is_empty() {
+        "not_a_keyboard"
+    } else if zoned(&device) {
+        "zones"
+    } else {
+        "per_key"
+    };
+    Ok(json!({
+        "device": id, "name": device.name, "leds": device.leds.len(), "layout": layout, "lights": lights,
+        "note": "x and y are each 0 to 1 across the device. Key layers (key_lights, key_colours) light keys by name; FoxDen has no colour per raw LED.",
+    }))
+}
+
+fn save_key_map(app: &AppHandle, args: &Value) -> Reply {
+    let name = text(args, "name")?;
+    let map = key_colours(&args["keys"])?;
+    let s = shared(app)?;
+    let exists = lock(&s).config.key_maps.iter().any(|m| m.name == name);
+    if exists && !args["replace"].as_bool().unwrap_or(false) {
+        return Err(format!("A key map named \"{name}\" already exists. Pass replace: true to overwrite it."));
+    }
+    let m = KeyMap { name, map }.clean();
+    let saved = m.name.clone();
+    key_maps::save_key_map(app.clone(), s, m)?;
+    Ok(json!(format!("Saved key map {saved}.")))
+}
+
+// ---- Settings that change nothing outside FoxDen
+
+const SAFE_SETTINGS: [&str; 7] =
+    ["fps", "language", "close_to_tray", "start_minimized", "battery_tray", "battery_alerts", "auto_detect"];
+
+fn get_settings(app: &AppHandle) -> Reply {
+    let all = serde_json::to_value(&lock(&*shared(app)?).config.settings).map_err(|e| e.to_string())?;
+    let mut editable = Map::new();
+    for key in SAFE_SETTINGS {
+        editable.insert(key.into(), all[key].clone());
+    }
+    let languages: Vec<&str> = std::iter::once("auto").chain(crate::ui::settings::LANGS.iter().map(|l| l.0)).collect();
+    Ok(json!({
+        "settings": editable,
+        "languages": languages,
+        "note": "Other settings change only in FoxDen's window.",
+    }))
+}
+
+fn set_settings(app: &AppHandle, args: &Value) -> Reply {
+    let given = args.as_object().ok_or("Pass the settings to change.")?;
+    if given.is_empty() {
+        return Err(format!("Pass at least one of {}.", SAFE_SETTINGS.join(", ")));
+    }
+    let s = shared(app)?;
+    let mut v = serde_json::to_value(&lock(&s).config.settings).map_err(|e| e.to_string())?;
+    for (key, value) in given {
+        if !SAFE_SETTINGS.contains(&key.as_str()) {
+            return Err(format!("{key} changes only in FoxDen's window. These can change here: {}.", SAFE_SETTINGS.join(", ")));
+        }
+        let ok = match key.as_str() {
+            "fps" => value.as_u64().is_some_and(|f| (10..=60).contains(&f)),
+            "language" => value
+                .as_str()
+                .is_some_and(|l| l == "auto" || crate::ui::settings::LANGS.iter().any(|x| x.0 == l)),
+            _ => value.is_boolean(),
+        };
+        if !ok {
+            let want = match key.as_str() {
+                "fps" => "a whole number from 10 to 60",
+                "language" => "\"auto\" or a code from get_settings",
+                _ => "true or false",
+            };
+            return Err(format!("{key} must be {want}."));
+        }
+        v[key.as_str()] = value.clone();
+    }
+    let settings: Settings = serde_json::from_value(v).map_err(|e| e.to_string())?;
+    let jobs = app.try_state::<Jobs>().ok_or("FoxDen is still starting.")?;
+    commands::set_settings(app.clone(), s, jobs, settings)?;
+    get_settings(app)
 }
 
 // ---- Fans, read only
@@ -759,7 +1336,164 @@ mod tests {
         let shared: Shared = Arc::new(Mutex::new(AppState::new(config)));
         let app = AppHandle::new();
         app.manage(shared.clone());
+        let (jobs, _) = mpsc::channel::<crate::state::Job>();
+        app.manage::<Jobs>(jobs);
         (app, shared)
+    }
+
+    fn with_devices() -> (AppHandle, Shared) {
+        let (app, shared) = app_with(true);
+        lock(&shared).engine.add("hid", vec![Box::new(foxden_core::VirtualBackend)]);
+        (app, shared)
+    }
+
+    fn ok(app: &AppHandle, tool: &str, args: Value) -> Value {
+        let r = ask(app, tool, args);
+        assert!(r["error"].is_null(), "{tool}: {r}");
+        r["ok"].clone()
+    }
+
+    fn err(app: &AppHandle, tool: &str, args: Value) -> String {
+        let r = ask(app, tool, args);
+        r["error"].as_str().unwrap_or_else(|| panic!("{tool} should fail: {r}")).to_string()
+    }
+
+    #[test]
+    fn every_listed_tool_is_answered() {
+        let source = include_str!("../../crates/foxden-mcp/src/tools.rs");
+        let names: Vec<&str> = source
+            .split("tool(")
+            .skip(1)
+            .filter_map(|rest| rest.trim_start().strip_prefix('"')?.split('"').next())
+            .collect();
+        assert!(names.len() > 30, "{names:?}");
+        let (app, _) = app_with(true);
+        for name in names {
+            let line = json!({"tool": name, "args": {"name": "\u{0}none"}}).to_string();
+            if name == "propose_fan_curves" {
+                continue;
+            }
+            let r = json_of(&handle(&app, &line));
+            assert!(!r["error"].as_str().unwrap_or_default().contains("no tool named"), "{name}: {r}");
+        }
+    }
+
+    #[test]
+    fn layers_are_added_changed_moved_and_removed() {
+        let (app, shared) = with_devices();
+        let l = ok(&app, "add_layer", json!({"kind": "glitter", "params": {"color": "#ff0000", "density": 0.1}}));
+        assert_eq!(l["layers"][0]["effect"]["kind"], "glitter");
+        assert_eq!(l["layers"][0]["effect"]["color"], json!([255, 0, 0]));
+        assert_eq!(ok(&app, "get_status", json!({}))["layers"][0]["kind"], "glitter");
+
+        let l = ok(&app, "add_layer", json!({
+            "kind": "key_lights", "params": {"keys": ["q", "W", "E", "R", "Space", "F1"], "color": [0, 200, 255]},
+            "when": "front", "apps": ["League of Legends.exe"], "scope": "keyboards", "opacity": 80,
+        }));
+        let keys = &l["layers"][1];
+        assert_eq!(keys["effect"]["keys"], json!(["Space", "E", "Q", "R", "W", "F1"]));
+        assert_eq!((keys["when"].clone(), keys["opacity"].clone()), (json!("front"), json!(80.0)));
+        assert_eq!(keys["apps"], json!(["League of Legends.exe"]));
+        let engine_layer = lock(&shared).engine.layers[1].clone();
+        assert_eq!(engine_layer.effect, LayerEffect::Post(Post::KeyLights { color: Color(0, 200, 255), keys: vec![0x20, 0x45, 0x51, 0x52, 0x57, 0x70] }));
+
+        let l = ok(&app, "add_layer", json!({"kind": "key_colours", "params": {"map": {"Esc": "#00ff00", "LShift": "#0000ff"}}, "position": 0}));
+        assert_eq!(l["layers"][0]["effect"]["map"], json!({"Esc": "#00ff00", "LShift": "#0000ff"}));
+        let l = ok(&app, "add_layer", json!({"kind": "rainbow", "devices": ["TKL keyboard"]}));
+        assert_eq!((l["layers"][3]["scope"].clone(), l["layers"][3]["devices"].clone()), (json!("chosen"), json!(["virtual:keyboard"])));
+
+        let l = ok(&app, "update_layer", json!({"index": 1, "params": {"density": 0.3}, "blend": "add"}));
+        assert_eq!(l["layers"][1]["effect"]["density"], json!(0.3));
+        assert_eq!(l["layers"][1]["effect"]["color"], json!([255, 0, 0]));
+        assert_eq!(l["layers"][1]["blend"], "add");
+        let l = ok(&app, "toggle_layer", json!({"index": 1}));
+        assert_eq!(l["layers"][1]["enabled"], false);
+        let l = ok(&app, "move_layer", json!({"index": 1, "to": 3}));
+        assert_eq!(l["layers"][3]["effect"]["kind"], "glitter");
+        let l = ok(&app, "remove_layer", json!({"index": 3}));
+        assert_eq!(l["layers"].as_array().unwrap().len(), 3);
+        assert_eq!(ok(&app, "list_layers", json!({}))["layers"], l["layers"]);
+
+        assert!(err(&app, "add_layer", json!({"kind": "key_lights", "params": {"keys": ["Nope"]}})).contains("No key named"));
+        assert!(err(&app, "add_layer", json!({"kind": "glitter", "when": "front"})).contains("needs apps"));
+        assert!(err(&app, "add_layer", json!({"kind": "none"})).contains("remove_layer"));
+        assert!(err(&app, "add_layer", json!({"kind": "lava"})).contains("Layer effects"));
+        assert!(err(&app, "update_layer", json!({"index": 9})).contains("from 0 to 2"));
+        assert!(err(&app, "update_layer", json!({"index": 0, "blend": "melt"})).contains("normal"));
+        assert_eq!(lock(&shared).engine.layers.len(), 3);
+    }
+
+    #[test]
+    fn every_key_has_its_own_name() {
+        let mut seen = std::collections::HashSet::new();
+        for k in key_layout() {
+            let name = key_label(k.vk);
+            assert!(!name.is_empty() && seen.insert(name.to_lowercase()), "{:#x} {name}", k.vk);
+            assert_eq!(key_code(&json!(name)), Ok(k.vk));
+        }
+    }
+
+    #[test]
+    fn keys_and_devices_are_described_and_set() {
+        let (app, shared) = with_devices();
+        let keys = ok(&app, "list_keys", json!({}))["keys"].clone();
+        assert!(keys.as_array().unwrap().iter().any(|k| k["name"] == "Q" && k["code"] == 0x51));
+        let map = ok(&app, "get_key_map", json!({"device": "virtual:keyboard"}));
+        assert_eq!(map["layout"], "per_key");
+        assert_eq!(map["leds"], 17 * 6);
+        assert_eq!(map["lights"][0]["key"], "Esc");
+        assert_eq!(ok(&app, "get_key_map", json!({"device": "virtual:gpu"}))["layout"], "not_a_keyboard");
+
+        let d = ok(&app, "set_device", json!({"device": "virtual:gpu", "brightness": 50, "enabled": false}));
+        assert_eq!((d["brightness"].clone(), d["enabled"].clone()), (json!(50.0), json!(false)));
+        let status = ok(&app, "get_status", json!({}));
+        let gpu = status["devices"].as_array().unwrap().iter().find(|d| d["id"] == "virtual:gpu").unwrap().clone();
+        assert_eq!((gpu["brightness"].clone(), gpu["enabled"].clone()), (json!(50.0), json!(false)));
+        assert!(err(&app, "set_device", json!({"device": "virtual:gpu", "brightness": 150})).contains("0 to 100"));
+
+        ok(&app, "set_effect", json!({"kind": "static", "device": "virtual:gpu"}));
+        assert!(lock(&shared).engine.overrides.contains_key("virtual:gpu"));
+        ok(&app, "clear_device_effect", json!({"device": "virtual:gpu"}));
+        assert!(lock(&shared).engine.overrides.is_empty());
+
+        ok(&app, "save_key_map", json!({"name": "Binds", "keys": {"Q": "#ff0000", "Num5": "#00ff00"}}));
+        assert!(err(&app, "save_key_map", json!({"name": "Binds", "keys": {}})).contains("replace"));
+        let maps = ok(&app, "list_key_maps", json!({}))["key_maps"].clone();
+        assert_eq!(maps, json!([{"name": "Binds", "keys": {"Num5": "#00ff00", "Q": "#ff0000"}}]));
+        ok(&app, "delete_key_map", json!({"name": "Binds"}));
+        assert!(lock(&shared).config.key_maps.is_empty());
+        assert!(!ask(&app, "rescan_devices", json!({})).to_string().contains("no tool"));
+    }
+
+    #[test]
+    fn profiles_are_read_renamed_and_deleted() {
+        let (app, shared) = app_with(true);
+        ok(&app, "add_layer", json!({"kind": "glitter"}));
+        ok(&app, "save_profile", json!({"name": "Game"}));
+        let p = ok(&app, "get_profile", json!({"name": "Game"}));
+        assert_eq!((p["layers"][0]["effect"]["kind"].clone(), p["active"].clone()), (json!("glitter"), json!(true)));
+        ok(&app, "save_profile", json!({"name": "Other"}));
+        assert!(err(&app, "rename_profile", json!({"name": "Game", "to": "Other"})).contains("replace"));
+        ok(&app, "apply_profile", json!({"name": "Game"}));
+        ok(&app, "rename_profile", json!({"name": "Game", "to": "League"}));
+        assert_eq!(lock(&shared).config.active_profile.as_deref(), Some("League"));
+        ok(&app, "delete_profile", json!({"name": "League"}));
+        assert_eq!(ok(&app, "list_profiles", json!({})), json!({"profiles": ["Other"], "active": null}));
+        assert!(err(&app, "get_profile", json!({"name": "League"})).contains("No profile"));
+    }
+
+    #[test]
+    fn only_safe_settings_change() {
+        let (app, shared) = app_with(true);
+        let s = ok(&app, "set_settings", json!({"fps": 45, "battery_alerts": false, "language": "en"}));
+        assert_eq!(s["settings"]["fps"], 45);
+        assert!(!lock(&shared).config.settings.battery_alerts);
+        assert!(err(&app, "set_settings", json!({"ai_access": false})).contains("only in FoxDen's window"));
+        assert!(err(&app, "set_settings", json!({"close_conflicts": true})).contains("only in FoxDen's window"));
+        assert!(err(&app, "set_settings", json!({"fps": 5})).contains("10 to 60"));
+        assert!(err(&app, "set_settings", json!({"language": "xx"})).contains("auto"));
+        assert!(lock(&shared).config.settings.ai_access);
+        assert!(ok(&app, "get_settings", json!({}))["settings"].get("ai_access").is_none());
     }
 
     fn ask(app: &AppHandle, tool: &str, args: Value) -> Value {
