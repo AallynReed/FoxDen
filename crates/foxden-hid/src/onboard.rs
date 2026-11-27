@@ -471,11 +471,14 @@ impl Memory for Mouse {
 
 /// The mice with onboard memory this module can write, on a cable or at a receiver's first slots.
 pub fn mice() -> Vec<Mouse> {
-    let Some(api) = crate::hid_api(|i| i.vid == hidpp::VID && hidpp::is_long_channel(i.usage_page, i.usage)) else {
-        return Vec::new();
-    };
+    hidapi::HidApi::disable_device_discovery();
+    let Ok(api) = hidapi::HidApi::new() else { return Vec::new() };
     let mut out = Vec::new();
-    for d in crate::device_list(&api) {
+    let listed = crate::scan::collections()
+        .into_iter()
+        .filter(|i| i.vid == hidpp::VID && hidpp::is_long_channel(i.usage_page, i.usage))
+        .map(crate::scan::Dev::new);
+    for d in listed {
         let pid = d.product_id();
         let product = d.product_string().unwrap_or_default().to_string();
         let slots: &[u8] = if hidpp::cable(pid) { &[0xFF] } else { &[1, 2, 3] };

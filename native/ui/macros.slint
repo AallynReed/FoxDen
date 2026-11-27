@@ -573,6 +573,11 @@ component Editor inherits VerticalLayout {
                 horizontal-stretch: 1;
             }
         }
+        if MacrosPage.hotkey != "" && !MacrosPage.enabled: HorizontalLayout {
+            spacing: 8px;
+            Hint { text: I18n.t("Hotkeys are off, so this hotkey does nothing yet."); vertical-alignment: center; horizontal-stretch: 1; }
+            Button { text: I18n.t("Turn hotkeys on"); primary: true; clicked => { MacrosPage.set-enabled(true); } }
+        }
         if MacrosPage.problem != "": Problem { text: MacrosPage.problem; }
     }
     Box {

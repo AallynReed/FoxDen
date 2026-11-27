@@ -125,7 +125,11 @@ fn mouse_job(app: &AppHandle, job: impl FnOnce(&crate::mouse_macros::MouseMacros
     let a = app.clone();
     std::thread::spawn(move || {
         let r = job(&mm);
-        let found = mm.scan().into_iter().next();
+        let mut found = mm.scan().into_iter().next();
+        if found.is_none() {
+            std::thread::sleep(Duration::from_secs(3));
+            found = mm.scan().into_iter().next();
+        }
         let b = a.clone();
         let _ = slint::invoke_from_event_loop(move || {
             UI.with_borrow_mut(|u| u.mouse_busy = false);

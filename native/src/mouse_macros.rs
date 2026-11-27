@@ -63,6 +63,7 @@ pub fn ops(m: &Macro) -> Result<Vec<Op>, String> {
         return Err("The mouse can only play a macro once per press. Set the mode to Once.".into());
     }
     let mut out = Vec::new();
+    let mut held = 0u8;
     for (i, s) in m.press.iter().enumerate() {
         if i > 0
             && let Some(d) = m.default_delay_ms
@@ -72,13 +73,19 @@ pub fn ops(m: &Macro) -> Result<Vec<Op>, String> {
             wait(d, &mut out);
         }
         match s {
-            Step::Key { usage, down } => {
-                let (mods, key) = if foxden_macros::keys::is_modifier(*usage) {
-                    (1u8 << (usage - 0xE0), 0)
+            Step::Key { usage, down } if foxden_macros::keys::is_modifier(*usage) => {
+                let bit = 1u8 << (usage - 0xE0);
+                if *down {
+                    held |= bit;
+                    out.push(Op::Press { mods: held, key: 0 });
                 } else {
-                    (0, u8::try_from(*usage).map_err(|_| "That key can't be stored on the mouse.")?)
-                };
-                out.push(if *down { Op::Press { mods, key } } else { Op::Release { mods, key } });
+                    held &= !bit;
+                    out.push(Op::Release { mods: bit, key: 0 });
+                }
+            }
+            Step::Key { usage, down } => {
+                let key = u8::try_from(*usage).map_err(|_| "That key can't be stored on the mouse.")?;
+                out.push(if *down { Op::Press { mods: held, key } } else { Op::Release { mods: held, key } });
             }
             Step::Delay { ms } => wait(*ms, &mut out),
             Step::Text { text } => {
@@ -86,7 +93,7 @@ pub fn ops(m: &Macro) -> Result<Vec<Op>, String> {
                     let (shift, key) = text_key(c).ok_or_else(|| {
                         format!("The mouse can only type plain English letters, digits and symbols, not \"{c}\".")
                     })?;
-                    let mods = if shift { SHIFT_BIT } else { 0 };
+                    let mods = held | if shift { SHIFT_BIT } else { 0 };
                     out.push(Op::Press { mods, key });
                     out.push(Op::Release { mods, key });
                 }
@@ -237,8 +244,14 @@ mod tests {
         m.press.push(Step::Text { text: "Hi!".into() });
         m.press.push(Step::Delay { ms: 70_000 });
         let o = ops(&m).unwrap();
-        assert_eq!(o[0], Op::Press { mods: 0x01, key: 0 });
-        assert_eq!(o[1], Op::Press { mods: 0, key: 0x06 });
+        assert_eq!(o[..4], [
+            Op::Press { mods: 0x01, key: 0 },
+            Op::Press { mods: 0x01, key: 0x06 },
+            Op::Release { mods: 0x01, key: 0x06 },
+            Op::Release { mods: 0x01, key: 0 },
+        ]);
+        let two = ops(&Macro::chord("Find", &[0xE0, 0xE1], 0x09)).unwrap();
+        assert_eq!(two[2], Op::Press { mods: 0x03, key: 0x09 });
         assert_eq!(o[4], Op::Press { mods: 0x02, key: 0x0B });
         assert_eq!(o[6], Op::Press { mods: 0, key: 0x0C });
         assert_eq!(o[8], Op::Press { mods: 0x02, key: 0x1E });
