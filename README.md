@@ -85,8 +85,11 @@ OpenRGB can optionally drive anything else through its server.
   and a headset's ChatMix dial drives the mix
 - Output priority: put your headset first and your speakers second, and FoxDen switches when the
   headset turns off or on
-- Microphone processing: noise suppression, noise gate, volume stabilizer (AGC), compressor,
-  de-esser, EQ and a limiter so shouting never clips, with presets and an option to hear yourself
+- Microphone processing: AI noise removal (Light or Strong, which also removes keyboard clicks),
+  noise gate, volume stabilizer (AGC), compressor, de-esser, EQ and a limiter so shouting never
+  clips, with presets and an option to hear yourself
+- Auto-tune for Discord, streaming, podcasts, gaming, meetings or music: FoxDen records a few
+  seconds of your mic and sets the whole chain from what it hears, with undo
 - A compressor and limiter on every channel ("Night mode", "Clip guard")
 - Chat mix against Game, Media, Aux or any mix of them
 - Every app's volume and every speaker's and mic's volume in one place, with "Make default"
@@ -109,11 +112,12 @@ OpenRGB can optionally drive anything else through its server.
 
 ## AI assistants
 
-Apps like Claude Desktop can change your lighting (effects, layers, keys lit per game, devices),
-profiles, key maps, everyday settings and audio mix, and read temperatures, fan speeds and
-batteries. It is off until you turn on "Let AI assistants control FoxDen" in
+Apps like Claude Desktop can do almost anything the window can: lighting (effects, layers, keys
+lit per game, devices), profiles, key maps, macros, settings, fans and the whole audio mixer,
+including mic processing, and read temperatures, fan speeds, batteries and the log. An assistant
+can also measure your mic and tune it, but every recording asks you first, every time. It is off until you turn on "Let AI assistants control FoxDen" in
 Settings; "Copy setup" then copies the entry to paste into the app's MCP config. An assistant can
-also propose new fan curves and macros, but nothing changes until you press Apply in FoxDen's window.
+Fan curves, macros and other risky changes wait until you press Apply in FoxDen's window.
 
 ## Lightweight
 

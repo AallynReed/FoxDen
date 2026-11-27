@@ -1,5 +1,18 @@
 [
  {
+  "version": "0.21.1",
+  "date": "2026-11-27",
+  "added": [
+   "AI noise removal for the mic: Light, or Strong, which also removes keyboard and mouse clicks",
+   "Mic auto-tune for Discord, streaming, podcasts, gaming, meetings and music, with undo",
+   "AI assistants can control the whole audio mixer, fans, devices and settings, and measure your mic",
+   "De-esser threshold, limiter lookahead, gate timing and a reorderable mic chain"
+  ],
+  "changed": [
+   "Every mic recording asks you first, every time"
+  ]
+ },
+ {
   "version": "0.21.0",
   "date": "2026-11-27",
   "added": [

@@ -1599,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "foxden"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "base64",
  "foxden-adlx",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-8bitdo"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-battery",
  "serde",
@@ -1648,7 +1648,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-adlx"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-fan",
  "windows-sys 0.61.2",
@@ -1656,7 +1656,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-audio"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "cpal",
  "foxden-core",
@@ -1664,7 +1664,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-battery"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "hidapi",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-client"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "foxden-fan",
@@ -1686,7 +1686,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-core"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1694,7 +1694,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-fan"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1702,7 +1702,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-gpu"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "foxden-smbus",
@@ -1711,7 +1711,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-headset"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-battery",
  "foxden-core",
@@ -1720,7 +1720,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-hid"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-8bitdo",
  "foxden-core",
@@ -1730,7 +1730,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-host"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-host-macros",
  "serde",
@@ -1741,11 +1741,11 @@ dependencies = [
 
 [[package]]
 name = "foxden-host-macros"
-version = "0.21.0"
+version = "0.21.1"
 
 [[package]]
 name = "foxden-hwmon"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-fan",
  "windows-sys 0.61.2",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-macros"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1762,7 +1762,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-mcp"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "serde_json",
  "windows-sys 0.61.2",
@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-mixer"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "cpal",
  "deep_filter",
@@ -1788,7 +1788,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-net"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "serde",
@@ -1798,28 +1798,28 @@ dependencies = [
 
 [[package]]
 name = "foxden-notify"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-host",
 ]
 
 [[package]]
 name = "foxden-openrgb"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
 ]
 
 [[package]]
 name = "foxden-pawnio"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "foxden-screen"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "windows-sys 0.61.2",
@@ -1827,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-service"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "foxden-fan",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-smbus"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "foxden-pawnio",
@@ -1854,7 +1854,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-superio"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "foxden-fan",
@@ -1863,14 +1863,14 @@ dependencies = [
 
 [[package]]
 name = "foxden-vcable"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "windows 0.62.2",
 ]
 
 [[package]]
 name = "foxden-wmi"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "foxden-fan",
@@ -1879,7 +1879,7 @@ dependencies = [
 
 [[package]]
 name = "foxden-xpack"
-version = "0.21.0"
+version = "0.21.1"
 dependencies = [
  "foxden-core",
  "foxden-fan",
