@@ -94,6 +94,9 @@ OpenRGB can optionally drive anything else through its server.
 - A processed virtual microphone through VB-Audio's VB-CABLE, installed by you
 - Headset settings for SteelSeries Arctis Nova headsets (sidetone, mic volume, limiter, auto-off)
   and Corsair wireless headsets (sidetone, mic level, noise cancelling)
+- Macros on any key or mouse button: keys, clicks, wheel turns, typed text and media keys, recorded
+  or built step by step, plus ready-made ones such as copy, paste, screenshot and rapid click
+- Macros stored in the Logitech G502 LIGHTSPEED's own memory, on any of its buttons
 - LED strips and network lights
 - Lighting, Fans and Batteries modules you can switch off
 - Closes conflicting software such as SignalRGB, G HUB and iCUE, unless you keep it running
@@ -110,7 +113,7 @@ Apps like Claude Desktop can change your lighting (effects, layers, keys lit per
 profiles, key maps, everyday settings and audio mix, and read temperatures, fan speeds and
 batteries. It is off until you turn on "Let AI assistants control FoxDen" in
 Settings; "Copy setup" then copies the entry to paste into the app's MCP config. An assistant can
-also propose new fan curves, but nothing changes until you press Apply in FoxDen's window.
+also propose new fan curves and macros, but nothing changes until you press Apply in FoxDen's window.
 
 ## Lightweight
 

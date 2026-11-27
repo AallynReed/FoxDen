@@ -1,5 +1,21 @@
 [
  {
+  "version": "0.21.0",
+  "date": "2026-11-27",
+  "added": [
+   "Macros: key presses, clicks, wheel turns, typed text and media keys on any key or mouse button, recorded or built step by step",
+   "Ready-made macros such as copy, paste, screenshot, media keys and rapid click, added with one click",
+   "Macros stored in the Logitech G502 LIGHTSPEED's own memory, on any of its buttons",
+   "AI assistants can change layers, key colours, devices, profiles and settings, and add macros once you approve them"
+  ],
+  "changed": [
+   "An AI assistant has to ask before it changes autostart, lighting or native drivers"
+  ],
+  "fixed": [
+   "A device scan that fails is retried twice"
+  ]
+ },
+ {
   "version": "0.20.0",
   "date": "2026-11-23",
   "added": [
