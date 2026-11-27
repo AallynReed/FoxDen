@@ -1,5 +1,12 @@
 [
  {
+  "version": "0.21.2",
+  "date": "2026-11-27",
+  "added": [
+   "Strong noise removal in a low-latency version, half the delay, used by the Gaming auto-tune"
+  ]
+ },
+ {
   "version": "0.21.1",
   "date": "2026-11-27",
   "added": [

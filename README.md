@@ -85,7 +85,8 @@ OpenRGB can optionally drive anything else through its server.
   and a headset's ChatMix dial drives the mix
 - Output priority: put your headset first and your speakers second, and FoxDen switches when the
   headset turns off or on
-- Microphone processing: AI noise removal (Light or Strong, which also removes keyboard clicks),
+- Microphone processing: AI noise removal (Light, or Strong, which also removes keyboard clicks,
+  with a low-latency Strong for games),
   noise gate, volume stabilizer (AGC), compressor, de-esser, EQ and a limiter so shouting never
   clips, with presets and an option to hear yourself
 - Auto-tune for Discord, streaming, podcasts, gaming, meetings or music: FoxDen records a few
