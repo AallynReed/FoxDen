@@ -48,6 +48,8 @@ const BOARD_RETRIES: [Duration; 4] = [
 ];
 
 const GROUPS: [&str; 4] = ["openrgb", "hid", "board", "net"];
+/// How long after a scan with errors each of the two automatic retries waits.
+const SCAN_RETRIES: [Duration; 2] = [Duration::from_secs(5), Duration::from_secs(20)];
 
 #[derive(Clone, Debug, Serialize)]
 pub struct BackendStatus {
@@ -282,6 +284,23 @@ impl AppState {
         self.backends().iter().any(|b| b.name == name && b.active)
     }
 
+    /// The groups that ended in an error, or that left a device their native driver could not open.
+    fn with_errors(&self) -> Kinds {
+        let errors = self.backends();
+        let erred = |name: &str| errors.iter().any(|b| b.name == name && b.error.is_some());
+        let unopened = self.config.settings.native_drivers
+            && self
+                .detected()
+                .iter()
+                .any(|d| d.route == detect::Route::Native && d.state == detect::State::Available);
+        Kinds {
+            openrgb: erred("openrgb"),
+            hid: erred("hid") || unopened,
+            board: erred("board"),
+            net: erred("net"),
+        }
+    }
+
     /// Whether a backend of this group has stopped taking frames.
     fn failing(&self, name: &str) -> bool {
         self.engine
@@ -486,6 +505,7 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         let mut swept: Option<Instant> = None;
         let mut scanned: Option<Instant> = None;
         let mut was_failing = false;
+        let mut retry = Retry::armed();
         loop {
             let asked = job.is_some();
             let detect_asked = matches!(job, Some(Job::Detect));
@@ -494,6 +514,18 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                 reload(&shared, &mut watch, kinds);
                 emit_snapshot(&app, &shared);
                 done = kinds;
+                retry = Retry::armed();
+            } else if retry.due() {
+                let kinds = lock(&shared).with_errors();
+                if kinds.any() {
+                    crate::log::info("devices", "Scanning again after errors");
+                    reload(&shared, &mut watch, kinds);
+                    emit_snapshot(&app, &shared);
+                    done = kinds;
+                    retry.next();
+                } else {
+                    retry = Retry::spent();
+                }
             }
             let (settings, settled, failing) = {
                 let state = lock(&shared);
@@ -543,6 +575,7 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
                 };
                 if stale.any() {
                     reload(&shared, &mut watch, stale);
+                    retry = Retry::armed();
                 }
                 // At start the service may answer before its memory driver is ready: look again a few times.
                 let none_yet = !lock(&shared)
@@ -575,6 +608,39 @@ pub fn spawn_worker(app: AppHandle, shared: Shared) -> Jobs {
         }
     });
     jobs
+}
+
+/// The automatic retries left after a scan, and when the next one is due.
+struct Retry {
+    next: usize,
+    from: Instant,
+}
+
+impl Retry {
+    fn armed() -> Self {
+        Retry {
+            next: 0,
+            from: Instant::now(),
+        }
+    }
+
+    fn spent() -> Self {
+        Retry {
+            next: SCAN_RETRIES.len(),
+            from: Instant::now(),
+        }
+    }
+
+    fn due(&self) -> bool {
+        SCAN_RETRIES
+            .get(self.next)
+            .is_some_and(|&wait| self.from.elapsed() >= wait)
+    }
+
+    fn next(&mut self) {
+        self.next += 1;
+        self.from = Instant::now();
+    }
 }
 
 fn enabled(label: &str, settings: &Settings) -> bool {
@@ -1269,6 +1335,23 @@ mod tests {
         state.engine.flush(Duration::from_secs(5));
         assert!(state.failing("hid"));
         assert!(!state.failing("openrgb"));
+    }
+
+    #[test]
+    fn a_failed_scan_is_tried_twice_more() {
+        let mut retry = Retry::armed();
+        assert!(!retry.due());
+        let mut tries = 0;
+        for wait in SCAN_RETRIES {
+            retry.from = Instant::now() - wait;
+            assert!(retry.due());
+            retry.next();
+            tries += 1;
+        }
+        retry.from = Instant::now() - Duration::from_secs(3600);
+        assert!(!retry.due());
+        assert_eq!(tries, 2);
+        assert!(!Retry::spent().due());
     }
 
     #[test]
