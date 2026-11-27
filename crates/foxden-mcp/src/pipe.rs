@@ -78,7 +78,9 @@ impl Relay for AppPipe {
         let pending = match tool {
             "propose_fan_curves" => Some(PENDING),
             "set_settings" => Some(PENDING_SETTINGS),
-            "save_macro" | "play_macro" | "set_macros_enabled" => Some(PENDING_MACROS),
+            "save_macro" | "play_macro" | "set_macros_enabled" | "add_macro_preset" | "store_macro_on_mouse" | "reset_mouse_button" => {
+                Some(PENDING_MACROS)
+            }
             _ => None,
         };
         let timeout = if pending.is_some() { APPROVAL } else { TIMEOUT };

@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::time::Duration;
 
-use foxden_macros::{Entry, Hotkey, Input, Macro, MediaKey, Mode, Step, keys, model};
+use foxden_macros::{Entry, Hotkey, Input, Macro, MediaKey, Mode, Step, keys, model, presets};
 use slint::{ComponentHandle, Timer, TimerMode};
 use tauri::AppHandle;
 
-use super::{AppWindow, MacroItem, MacroStep, MacrosPage, View, fill, tr, with_win};
+use super::{AppWindow, MacroItem, MacroStep, MacrosPage, MouseButton, PresetItem, View, fill, tr, with_win};
 use crate::macros::{self, Macros};
 
 const TAB: i32 = 6;
@@ -15,6 +15,9 @@ struct Ui {
     selected: String,
     section: usize,
     catch_for: &'static str,
+    group: usize,
+    scanned: bool,
+    mouse_busy: bool,
 }
 
 thread_local! {
@@ -71,6 +74,77 @@ pub fn trim_start(mut steps: Vec<Step>) -> Vec<Step> {
 
 pub fn apply(w: &AppWindow, app: &AppHandle, _view: &mut View) {
     refresh(w, app);
+    if !UI.with_borrow(|u| u.scanned) {
+        scan_mouse(app);
+    }
+}
+
+fn show_mouse(app: &AppHandle, found: Option<crate::mouse_macros::MouseView>) {
+    let a = app.clone();
+    with_win(move |w| {
+        let g = w.global::<MacrosPage>();
+        let Some(m) = found else {
+            g.set_mouse_name("".into());
+            g.set_mouse_buttons(slint::ModelRc::default());
+            g.set_mouse_held(slint::ModelRc::default());
+            return;
+        };
+        g.set_mouse_name(m.name.as_str().into());
+        let rows: Vec<MouseButton> = m
+            .buttons
+            .iter()
+            .map(|b| MouseButton {
+                slot: b.slot as i32,
+                label: tr(&a, &b.label).into(),
+                holds: b.macro_name.clone().unwrap_or_default().into(),
+            })
+            .collect();
+        let labels: Vec<slint::SharedString> = rows.iter().map(|r| r.label.clone()).collect();
+        g.set_mouse_labels(slint::ModelRc::new(slint::VecModel::from(labels)));
+        let held: Vec<MouseButton> = rows.iter().filter(|r| !r.holds.is_empty()).cloned().collect();
+        g.set_mouse_held(slint::ModelRc::new(slint::VecModel::from(held)));
+        g.set_mouse_buttons(slint::ModelRc::new(slint::VecModel::from(rows)));
+    });
+}
+
+/// Runs a slow mouse job on its own thread, then shows the mouse again.
+fn mouse_job(app: &AppHandle, job: impl FnOnce(&crate::mouse_macros::MouseMacros) -> Result<String, String> + Send + 'static) {
+    let Ok(mm) = crate::mouse_macros::get(app) else { return };
+    if UI.with_borrow(|u| u.mouse_busy) {
+        return;
+    }
+    UI.with_borrow_mut(|u| {
+        u.mouse_busy = true;
+        u.scanned = true;
+    });
+    with_win(|w| {
+        let g = w.global::<MacrosPage>();
+        g.set_mouse_busy(true);
+        g.set_mouse_problem("".into());
+    });
+    let a = app.clone();
+    std::thread::spawn(move || {
+        let r = job(&mm);
+        let found = mm.scan().into_iter().next();
+        let b = a.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            UI.with_borrow_mut(|u| u.mouse_busy = false);
+            show_mouse(&b, found);
+            let c = b.clone();
+            with_win(move |w| {
+                let g = w.global::<MacrosPage>();
+                g.set_mouse_busy(false);
+                match r {
+                    Ok(t) => g.set_mouse_status(tr(&c, &t).into()),
+                    Err(e) => g.set_mouse_problem(tr(&c, &e).into()),
+                }
+            });
+        });
+    });
+}
+
+fn scan_mouse(app: &AppHandle) {
+    mouse_job(app, |_| Ok(String::new()));
 }
 
 pub fn event(w: &AppWindow, app: &AppHandle, _view: &mut View, name: &str) {
@@ -128,6 +202,40 @@ fn refresh(w: &AppWindow, app: &AppHandle) {
     let mut copy = e.macro_.clone();
     let rows: Vec<MacroStep> = section(&mut copy, sec).iter().map(row).collect();
     fill(g.get_steps(), rows, |x| g.set_steps(x));
+}
+
+fn show_presets(w: &AppWindow, app: &AppHandle) {
+    let g = w.global::<MacrosPage>();
+    let group = UI.with_borrow(|u| u.group);
+    let rows: Vec<PresetItem> = presets::ALL
+        .iter()
+        .filter(|p| p.group == presets::GROUPS[group])
+        .map(|p| PresetItem { id: p.id.into(), name: tr(app, p.name).into(), about: tr(app, p.about).into() })
+        .collect();
+    g.set_preset_group(group as i32);
+    g.set_presets(slint::ModelRc::new(slint::VecModel::from(rows)));
+}
+
+/// Adds a ready-made macro, selects it and waits for its key or button.
+fn add_preset(app: &AppHandle, id: &str) {
+    let Some(m) = store(app) else { return };
+    let Some(p) = presets::get(id) else { return };
+    let mut macro_ = (p.make)();
+    macro_.name = new_name(&m, &tr(app, p.name));
+    let entry = Entry { id: String::new(), macro_, hotkey: None, block: true };
+    match m.put(entry) {
+        Ok(id) => {
+            UI.with_borrow_mut(|u| {
+                u.selected = id;
+                u.section = 0;
+            });
+            with_win(|w| w.global::<MacrosPage>().set_name("".into()));
+            problem(app, Ok(()));
+            macros::changed(app);
+            catch(app, "hotkey");
+        }
+        Err(e) => problem(app, Err(e)),
+    }
 }
 
 fn redraw(app: &AppHandle) {
@@ -194,6 +302,27 @@ pub fn bind(w: &AppWindow, app: &AppHandle) {
     g.set_buttons(slint::ModelRc::new(slint::VecModel::from(buttons)));
     let media: Vec<slint::SharedString> = MediaKey::ALL.iter().map(|k| tr(app, k.label()).into()).collect();
     g.set_media(slint::ModelRc::new(slint::VecModel::from(media)));
+    let groups: Vec<slint::SharedString> = presets::GROUPS.iter().map(|x| tr(app, x).into()).collect();
+    g.set_preset_groups(slint::ModelRc::new(slint::VecModel::from(groups)));
+    show_presets(w, app);
+    let a = app.clone();
+    g.on_set_preset_group(move |i| {
+        UI.with_borrow_mut(|u| u.group = (i.max(0) as usize).min(presets::GROUPS.len() - 1));
+        let b = a.clone();
+        with_win(|w| show_presets(w, &b));
+    });
+    let a = app.clone();
+    g.on_add_preset(move |id| add_preset(&a, &id));
+    let a = app.clone();
+    g.on_scan_mouse(move || scan_mouse(&a));
+    let a = app.clone();
+    g.on_store_on_mouse(move |slot| {
+        let Some(m) = store(&a) else { return };
+        let Some(e) = m.library().get(&selected()).cloned() else { return };
+        mouse_job(&a, move |mm| mm.store("", slot.max(0) as u8, &e.macro_));
+    });
+    let a = app.clone();
+    g.on_reset_mouse_button(move |slot| mouse_job(&a, move |mm| mm.reset("", slot.max(0) as u8)));
 
     let a = app.clone();
     g.on_set_enabled(move |on| {

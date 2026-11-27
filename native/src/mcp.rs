@@ -417,7 +417,9 @@ fn call(app: &AppHandle, tool: &str, args: &Value, client: &str) -> Reply {
             let name = text(args, "name")?;
             done(key_maps::delete_key_map(app.clone(), shared(app)?, name.clone()), format!("Deleted key map {name}."))
         }
-        "list_macros" | "save_macro" | "delete_macro" | "play_macro" | "stop_macros" | "set_macros_enabled" => {
+        "list_macros" | "save_macro" | "delete_macro" | "play_macro" | "stop_macros" | "set_macros_enabled"
+        | "list_macro_presets" | "add_macro_preset" | "list_mouse_macros" | "store_macro_on_mouse"
+        | "reset_mouse_button" => {
             macro_tool(app, tool, args, client)
         }
         "list_apps" => Ok(json!({"apps": apps::windowed()})),
@@ -1416,6 +1418,89 @@ fn macro_tool_with(app: &AppHandle, tool: &str, args: &Value, client: &str, gate
             m.stop_all();
             Ok(json!("Stopped every macro."))
         }
+        "list_macro_presets" => Ok(json!(
+            foxden_macros::presets::ALL
+                .iter()
+                .map(|p| json!({"id": p.id, "group": p.group, "name": p.name, "does": p.about}))
+                .collect::<Vec<_>>()
+        )),
+        "add_macro_preset" => {
+            let id = text(args, "preset")?;
+            let p = foxden_macros::presets::get(&id).ok_or_else(|| format!("No preset {id}. list_macro_presets shows them."))?;
+            let hotkey = match args["hotkey"].as_str().map(str::trim) {
+                Some(h) if !h.is_empty() => Some(Hotkey::parse(h)?),
+                _ => None,
+            };
+            let mut macro_ = (p.make)();
+            let lib = m.library();
+            macro_.name = (1..)
+                .map(|i| if i == 1 { p.name.to_string() } else { format!("{} {i}", p.name) })
+                .find(|n| !lib.entries.iter().any(|e| e.macro_.name.eq_ignore_ascii_case(n)))
+                .unwrap_or_default();
+            let entry = Entry { id: String::new(), macro_, hotkey, block: true };
+            lib.clone().put(entry.clone())?;
+            let mut lines = vec![
+                format!("Name: {}", entry.macro_.name),
+                hotkey.map(|h| format!("Hotkey: {} (hidden from other apps)", h.label())).unwrap_or("No hotkey".into()),
+                format!("Mode: {}", entry.macro_.mode.label()),
+            ];
+            lines.extend(step_lines(&entry.macro_));
+            if !approve(gate, args, client, crate::ui::approval::SAVE_MACRO, lines)? {
+                return Ok(json!(fan_proposal::REJECTED));
+            }
+            let name = entry.macro_.name.clone();
+            let id = m.put(entry)?;
+            crate::macros::changed(app);
+            Ok(json!({"id": id, "saved": name}))
+        }
+        "list_mouse_macros" => {
+            let mm = crate::mouse_macros::get(app)?;
+            let mice = mm.scan();
+            Ok(json!({
+                "mice": mice.iter().map(|x| json!({
+                    "name": x.name,
+                    "buttons": x.buttons.iter().map(|b| json!({
+                        "button": b.slot + 1,
+                        "factory": b.factory,
+                        "macro": b.macro_name,
+                    })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+                "note": crate::mouse_macros::NOTE,
+            }))
+        }
+        "store_macro_on_mouse" | "reset_mouse_button" => {
+            let mm = crate::mouse_macros::get(app)?;
+            let button = args["button"].as_u64().filter(|b| (1..=16).contains(b)).ok_or("button must be a number from 1 to 16.")?;
+            let slot = (button - 1) as u8;
+            let store = match tool {
+                "store_macro_on_mouse" => {
+                    let e = find("id")?;
+                    crate::mouse_macros::ops(&e.macro_)?;
+                    Some(e.macro_)
+                }
+                _ => None,
+            };
+            let mice = mm.scan();
+            let mouse = mice.first().ok_or("No mouse that keeps macros in its own memory is connected.")?;
+            let b = mouse.buttons.get(slot as usize).ok_or_else(|| format!("{} has no button {button}.", mouse.name))?;
+            let mut lines = vec![format!("{}: {}", mouse.name, b.label)];
+            match &store {
+                Some(macro_) => {
+                    lines.push(format!("Store \"{}\" there", macro_.name));
+                    lines.extend(step_lines(macro_));
+                }
+                None => lines.push(format!("Put back to: {}", b.factory)),
+            }
+            if !approve(gate, args, client, crate::ui::approval::MOUSE_MACRO, lines)? {
+                return Ok(json!(fan_proposal::REJECTED));
+            }
+            let done = match store {
+                Some(macro_) => mm.store("", slot, &macro_)?,
+                None => mm.reset("", slot)?,
+            };
+            crate::macros::changed(app);
+            Ok(json!(done))
+        }
         "set_macros_enabled" => {
             let on = args["on"].as_bool().ok_or("on must be true or false.")?;
             let lib = m.library();
@@ -1728,6 +1813,35 @@ mod tests {
         assert_eq!(set(json!({"native_drivers": true, "reason": "Back"})), Err(fan_proposal::LATE.into()));
         assert!(!lock(&shared).config.settings.native_drivers);
         assert_eq!(ok(&app, "get_settings", json!({}))["last_request"]["outcome"], "not approved in time");
+    }
+
+    #[test]
+    fn presets_are_added_only_once_approved() {
+        let (app, _) = app_with(true);
+        let (store, dir) = crate::macros::tests::temp();
+        app.manage(store);
+        let desk = fan_proposal::Desk::new();
+        let answer = Mutex::new(fan_proposal::Decision::Reject);
+        let show = |ask: fan_proposal::Ask| {
+            desk.decide(ask.id, *lock(&answer));
+            Ok(())
+        };
+        let close = |_| {};
+        let gate = Gate { desk: &desk, show: &show, close: &close, wait: Duration::from_millis(50) };
+        let run = |tool: &str, args: Value| macro_tool_with(&app, tool, &args, "Tester", &gate);
+        let all = run("list_macro_presets", json!({})).unwrap();
+        assert!(all.as_array().unwrap().iter().any(|p| p["id"] == "copy" && p["does"] == "Ctrl+C"));
+        assert!(run("add_macro_preset", json!({"preset": "nope", "reason": "r"})).unwrap_err().contains("No preset"));
+        let copy = json!({"preset": "copy", "hotkey": "F14", "reason": "r"});
+        assert_eq!(run("add_macro_preset", copy.clone()), Ok(json!(fan_proposal::REJECTED)));
+        assert_eq!(run("list_macros", json!({})).unwrap()["macros"], json!([]));
+        *lock(&answer) = fan_proposal::Decision::Apply;
+        assert_eq!(run("add_macro_preset", copy).unwrap()["saved"], "Copy");
+        assert_eq!(run("add_macro_preset", json!({"preset": "copy", "reason": "r"})).unwrap()["saved"], "Copy 2");
+        let list = run("list_macros", json!({})).unwrap();
+        assert_eq!(list["macros"][0]["hotkey"], "F14");
+        assert_eq!(list["macros"][1]["hotkey"], Value::Null);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

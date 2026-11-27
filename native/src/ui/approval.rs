@@ -15,6 +15,7 @@ const GRAPH_W: f32 = 160.0;
 pub const SAVE_MACRO: &str = "{0} wants to save a macro";
 pub const PLAY_MACRO: &str = "{0} wants to play a macro";
 pub const MACROS_ON: &str = "{0} wants to turn on macro hotkeys";
+pub const MOUSE_MACRO: &str = "{0} wants to change a button in your mouse's memory";
 const GRAPH_H: f32 = 80.0;
 
 thread_local! {

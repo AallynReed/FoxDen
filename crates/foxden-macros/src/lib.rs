@@ -4,6 +4,7 @@
 pub mod inputs;
 pub mod keys;
 pub mod model;
+pub mod presets;
 pub mod spec;
 
 #[cfg(windows)]

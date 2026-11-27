@@ -255,6 +255,52 @@ pub fn list() -> Vec<Value> {
         ),
         tool("stop_macros", "Stops every macro that is playing.", none(), &[], false),
         tool(
+            "list_macro_presets",
+            "Ready-made macros most people want (copy, paste, screenshot, media keys, rapid click and more): id, group, name and what it does.",
+            none(),
+            &[],
+            true,
+        ),
+        tool(
+            "add_macro_preset",
+            "Adds a ready-made macro from list_macro_presets, optionally with a hotkey. The person at this PC approves it on screen first.",
+            json!({
+                "preset": {"type": "string", "description": "An id from list_macro_presets"},
+                "hotkey": {"type": ["string", "null"], "description": "Such as \"F13\" or \"Back button\"; leave out for none"},
+                "reason": {"type": "string", "maxLength": 300},
+            }),
+            &["preset", "reason"],
+            false,
+        ),
+        tool(
+            "list_mouse_macros",
+            "Mice that keep macros in their own memory: each button, what it does from the factory, and which macro it holds. Reading takes a few seconds.",
+            none(),
+            &[],
+            true,
+        ),
+        tool(
+            "store_macro_on_mouse",
+            "Writes a saved macro into the mouse's memory and puts it on one button, in every profile that is on. The mouse keeps keys, typed plain English text and waits, played once per press. The person at this PC approves it on screen first.",
+            json!({
+                "id": {"type": "string", "description": "Id or name from list_macros"},
+                "button": {"type": "integer", "minimum": 1, "maximum": 16, "description": "Button number from list_mouse_macros"},
+                "reason": {"type": "string", "maxLength": 300},
+            }),
+            &["id", "button", "reason"],
+            false,
+        ),
+        tool(
+            "reset_mouse_button",
+            "Puts one mouse button back to what it does from the factory, in every profile that is on. The person at this PC approves it on screen first.",
+            json!({
+                "button": {"type": "integer", "minimum": 1, "maximum": 16},
+                "reason": {"type": "string", "maxLength": 300},
+            }),
+            &["button", "reason"],
+            false,
+        ),
+        tool(
             "set_macros_enabled",
             "Turns macro hotkeys on or off. Turning them on needs the approval of the person at this PC and a reason.",
             json!({"on": {"type": "boolean"}, "reason": {"type": "string", "maxLength": 300}}),

@@ -15,6 +15,18 @@ export struct MacroStep {
     value: string,
 }
 
+export struct PresetItem {
+    id: string,
+    name: string,
+    about: string,
+}
+
+export struct MouseButton {
+    slot: int,
+    label: string,
+    holds: string,
+}
+
 export global MacrosPage {
     in property <bool> enabled;
     in property <[MacroItem]> macros;
@@ -36,6 +48,16 @@ export global MacrosPage {
     in property <[string]> media;
     in property <string> problem;
     in property <bool> playing;
+    in property <[string]> preset-groups;
+    in property <int> preset-group;
+    in property <[PresetItem]> presets;
+    in property <string> mouse-name;
+    in property <[MouseButton]> mouse-buttons;
+    in property <[MouseButton]> mouse-held;
+    in property <[string]> mouse-labels;
+    in property <bool> mouse-busy;
+    in property <string> mouse-status;
+    in property <string> mouse-problem;
 
     callback set-enabled(bool);
     callback dismiss-note();
@@ -65,6 +87,11 @@ export global MacrosPage {
     callback play();
     callback stop-all();
     callback delete();
+    callback set-preset-group(int);
+    callback add-preset(string);
+    callback scan-mouse();
+    callback store-on-mouse(int);
+    callback reset-mouse-button(int);
 }
 
 component Input inherits Rectangle {
@@ -200,6 +227,59 @@ component MacroList inherits Box {
     HorizontalLayout {
         alignment: start;
         Button { text: I18n.t("Stop all"); enabled: MacrosPage.playing; clicked => { MacrosPage.stop-all(); } }
+    }
+}
+
+component ReadyMade inherits Box {
+    title: I18n.t("Ready-made macros");
+    Hint { text: I18n.t("Add one, then press the key or mouse button that should run it."); }
+    HorizontalLayout {
+        spacing: 0;
+        for g[i] in MacrosPage.preset-groups: Pick {
+            horizontal-stretch: 1;
+            text: g;
+            selected: MacrosPage.preset-group == i;
+            clicked => { MacrosPage.set-preset-group(i); }
+        }
+    }
+    VerticalLayout {
+        accessible-role: list;
+        accessible-label: I18n.t("Ready-made macros");
+        for p in MacrosPage.presets: Rectangle {
+            height: 34px;
+            accessible-role: list-item;
+            accessible-label: p.name;
+            HorizontalLayout {
+                padding-left: 4px;
+                spacing: 8px;
+                Text {
+                    text: p.name;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: p.about;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                SmallButton {
+                    y: 4px;
+                    text: I18n.t("Add");
+                    label: I18n.t("Add") + " " + p.name;
+                    clicked => { MacrosPage.add-preset(p.id); }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.line;
+            }
+        }
     }
 }
 
@@ -348,6 +428,59 @@ component AddSteps inherits Box {
     }
 }
 
+component OnMouse inherits Box {
+    property <int> pick: 0;
+    title: I18n.t("On the mouse");
+    if MacrosPage.mouse-name == "": VerticalLayout {
+        spacing: 8px;
+        Hint { text: MacrosPage.mouse-busy ? I18n.t("Looking for a mouse that can keep macros…") : I18n.t("No mouse that can keep macros in its own memory is connected."); }
+        HorizontalLayout {
+            alignment: start;
+            Button { text: I18n.t("Look again"); enabled: !MacrosPage.mouse-busy; clicked => { MacrosPage.scan-mouse(); } }
+        }
+    }
+    if MacrosPage.mouse-name != "": VerticalLayout {
+        spacing: 8px;
+        Hint { text: I18n.t("Stores this macro in the mouse’s own memory and puts it on a button. The mouse keeps keys, text and waits."); }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: MacrosPage.mouse-name; color: Theme.text; font-weight: 600; vertical-alignment: center; }
+            Rectangle {
+                width: 240px;
+                height: 32px;
+                Select {
+                    width: 240px;
+                    options: MacrosPage.mouse-labels;
+                    index: root.pick;
+                    label: I18n.t("Mouse button");
+                    selected(i) => { root.pick = i; }
+                }
+            }
+            Button {
+                primary: true;
+                text: MacrosPage.mouse-busy ? I18n.t("Writing…") : I18n.t("Store on the mouse");
+                enabled: !MacrosPage.mouse-busy && MacrosPage.mouse-buttons.length > 0;
+                clicked => { MacrosPage.store-on-mouse(MacrosPage.mouse-buttons[root.pick].slot); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        if MacrosPage.mouse-problem != "": Problem { text: MacrosPage.mouse-problem; }
+        if MacrosPage.mouse-status != "": Text { text: MacrosPage.mouse-status; color: Theme.muted; wrap: word-wrap; }
+        for b in MacrosPage.mouse-held: HorizontalLayout {
+            spacing: 8px;
+            height: 30px;
+            Text { text: b.label; color: Theme.text; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+            Text { text: b.holds; color: Theme.accent; font-weight: 600; vertical-alignment: center; overflow: elide; }
+            SmallButton {
+                y: 3px;
+                text: I18n.t("Reset");
+                label: I18n.t("Put this button back to its factory setting");
+                clicked => { MacrosPage.reset-mouse-button(b.slot); }
+            }
+        }
+    }
+}
+
 component Editor inherits VerticalLayout {
     property <bool> armed;
     spacing: 12px;
@@ -404,7 +537,7 @@ component Editor inherits VerticalLayout {
                 Label { text: I18n.t("Hotkey"); }
             }
             Rectangle {
-                width: 180px;
+                width: 220px;
                 height: 32px;
                 background: Theme.field;
                 border-width: 1px;
@@ -489,6 +622,7 @@ component Editor inherits VerticalLayout {
         if MacrosPage.recording: Hint { text: I18n.t("Recording every key, click and wheel turn with its timing. Nothing is kept until you stop."); }
     }
     AddSteps { }
+    OnMouse { }
     Timer {
         interval: 4s;
         running: root.armed;
@@ -498,7 +632,7 @@ component Editor inherits VerticalLayout {
 
 export component MacrosPanel inherits Rectangle {
     vertical-stretch: 1;
-    property <bool> two: root.width >= 860px;
+    property <bool> two: root.width >= 900px;
     Scroll {
         content-height: body.preferred-height;
         body := VerticalLayout {
@@ -510,14 +644,17 @@ export component MacrosPanel inherits Rectangle {
                 alignment: start;
                 VerticalLayout {
                     alignment: start;
-                    MacroList { width: 340px; }
+                    spacing: 16px;
+                    MacroList { width: 380px; }
+                    ReadyMade { width: 380px; }
                 }
-                if MacrosPage.selected != "": Editor { width: min(820px, root.width - 340px - 48px); }
+                if MacrosPage.selected != "": Editor { width: min(820px, root.width - 380px - 48px); }
             }
             if !root.two: VerticalLayout {
                 spacing: 16px;
                 MacroList { }
                 if MacrosPage.selected != "": Editor { }
+                ReadyMade { }
             }
         }
     }

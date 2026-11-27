@@ -6,6 +6,7 @@ mod generic_any;
 mod hidpp;
 mod lengths;
 mod msi;
+pub mod onboard;
 pub mod port;
 pub mod registry;
 mod scan;
